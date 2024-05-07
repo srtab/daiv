@@ -1,5 +1,5 @@
-from cgitb import text
 import textwrap
+
 
 class EditBlockPrompts:
     @staticmethod
@@ -145,7 +145,10 @@ class EditBlockPrompts:
 
             # Rules
             {system_reminder}"""
-        ).format(fence=fence, system_reminder=EditBlockPrompts.format_system_reminder(fence=fence))
+        ).format(
+            fence=fence,
+            system_reminder=EditBlockPrompts.format_system_reminder(fence=fence),
+        )
 
     @staticmethod
     def format_system_reminder(fence: tuple[str, str]) -> str:
@@ -180,9 +183,128 @@ class EditBlockPrompts:
         ).format(fence=fence)
 
     @staticmethod
-    def format_files_to_change(files_content: str) -> str: 
-        return textwrap.dedent("These are the *read-write* files:\n{files_content}").format(files_content=files_content)
+    def format_files_to_change(files_content: str) -> str:
+        return textwrap.dedent(
+            "These are the *read-write* files:\n{files_content}"
+        ).format(files_content=files_content)
 
     @staticmethod
-    def format_refactor_example(content: str) -> str: 
-        return textwrap.dedent("You can use the following example to make the refactor:\n{content}").format(content=content)
+    def format_refactor_example(content: str) -> str:
+        return textwrap.dedent(
+            "You can use the following example to make the refactor:\n{content}"
+        ).format(content=content)
+
+    @staticmethod
+    def format_diff(content: str) -> str:
+        return textwrap.dedent(
+            "Use this unified diff as baseline to make the refactor:\n{content}"
+        ).format(content=content)
+
+
+class ReplacerPrompts:
+    @staticmethod
+    def format_default_msg(
+        original_snippet: str,
+        replacement_snippet: str,
+        content: str,
+        commit_message: str,
+    ):
+        return textwrap.dedent(
+            """\
+            Replace the following snippet:
+
+            <snippet>
+            {original_snippet}
+            </snippet>
+
+            with the following snippet:
+            <snippet>
+            {replacement_snippet}
+            </snippet>
+
+            in the below chunk of code:
+            <chunk>
+            {content}
+            </chunk>
+
+            The intent of this change is
+            <description>
+            {commit_message}
+            </description>
+
+            Make sure you fix any errors in the code and ensure it is working as expected to the intent of the change.
+            Do not make extraneous changes to the code or whitespace that are not related to the intent of the change.
+
+            You MUST return the code result inside a <code></code> tag."""
+        ).format(
+            original_snippet=original_snippet,
+            replacement_snippet=replacement_snippet,
+            content=content,
+            commit_message=commit_message,
+        )
+
+
+class SimpleRefactorPrompts:
+    @staticmethod
+    def format_system():
+        """
+        Format the system prompt for the task.
+        """
+        return textwrap.dedent(
+            """\
+            You are an exceptional senior engineer that is responsible for code refactoring.
+            Given the available tools and below task, which corresponds to an important step to code refactoring,
+            convert the task into code.
+            It's absolutely vital that you completely and correctly execute your task.
+
+            When the task is complete, reply with "<DONE>"
+            If you are unable to complete the task, also reply with "<DONE>"
+
+            <guidelines>
+            - Only suggest changes to a *read-write* files.
+            - Write code by calling the available tools.
+            - The code must be valid, executable code.
+            - Code padding, spacing, and indentation matters, make sure that the indentation is corrected for.
+            - Do not make extraneous changes to the code or whitespace that are not related to the intent of the change.
+            </guidelines>"""
+        )
+
+    @staticmethod
+    def format_user_prompt(prompt: str) -> str:
+        """
+        Format the user prompt for the task.
+        """
+        return textwrap.dedent(
+            """\
+            <task>
+            {prompt}
+            </task>
+
+            You must complete the task.
+
+            - Think out loud step-by-step before you start writing code.
+            - Do not just add a comment or leave a TODO, you must write functional code.
+            - Importing libraries and modules should be done in its own step.
+            - Carefully review your code and ensure that it is formatted correctly.
+
+            You must use the tools/functions provided to do so."""
+        ).format(prompt=prompt)
+
+    @staticmethod
+    def format_files_to_change(files_content: str) -> str:
+        """
+        Format the files to change for the user prompt.
+        """
+        return textwrap.dedent(
+            "These are the *read-write* files:\n{files_content}"
+        ).format(files_content=files_content)
+
+
+    @staticmethod
+    def format_refactor_example(content: str) -> str:
+        """
+        Format the refactor example for the user prompt.
+        """
+        return textwrap.dedent(
+            "You can use the following example to make the refactor:\n{content}"
+        ).format(content=content)

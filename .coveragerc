@@ -1,0 +1,27 @@
+[run]
+source = store
+branch = True
+omit =
+    *tests*
+    *migrations*
+    *static*
+    store/manage.py
+    store/store/wsgi.py
+
+[report]
+skip_covered = True
+show_missing = True
+ignore_errors = True
+sort = Cover
+precision = 2
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code:
+    def __repr__
+    if self\.debug
+
+    # Don't complain if tests don't hit defensive assertion code:
+    raise AssertionError
+    raise NotImplementedError

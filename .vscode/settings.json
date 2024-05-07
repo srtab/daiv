@@ -1,0 +1,13 @@
+{
+  "python.autoComplete.extraPaths": ["./aequatioai"],
+  "python.testing.promptToConfigure": false,
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestEnabled": false,
+  "python.analysis.extraPaths": ["./aequatioai"],
+  "python.analysis.typeCheckingMode": "off",
+  "stylelint.enable": true,
+  "stylelint.configBasedir": "./aequatioai/static",
+  "stylelint.configFile": "./aequatioai/static/.stylelintrc.json",
+  "stylelint.validate": ["css", "scss"],
+  "stylelint.snippet": ["css", "scss"]
+}

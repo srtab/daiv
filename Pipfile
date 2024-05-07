@@ -4,11 +4,27 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-litellm = "*"
-openai = "*"
+litellm = "==1.35.37"
+openai = "==1.25.1"
+python-decouple = "==3.8"
+python-gitlab = "==4.4.0"
+diff-match-patch = "*"
 
 [dev-packages]
+coverage = "==7.5.0"
+mypy = "==1.10.0"
+pre-commit = "==3.7.0"
+pyproject-fmt = "==1.7.0"
+ruff = "==0.4.2"
 
 [requires]
 python_version = "3.12"
-python_full_version = "3.12.3"
+
+[scripts]
+test = "bash -c \"coverage run runtests.py && coverage report && coverage erase\""
+test-ci = "bash -c \"coverage run runtests.py && coverage report && coverage xml\""
+lint = "bash -c \"pipenv run lint-check && pipenv run lint-format\""
+lint-check = "bash -c \"ruff check .\""
+lint-format = "bash -c \"ruff format . --check && pyproject-fmt pyproject.toml --check\""
+lint-fix = "bash -c \"ruff check . --fix && ruff format . && pyproject-fmt pyproject.toml\""
+lint-typing = "bash -c \"mypy store\""

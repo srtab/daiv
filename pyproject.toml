@@ -1,0 +1,89 @@
+[project]
+name = "aequatioai"
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+force-exclude = true
+preview = true
+show-fixes = true
+extend-exclude = ["*/static/*", "*/node_modules/*"]
+
+[tool.ruff.lint]
+ignore = ["N812", "S101"]
+select = [
+  # flake8-builtins
+  "A",
+  # flake8-bugbear
+  "B",
+  # flake8-comprehensions
+  "C4",
+  # flake8-django
+  "DJ",
+  # pycodestyle
+  "E",
+  # eradicate
+  "ERA",
+  # Pyflakes
+  "F",
+  # flake8-logging-format
+  "G",
+  # isort
+  "I",
+  # flake8-logging
+  "LOG",
+  # pep8-naming
+  "N",
+  # flake8-use-pathlib
+  "PTH",
+  # flake8-bandit
+  "S",
+  # flake8-simplify
+  "SIM",
+  # flake8-print
+  "T20",
+  # flake8-type-checking
+  "TCH",
+  # pyupgrade
+  "UP",
+  # pycodestyle
+  "W",
+]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
+section-order = [
+  "future",
+  "standard-library",
+  "django",
+  "third-party",
+  "first-party",
+  "local-folder",
+]
+known-first-party = [
+  "automation",
+]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+
+  [[tool.mypy.overrides]]
+  module = [
+    "decouple.*",
+    "django.*",
+    "django_extensions.*",
+  ]
+  ignore_missing_imports = true
