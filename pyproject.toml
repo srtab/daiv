@@ -1,6 +1,6 @@
 [project]
 name = "aequatioai"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.11",
@@ -82,8 +82,10 @@ check_untyped_defs = true
 
   [[tool.mypy.overrides]]
   module = [
+    "celery.*",
     "decouple.*",
     "django.*",
     "django_extensions.*",
+    "litellm.*",
   ]
   ignore_missing_imports = true

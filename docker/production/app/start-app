@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -euo pipefail
+
+django-admin compress
+django-admin collectstatic --noinput
+django-admin migrate --noinput
+
+gunicorn \
+    --chdir="/home/trueclinic/app" \
+    --bind=${GUNICORN_BIND:-0.0.0.0:${GUNICORN_PORT:-8000}} \
+    --timeout=${GUNICORN_TIMEOUT:-30} \
+    --workers=${GUNICORN_WORKERS:-2} \
+    --worker-tmp-dir="/dev/shm" \
+    "trueclinic.wsgi:application"

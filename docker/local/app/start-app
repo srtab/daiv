@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -eu pipefail
+
+pipenv run django-admin compilemessages --ignore=.venv
+pipenv run django-admin migrate --noinput
+
+exec pipenv run django-admin runserver_plus 0.0.0.0:8000 --cert-file /home/app/src/data/cert.crt --exclude-pattern trueclinic/static --nopin

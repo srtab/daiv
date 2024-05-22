@@ -1,0 +1,24 @@
+# Django stuff:
+*.log
+
+# PyBuilder
+target/
+
+# local settings
+venv/
+data/
+.tox/
+
+.editorconfig
+.gitignore
+CHANGELOG.md
+README.md
+
+Dockerfile
+docker-compose.yml
+docker/production/
+docker/local/app/config.env
+docker/local/pgadmin
+
+*/static/node_modules
+*/static/bundles

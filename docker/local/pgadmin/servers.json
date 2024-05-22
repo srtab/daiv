@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Webapp DB",
+      "Group": "Servers",
+      "Port": 5432,
+      "Username": "dbuser",
+      "Host": "db",
+      "SSLMode": "prefer",
+      "MaintenanceDB": "postgres"
+    }
+  }
+}

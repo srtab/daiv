@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Dict, List
+from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -10,8 +10,8 @@ class FunctionTool(BaseModel):
     name: str
     description: str
     fn: Callable
-    parameters: List[Dict[str, str]]
-    required: List[str] = []
+    parameters: list[dict[str, str]]
+    required: list[str] = []
 
     def call(self, **kwargs):
         try:
@@ -29,10 +29,7 @@ class FunctionTool(BaseModel):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        param["name"]: {
-                            "type": param["type"],
-                            "description": param.get("description", ""),
-                        }
+                        param["name"]: {"type": param["type"], "description": param.get("description", "")}
                         for param in self.parameters
                     },
                     "required": self.required,
@@ -45,4 +42,4 @@ class FunctionParameter(BaseModel):
     name: str
     type: str
     description: str
-    enum: List[str]
+    enum: list[str]

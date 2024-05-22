@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-from aequatioai.codebase.models import MergeRequest, RepositoryFile
+from codebase.models import RepositoryFile
 
 
 class Invoke(TypedDict):
@@ -13,8 +13,10 @@ class RefactorInvoke(Invoke):
 
 
 class MergerRequestRefactorInvoke(Invoke):
-    repo_id: str
-    merge_request: MergeRequest
+    target_repo_id: str
+    target_ref: str
+    source_repo_id: str
+    merge_request_id: str
 
 
 class ReplacerInvoke(Invoke):

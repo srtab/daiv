@@ -1,0 +1,103 @@
+x-app-defaults: &x_app_default
+  build:
+    context: ./
+    dockerfile: ./docker/local/app/Dockerfile
+  tty: true
+  stdin_open: true
+  restart: unless-stopped
+  env_file:
+    - docker/local/app/config.env
+    - docker/local/app/config.secrets.env
+  volumes:
+    - ./data/static:/home/app/data/static
+    - ./data/media:/home/app/data/media
+    - ./data/models:/home/app/.cache/huggingface/hub/
+    - .:/home/app/src
+  depends_on:
+    - db
+    - redis
+
+services:
+  db:
+    image: postgres:16.3-alpine
+    container_name: aequatioai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+      POSTGRES_DB: db
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    container_name: aequatioai-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=srtabs@gmail.com
+      - PGADMIN_DEFAULT_PASSWORD=password
+      - GUNICORN_ACCESS_LOGFILE=/dev/null
+    volumes:
+      - ./data/pgadmin:/root/.pgadmin
+      - ./docker/local/pgadmin/servers.json:/pgadmin4/servers.json
+    logging:
+      driver: none
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    restart: unless-stopped
+    container_name: aequatioai-chromadb
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+      - ALLOW_RESET=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - IS_PERSISTENT=TRUE
+    volumes:
+      - ./data/chromadb:/chroma/chroma
+    ports:
+      - 8888:8000
+
+  redis:
+    image: redis:latest
+    command: redis-server --save "" --appendonly no
+    restart: unless-stopped
+    container_name: aequatioai-redis
+    ports:
+      - "6379:6379"
+
+  # static:
+  #   tty: true
+  #   stdin_open: true
+  #   image: git-registry.eurotux.com/dipops/images/node-dev
+  #   restart: unless-stopped
+  #   container_name: aequatioai-static
+  #   command: /bin/sh /home/node/start
+  #   environment:
+  #     - PATH=$PATH:/bin/:/home/node/app/node_modules/.bin/
+  #   volumes:
+  #     - ./aequatioai/static/:/home/node/app
+  #     - ./docker/local/static/start:/home/node/start
+  #   ports:
+  #     - "4200:4200"
+
+  app:
+    <<: *x_app_default
+    container_name: aequatioai-app
+    command: sh /home/app/docker/start-app
+
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *x_app_default
+    container_name: aequatioai-worker
+    command: sh /home/app/docker/start-worker
+    environment:
+      - C_FORCE_ROOT=true
+    ports: []

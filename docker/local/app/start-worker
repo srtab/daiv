@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -eu pipefail
+
+# pipenv run django-admin setup_schedules --noinput
+
+exec pipenv run celery -A aequatioai worker -l INFO -c 2 --beat --scheduler django

@@ -1,11 +1,11 @@
 from typing import Unpack
 
-from aequatioai.automation.agents.agent import LlmAgent
-from aequatioai.automation.agents.models import Message
-from aequatioai.automation.agents.prompts import ReplacerPrompts
-from aequatioai.automation.coders.base import Coder
-from aequatioai.automation.coders.typings import ReplacerInvoke
-from aequatioai.automation.utils import extract_text_inside_tags
+from automation.agents.agent import LlmAgent
+from automation.agents.models import Message
+from automation.agents.prompts import ReplacerPrompts
+from automation.coders.base import Coder
+from automation.coders.typings import ReplacerInvoke
+from automation.utils import extract_text_inside_tags
 
 
 class ReplacerCoder(Coder[ReplacerInvoke, str | None]):

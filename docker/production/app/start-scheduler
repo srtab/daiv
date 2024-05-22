@@ -1,0 +1,9 @@
+#!/bin/sh
+
+set -eu pipefail
+
+django-admin setup_schedules --noinput
+
+exec celery -A trueclinic beat \
+    --loglevel ${CELERY_LOGLEVEL:-"INFO"} \
+    --scheduler django
