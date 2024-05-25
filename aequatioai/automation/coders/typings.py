@@ -23,4 +23,7 @@ class ReplacerInvoke(Invoke):
     original_snippet: str
     replacement_snippet: str
     content: str
-    commit_message: str
+
+
+class PathsExtractorInvoke(Invoke):
+    code_snippet: str

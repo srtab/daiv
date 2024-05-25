@@ -8,7 +8,6 @@ from langchain_chroma import Chroma
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.generic import GenericLoader
 from langchain_community.document_loaders.parsers.language import LanguageParser
-from langchain_community.document_loaders.parsers.language.language_parser import LANGUAGE_EXTENSIONS
 from langchain_community.embeddings.sentence_transformer import SentenceTransformerEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
@@ -19,7 +18,6 @@ from .clients import GitHubClient, GitLabClient
 from .conf import settings
 
 logger = logging.getLogger(__name__)
-
 
 EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
 
@@ -75,8 +73,48 @@ class CodebaseIndex:
         loader = GenericLoader.from_filesystem(
             repo_dir.as_posix(),
             glob="**/*",
-            suffixes=[f".{extension}" for extension in LANGUAGE_EXTENSIONS]
-            + [".html", ".md", ".yml", ".yaml", ".json", ".toml"],
+            exclude=[
+                "**/*.pdf",
+                "**/*.docx",
+                "**/*.doc",
+                "**/*.jpg",
+                "**/*.jpeg",
+                "**/*.png",
+                "**/*.gif",
+                "**/*.svg",
+                "**/*.ico",
+                "**/*.webp",
+                "**/*.bmp",
+                "**/*.mp4",
+                "**/*.mp3",
+                "**/*.wav",
+                "**/*.woff",
+                "**/*.woff2",
+                "**/*.ttf",
+                "**/*.eot",
+                "**/*.otf",
+                "**/*.flv",
+                "**/*.avi",
+                "**/*.mov",
+                "**/*.wmv",
+                "**/*.webm",
+                "**/*.mkv",
+                "**/*.m4v",
+                "**/*.flac",
+                "**/*.zip",
+                "**/*.tar",
+                "**/*.gz",
+                "**/*.xz",
+                "**/*.7z",
+                "**/*.rar",
+                "**/*.tar.gz",
+                "**/*.tar.xz",
+                "**/*.tar.bz2",
+                "**/*.tar.zst",
+                "**/*.tar.7z",
+                "**/*.tar.rar",
+                "**/*.tar.zip",
+            ],
             parser=LanguageParser(),
         )
 
@@ -138,9 +176,9 @@ class CodebaseIndex:
 
         return results[0][0]
 
-    def get_most_similar_source(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
+    def search_most_similar_filepath(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """
-        Get the most similar source file path in the codebase.
+        Search the most similar file path in the codebase.
         """
         documents = list(
             LanguageParser().lazy_parse(
@@ -160,7 +198,7 @@ class CodebaseIndex:
         if not chunk_to_search:
             return None
 
-        result = self.query(chunk_to_search, repo_id=repo_id, content_type="simplified_code")
+        result = self.query(chunk_to_search, repo_id=repo_id)
 
         if not result:
             # Fallback to try to find the file by the file path
@@ -176,8 +214,10 @@ class CodebaseIndex:
 
         return result.metadata["source"]
 
-    def reset(self):
+    def reset(self, repo_id: str):
         """
-        Reset the index.
+        Reset the index of a repository.
         """
-        self.db.delete_collection()
+        results = self.db.get(where={"repo_id": repo_id})
+        for document_id in results["ids"]:
+            self.db.delete(document_id)

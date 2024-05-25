@@ -1,6 +1,11 @@
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from codebase.clients import RepoClient
 
 
 class RepositoryFile(BaseModel):
@@ -8,6 +13,15 @@ class RepositoryFile(BaseModel):
     file_path: str
     ref: str | None = None
     content: str | None = None
+
+    @classmethod
+    def load_from_repo(cls, repo_client: RepoClient, repo_id: str, file_path: str, ref: str | None = None):
+        return cls(
+            repo_id=repo_id,
+            file_path=file_path,
+            ref=ref,
+            content=repo_client.get_repository_file(repo_id, file_path, ref=ref),
+        )
 
 
 class MergeRequest(BaseModel):

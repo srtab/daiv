@@ -2,10 +2,11 @@ from typing import Unpack
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
-from automation.agents.prompts import ReplacerPrompts
 from automation.coders.base import Coder
 from automation.coders.typings import ReplacerInvoke
 from automation.utils import extract_text_inside_tags
+
+from .prompts import ReplacerPrompts
 
 
 class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
@@ -19,13 +20,13 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
         """
         agent = LlmAgent(
             memory=[
+                Message(role="system", content=ReplacerPrompts.format_system_msg()),
                 Message(
                     role="user",
                     content=ReplacerPrompts.format_default_msg(
                         original_snippet=kwargs["original_snippet"],
                         replacement_snippet=kwargs["replacement_snippet"],
                         content=kwargs["content"],
-                        commit_message=kwargs["commit_message"],
                     ),
                 ),
             ]

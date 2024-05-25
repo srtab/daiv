@@ -10,6 +10,7 @@ class CodebaseAppConf(AppConf):
     Codebase pecific configurations.
     https://django-appconf.readthedocs.io/en/latest/
     """
+
     COLLECTION_NAME = "codebase"
     CLIENT = config("CODEBASE_CLIENT", default="gitlab")
 

@@ -3,7 +3,6 @@ name = "aequatioai"
 requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
 
@@ -67,7 +66,9 @@ section-order = [
   "local-folder",
 ]
 known-first-party = [
+  "accounts",
   "automation",
+  "codebase",
 ]
 
 [tool.ruff.lint.isort.sections]

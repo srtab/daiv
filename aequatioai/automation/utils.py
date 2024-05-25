@@ -27,9 +27,7 @@ def extract_text_inside_tags(content: str, tag: str, strip_newlines: bool = True
     return text.strip("\n") if strip_newlines else text
 
 
-def find_original_snippet(
-    snippet: str, file_contents: str, threshold=0.9
-) -> tuple[str, int, int] | None:
+def find_original_snippet(snippet: str, file_contents: str, threshold=0.9) -> tuple[str, int, int] | None:
     """
     This function finds the original snippet of code in a file given a snippet and the file contents.
 
@@ -75,9 +73,7 @@ def find_original_snippet(
         snippet_line = snippet_lines[snippet_index]
 
         if not ellipsis_found:
-            ellipsis_found = snippet_line.strip() == "..." or any(
-                s in snippet_line for s in ellipsis_comment_cases
-            )
+            ellipsis_found = snippet_line.strip() == "..." or any(s in snippet_line for s in ellipsis_comment_cases)
             if ellipsis_found:
                 snippet_index += 1
                 if snippet_index >= len(snippet_lines):
@@ -110,8 +106,7 @@ def find_original_snippet(
     # Ensure the last line of the file is at least `threshold` similar to the last line of the snippet
     if (
         compute_similarity(
-            get_last_non_empty_line("\n".join(snippet_lines)),
-            get_last_non_empty_line(final_file_snippet),
+            get_last_non_empty_line("\n".join(snippet_lines)), get_last_non_empty_line(final_file_snippet)
         )
         < threshold
     ):

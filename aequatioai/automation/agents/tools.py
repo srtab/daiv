@@ -10,7 +10,7 @@ class FunctionTool(BaseModel):
     name: str
     description: str
     fn: Callable
-    parameters: list[dict[str, str]]
+    parameters: list[dict[str, str | dict[str, str]]]
     required: list[str] = []
 
     def call(self, **kwargs):
@@ -21,19 +21,19 @@ class FunctionTool(BaseModel):
             return f"Error: {e}"
 
     def to_dict(self):
+        properties = {}
+        for param in self.parameters:
+            properties[param["name"]] = {"type": param["type"], "description": param.get("description", "")}
+            if param.get("enum"):
+                properties[param["name"]]["enum"] = param["enum"]
+            if param.get("items"):
+                properties[param["name"]]["items"] = param["items"]
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        param["name"]: {"type": param["type"], "description": param.get("description", "")}
-                        for param in self.parameters
-                    },
-                    "required": self.required,
-                },
+                "parameters": {"type": "object", "properties": properties, "required": self.required},
             },
         }
 

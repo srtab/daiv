@@ -5,14 +5,12 @@ DATABASES_OPTIONS = {}
 DB_ENGINE = config(
     "DB_ENGINE",
     default="django.db.backends.postgresql",
-    cast=Choices(
-        [
-            "django.db.backends.postgresql",
-            "django.db.backends.mysql",
-            "django.db.backends.sqlite3",
-            "django.db.backends.oracle",
-        ]
-    ),
+    cast=Choices([
+        "django.db.backends.postgresql",
+        "django.db.backends.mysql",
+        "django.db.backends.sqlite3",
+        "django.db.backends.oracle",
+    ]),
 )
 
 if DB_ENGINE == "django.db.backends.postgresql":

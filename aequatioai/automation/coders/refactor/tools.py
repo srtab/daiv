@@ -1,13 +1,11 @@
 import logging
 import textwrap
 
+from automation.agents.tools import FunctionTool
+from automation.coders.paths_extractor.coder import PathsReplacerCoder
+from automation.coders.replacer import ReplacerCoder
 from codebase.clients import RepoClient
 from codebase.models import FileChange
-
-from automation.agents.tools import FunctionTool
-from automation.coders.replacer import ReplacerCoder
-
-logging.basicConfig(level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +35,13 @@ class CodeActionTools:
         else:
             repo_file_content = self.file_changes[file_path].content
 
+        replacement_snippet_result = PathsReplacerCoder().invoke(code_snippet=replacement_snippet)
+
+        if not replacement_snippet_result:
+            raise Exception("Paths replacement failed.")
+
         replaced_content = ReplacerCoder().invoke(
-            original_snippet=original_snippet,
-            replacement_snippet=replacement_snippet,
-            content=repo_file_content,
-            commit_message=commit_message,
+            original_snippet=original_snippet, replacement_snippet=replacement_snippet_result, content=repo_file_content
         )
 
         if not replaced_content:
@@ -74,7 +74,7 @@ class CodeActionTools:
             action="create", file_path=file_path, content=content, commit_messages=[commit_message]
         )
 
-        return f"success: Created new file {file_path}\n```\n{content}\n```\n"
+        return f"success: Created new file {file_path}"
 
     def get_tools(self):
         return [
@@ -89,10 +89,15 @@ class CodeActionTools:
                     - The replacement can be any string.
                     - The original snippet must be an entire line, not just a substring of a line. It should also include the indentation and spacing.
                     - Indentation and spacing must be included in the replacement snippet.
-                    - If multiple replacements needed, call this function multiple times."""  # noqa: E501
+                    - If multiple replacements needed, call this function multiple times.
+                    """  # noqa: E501
                 ),
                 parameters=[
-                    {"name": "file_path", "type": "string", "description": "The file path to modify."},
+                    {
+                        "name": "file_path",
+                        "type": "string",
+                        "description": "The file_path of code to refactor. Ignore referenced unified diff file path.",
+                    },
                     {"name": "original_snippet", "type": "string", "description": "The snippet to replace."},
                     {
                         "name": "replacement_snippet",
@@ -102,6 +107,7 @@ class CodeActionTools:
                     {"name": "commit_message", "type": "string", "description": "The commit message to use."},
                 ],
                 fn=self.replace_snippet_with,
+                required=["file_path", "original_snippet", "replacement_snippet", "commit_message"],
             ),
             FunctionTool(
                 name="create_file",
@@ -112,5 +118,6 @@ class CodeActionTools:
                     {"name": "commit_message", "type": "string", "description": "The commit message to use."},
                 ],
                 fn=self.create_file,
+                required=["file_path", "content", "commit_message"],
             ),
         ]

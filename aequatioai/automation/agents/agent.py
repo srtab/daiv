@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import json
 import logging
 from abc import ABC
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import litellm
 from decouple import config
@@ -9,10 +11,11 @@ from litellm import completion
 from openai._types import NotGiven
 
 from .models import Message, ToolCall, Usage
-from .tools import FunctionTool
 
 if TYPE_CHECKING:
     from litellm.utils import ModelResponse
+
+    from .tools import FunctionTool
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,7 @@ class LlmAgent(ABC):
     name: str
     memory: list[Message]
     tools: list[FunctionTool]
-    model: str = "gpt-4-turbo-2024-04-09"
+    model: str = "gpt-4o-2024-05-13"
 
     iterations: int = 0
     max_iterations: int = 10
@@ -34,6 +37,7 @@ class LlmAgent(ABC):
         memory: list[Message] | None = None,
         tools: list[FunctionTool] | None = None,
         model: str | None = None,
+        response_format: Literal["json"] | None = None,
         stop_message: str | None = None,
     ):
         self.name = name
@@ -41,28 +45,11 @@ class LlmAgent(ABC):
         self.tools = tools or []
         self.model = model or self.model
         self.stop_message = stop_message
+        self.response_format = response_format
         self.usage = Usage()
         self.api_key = config("OPENAI_API_KEY")
 
-    def single_run(self) -> str | None:
-        """
-        Run the agent until it reaches a stopping condition.
-        """
-        logger.debug("----[%s] Running Agent----", self.name)
-        logger.debug("Previous messages: ")
-
-        if logger.isEnabledFor(logging.DEBUG):
-            for message in self.memory:
-                logger.debug("%s: %s", message.role, message.content)
-
-        self.run_iteration()
-
-        if self.iterations == self.max_iterations:
-            raise Exception("Agent %s exceeded the maximum number of iterations without finishing.", self.name)
-
-        return self.memory[-1].content
-
-    def run(self, single_iteration: bool = False) -> str | None:
+    def run(self, single_iteration: bool = False) -> str | dict | None:
         """
         Run the agent until it reaches a stopping condition.
         """
@@ -78,6 +65,9 @@ class LlmAgent(ABC):
 
         if self.iterations == self.max_iterations:
             raise Exception("Agent %s exceeded the maximum number of iterations without finishing.", self.name)
+
+        if self.memory[-1].content and self.response_format == "json":
+            return json.loads(self.memory[-1].content)
 
         return self.memory[-1].content
 
@@ -95,6 +85,7 @@ class LlmAgent(ABC):
             temperature=0,
             api_key=self.api_key,
             tools=([tool.to_dict() for tool in self.tools] if self.tools else NotGiven()),
+            response_format={"type": "json_object"} if self.response_format == "json" else None,
         )
 
         message = Message(**response.choices[0].message.model_dump())
@@ -102,7 +93,6 @@ class LlmAgent(ABC):
         self.memory.append(message)
 
         logger.debug("Message content:\n%s", message.content)
-        logger.debug("Message tool calls:\n%s", message.tool_calls)
 
         if message.tool_calls:
             for tool_call in message.tool_calls:
@@ -134,12 +124,11 @@ class LlmAgent(ABC):
         if single_iteration:
             return False
 
-        if self.stop_message:
-            if self.memory[-1].role not in ["assistant", "model"]:
-                return False
+        if self.memory[-1].role not in ["assistant", "model"]:
+            return True
 
-            if self.memory[-1].content and self.stop_message in self.memory[-1].content:
-                return False
+        if self.stop_message and self.memory[-1].content and self.stop_message in self.memory[-1].content:
+            return False
 
         if self.memory[-1].content is None:
             return False

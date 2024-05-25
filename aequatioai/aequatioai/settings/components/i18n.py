@@ -10,9 +10,7 @@ USE_TZ = True
 
 USE_THOUSAND_SEPARATOR = True
 
-LOCALE_PATHS = (
-    PROJECT_DIR / "accounts" / "locale",
-)
+LOCALE_PATHS = (PROJECT_DIR / "accounts" / "locale",)
 
 # CELERY
 

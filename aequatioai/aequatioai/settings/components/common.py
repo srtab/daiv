@@ -1,4 +1,3 @@
-
 from decouple import Csv, config
 from get_docker_secret import get_docker_secret
 
@@ -15,13 +14,7 @@ RELEASE_VERSION = RELEASE
 
 LOCAL_APPS = ["accounts"]
 
-THIRD_PARTY_APPS = [
-    "allauth",
-    "allauth.account",
-    "django_celery_beat",
-    "django_extensions",
-    "webpack_loader",
-]
+THIRD_PARTY_APPS = ["allauth", "allauth.account", "django_celery_beat", "django_extensions", "webpack_loader"]
 
 DJANGO_APPS = [
     "django.contrib.auth",
@@ -193,9 +186,7 @@ EMAIL_TIMEOUT = 15
 # CSP - https://django-csp.readthedocs.io/en/latest/configuration.html
 
 CSP_DEFAULT_SRC: tuple[str, ...] = ("'none'",)
-CSP_CONNECT_SRC: tuple[str, ...] = (
-    "'self'",
-)
+CSP_CONNECT_SRC: tuple[str, ...] = ("'self'",)
 CSP_FONT_SRC: tuple[str, ...] = ("'self'", "https://fonts.gstatic.com")
 CSP_FORM_ACTION: tuple[str, ...] = ("'self'",)
 CSP_FRAME_SRC: tuple[str, ...] = ("'self'",)
