@@ -1,6 +1,6 @@
 import textwrap
 
-from codebase.models import RepositoryFile
+from codebase.base import RepositoryFile
 
 
 class RefactorPrompts:

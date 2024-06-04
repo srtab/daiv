@@ -2,10 +2,11 @@ import abc
 import logging
 from typing import Generic
 
+from automation.agents.models import Usage
 from automation.coders.base import Coder, TInvoke, TInvokeReturn
+from codebase.base import RepositoryFile
 from codebase.clients import RepoClient
-from codebase.indexers import CodebaseIndex
-from codebase.models import RepositoryFile
+from codebase.indexes import CodebaseIndex
 
 from .prompts import RefactorPrompts
 
@@ -16,9 +17,10 @@ class RefactorCoder(Coder[TInvoke, TInvokeReturn], abc.ABC, Generic[TInvoke, TIn
     repo_client: RepoClient
     codebase_index: CodebaseIndex
 
-    def __init__(self, repo_client: RepoClient):
+    def __init__(self, usage: Usage, repo_client: RepoClient):
         self.repo_client = repo_client
         self.codebase_index = CodebaseIndex(repo_client)
+        super().__init__(usage)
 
     def get_repo_files_prompt(self, repo_file_list: list[RepositoryFile]) -> str:
         """

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 
 import litellm
 from decouple import config
@@ -21,8 +21,14 @@ logger = logging.getLogger(__name__)
 
 litellm.telemetry = False
 
+T = TypeVar("T")
 
-class LlmAgent(ABC):
+
+class LlmAgent(ABC, Generic[T]):
+    """
+    An agent that interacts with the LLM API.
+    """
+
     name: str
     memory: list[Message]
     tools: list[FunctionTool]
@@ -49,7 +55,7 @@ class LlmAgent(ABC):
         self.usage = Usage()
         self.api_key = config("OPENAI_API_KEY")
 
-    def run(self, single_iteration: bool = False) -> str | dict | None:
+    def run(self, single_iteration: bool = False) -> T | None:
         """
         Run the agent until it reaches a stopping condition.
         """
@@ -65,6 +71,8 @@ class LlmAgent(ABC):
 
         if self.iterations == self.max_iterations:
             raise Exception("Agent %s exceeded the maximum number of iterations without finishing.", self.name)
+
+        self.iterations = 0
 
         if self.memory[-1].content and self.response_format == "json":
             return json.loads(self.memory[-1].content)
@@ -112,6 +120,7 @@ class LlmAgent(ABC):
             self.usage.completion_tokens = response.usage.completion_tokens
             self.usage.prompt_tokens = response.usage.prompt_tokens
             self.usage.total_tokens = response.usage.total_tokens
+            self.usage.cost = litellm.completion_cost(response)
             logger.debug("Total tokens:\n%s", self.usage.total_tokens)
 
     def should_continue_iteration(self, single_iteration: bool = False) -> bool:

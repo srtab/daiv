@@ -4,7 +4,7 @@ from typing import Unpack
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
 from automation.coders.typings import RefactorInvoke
-from codebase.models import FileChange
+from codebase.base import FileChange
 
 from .base import RefactorCoder
 from .prompts import RefactorPrompts
@@ -45,9 +45,12 @@ class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):
         code_actions = CodeActionTools(
             self.repo_client, kwargs["files_to_change"][0].repo_id, kwargs["files_to_change"][0].ref
         )
-        self.agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
+        self.agent = LlmAgent[str](memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
+        response = self.agent.run()
 
-        if self.agent.run() is None:
+        self.usage += self.agent.usage
+
+        if response is None:
             return []
 
         return list(code_actions.file_changes.values())

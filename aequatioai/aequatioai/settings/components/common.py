@@ -12,7 +12,7 @@ RELEASE_VERSION = RELEASE
 
 # Application definition
 
-LOCAL_APPS = ["accounts"]
+LOCAL_APPS = ["accounts", "codebase"]
 
 THIRD_PARTY_APPS = ["allauth", "allauth.account", "django_celery_beat", "django_extensions", "webpack_loader"]
 

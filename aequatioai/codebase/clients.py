@@ -2,13 +2,15 @@ import abc
 import logging
 import tempfile
 from collections.abc import Generator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
+from typing import cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError
 
+from .base import ClientType, FileChange, MergeRequestDiff, Repository
 from .conf import settings
-from .models import FileChange, MergeRequestDiff
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +20,17 @@ class RepoClient(abc.ABC):
     Abstract class for repository clients.
     """
 
-    client: Gitlab
+    client_slug: ClientType
 
     @abc.abstractmethod
-    def list_repositories(self, topics: list[str] | None = None) -> list:
+    def get_repository(self, repo_id) -> Repository:
+        """
+        Get a repository.
+        """
+        pass
+
+    @abc.abstractmethod
+    def list_repositories(self, topics: list[str] | None = None) -> list[Repository]:
         """
         List all repositories.
         """
@@ -49,7 +58,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_or_create_merge_request(
+    def update_or_create_merge_request(
         self, repo_id: str, source_branch: str, target_branch: str, title: str, description: str
     ) -> int | str | None:
         """
@@ -67,11 +76,26 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str | None = None) -> tuple[Path, tempfile.TemporaryDirectory]:
+    def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
         """
         Load a repository to a temporary directory.
         """
         pass
+
+    @abc.abstractmethod
+    def get_repo_head_sha(self, repo_id: str, branch: str | None = None) -> str:
+        """
+        Get the head sha of a repository.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_commit_changed_files(
+        self, repo_id: str, from_sha: str, to_sha: str
+    ) -> tuple[list[str], list[str], list[str]]:
+        """
+        Get the changed files between two commits.
+        """
 
     @staticmethod
     def create_instance():
@@ -90,14 +114,43 @@ class GitLabClient(RepoClient):
     GitLab client to interact with GitLab repositories.
     """
 
+    client: Gitlab
+    client_slug: ClientType = "gitlab"
+
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10)
 
-    def list_repositories(self, topics: list[str] | None = None):
+    def get_repository(self, repo_id: str) -> Repository:
+        """
+        Get a repository.
+        """
+        project = self.client.projects.get(repo_id)
+        return Repository(
+            pk=cast(str, project.get_id()),
+            slug=project.path_with_namespace,
+            default_branch=project.default_branch,
+            client=self.client_slug,
+            topics=project.topics,
+            head_sha=self.get_repo_head_sha(cast(str, project.get_id()), branch=project.default_branch),
+        )
+
+    def list_repositories(self, topics: list[str] | None = None) -> list[Repository]:
         """
         List all repositories.
         """
-        return self.client.projects.list(all=True, iterator=True, topics=topics)
+        return [
+            Repository(
+                pk=cast(str, project.get_id()),
+                slug=project.path_with_namespace,
+                default_branch=project.default_branch,
+                client=self.client_slug,
+                topics=project.topics,
+                head_sha=self.get_repo_head_sha(cast(str, project.get_id()), branch=project.default_branch),
+            )
+            for project in self.client.projects.list(
+                all=True, iterator=True, archived=False, topic=topics and ",".join(topics), simple=True
+            )
+        ]
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
         """
@@ -144,11 +197,11 @@ class GitLabClient(RepoClient):
                 deleted_file=version_diff["deleted_file"],
             )
 
-    def get_or_create_merge_request(
+    def update_or_create_merge_request(
         self, repo_id: str, source_branch: str, target_branch: str, title: str, description: str
     ) -> int | str | None:
         """
-        Create a merge request in a repository or get an existing one if it already exists.
+        Create a merge request in a repository or update an existing one if it already exists.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         try:
@@ -164,7 +217,11 @@ class GitLabClient(RepoClient):
             if merge_requests := project.mergerequests.list(
                 source_branch=source_branch, target_branch=target_branch, iterator=True
             ):
-                return merge_requests.next().get_id()
+                merge_request = merge_requests.next()
+                merge_request.title = title
+                merge_request.description = description
+                merge_request.save()
+                return merge_request.get_id()
             raise e
 
     def commit_changes(
@@ -179,12 +236,12 @@ class GitLabClient(RepoClient):
         for file_change in file_changes:
             action = {"action": file_change.action, "file_path": file_change.file_path}
             if file_change.action in ["create", "update", "move"]:
-                action["content"] = file_change.content
+                action["content"] = cast(str, file_change.content)
             if file_change.action == "move":
-                action["previous_path"] = file_change.previous_path
+                action["previous_path"] = cast(str, file_change.previous_path)
             actions.append(action)
 
-        return project.commits.create({
+        project.commits.create({
             "branch": target_branch,
             "start_branch": ref,
             "commit_message": commit_message,
@@ -192,7 +249,8 @@ class GitLabClient(RepoClient):
             "force": True,
         })
 
-    def load_repo(self, repo_id: str, sha: str | None = None) -> tuple[Path, tempfile.TemporaryDirectory]:
+    @contextmanager
+    def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
         """
         Load a repository to a temporary directory.
         """
@@ -213,10 +271,38 @@ class GitLabClient(RepoClient):
                     # The first file in the archive is the repository directory.
                     repo_dirname = zipfile.filelist[0].filename
         except Exception:
-            tmpdir.cleanup()
             raise
+        else:
+            yield Path(tmpdir.name).joinpath(repo_dirname)
+        finally:
+            tmpdir.cleanup()
 
-        return Path(tmpdir.name).joinpath(repo_dirname), tmpdir
+    def get_repo_head_sha(self, repo_id: str, branch: str | None = None) -> str:
+        """
+        Get the head sha of a repository.
+        """
+        project = self.client.projects.get(repo_id, lazy=branch is not None)
+        branch = branch or project.default_branch
+        return project.branches.get(branch).commit["id"]
+
+    def get_commit_changed_files(
+        self, repo_id: str, from_sha: str, to_sha: str
+    ) -> tuple[list[str], list[str], list[str]]:
+        """
+        Get the changed files between two commits.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        new_files = []
+        changed_files = []
+        deleted_files = []
+        for diff in project.repository_compare(from_sha, to_sha)["diffs"]:
+            if diff["new_file"]:
+                new_files.append(diff["new_path"])
+            elif diff["deleted_file"]:
+                deleted_files.append(diff["old_path"])
+            else:
+                changed_files.append(diff["new_path"])
+        return new_files, changed_files, deleted_files
 
 
 class GitHubClient(RepoClient):

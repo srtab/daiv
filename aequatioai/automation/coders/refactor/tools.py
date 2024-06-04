@@ -1,18 +1,24 @@
 import logging
 import textwrap
 
+from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
-from automation.coders.paths_extractor.coder import PathsReplacerCoder
+from automation.coders.paths_replacer.coder import PathsReplacerCoder
 from automation.coders.replacer import ReplacerCoder
+from codebase.base import FileChange
 from codebase.clients import RepoClient
-from codebase.models import FileChange
+from codebase.indexes import CodebaseIndex
 
 logger = logging.getLogger(__name__)
 
 
 class CodeActionTools:
-    def __init__(self, repo_client: RepoClient, repo_id: str, ref: str | None = None):
+    def __init__(
+        self, repo_client: RepoClient, codebase_index: CodebaseIndex, usage: Usage, repo_id: str, ref: str | None = None
+    ):
         self.repo_client = repo_client
+        self.codebase_index = codebase_index
+        self.usage = usage
         self.repo_id = repo_id
         self.ref = ref
         self.file_changes: dict[str, FileChange] = {}
@@ -35,12 +41,17 @@ class CodeActionTools:
         else:
             repo_file_content = self.file_changes[file_path].content
 
-        replacement_snippet_result = PathsReplacerCoder().invoke(code_snippet=replacement_snippet)
+        # TODO: optimize to avoid calling this too many times, the repository tree should be cached in some way.
+        repository_tree = self.codebase_index.extract_tree(self.repo_id, self.ref)
 
-        if not replacement_snippet_result:
-            raise Exception("Paths replacement failed.")
+        replacement_snippet_result = PathsReplacerCoder(self.usage).invoke(
+            code_snippet=replacement_snippet, repository_tree=repository_tree
+        )
 
-        replaced_content = ReplacerCoder().invoke(
+        if replacement_snippet_result is None:
+            logger.warning("No paths extracted from the replacement snippet.")
+
+        replaced_content = ReplacerCoder(self.usage).invoke(
             original_snippet=original_snippet, replacement_snippet=replacement_snippet_result, content=repo_file_content
         )
 
@@ -70,8 +81,15 @@ class CodeActionTools:
         if file_path in self.file_changes:
             raise Exception("File already exists.")
 
+        # TODO: optimize to avoid calling this too many times, the repository tree should be cached in some way.
+        repository_tree = self.codebase_index.extract_tree(self.repo_id, self.ref)
+
+        replacement_content = PathsReplacerCoder(self.usage).invoke(
+            code_snippet=content, repository_tree=repository_tree
+        )
+
         self.file_changes[file_path] = FileChange(
-            action="create", file_path=file_path, content=content, commit_messages=[commit_message]
+            action="create", file_path=file_path, content=replacement_content, commit_messages=[commit_message]
         )
 
         return f"success: Created new file {file_path}"

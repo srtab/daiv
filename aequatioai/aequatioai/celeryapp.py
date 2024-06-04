@@ -1,5 +1,3 @@
-from django.conf import settings  # noqa
-
 from celery import Celery
 
 app = Celery("aequatioai")

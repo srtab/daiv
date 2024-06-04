@@ -18,7 +18,7 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
         """
         Ask an agent to replace a reference snippet with a replacement snippet in a given content.
         """
-        agent = LlmAgent(
+        agent = LlmAgent[str](
             memory=[
                 Message(role="system", content=ReplacerPrompts.format_system_msg()),
                 Message(
@@ -31,7 +31,11 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
                 ),
             ]
         )
-        if (response := agent.run(single_iteration=True)) is None:
+        response = agent.run(single_iteration=True)
+
+        self.usage += agent.usage
+
+        if response is None:
             return None
 
         return extract_text_inside_tags(response, "code", strip_newlines=True)

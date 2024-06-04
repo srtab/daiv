@@ -1,49 +1,75 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from pydantic import BaseModel
+from django.db import models
+
+from django_extensions.db.models import TimeStampedModel
 
 if TYPE_CHECKING:
-    from codebase.clients import RepoClient
+    from codebase.base import Repository
 
 
-class RepositoryFile(BaseModel):
-    repo_id: str
-    file_path: str
-    ref: str | None = None
-    content: str | None = None
+class ClientChoices(models.TextChoices):
+    GITLAB = "gitlab", "GitLab"
+    GITHUB = "github", "GitHub"
 
-    @classmethod
-    def load_from_repo(cls, repo_client: RepoClient, repo_id: str, file_path: str, ref: str | None = None):
-        return cls(
-            repo_id=repo_id,
-            file_path=file_path,
-            ref=ref,
-            content=repo_client.get_repository_file(repo_id, file_path, ref=ref),
+
+class CodebaseNamespaceManager(models.Manager):
+    def get_or_create_from_repository(self, repository: Repository) -> tuple[CodebaseNamespace, bool]:
+        """
+        Get or create a namespace for the given repository.
+        """
+        repo_info, _created = RepositoryInfo.objects.get_or_create(
+            external_id=repository.pk, defaults={"client": repository.client, "external_slug": repository.slug}
         )
+        try:
+            latest_namespace = self.filter(repository_info=repo_info).latest()
+        except CodebaseNamespace.DoesNotExist:
+            latest_namespace = self.create(
+                repository_info=repo_info, sha=repository.head_sha, tracking_branch=repository.default_branch
+            )
+            return latest_namespace, True
+        else:
+            return latest_namespace, False
 
 
-class MergeRequest(BaseModel):
-    repo_id: str
-    merge_request_id: str
+class RepositoryInfo(TimeStampedModel):
+    """
+    This model stores information about a repository in an external source control system.
+    """
+
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    external_slug = models.CharField(max_length=256)
+    external_id = models.CharField(max_length=256)
+    client = models.CharField(max_length=16, choices=ClientChoices.choices)
+
+    def __str__(self) -> str:
+        return self.external_slug
 
 
-class MergeRequestDiff(BaseModel):
-    repo_id: str
-    merge_request_id: str
-    ref: str
-    old_path: str
-    new_path: str
-    diff: bytes
-    new_file: bool = False
-    renamed_file: bool = False
-    deleted_file: bool = False
+class CodebaseNamespace(TimeStampedModel):
+    """
+    This model stores information about a namespace in a repository.
+    """
 
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        INDEXING = "indexing", "Indexing"
+        INDEXED = "indexed", "Indexed"
+        FAILED = "failed", "Failed"
 
-class FileChange(BaseModel):
-    action: Literal["create", "update", "delete", "move"]
-    file_path: str
-    content: str | None = None
-    previous_path: str | None = None
-    commit_messages: list[str] = []
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    repository_info = models.ForeignKey(RepositoryInfo, on_delete=models.CASCADE, related_name="namespaces")
+    sha = models.CharField(max_length=64)
+    tracking_branch = models.CharField(max_length=256, blank=True)
+    status = models.CharField(max_length=16, default=Status.PENDING, choices=Status.choices)
+
+    objects: CodebaseNamespaceManager = CodebaseNamespaceManager()
+
+    class Meta:
+        get_latest_by = "created"
+
+    def __str__(self) -> str:
+        return self.sha

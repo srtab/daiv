@@ -1,6 +1,7 @@
+from collections.abc import Iterator
 from typing import TypedDict
 
-from codebase.models import RepositoryFile
+from codebase.base import RepositoryFile
 
 
 class Invoke(TypedDict):
@@ -27,3 +28,8 @@ class ReplacerInvoke(Invoke):
 
 class PathsExtractorInvoke(Invoke):
     code_snippet: str
+    repository_tree: Iterator[str]
+
+
+class ChangeDescriberInvoke(Invoke):
+    changes: list[str]

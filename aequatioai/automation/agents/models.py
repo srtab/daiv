@@ -34,13 +34,14 @@ class Usage(BaseModel):
     """The number of tokens used for completion."""
     prompt_tokens: int = 0
     """The number of tokens used for the prompt."""
-
     total_tokens: int = 0
     """The total number of tokens used."""
+    cost: float = 0
+    """The cost of the completion."""
 
     def __add__(self, other: "Usage"):
-        return Usage(
-            completion_tokens=self.completion_tokens + other.completion_tokens,
-            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
-            total_tokens=self.total_tokens + other.total_tokens,
-        )
+        self.completion_tokens += other.completion_tokens
+        self.prompt_tokens += other.prompt_tokens
+        self.total_tokens += other.total_tokens
+        self.cost += other.cost
+        return self
