@@ -1,74 +1,70 @@
 import difflib
 import logging
-from typing import Unpack
+from typing import Unpack, cast
 
 from automation.agents.agent import LlmAgent
-from automation.agents.models import Message
+from automation.agents.models import Message, Usage
 from automation.coders.base import Coder
-from automation.coders.paths_replacer.prompts import PathsExtractorPrompts
-from automation.coders.typings import PathsExtractorInvoke
+from automation.coders.paths_replacer.models import ExtractedPaths, PathsToReplace
+from automation.coders.paths_replacer.prompts import PathsReplacerPrompts
+from automation.coders.typings import PathsReplacerInvoke
 
 logger = logging.getLogger(__name__)
 
 
-class PathsReplacerCoder(Coder[PathsExtractorInvoke, str | None]):
+class PathsReplacerCoder(Coder[PathsReplacerInvoke, str | None]):
     """
     A coder that extracts and replace project paths from a code snippet.
     """
 
-    def invoke(self, *args, **kwargs: Unpack[PathsExtractorInvoke]) -> str:
+    def invoke(self, *args, **kwargs: Unpack[PathsReplacerInvoke]) -> str:
         """
         Extracts and replaces paths from a code snippet.
         """
-        agent = LlmAgent[dict](
+        agent = LlmAgent(
             memory=[
-                Message(role="system", content=PathsExtractorPrompts.format_system_msg()),
+                Message(role="system", content=PathsReplacerPrompts.format_system_msg()),
                 Message(
-                    role="user", content=PathsExtractorPrompts.format_default_msg(code_snippet=kwargs["code_snippet"])
+                    role="user", content=PathsReplacerPrompts.format_default_msg(code_snippet=kwargs["code_snippet"])
                 ),
-            ],
-            response_format="json",
+            ]
         )
 
-        extracted_paths = agent.run(single_iteration=True)
+        extracted_paths = agent.run(single_iteration=True, response_model=ExtractedPaths)
 
         self.usage += agent.usage
 
         if extracted_paths is None:
             return kwargs["code_snippet"]
 
-        if "paths" not in extracted_paths:
-            logger.warning("No paths exctracted.")
-            return kwargs["code_snippet"]
+        extracted_paths = cast(ExtractedPaths, extracted_paths)
 
-        logger.debug("Extracted paths: %s", extracted_paths["paths"])
+        logger.debug("Extracted paths: %s", extracted_paths.paths)
 
         agent.memory.append(
             Message(
                 role="user",
-                content=PathsExtractorPrompts.format_response_msg(
-                    paths=extracted_paths["paths"],
-                    similar_paths=self._similar_paths(extracted_paths["paths"], kwargs["repository_tree"]),
+                content=PathsReplacerPrompts.format_response_msg(
+                    paths=extracted_paths.paths,
+                    similar_paths=self._similar_paths(extracted_paths.paths, kwargs["repository_tree"]),
                 ),
             )
         )
 
-        paths_replacers = agent.run(single_iteration=True)
+        path_replacements = agent.run(single_iteration=True, response_model=PathsToReplace)
 
         self.usage += agent.usage
 
-        if paths_replacers is None:
+        if path_replacements is None:
             return kwargs["code_snippet"]
 
-        if "paths" not in paths_replacers:
-            logger.warning("No replacers found for paths.")
-            return kwargs["code_snippet"]
+        path_replacements = cast(PathsToReplace, path_replacements)
 
-        logger.debug("Paths replacers: %s", paths_replacers["paths"])
+        logger.debug("Paths replacers: %s", path_replacements.paths)
 
         replaced_code_snippet = kwargs["code_snippet"]
-        for original_path, replacement_path in paths_replacers["paths"]:
-            replaced_code_snippet = replaced_code_snippet.replace(original_path, replacement_path)
+        for path in path_replacements.paths:
+            replaced_code_snippet = replaced_code_snippet.replace(path.original_path, path.new_path)
 
         return replaced_code_snippet
 
@@ -103,7 +99,7 @@ if __name__ == "__main__":
         "bkcf_onboarding/documents/managers.py",
     ]
 
-    coder = PathsReplacerCoder()
+    coder = PathsReplacerCoder(Usage())
     response = coder.invoke(
         code_snippet="""#!/bin/sh
 
@@ -117,3 +113,5 @@ exec pipenv run python feedportal/manage.py runserver_plus 0.0.0.0:8000 --cert-f
 """,  # noqa: E501
         repository_tree=repository_tree,
     )
+
+    print(response)

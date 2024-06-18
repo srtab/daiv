@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import abc
+import functools
 import logging
-from functools import cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
 from django.db import transaction
+from django.db.models import Q
 
 import chromadb
 import chromadb.config
 from langchain_chroma import Chroma
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.language import LanguageParser
-from langchain_community.embeddings.sentence_transformer import SentenceTransformerEmbeddings
-from langchain_text_splitters import Language
+from langchain_openai import OpenAIEmbeddings
 
 from codebase.conf import settings
 from codebase.document_loaders import GenericLanguageLoader
@@ -22,12 +22,15 @@ from codebase.models import CodebaseNamespace
 if TYPE_CHECKING:
     from langchain_core.documents import Document
 
-    from codebase.base import Repository, RepositoryFile
+    from codebase.base import RepositoryFile
     from codebase.clients import GitHubClient, GitLabClient
 
 logger = logging.getLogger(__name__)
 
-EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
+
+@functools.cache
+def embedding_function() -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(model="text-embedding-3-small", chunk_size=500)
 
 
 class BaseCodebaseIndex(abc.ABC):
@@ -36,12 +39,11 @@ class BaseCodebaseIndex(abc.ABC):
     """
 
     repo_client: GitLabClient | GitHubClient
-    embedding_model: str = "all-MiniLM-L6-v2"
     collection_name: str
 
-    def __init__(self, repo_client: GitLabClient | GitHubClient, embedding_model: str | None = None):
+    def __init__(self, repo_client: GitLabClient | GitHubClient):
         self.repo_client = repo_client
-        self.embedding_model = embedding_model or self.embedding_model
+        self.embedding = embedding_function()
 
     @abc.abstractmethod
     def update(self, repo_id: str):
@@ -52,7 +54,7 @@ class BaseCodebaseIndex(abc.ABC):
     @property
     def db(self) -> Chroma:
         if not hasattr(self, "_db"):
-            self._db = Chroma(embedding_function=self.db_embedding_function, **self.db_common_kwargs())
+            self._db = Chroma(embedding_function=self.embedding, **self.db_common_kwargs())
         return self._db
 
     def db_common_kwargs(self) -> dict:
@@ -66,18 +68,28 @@ class BaseCodebaseIndex(abc.ABC):
             "collection_metadata": {"hnsw:space": "cosine", "hnsw:sync_threshold": 2000, "hnsw:batch_size": 500},
         }
 
-    @cached_property
-    def db_embedding_function(self) -> SentenceTransformerEmbeddings:
-        return SentenceTransformerEmbeddings(model_name=self.embedding_model)
-
     def reset(self, repo_id: str):
         """
         Reset the index of a repository.
         """
         logger.info("Reseting repo %s index.", repo_id)
+
         results = self.db.get(where={"repo_id": repo_id})
         for document_id in results["ids"]:
             self.db.delete(document_id)
+
+        CodebaseNamespace.objects.filter(
+            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
+        ).delete()
+
+    def reset_all(self):
+        """
+        Reset all indexes.
+        """
+        logger.info("Reseting all indexes.")
+        self.db.delete_collection()
+
+        CodebaseNamespace.objects.all().delete()
 
     def delete_sources(self, repo_id: str, source_files: list[str]):
         """
@@ -95,17 +107,6 @@ class CodebaseIndex(BaseCodebaseIndex):
 
     collection_name: str = settings.CODEBASE_COLLECTION_NAME
 
-    @staticmethod
-    def repo_need_update(repository: Repository) -> tuple[bool, bool]:
-        """
-        Check if the repository index needs to be updated.
-        """
-        try:
-            latest_namespace = CodebaseNamespace.objects.filter(repository_info__external_id=repository.pk).latest()
-        except CodebaseNamespace.DoesNotExist:
-            return True, True
-        return False, latest_namespace.sha != repository.head_sha
-
     @transaction.atomic
     def update(self, repo_id: str):
         """
@@ -121,53 +122,60 @@ class CodebaseIndex(BaseCodebaseIndex):
         namespace.status = CodebaseNamespace.Status.INDEXING
         namespace.save(update_fields=["status", "modified"])
 
-        loader_limit_paths_to = []
+        try:
+            loader_limit_paths_to = []
 
-        # Check if the repository index needs to be partially updated
-        if not created and namespace.sha != repository.head_sha:
-            new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
-                namespace.repository_info.external_slug, namespace.sha, repository.head_sha
-            )
-            logger.info(
-                "Updating repo %s index with %d new files, %d changed files and %d delete files.",
-                repo_id,
-                len(new_files),
-                len(changed_files),
-                len(deleted_files),
-            )
+            # Check if the repository index needs to be partially updated
+            if not created and namespace.sha != repository.head_sha:
+                new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
+                    namespace.repository_info.external_slug, namespace.sha, repository.head_sha
+                )
+                logger.info(
+                    "Updating repo %s index with %d new files, %d changed files and %d delete files.",
+                    repo_id,
+                    len(new_files),
+                    len(changed_files),
+                    len(deleted_files),
+                )
 
-            if changed_files or deleted_files:
-                self.delete_sources(namespace.repository_info.external_slug, changed_files + deleted_files)
+                if changed_files or deleted_files:
+                    self.delete_sources(namespace.repository_info.external_slug, changed_files + deleted_files)
 
-            loader_limit_paths_to = new_files + changed_files
+                loader_limit_paths_to = new_files + changed_files
+            else:
+                logger.info("Creating repo %s full index.", repo_id)
+
+            logger.debug("Extracting chunks from repo %s", namespace.repository_info.external_slug)
+
+            with self.repo_client.load_repo(namespace.repository_info.external_slug) as repo_dir:
+                loader = GenericLanguageLoader.from_filesystem(
+                    repo_dir,
+                    limit_to=loader_limit_paths_to,
+                    documents_metadata={"repo_id": namespace.repository_info.external_slug},
+                    tokenizer_model=self.embedding.model,
+                )
+                documents = loader.load_and_split()
+            logger.info("Indexing %d chunks from repo %s", len(documents), namespace.repository_info.external_slug)
+
+            if documents:
+                Chroma.from_documents(documents=documents, embedding=self.embedding, **self.db_common_kwargs())
+        except:
+            logger.error("Error indexing repo %s", namespace.repository_info.external_slug)
+            namespace.status = CodebaseNamespace.Status.FAILED
+            namespace.save(update_fields=["status", "modified"])
+            raise
         else:
-            logger.info("Creating repo %s full index.", repo_id)
-
-        logger.debug("Extracting chunks from repo %s", namespace.repository_info.external_slug)
-
-        with self.repo_client.load_repo(namespace.repository_info.external_slug) as repo_dir:
-            loader = GenericLanguageLoader.from_filesystem(
-                repo_dir,
-                limit_to=loader_limit_paths_to,
-                documents_metadata={"repo_id": namespace.repository_info.external_slug},
-                tokenizer=self.db_embedding_function.client.tokenizer,
-            )
-            documents = loader.load_and_split()
-        logger.info("Indexing %d chunks from repo %s", len(documents), namespace.repository_info.external_slug)
-
-        if documents:
-            Chroma.from_documents(documents=documents, embedding=self.db_embedding_function, **self.db_common_kwargs())
+            namespace.status = CodebaseNamespace.Status.INDEXED
+            namespace.save(update_fields=["status", "modified"])
             logger.info("Index finished for repo %s", namespace.repository_info.external_slug)
-
-        namespace.status = CodebaseNamespace.Status.INDEXED
-        namespace.save(update_fields=["status", "modified"])
 
     def query(
         self,
         query: str,
         repo_id: str | None = None,
         content_type: Literal["functions_classes", "simplified_code"] | None = None,
-    ) -> Document | None:
+        **kwargs,
+    ) -> list[Document] | None:
         """
         Query the codebase.
         """
@@ -183,12 +191,12 @@ class CodebaseIndex(BaseCodebaseIndex):
         elif len(conditions) == 1:
             chroma_filter = conditions[0]
 
-        results = self.db.similarity_search_with_relevance_scores(query, k=1, score_threshold=0.6, filter=chroma_filter)
+        results = self.db.similarity_search_with_relevance_scores(query, filter=chroma_filter, **kwargs)
 
         if not results:
             return None
 
-        return results[0][0]
+        return [result[0] for result in results]
 
     def search_most_similar_filepath(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """
@@ -212,7 +220,7 @@ class CodebaseIndex(BaseCodebaseIndex):
         if not chunk_to_search:
             return None
 
-        result = self.query(chunk_to_search, repo_id=repo_id)
+        result = self.query(chunk_to_search, repo_id=repo_id, k=1, score_threshold=0.6)
 
         if not result:
             # Fallback to try to find the file by the file path
@@ -226,7 +234,7 @@ class CodebaseIndex(BaseCodebaseIndex):
                 return get_result["metadatas"][0]["source"]
             return None
 
-        return result.metadata["source"]
+        return result[0].metadata["source"]
 
     def extract_tree(self, repo_id: str, ref: str | None = None) -> set[str]:
         """

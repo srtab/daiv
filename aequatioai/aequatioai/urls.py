@@ -1,19 +1,15 @@
 from django.conf import settings
 from django.urls import include, path
 from django.utils import timezone
-from django.views.decorators.http import last_modified
-from django.views.generic import TemplateView
+
+from aequatioai.api import api
 
 last_modified_date = timezone.now()
 
 urlpatterns = [
     path(route="accounts/", view=include("accounts.urls")),
-    path(
-        route="robots.txt",
-        view=last_modified(lambda req, **kw: last_modified_date)(
-            TemplateView.as_view(template_name="robots.txt", content_type="text/plain")
-        ),
-    ),
+    path(route="api/", view=api.urls),
+    path(route="", view=include("core.urls")),
 ]
 
 if settings.DEBUG:  # pragma: no cover

@@ -12,7 +12,7 @@ RELEASE_VERSION = RELEASE
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "codebase"]
+LOCAL_APPS = ["accounts", "codebase", "core"]
 
 THIRD_PARTY_APPS = ["allauth", "allauth.account", "django_celery_beat", "django_extensions", "webpack_loader"]
 
@@ -31,10 +31,8 @@ INSTALLED_APPS = LOCAL_APPS + THIRD_PARTY_APPS + DJANGO_APPS
 
 
 MIDDLEWARE = [
-    "core.middleware.SentryRequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "core.middleware.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -63,7 +61,6 @@ TEMPLATES = [
                 "django.template.context_processors.i18n",
                 "django.template.context_processors.debug",
                 "django.contrib.messages.context_processors.messages",
-                "core.context_processors.global_settings",
             ]
         },
     }
@@ -198,24 +195,23 @@ CSP_IMG_SRC: tuple[str, ...] = (
     "data:",
     "blob:",
     # Swagger
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/favicon-32x32.png",
+    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
 )
 CSP_SCRIPT_SRC: tuple[str, ...] = (
     "'self'",
     "'unsafe-inline'",
     "'unsafe-eval'",
     # Recaptcha
-    "https://www.google.com/recaptcha/",
-    "https://www.gstatic.com/recaptcha/",
-    # Swagger
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/",
+    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
+    "https://cdn.jsdelivr.net/npm/bootstrap@5/",
+    "https://unpkg.com/htmx.org@1.9.12",
 )
 CSP_STYLE_SRC: tuple[str, ...] = (
     "'self'",
     "'unsafe-inline'",
     "https://fonts.googleapis.com/",
-    # Swagger
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/",
+    "https://cdn.jsdelivr.net/npm/bootstrap@5/",
+    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
 )
 CSP_OBJECT_SRC: tuple[str, ...] = ("'self'",)
 CSP_MANIFEST_SRC: tuple[str, ...] = ("'self'",)

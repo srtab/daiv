@@ -43,11 +43,12 @@ ENV PATH=/home/app/.local/bin:$PATH
 ENV PIPENV_PIPFILE=/home/app/src/Pipfile
 
 COPY --chown=app:app Pipfile Pipfile.lock /home/app/src/
-COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN python -m pip install --user -U pip wheel \
     && python -m pip install --user -U pipenv \
     && pipenv sync --dev
+
+COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN echo 'alias makemigrations="pipenv run django-admin makemigrations"' >> /home/app/.bashrc \
     && echo 'alias migrate="pipenv run django-admin migrate"' >> /home/app/.bashrc \

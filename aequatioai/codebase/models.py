@@ -25,7 +25,7 @@ class CodebaseNamespaceManager(models.Manager):
             external_id=repository.pk, defaults={"client": repository.client, "external_slug": repository.slug}
         )
         try:
-            latest_namespace = self.filter(repository_info=repo_info).latest()
+            latest_namespace = self.filter(repository_info=repo_info, status=CodebaseNamespace.Status.INDEXED).latest()
         except CodebaseNamespace.DoesNotExist:
             latest_namespace = self.create(
                 repository_info=repo_info, sha=repository.head_sha, tracking_branch=repository.default_branch

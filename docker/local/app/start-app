@@ -2,7 +2,9 @@
 
 set -eu pipefail
 
+cd aequatioai/
+
 pipenv run django-admin compilemessages --ignore=.venv
 pipenv run django-admin migrate --noinput
 
-exec pipenv run django-admin runserver_plus 0.0.0.0:8000 --cert-file /home/app/src/data/cert.crt --exclude-pattern trueclinic/static --nopin
+exec pipenv run uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile /home/app/src/data/cert.key --ssl-certfile /home/app/src/data/cert.crt --reload --reload-include 'templates/**/*.html' "aequatioai.asgi:application"

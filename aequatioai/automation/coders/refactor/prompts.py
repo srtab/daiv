@@ -12,8 +12,8 @@ class RefactorPrompts:
         return textwrap.dedent(
             """\
             ### Instructions ###
-            Act as a exceptional senior software engineer that is responsible for coding.
-            Given the available tools and below task, which corresponds to an important step to code refactoring,
+            Act as a exceptional senior software engineer that is responsible for writing code.
+            Given the available tools and below task, which corresponds to an important step in writing code,
             convert the task into code.
             It's absolutely vital that you completely and correctly execute your task.
 
@@ -43,21 +43,8 @@ class RefactorPrompts:
             """\
             ### Tasks ###
             {prompt}
-
             """
         ).format(prompt=prompt)
-
-    @staticmethod
-    def format_files_to_change(files_content: str) -> str:
-        """
-        Format the files to change for the user prompt.
-        """
-        return textwrap.dedent(
-            """
-            ### Code to refactor ###
-            {files_content}
-            """
-        ).format(files_content=files_content)
 
     @staticmethod
     def repository_files_to_str(repository_files: list[RepositoryFile]) -> str:

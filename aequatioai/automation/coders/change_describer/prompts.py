@@ -16,17 +16,9 @@ class ChangeDescriberPrompts:
         return textwrap.dedent(
             """\
             ### Task ###
-            Provide the following information about the changes below:
-            - Branch name.
-            - Title for the pull request.
-            - Description for the pull request.
-            - Commit message, short and concise.
+            Provide the information about the changes described below.
 
             ### Changes ###
             {changes}
-
-            ### Output ###
-            Output must be in valid JSON format.
-            Example: ```{{"branch": "", "title": "", "description": "", "commit_message": ""}}```
             """
         ).format(changes="\n".join(changes))

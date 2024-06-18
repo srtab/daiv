@@ -13,6 +13,7 @@ ClientType = Literal["gitlab", "github"]
 class Repository(BaseModel):
     pk: int
     slug: str
+    name: str
     default_branch: str
     client: ClientType
     head_sha: str

@@ -1,14 +1,11 @@
-import logging
-from typing import Unpack
+from typing import Unpack, cast
 
 from automation.agents.agent import LlmAgent
-from automation.agents.models import Message
+from automation.agents.models import Message, Usage
 from automation.coders.base import Coder
 from automation.coders.change_describer.models import ChangesDescription
 from automation.coders.change_describer.prompts import ChangeDescriberPrompts
 from automation.coders.typings import ChangeDescriberInvoke
-
-logger = logging.getLogger(__name__)
 
 
 class ChangeDescriberCoder(Coder[ChangeDescriberInvoke, ChangesDescription | None]):
@@ -20,19 +17,22 @@ class ChangeDescriberCoder(Coder[ChangeDescriberInvoke, ChangesDescription | Non
         """
         Invoke the coder to generate a description of the changes.
         """
-        agent = LlmAgent[dict](
+        agent = LlmAgent(
             memory=[
                 Message(role="system", content=ChangeDescriberPrompts.format_system_msg()),
                 Message(role="user", content=ChangeDescriberPrompts.format_default_msg(changes=kwargs["changes"])),
             ],
-            response_format="json",
         )
 
-        changes_description = agent.run(single_iteration=True)
+        changes_description = agent.run(single_iteration=True, response_model=ChangesDescription)
 
         self.usage += agent.usage
 
-        if changes_description is None:
-            return None
+        return cast(ChangesDescription, changes_description) if changes_description is not None else None
 
-        return ChangesDescription(**changes_description)
+
+if __name__ == "__main__":
+    changes_description = ChangeDescriberCoder(Usage()).invoke(
+        changes=["Add a new feature", "Fix a bug", "Refactor code"]
+    )
+    print(changes_description)

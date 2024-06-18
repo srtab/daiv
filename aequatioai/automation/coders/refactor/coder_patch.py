@@ -13,8 +13,7 @@ from automation.coders.refactor.prompts import PatchRefactorPrompts
 from automation.coders.refactor.tools import CodeActionTools
 from automation.coders.typings import MergerRequestRefactorInvoke
 from codebase.base import FileChange, RepositoryFile
-from codebase.clients import RepoClient
-from codebase.document_loaders import EXCLUDE_FILES
+from codebase.document_loaders import EXCLUDE_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,8 @@ class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[
         )
 
         for mr_diff in mr_diff_list:
-            if Path(mr_diff.old_path).name.lower() in EXCLUDE_FILES:
+            path = Path(mr_diff.old_path)
+            if any(path.match(glob, case_sensitive=False) for glob in EXCLUDE_PATTERN):
                 logger.info("File %s is in the exclude list. Skipping.", mr_diff.old_path)
                 continue
 
@@ -103,7 +103,7 @@ class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[
                 ]
             memory.append(Message(role="user", content=PatchRefactorPrompts.format_diff(mr_diff.diff.decode())))
 
-            agent = LlmAgent[str](memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
+            agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
             response = agent.run()
 
             self.usage += agent.usage
@@ -133,14 +133,13 @@ if __name__ == "__main__":
         },
     })
 
-    repo_client = RepoClient.create_instance()
     usage = Usage()
 
     repo_id = "dipcode/bankinter/app"
     source_repo_id = "dipcode/inovretail/brodheim/feed-portal"
     merge_request_id = "485"
 
-    coder = MergeRequestRefactorCoder(usage, repo_client=repo_client)
+    coder = MergeRequestRefactorCoder(usage)
     response: list[FileChange] = coder.invoke(
         target_repo_id=repo_id, target_ref="dev", source_repo_id=source_repo_id, merge_request_id=merge_request_id
     )
@@ -153,8 +152,10 @@ if __name__ == "__main__":
         logger.error("No changes description was generated.")
         exit(1)
 
-    repo_client.commit_changes(repo_id, "dev", changes_description.branch, changes_description.commit_message, response)
-    repo_client.update_or_create_merge_request(
+    coder.repo_client.commit_changes(
+        repo_id, "dev", changes_description.branch, changes_description.commit_message, response
+    )
+    coder.repo_client.update_or_create_merge_request(
         repo_id=repo_id,
         source_branch=changes_description.branch,
         target_branch="dev",

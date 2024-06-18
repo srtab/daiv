@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import abc
 import logging
 import tempfile
-from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError
 
 from .base import ClientType, FileChange, MergeRequestDiff, Repository
 from .conf import settings
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,9 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def list_repositories(self, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
+    ) -> list[Repository]:
         """
         List all repositories.
         """
@@ -98,7 +104,7 @@ class RepoClient(abc.ABC):
         """
 
     @staticmethod
-    def create_instance():
+    def create_instance() -> GitHubClient | GitLabClient:
         """
         Get the repository client based on the configuration.
         """
@@ -126,29 +132,38 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id)
         return Repository(
-            pk=cast(str, project.get_id()),
+            pk=cast(int, project.get_id()),
             slug=project.path_with_namespace,
+            name=project.name,
             default_branch=project.default_branch,
             client=self.client_slug,
             topics=project.topics,
-            head_sha=self.get_repo_head_sha(cast(str, project.get_id()), branch=project.default_branch),
+            head_sha=self.get_repo_head_sha(repo_id, branch=project.default_branch),
         )
 
-    def list_repositories(self, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
+    ) -> list[Repository]:
         """
         List all repositories.
         """
+        optional_kwargs = {}
+        if search:
+            optional_kwargs["search"] = search
+        if topics:
+            optional_kwargs["topic"] = ",".join(topics)
         return [
             Repository(
-                pk=cast(str, project.get_id()),
+                pk=cast(int, project.get_id()),
                 slug=project.path_with_namespace,
+                name=project.name,
                 default_branch=project.default_branch,
                 client=self.client_slug,
                 topics=project.topics,
-                head_sha=self.get_repo_head_sha(cast(str, project.get_id()), branch=project.default_branch),
+                head_sha=self.get_repo_head_sha(cast(int, project.get_id()), branch=project.default_branch),
             )
             for project in self.client.projects.list(
-                all=True, iterator=True, archived=False, topic=topics and ",".join(topics), simple=True
+                all=load_all, iterator=True, archived=False, simple=True, **optional_kwargs
             )
         ]
 
@@ -277,7 +292,7 @@ class GitLabClient(RepoClient):
         finally:
             tmpdir.cleanup()
 
-    def get_repo_head_sha(self, repo_id: str, branch: str | None = None) -> str:
+    def get_repo_head_sha(self, repo_id: str | int, branch: str | None = None) -> str:
         """
         Get the head sha of a repository.
         """

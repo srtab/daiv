@@ -9,8 +9,9 @@ class Invoke(TypedDict):
 
 
 class RefactorInvoke(Invoke):
-    files_to_change: list[RepositoryFile]
-    changes_example_file: RepositoryFile | None
+    source_repo_id: str
+    source_ref: str
+    example_file: RepositoryFile | None
 
 
 class MergerRequestRefactorInvoke(Invoke):
@@ -26,7 +27,7 @@ class ReplacerInvoke(Invoke):
     content: str
 
 
-class PathsExtractorInvoke(Invoke):
+class PathsReplacerInvoke(Invoke):
     code_snippet: str
     repository_tree: Iterator[str]
 

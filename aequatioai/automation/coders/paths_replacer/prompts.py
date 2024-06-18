@@ -1,7 +1,7 @@
 import textwrap
 
 
-class PathsExtractorPrompts:
+class PathsReplacerPrompts:
     @staticmethod
     def format_system_msg():
         return textwrap.dedent(
@@ -23,22 +23,18 @@ class PathsExtractorPrompts:
 
             ### Code Snippet ###
             {code_snippet}
-
-            ### Output ###
-            Output must be in valid JSON format.
-            Example: ```{{"paths": ["/path/to/file.py", "path/to/dir"]}}```
             """
         ).format(code_snippet=code_snippet)
 
     @staticmethod
-    def format_response_msg(paths: str, similar_paths: dict[str, list[str]]):
+    def format_response_msg(paths: list[str], similar_paths: dict[str, list[str]]):
         context = ""
         for path in paths:
             context += textwrap.dedent(
                 """\
-            Here is a tree for "{path}" from the other project to you to choose the most relevant:
-            {similar_paths}
-            """
+                Here is a tree for "{path}" from the other project to you to choose the most relevant:
+                {similar_paths}
+                """
             ).format(path=path, similar_paths=similar_paths[path])
 
         return textwrap.dedent(
@@ -49,9 +45,5 @@ class PathsExtractorPrompts:
             ### Task ###
             Search for the most relevant path for each one provided.
             Identify clearly which paths will be replaced and the one who will replace it.
-
-            ### Output ###
-            Output must be in valid JSON format.
-            Example: ```{{"paths": [["/path/to/file_to_replace.py", "/new_path/to/file.py"], ["path/to/dir", "newpath/to/dir"]]}}```
             """  # noqa: E501
         ).format(context=context)

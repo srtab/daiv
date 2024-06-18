@@ -1,4 +1,4 @@
-from typing import Unpack
+from typing import Unpack, cast
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
@@ -18,7 +18,7 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
         """
         Ask an agent to replace a reference snippet with a replacement snippet in a given content.
         """
-        agent = LlmAgent[str](
+        agent = LlmAgent(
             memory=[
                 Message(role="system", content=ReplacerPrompts.format_system_msg()),
                 Message(
@@ -38,4 +38,4 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
         if response is None:
             return None
 
-        return extract_text_inside_tags(response, "code", strip_newlines=True)
+        return extract_text_inside_tags(cast(str, response), "code", strip_newlines=True)

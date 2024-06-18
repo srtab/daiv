@@ -1,9 +1,9 @@
 import logging
-import textwrap
 
 from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
 from automation.coders.paths_replacer.coder import PathsReplacerCoder
+from automation.coders.refactor.schemas import CreateFile, ReplaceSnippetWith
 from automation.coders.replacer import ReplacerCoder
 from codebase.base import FileChange
 from codebase.clients import RepoClient
@@ -22,6 +22,10 @@ class CodeActionTools:
         self.repo_id = repo_id
         self.ref = ref
         self.file_changes: dict[str, FileChange] = {}
+
+    def codebase_retriever(self, query: str):
+        docs = self.codebase_index.query(query=query, repo_id=self.repo_id, ref=self.ref, k=5)
+        return [doc["path"] for doc in docs]
 
     def replace_snippet_with(
         self, file_path: str, original_snippet: str, replacement_snippet: str, commit_message: str
@@ -96,46 +100,6 @@ class CodeActionTools:
 
     def get_tools(self):
         return [
-            FunctionTool(
-                name="replace_snippet_with",
-                description=textwrap.dedent(
-                    """\
-                    Use this as the primary tool to write code changes to a file.
-
-                    Replaces a snippet in a file with the provided replacement.
-                    - The snippet must be an exact match.
-                    - The replacement can be any string.
-                    - The original snippet must be an entire line, not just a substring of a line. It should also include the indentation and spacing.
-                    - Indentation and spacing must be included in the replacement snippet.
-                    - If multiple replacements needed, call this function multiple times.
-                    """  # noqa: E501
-                ),
-                parameters=[
-                    {
-                        "name": "file_path",
-                        "type": "string",
-                        "description": "The file_path of code to refactor. Ignore referenced unified diff file path.",
-                    },
-                    {"name": "original_snippet", "type": "string", "description": "The snippet to replace."},
-                    {
-                        "name": "replacement_snippet",
-                        "type": "string",
-                        "description": "The replacement for the snippet.",
-                    },
-                    {"name": "commit_message", "type": "string", "description": "The commit message to use."},
-                ],
-                fn=self.replace_snippet_with,
-                required=["file_path", "original_snippet", "replacement_snippet", "commit_message"],
-            ),
-            FunctionTool(
-                name="create_file",
-                description="""Use this as primary tool to create a new file with the provided content.""",
-                parameters=[
-                    {"name": "file_path", "type": "string", "description": "The file path to create."},
-                    {"name": "content", "type": "string", "description": "The content to insert."},
-                    {"name": "commit_message", "type": "string", "description": "The commit message to use."},
-                ],
-                fn=self.create_file,
-                required=["file_path", "content", "commit_message"],
-            ),
+            FunctionTool(schema_model=ReplaceSnippetWith, fn=self.replace_snippet_with),
+            FunctionTool(schema_model=CreateFile, fn=self.create_file),
         ]

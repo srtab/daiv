@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar
+from functools import cached_property
+from typing import TYPE_CHECKING
 
+import instructor
 import litellm
 from decouple import config
 from litellm import completion
@@ -14,17 +16,17 @@ from .models import Message, ToolCall, Usage
 
 if TYPE_CHECKING:
     from litellm.utils import ModelResponse
+    from pydantic import BaseModel
 
     from .tools import FunctionTool
 
 logger = logging.getLogger(__name__)
 
 litellm.telemetry = False
+# litellm.set_verbose = True
 
-T = TypeVar("T")
 
-
-class LlmAgent(ABC, Generic[T]):
+class LlmAgent(ABC):
     """
     An agent that interacts with the LLM API.
     """
@@ -43,7 +45,6 @@ class LlmAgent(ABC, Generic[T]):
         memory: list[Message] | None = None,
         tools: list[FunctionTool] | None = None,
         model: str | None = None,
-        response_format: Literal["json"] | None = None,
         stop_message: str | None = None,
     ):
         self.name = name
@@ -51,11 +52,12 @@ class LlmAgent(ABC, Generic[T]):
         self.tools = tools or []
         self.model = model or self.model
         self.stop_message = stop_message
-        self.response_format = response_format
         self.usage = Usage()
         self.api_key = config("OPENAI_API_KEY")
 
-    def run(self, single_iteration: bool = False) -> T | None:
+    def run(
+        self, single_iteration: bool = False, response_model: type[BaseModel] | None = None
+    ) -> str | BaseModel | None:
         """
         Run the agent until it reaches a stopping condition.
         """
@@ -67,19 +69,19 @@ class LlmAgent(ABC, Generic[T]):
                 logger.debug("%s: %s", message.role, message.content)
 
         while self.should_continue_iteration(single_iteration=single_iteration):
-            self.run_iteration()
+            self.run_iteration(response_model)
 
         if self.iterations == self.max_iterations:
             raise Exception("Agent %s exceeded the maximum number of iterations without finishing.", self.name)
 
         self.iterations = 0
 
-        if self.memory[-1].content and self.response_format == "json":
-            return json.loads(self.memory[-1].content)
+        if response_model is not None:
+            return self.memory[-1].model_instance
 
         return self.memory[-1].content
 
-    def run_iteration(self):
+    def run_iteration(self, response_model: type[BaseModel] | None = None):
         """
         Run a single iteration of the agent.
         """
@@ -87,16 +89,19 @@ class LlmAgent(ABC, Generic[T]):
 
         messages = [{k: v for k, v in msg.model_dump().items() if v is not None} for msg in self.memory]
 
-        response: ModelResponse = completion(
-            model=self.model,
-            messages=messages,
-            temperature=0,
-            api_key=self.api_key,
-            tools=([tool.to_dict() for tool in self.tools] if self.tools else NotGiven()),
-            response_format={"type": "json_object"} if self.response_format == "json" else None,
-        )
+        completion_kwargs = {"model": self.model, "messages": messages, "temperature": 0, "api_key": self.api_key}
 
-        message = Message(**response.choices[0].message.model_dump())
+        if response_model is None:
+            response: ModelResponse = completion(
+                tools=([tool.to_schema() for tool in self.tools] if self.tools else NotGiven()), **completion_kwargs
+            )
+
+            message = Message(**response.choices[0].message.model_dump())
+        else:
+            model_instance, response = instructor.from_litellm(completion).chat.completions.create_with_completion(
+                response_model=response_model, **completion_kwargs
+            )
+            message = Message(model_instance=model_instance, content=model_instance.model_dump_json(), role="assistant")
 
         self.memory.append(message)
 
@@ -144,7 +149,7 @@ class LlmAgent(ABC, Generic[T]):
 
         return self.iterations < self.max_iterations
 
-    @property
+    @cached_property
     def max_input_tokens(self) -> int:
         """
         The maximum number of tokens that can be passed to the model.
@@ -157,11 +162,13 @@ class LlmAgent(ABC, Generic[T]):
         """
         return litellm.token_counter(model=self.model, messages=messages)
 
-    def call_tool(self, tool_call: ToolCall):
+    def call_tool(self, tool_call: ToolCall) -> Message:
+        """
+        Call a tool with the provided arguments.
+        """
         logger.debug("[%s] Calling tool %s with arguments %r", tool_call.id, tool_call.function, tool_call.kwargs)
 
         tool = next(tool for tool in self.tools if tool.name == tool_call.function)
-
         tool_result = tool.call(**tool_call.kwargs)
 
         logger.debug("Tool %s returned \n%s", tool_call.function, tool_result)

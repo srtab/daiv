@@ -1,26 +1,34 @@
 from __future__ import annotations
 
+import fnmatch
 import logging
-from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import litellm
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
 from langchain_community.document_loaders.parsers.language import LanguageParser
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterable, Iterator
 
     from langchain_core.documents import Document
     from langchain_text_splitters import TextSplitter
-    from transformers import PreTrainedTokenizerBase
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_FILES = ("pipfile.lock", "package-lock.json", "yarn.lock", "gemfile.lock", "composer.lock")
+EXCLUDE_PATTERN = (
+    "pipfile.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "gemfile.lock",
+    "composer.lock",
+    "*/vendor/*",
+    "*/.git/*",
+)
 EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
 
 
@@ -29,9 +37,9 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
     A filesystem blob loader that allows limiting the files to a specific set of paths.
     """
 
-    def __init__(self, limit_to: Sequence[str] = (), **kwargs):
+    def __init__(self, limit_to: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
-        self.limit_to = limit_to
+        self.limit_to = limit_to or []
 
     def _yield_paths(self) -> Iterable[Path]:
         """
@@ -44,9 +52,9 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
 
         paths = self.path.glob(self.glob)
         for path in paths:
-            if self.exclude and any(path.match(glob, case_sensitive=False) for glob in self.exclude):
+            if self.exclude and any(fnmatch.fnmatch(str(path), glob) for glob in self.exclude):
                 continue
-            if self.limit_to and not any(path.match(glob, case_sensitive=False) for glob in self.limit_to):
+            if self.limit_to and not any(fnmatch.fnmatch(str(path), glob) for glob in self.limit_to):
                 continue
             if path.is_file():
                 if self.suffixes and path.suffix not in self.suffixes:
@@ -59,17 +67,19 @@ class GenericLanguageLoader(BaseLoader):
     A generic document loader that loads documents from a filesystem and splits them into chunks.
     """
 
+    chunk_size = 1024
+
     def __init__(
         self,
         blob_loader: FileSystemBlobLoader,
         blob_parser: LanguageParser,
         documents_metadata: dict[str, str] | None = None,
-        tokenizer: PreTrainedTokenizerBase = None,
+        tokenizer_model: str | None = None,
     ):
         self.blob_loader = blob_loader
         self.blob_parser = blob_parser
         self.documents_metadata = documents_metadata or {}
-        self.tokenizer = tokenizer
+        self.tokenizer_model = tokenizer_model
 
     def lazy_load(self) -> Iterator[Document]:
         """
@@ -125,11 +135,10 @@ class GenericLanguageLoader(BaseLoader):
         """
 
         def _tokenizer_length(text: str) -> int:
-            if self.tokenizer is None:
-                raise ValueError("Tokenizer is not set.")
-            return len(self.tokenizer.encode(text))
+            assert self.tokenizer_model is not None, "tokenizer_model must be set set."
+            return litellm.token_counter(model=self.tokenizer_model, text=text)
 
-        kwargs = {"length_function": _tokenizer_length, "chunk_size": self.tokenizer.model_max_length}
+        kwargs = {"length_function": _tokenizer_length, "chunk_size": self.chunk_size}
 
         if language is None:
             return RecursiveCharacterTextSplitter(**kwargs)
@@ -142,18 +151,17 @@ class GenericLanguageLoader(BaseLoader):
         path: str | Path,
         *,
         glob: str = "**/[!.]*",
-        limit_to: Sequence[str] | None = None,
-        exclude: Sequence[str] | None = None,
-        suffixes: Sequence[str] | None = None,
+        limit_to: list[str] | None = None,
+        exclude: list[str] | None = None,
+        suffixes: list[str] | None = None,
         documents_metadata: dict[str, str] | None = None,
         **kwargs,
     ) -> GenericLanguageLoader:
         """
         Create a generic document loader using a filesystem blob loader.
         """
-        exclude = exclude or ()
-        limit_to = limit_to or ()
+        exclude = exclude or []
         blob_loader = FileSystemBlobLoader(
-            path=path, glob=glob, limit_to=limit_to, exclude=exclude + EXCLUDE_FILES, suffixes=suffixes
+            path=path, glob=glob, limit_to=limit_to, exclude=exclude + list(EXCLUDE_PATTERN), suffixes=suffixes
         )
         return cls(blob_loader, LanguageParser(), documents_metadata, **kwargs)
