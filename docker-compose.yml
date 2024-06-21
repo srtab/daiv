@@ -11,6 +11,7 @@ x-app-defaults: &x_app_default
   volumes:
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
+    - ./data/tantivy_index:/home/app/data/tantivy_index
     - ./data/models:/home/app/.cache/huggingface/hub/
     - .:/home/app/src
   depends_on:

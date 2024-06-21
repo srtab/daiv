@@ -1,36 +1,28 @@
 from __future__ import annotations
 
 import abc
-import functools
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
 from django.db.models import Q
 
-import chromadb
-import chromadb.config
-from langchain_chroma import Chroma
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.language import LanguageParser
-from langchain_openai import OpenAIEmbeddings
 
 from codebase.conf import settings
 from codebase.document_loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace
+from codebase.reranker import RerankerEngine
+from codebase.search_engines.lexical import LexicalSearchEngine
+from codebase.search_engines.semantic import SemanticSearchEngine
 
 if TYPE_CHECKING:
-    from langchain_core.documents import Document
-
     from codebase.base import RepositoryFile
     from codebase.clients import GitHubClient, GitLabClient
+    from codebase.search_engines.base import ScoredResult
 
 logger = logging.getLogger(__name__)
-
-
-@functools.cache
-def embedding_function() -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(model="text-embedding-3-small", chunk_size=500)
 
 
 class BaseCodebaseIndex(abc.ABC):
@@ -39,79 +31,43 @@ class BaseCodebaseIndex(abc.ABC):
     """
 
     repo_client: GitLabClient | GitHubClient
-    collection_name: str
 
     def __init__(self, repo_client: GitLabClient | GitHubClient):
         self.repo_client = repo_client
-        self.embedding = embedding_function()
+        self.semantic_search_engine = SemanticSearchEngine(collection_name=settings.CODEBASE_COLLECTION_NAME)
+        self.lexical_search_engine = LexicalSearchEngine()
 
     @abc.abstractmethod
     def update(self, repo_id: str):
-        """
-        Update the index in ChromaDB.
-        """
+        pass
 
-    @property
-    def db(self) -> Chroma:
-        if not hasattr(self, "_db"):
-            self._db = Chroma(embedding_function=self.embedding, **self.db_common_kwargs())
-        return self._db
-
-    def db_common_kwargs(self) -> dict:
-        return {
-            "client": chromadb.HttpClient(
-                host=settings.CODEBASE_CHROMA_HOST,
-                port=settings.CODEBASE_CHROMA_PORT,
-                settings=chromadb.config.Settings(anonymized_telemetry=False),
-            ),
-            "collection_name": self.collection_name,
-            "collection_metadata": {"hnsw:space": "cosine", "hnsw:sync_threshold": 2000, "hnsw:batch_size": 500},
-        }
-
-    def reset(self, repo_id: str):
+    def delete_documents(self, repo_id: str, source_files: list[str]):
         """
-        Reset the index of a repository.
+        Delete source files from the indexes.
+        """
+        self.semantic_search_engine.delete_documents(repo_id, "source", source_files)
+        self.lexical_search_engine.delete_documents(repo_id, "page_source", source_files)
+
+    def delete(self, repo_id: str):
+        """
+        Delete a repository indexes.
         """
         logger.info("Reseting repo %s index.", repo_id)
 
-        results = self.db.get(where={"repo_id": repo_id})
-        for document_id in results["ids"]:
-            self.db.delete(document_id)
+        self.semantic_search_engine.delete(repo_id)
+        self.lexical_search_engine.delete(repo_id)
 
         CodebaseNamespace.objects.filter(
             Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
         ).delete()
 
-    def reset_all(self):
-        """
-        Reset all indexes.
-        """
-        logger.info("Reseting all indexes.")
-        self.db.delete_collection()
-
-        CodebaseNamespace.objects.all().delete()
-
-    def delete_sources(self, repo_id: str, source_files: list[str]):
-        """
-        Delete documents by source.
-        """
-        results = self.db.get(where={"$and": [{"repo_id": repo_id}, {"source": {"$in": source_files}}]})
-        for document_id in results["ids"]:
-            self.db.delete(document_id)
-
 
 class CodebaseIndex(BaseCodebaseIndex):
-    """
-    Index a codebase into Chroma.
-    """
-
-    collection_name: str = settings.CODEBASE_COLLECTION_NAME
+    """ """
 
     @transaction.atomic
     def update(self, repo_id: str):
-        """
-        Index a codebase into Chroma.
-        """
+        """ """
         repository = self.repo_client.get_repository(repo_id)
         namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(repository)
 
@@ -139,7 +95,7 @@ class CodebaseIndex(BaseCodebaseIndex):
                 )
 
                 if changed_files or deleted_files:
-                    self.delete_sources(namespace.repository_info.external_slug, changed_files + deleted_files)
+                    self.delete_documents(namespace.repository_info.external_slug, changed_files + deleted_files)
 
                 loader_limit_paths_to = new_files + changed_files
             else:
@@ -152,13 +108,14 @@ class CodebaseIndex(BaseCodebaseIndex):
                     repo_dir,
                     limit_to=loader_limit_paths_to,
                     documents_metadata={"repo_id": namespace.repository_info.external_slug},
-                    tokenizer_model=self.embedding.model,
+                    tokenizer_model=self.semantic_search_engine.embedding.model,
                 )
                 documents = loader.load_and_split()
             logger.info("Indexing %d chunks from repo %s", len(documents), namespace.repository_info.external_slug)
 
             if documents:
-                Chroma.from_documents(documents=documents, embedding=self.embedding, **self.db_common_kwargs())
+                self.semantic_search_engine.add_documents(repo_id, documents)
+                self.lexical_search_engine.add_documents(repo_id, documents)
         except:
             logger.error("Error indexing repo %s", namespace.repository_info.external_slug)
             namespace.status = CodebaseNamespace.Status.FAILED
@@ -169,38 +126,24 @@ class CodebaseIndex(BaseCodebaseIndex):
             namespace.save(update_fields=["status", "modified"])
             logger.info("Index finished for repo %s", namespace.repository_info.external_slug)
 
-    def query(
-        self,
-        query: str,
-        repo_id: str | None = None,
-        content_type: Literal["functions_classes", "simplified_code"] | None = None,
-        **kwargs,
-    ) -> list[Document] | None:
+    def search_with_reranker(self, repo_id: str, query: str) -> list[tuple[float, ScoredResult]]:
+        """ """
+        semantic_results = self.semantic_search_engine.search(repo_id, query)
+        lexical_results = self.lexical_search_engine.search(repo_id, query)
+        combined_results = semantic_results + lexical_results
+        score_results = RerankerEngine.rerank(query, [result.document.page_content for result in combined_results])
+        return sorted(zip(score_results, combined_results, strict=True), key=lambda result: result[0], reverse=True)
+
+    def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """
-        Query the codebase.
-        """
-        conditions: list[dict[str, str]] = []
-        if repo_id:
-            conditions.append({"repo_id": repo_id})
-        if content_type:
-            conditions.append({"content_type": content_type})
+        Search the most similar file in the codebase.
 
-        chroma_filter: dict[str, str | list] = {}
-        if len(conditions) > 1:
-            chroma_filter = {"$and": conditions}
-        elif len(conditions) == 1:
-            chroma_filter = conditions[0]
+        Args:
+            repo_id (str): The repository id.
+            repository_file (RepositoryFile): The file to search.
 
-        results = self.db.similarity_search_with_relevance_scores(query, filter=chroma_filter, **kwargs)
-
-        if not results:
-            return None
-
-        return [result[0] for result in results]
-
-    def search_most_similar_filepath(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
-        """
-        Search the most similar file path in the codebase.
+        Returns:
+            str | None: The most similar file path or None if not found.
         """
         documents = list(
             LanguageParser().lazy_parse(
@@ -220,21 +163,13 @@ class CodebaseIndex(BaseCodebaseIndex):
         if not chunk_to_search:
             return None
 
-        result = self.query(chunk_to_search, repo_id=repo_id, k=1, score_threshold=0.6)
+        if result := self.semantic_search_engine.search(repo_id, chunk_to_search, k=1, score_threshold=0.6):
+            return result[0].document.metadata["source"]
 
-        if not result:
-            # Fallback to try to find the file by the file path
-            get_result = self.db.get(
-                include=["metadatas"],
-                where={"$and": [{"repo_id": repo_id}, {"source": repository_file.file_path}]},
-                limit=1,
-            )
-
-            if get_result["metadatas"]:
-                return get_result["metadatas"][0]["source"]
-            return None
-
-        return result[0].metadata["source"]
+        # Fallback to try to find the file by the file path
+        if documents := self.semantic_search_engine.get_documents(repo_id, "source", repository_file.file_path):
+            return documents[0].metadata["source"]
+        return None
 
     def extract_tree(self, repo_id: str, ref: str | None = None) -> set[str]:
         """

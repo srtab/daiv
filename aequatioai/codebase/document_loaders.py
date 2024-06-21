@@ -21,13 +21,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EXCLUDE_PATTERN = (
-    "pipfile.lock",
-    "package-lock.json",
-    "yarn.lock",
-    "gemfile.lock",
-    "composer.lock",
-    "*/vendor/*",
-    "*/.git/*",
+    # files
+    "*pipfile.lock",
+    "*package-lock.json",
+    "*yarn.lock",
+    "*gemfile.lock",
+    "*composer.lock",
+    "*.svg",
+    # folders
+    "*vendor/*",
+    "*.git/*",
 )
 EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
 
@@ -52,9 +55,9 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
 
         paths = self.path.glob(self.glob)
         for path in paths:
-            if self.exclude and any(fnmatch.fnmatch(str(path), glob) for glob in self.exclude):
+            if self.exclude and any(fnmatch.fnmatch(str(path).lower(), glob) for glob in self.exclude):
                 continue
-            if self.limit_to and not any(fnmatch.fnmatch(str(path), glob) for glob in self.limit_to):
+            if self.limit_to and not any(fnmatch.fnmatch(str(path).lower(), glob) for glob in self.limit_to):
                 continue
             if path.is_file():
                 if self.suffixes and path.suffix not in self.suffixes:

@@ -1,4 +1,3 @@
-import logging
 from typing import Unpack
 
 from automation.agents.agent import LlmAgent
@@ -9,8 +8,6 @@ from codebase.base import FileChange
 from .base import RefactorCoder
 from .prompts import RefactorPrompts
 from .tools import CodeActionTools
-
-logger = logging.getLogger(__name__)
 
 
 class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):

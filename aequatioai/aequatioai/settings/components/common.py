@@ -145,7 +145,6 @@ X_FRAME_OPTIONS = "DENY"
 
 STATIC_URL = "/static/"
 STATIC_ROOT = DATA_DIR / "static"
-STATICFILES_DIRS = [PROJECT_DIR / "static"]
 STATICFILES_FINDERS = (
     "django.contrib.staticfiles.finders.FileSystemFinder",
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
