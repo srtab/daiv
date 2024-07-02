@@ -102,3 +102,21 @@ services:
     environment:
       - C_FORCE_ROOT=true
     ports: []
+
+  gitlab:
+    image: "gitlab/gitlab-ce:latest"
+    container_name: aequatioai-gitlab
+    restart: always
+    logging:
+      driver: "none" # avoid saving excessive logs
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://127.0.0.1:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+    ports:
+      - "8929:8929"
+      - "2224:22"
+    volumes:
+      - "./data/gitlab/config:/etc/gitlab"
+      - "./data/gitlab/logs:/var/log/gitlab"
+      - "./data/gitlab/data:/var/opt/gitlab"

@@ -43,6 +43,7 @@ class RepositoryFile(BaseModel):
 class MergeRequest(BaseModel):
     repo_id: str
     merge_request_id: str
+    source_branch: str
 
 
 class MergeRequestDiff(BaseModel):
@@ -63,3 +64,23 @@ class FileChange(BaseModel):
     content: str | None = None
     previous_path: str | None = None
     commit_messages: list[str] = []
+
+
+class User(BaseModel):
+    id: int
+    name: str
+    username: str
+
+
+class IssueNote(BaseModel):
+    author: User
+    body: str
+
+
+class Issue(BaseModel):
+    id: int
+    title: str
+    description: str
+    state: str
+    notes: list[IssueNote] = Field(default_factory=list)
+    related_merge_requests: list[MergeRequest] = Field(default_factory=list)

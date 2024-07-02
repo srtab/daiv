@@ -24,16 +24,6 @@ class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):
             Message(role="user", content=RefactorPrompts.format_user_prompt(kwargs["prompt"])),
         ]
 
-        if kwargs["example_file"] is not None:
-            memory.append(
-                Message(
-                    role="user",
-                    content=RefactorPrompts.format_refactor_example(
-                        self.get_repo_files_prompt([kwargs["example_file"]])
-                    ),
-                )
-            )
-
         code_actions = CodeActionTools(
             self.repo_client, self.codebase_index, kwargs["source_repo_id"], kwargs["source_ref"]
         )
@@ -46,3 +36,14 @@ class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):
             return []
 
         return list(code_actions.file_changes.values())
+
+
+if __name__ == "__main__":
+    # Test the coder
+    coder = SimpleRefactorCoder()
+
+    response: list[FileChange] = coder.invoke(
+        prompt="Normalize path names declared in sso/api/urls.py to reflect the view class name without the final redudant suffix.",  # noqa: E501
+        source_repo_id="dipcode/trueclinic/sso",
+        source_ref="dev",
+    )

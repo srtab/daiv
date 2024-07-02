@@ -5,12 +5,12 @@ import logging
 import tempfile
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError
 
-from .base import ClientType, FileChange, MergeRequestDiff, Repository
+from .base import ClientType, FileChange, Issue, IssueNote, MergeRequest, MergeRequestDiff, Repository, User
 from .conf import settings
 
 if TYPE_CHECKING:
@@ -28,85 +28,95 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_repository(self, repo_id) -> Repository:
-        """
-        Get a repository.
-        """
         pass
 
     @abc.abstractmethod
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
     ) -> list[Repository]:
-        """
-        List all repositories.
-        """
         pass
 
     @abc.abstractmethod
     def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
-        """
-        Get the content of a file in a repository.
-        """
         pass
 
     @abc.abstractmethod
-    def get_repository_tree(self, repo_id: str, ref: str | None = None) -> list[str]:
-        """
-        Get the tree of a repository.
-        """
+    def get_repository_tree(
+        self,
+        repo_id: str,
+        ref: str | None = None,
+        *,
+        path: str = "",
+        recursive: bool = False,
+        tree_type: Literal["blob", "tree"] | None = None,
+    ) -> list[str]:
         pass
 
     @abc.abstractmethod
     def get_merge_request_diff(self, repo_id: str, merge_request_id: str) -> Generator[MergeRequestDiff, None, None]:
-        """
-        Get the diff of a merge request.
-        """
         pass
 
     @abc.abstractmethod
     def update_or_create_merge_request(
-        self, repo_id: str, source_branch: str, target_branch: str, title: str, description: str
+        self,
+        repo_id: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        description: str,
+        assignee_id: int | None = None,
     ) -> int | str | None:
-        """
-        Create a merge request in a repository or get an existing one if it already exists.
-        """
         pass
 
     @abc.abstractmethod
     def commit_changes(
         self, repo_id: str, ref: str, target_branch: str, commit_message: str, file_changes: list[FileChange]
     ):
-        """
-        Commit changes to a repository.
-        """
         pass
 
     @abc.abstractmethod
     def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
-        """
-        Load a repository to a temporary directory.
-        """
         pass
 
     @abc.abstractmethod
     def get_repo_head_sha(self, repo_id: str, branch: str | None = None) -> str:
-        """
-        Get the head sha of a repository.
-        """
         pass
 
     @abc.abstractmethod
     def get_commit_changed_files(
         self, repo_id: str, from_sha: str, to_sha: str
     ) -> tuple[list[str], list[str], list[str]]:
-        """
-        Get the changed files between two commits.
-        """
+        pass
+
+    @abc.abstractmethod
+    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
+        pass
+
+    @abc.abstractmethod
+    def comment_issue(self, repo_id: str, issue_id: int, body: str):
+        pass
+
+    @abc.abstractmethod
+    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[IssueNote]:
+        pass
+
+    @abc.abstractmethod
+    def get_issue_related_merge_requests(
+        self, repo_id: str, issue_id: int, assignee_id: int | None = None
+    ) -> list[MergeRequest]:
+        pass
+
+    @abc.abstractmethod
+    def get_current_user(self) -> User:
+        pass
 
     @staticmethod
     def create_instance() -> GitHubClient | GitLabClient:
         """
         Get the repository client based on the configuration.
+
+        Returns:
+            The repository client instance.
         """
         if settings.CODEBASE_CLIENT == "gitlab":
             return GitLabClient(auth_token=settings.CODEBASE_GITLAB_AUTH_TOKEN, url=settings.CODEBASE_GITLAB_URL)
@@ -129,6 +139,12 @@ class GitLabClient(RepoClient):
     def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The repository object.
         """
         project = self.client.projects.get(repo_id)
         return Repository(
@@ -146,6 +162,14 @@ class GitLabClient(RepoClient):
     ) -> list[Repository]:
         """
         List all repositories.
+
+        Args:
+            search: The search query.
+            topics: The topics to filter the repositories.
+            load_all: Load all repositories.
+
+        Returns:
+            The list of repositories.
         """
         optional_kwargs = {}
         if search:
@@ -170,6 +194,14 @@ class GitLabClient(RepoClient):
     def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
         """
         Get the content of a file in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            file_path: The file path.
+            ref: The branch or tag name.
+
+        Returns:
+            The content of the file. If the file is binary or not a text file, it returns None.
         """
         project = self.client.projects.get(repo_id)
         project_file = project.files.get(file_path=file_path, ref=ref or project.default_branch)
@@ -178,18 +210,45 @@ class GitLabClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    def get_repository_tree(self, repo_id: str, ref: str | None = None) -> list[str]:
+    def get_repository_tree(
+        self,
+        repo_id: str,
+        ref: str | None = None,
+        *,
+        path: str = "",
+        recursive: bool = False,
+        tree_type: Literal["blob", "tree"] | None = None,
+    ) -> list[str]:
         """
         Get the tree of a repository.
+
+        Args:
+            repo_id: The repository ID.
+            ref: The branch or tag name.
+            path: The path to list the tree.
+            recursive: Recursively list the tree.
+            tree_type: The type of the tree to filter. If None, it returns all types.
+
+        Returns:
+            The list of files or directories in the tree.
         """
         project = self.client.projects.get(repo_id)
-        repository_tree = project.repository_tree(recursive=True, ref=ref or project.default_branch, all=True)
-        return [file["path"] for file in repository_tree if file["type"] == "blob"]
+        repository_tree = project.repository_tree(
+            recursive=recursive, ref=ref or project.default_branch, path=path, all=True
+        )
+        return [file["path"] for file in repository_tree if tree_type is None or file["type"] == tree_type]
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: str) -> Generator[MergeRequestDiff, None, None]:
         """
         Get the latest diff of a merge request.
         https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+
+        Returns:
+            The generator of merge request diffs.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
@@ -213,10 +272,26 @@ class GitLabClient(RepoClient):
             )
 
     def update_or_create_merge_request(
-        self, repo_id: str, source_branch: str, target_branch: str, title: str, description: str
+        self,
+        repo_id: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        description: str,
+        assignee_id: int | None = None,
     ) -> int | str | None:
         """
         Create a merge request in a repository or update an existing one if it already exists.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+            title: The title of the merge request.
+            description: The description of the merge request.
+
+        Returns:
+            The merge request ID.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         try:
@@ -235,6 +310,7 @@ class GitLabClient(RepoClient):
                 merge_request = merge_requests.next()
                 merge_request.title = title
                 merge_request.description = description
+                merge_request.assignee_id = assignee_id
                 merge_request.save()
                 return merge_request.get_id()
             raise e
@@ -244,6 +320,13 @@ class GitLabClient(RepoClient):
     ):
         """
         Commit changes to a repository.
+
+        Args:
+            repo_id: The repository ID.
+            ref: The branch or tag name.
+            target_branch: The target branch.
+            commit_message: The commit message.
+            file_changes: The list of file changes.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         actions: list[dict[str, str]] = []
@@ -268,6 +351,13 @@ class GitLabClient(RepoClient):
     def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
         """
         Load a repository to a temporary directory.
+
+        Args:
+            repo_id: The repository ID.
+            sha: The commit sha.
+
+        Yields:
+            The path to the repository directory.
         """
         project = self.client.projects.get(repo_id)
         sha = sha or project.default_branch
@@ -295,6 +385,13 @@ class GitLabClient(RepoClient):
     def get_repo_head_sha(self, repo_id: str | int, branch: str | None = None) -> str:
         """
         Get the head sha of a repository.
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name.
+
+        Returns:
+            The head sha of the repository.
         """
         project = self.client.projects.get(repo_id, lazy=branch is not None)
         branch = branch or project.default_branch
@@ -305,6 +402,14 @@ class GitLabClient(RepoClient):
     ) -> tuple[list[str], list[str], list[str]]:
         """
         Get the changed files between two commits.
+
+        Args:
+            repo_id: The repository ID.
+            from_sha: The from commit sha.
+            to_sha: The to commit sha.
+
+        Returns:
+            The tuple of new files, changed files, and deleted files.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         new_files = []
@@ -319,8 +424,103 @@ class GitLabClient(RepoClient):
                 changed_files.append(diff["new_path"])
         return new_files, changed_files, deleted_files
 
+    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
+        """
+        Get an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+
+        Returns:
+            The issue object.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id)
+        return Issue(
+            id=issue.iid,
+            title=issue.title,
+            description=issue.description,
+            state=issue.state,
+            notes=self.get_issue_notes(repo_id, issue_id),
+            related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
+        )
+
+    def comment_issue(self, repo_id: str, issue_id: int, body: str):
+        """
+        Comment on an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            body: The comment body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        issue.notes.create({"body": body})
+
+    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[IssueNote]:
+        """
+        Get the notes of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+
+        Returns:
+            The list of issue notes.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        return [
+            IssueNote(
+                body=note.body,
+                author=User(
+                    id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
+                ),
+            )
+            for note in issue.notes.list(all=True)
+            if not note.system and not note.resolvable
+        ]
+
+    def get_issue_related_merge_requests(
+        self, repo_id: str, issue_id: int, assignee_id: int | None = None
+    ) -> list[MergeRequest]:
+        """
+        Get the related merge requests of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            assignee_id: The assignee ID.
+
+        Returns:
+            The list of merge requests.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        return [
+            MergeRequest(repo_id=repo_id, merge_request_id=mr["iid"], source_branch=mr["source_branch"])
+            for mr in issue.related_merge_requests(all=True)
+            if assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id
+        ]
+
+    def get_current_user(self) -> User:
+        """
+        Get the profile of the current user.
+
+        Returns:
+            The profile of the user.
+        """
+        self.client.auth()
+        if user := self.client.user:
+            return User(id=user.id, username=user.username, name=user.name)
+        raise ValueError("Couldn't get current user profile")
+
 
 class GitHubClient(RepoClient):
     """
     GitHub client to interact with GitHub repositories.
+
+    Note: This class is not implemented yet. It is a placeholder for future development.
     """
