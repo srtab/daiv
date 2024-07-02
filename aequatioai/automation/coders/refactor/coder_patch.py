@@ -29,7 +29,12 @@ class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[
         """
         mr_diff_list = self.repo_client.get_merge_request_diff(kwargs["source_repo_id"], kwargs["merge_request_id"])
         code_actions = CodeActionTools(
-            self.repo_client, self.codebase_index, self.usage, kwargs["target_repo_id"], kwargs["target_ref"]
+            self.repo_client,
+            self.codebase_index,
+            self.usage,
+            repo_id=kwargs["target_repo_id"],
+            ref=kwargs["target_ref"],
+            replace_paths=True,
         )
 
         for mr_diff in mr_diff_list:
