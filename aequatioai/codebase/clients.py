@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError
+from gitlab.v4.objects import ProjectHook
 
 from .base import ClientType, FileChange, Issue, IssueNote, MergeRequest, MergeRequestDiff, Repository, User
 from .conf import settings
@@ -118,9 +119,9 @@ class RepoClient(abc.ABC):
         Returns:
             The repository client instance.
         """
-        if settings.CODEBASE_CLIENT == "gitlab":
+        if settings.CODEBASE_CLIENT == ClientType.GITLAB:
             return GitLabClient(auth_token=settings.CODEBASE_GITLAB_AUTH_TOKEN, url=settings.CODEBASE_GITLAB_URL)
-        if settings.CODEBASE_CLIENT == "github":
+        if settings.CODEBASE_CLIENT == ClientType.GITHUB:
             raise NotImplementedError("GitHub client is not implemented yet")
         raise ValueError("Invalid repository client configuration")
 
@@ -131,7 +132,7 @@ class GitLabClient(RepoClient):
     """
 
     client: Gitlab
-    client_slug: ClientType = "gitlab"
+    client_slug = ClientType.GITLAB
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10)
@@ -237,6 +238,60 @@ class GitLabClient(RepoClient):
             recursive=recursive, ref=ref or project.default_branch, path=path, all=True
         )
         return [file["path"] for file in repository_tree if tree_type is None or file["type"] == tree_type]
+
+    def set_repository_webhooks(
+        self,
+        repo_id: str,
+        url: str,
+        events: list[Literal["push_events", "merge_requests_events", "issues_events", "pipeline_events"]],
+        push_events_branch_filter: str | None = None,
+        enable_ssl_verification: bool = True,
+    ):
+        """
+        Set webhooks for a repository.
+        If the webhook already exists, it updates the existing one. Otherwise, it creates a new one.
+
+        Args:
+            repo_id: The repository ID.
+            url: The webhook URL.
+            events: The list of events to trigger the webhook.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        data = {
+            "url": url,
+            "name": "AequatioAI",
+            "description": "WebHooks for AequatioAI integration.",
+            "push_events": "push_events" in events,
+            "merge_requests_events": "merge_requests_events" in events,
+            "issues_events": "issues_events" in events,
+            "pipeline_events": "pipeline_events" in events,
+            "enable_ssl_verification": enable_ssl_verification,
+        }
+        if push_events_branch_filter:
+            data["push_events_branch_filter"] = push_events_branch_filter
+        if project_hook := self._get_repository_hook_by_url(repo_id, url):
+            for key, value in data.items():
+                setattr(project_hook, key, value)
+            project_hook.save()
+        else:
+            project.hooks.create(data)
+
+    def _get_repository_hook_by_url(self, repo_id: str, url: str) -> ProjectHook | None:
+        """
+        Get a webhook by URL.
+
+        Args:
+            repo_id: The repository ID.
+            url: The webhook URL.
+
+        Returns:
+            The webhook object if it exists, otherwise None.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        for hook in project.hooks.list(all=True, iterator=True):
+            if hook.url == url:
+                return cast(ProjectHook, hook)
+        return None
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: str) -> Generator[MergeRequestDiff, None, None]:
         """
@@ -524,3 +579,5 @@ class GitHubClient(RepoClient):
 
     Note: This class is not implemented yet. It is a placeholder for future development.
     """
+
+    client_slug = ClientType.GITHUB

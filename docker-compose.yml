@@ -17,6 +17,7 @@ x-app-defaults: &x_app_default
   depends_on:
     - db
     - redis
+    - gitlab
 
 services:
   db:
@@ -72,26 +73,10 @@ services:
     ports:
       - "6379:6379"
 
-  # static:
-  #   tty: true
-  #   stdin_open: true
-  #   image: git-registry.eurotux.com/dipops/images/node-dev
-  #   restart: unless-stopped
-  #   container_name: aequatioai-static
-  #   command: /bin/sh /home/node/start
-  #   environment:
-  #     - PATH=$PATH:/bin/:/home/node/app/node_modules/.bin/
-  #   volumes:
-  #     - ./aequatioai/static/:/home/node/app
-  #     - ./docker/local/static/start:/home/node/start
-  #   ports:
-  #     - "4200:4200"
-
   app:
     <<: *x_app_default
     container_name: aequatioai-app
     command: sh /home/app/docker/start-app
-
     ports:
       - "8000:8000"
 
@@ -104,11 +89,11 @@ services:
     ports: []
 
   gitlab:
-    image: "gitlab/gitlab-ce:latest"
+    image: gitlab/gitlab-ce:latest
     container_name: aequatioai-gitlab
-    restart: always
+    restart: on-failure
     logging:
-      driver: "none" # avoid saving excessive logs
+      driver: "none"
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'http://127.0.0.1:8929'

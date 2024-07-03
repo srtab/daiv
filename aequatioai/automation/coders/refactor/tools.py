@@ -92,30 +92,7 @@ class CodeActionTools:
                 action="update", file_path=file_path, content=replaced_content, commit_messages=[commit_message]
             )
 
-        return f"success: Resulting code after replacement:\n```\n{replaced_content}\n```\n"
-
-    def _replace_paths(self, replacement_snippet: str) -> str:
-        """
-        Replaces paths in the replacement snippet.
-
-        Args:
-            replacement_snippet: The snippet to replace paths in.
-
-        Returns:
-            The snippet with paths replaced.
-        """
-        # TODO: optimize to avoid calling this too many times, the repository tree should be cached in some way.
-        repository_tree = self.codebase_index.extract_tree(self.repo_id, self.ref)
-
-        replacement_snippet_result = PathsReplacerCoder(self.usage).invoke(
-            code_snippet=replacement_snippet, repository_tree=repository_tree
-        )
-
-        if replacement_snippet_result is None:
-            logger.warning("No paths replaced from the replacement snippet.")
-            return replacement_snippet
-
-        return replacement_snippet_result
+        return "success: Snippet replaced."
 
     def _get_file_content(self, file_path: str) -> str | None:
         """
@@ -141,18 +118,37 @@ class CodeActionTools:
         if file_path in self.file_changes:
             raise Exception("File already exists.")
 
-        # TODO: optimize to avoid calling this too many times, the repository tree should be cached in some way.
-        repository_tree = self.codebase_index.extract_tree(self.repo_id, self.ref)
-
-        replacement_content = PathsReplacerCoder(self.usage).invoke(
-            code_snippet=content, repository_tree=repository_tree
-        )
+        if self.replace_paths:
+            replacement_content = self._replace_paths(content)
 
         self.file_changes[file_path] = FileChange(
             action="create", file_path=file_path, content=replacement_content, commit_messages=[commit_message]
         )
 
-        return f"success: Created new file {file_path}"
+        return f"success: Created new file {file_path}."
+
+    def _replace_paths(self, replacement_snippet: str) -> str:
+        """
+        Replaces paths in the replacement snippet.
+
+        Args:
+            replacement_snippet: The snippet to replace paths in.
+
+        Returns:
+            The snippet with paths replaced.
+        """
+        # TODO: optimize to avoid calling this too many times, the repository tree should be cached in some way.
+        repository_tree = self.codebase_index.extract_tree(self.repo_id, self.ref)
+
+        replacement_snippet_result = PathsReplacerCoder(self.usage).invoke(
+            code_snippet=replacement_snippet, repository_tree=repository_tree
+        )
+
+        if replacement_snippet_result is None:
+            logger.warning("No paths replaced from the replacement snippet.")
+            return replacement_snippet
+
+        return replacement_snippet_result
 
     def get_repository_tree(self, path: str = "") -> list[str]:
         """
@@ -160,7 +156,6 @@ class CodeActionTools:
 
         Args:
             path: The path to get the tree of.
-            tree_type: The type of the tree to get.
 
         Returns:
             The repository tree.

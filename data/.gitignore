@@ -1,0 +1,7 @@
+*
+!.gitignore
+!media/
+!static/
+!tantivy_index/
+!certs
+!certs/*

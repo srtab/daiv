@@ -25,11 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BaseCodebaseIndex(abc.ABC):
-    """
-    Base class for indexing data into Chroma.
-    """
-
+class CodebaseIndex(abc.ABC):
     repo_client: GitLabClient | GitHubClient
 
     def __init__(self, repo_client: GitLabClient | GitHubClient):
@@ -37,37 +33,11 @@ class BaseCodebaseIndex(abc.ABC):
         self.semantic_search_engine = SemanticSearchEngine(collection_name=settings.CODEBASE_COLLECTION_NAME)
         self.lexical_search_engine = LexicalSearchEngine()
 
-    @abc.abstractmethod
-    def update(self, repo_id: str):
-        pass
-
-    def delete_documents(self, repo_id: str, source_files: list[str]):
-        """
-        Delete source files from the indexes.
-        """
-        self.semantic_search_engine.delete_documents(repo_id, "source", source_files)
-        self.lexical_search_engine.delete_documents(repo_id, "page_source", source_files)
-
-    def delete(self, repo_id: str):
-        """
-        Delete a repository indexes.
-        """
-        logger.info("Reseting repo %s index.", repo_id)
-
-        self.semantic_search_engine.delete(repo_id)
-        self.lexical_search_engine.delete(repo_id)
-
-        CodebaseNamespace.objects.filter(
-            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
-        ).delete()
-
-
-class CodebaseIndex(BaseCodebaseIndex):
-    """ """
-
     @transaction.atomic
     def update(self, repo_id: str):
-        """ """
+        """
+        Update the index of a repository.
+        """
         repository = self.repo_client.get_repository(repo_id)
         namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(repository)
 
@@ -125,6 +95,26 @@ class CodebaseIndex(BaseCodebaseIndex):
             namespace.status = CodebaseNamespace.Status.INDEXED
             namespace.save(update_fields=["status", "modified"])
             logger.info("Index finished for repo %s", namespace.repository_info.external_slug)
+
+    def delete_documents(self, repo_id: str, source_files: list[str]):
+        """
+        Delete source files from the indexes.
+        """
+        self.semantic_search_engine.delete_documents(repo_id, "source", source_files)
+        self.lexical_search_engine.delete_documents(repo_id, "page_source", source_files)
+
+    def delete(self, repo_id: str):
+        """
+        Delete a repository indexes.
+        """
+        logger.info("Reseting repo %s index.", repo_id)
+
+        self.semantic_search_engine.delete(repo_id)
+        self.lexical_search_engine.delete(repo_id)
+
+        CodebaseNamespace.objects.filter(
+            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
+        ).delete()
 
     def search_with_reranker(self, repo_id: str, query: str) -> list[tuple[float, ScoredResult]]:
         """ """

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
@@ -7,7 +8,10 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from codebase.clients import RepoClient
 
-ClientType = Literal["gitlab", "github"]
+
+class ClientType(StrEnum):
+    GITLAB = "gitlab"
+    GITHUB = "github"
 
 
 class Repository(BaseModel):

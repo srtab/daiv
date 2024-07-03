@@ -1,6 +1,15 @@
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
+from pydantic_core import ErrorDetails
+
+
+class UnprocessableEntityResponse(BaseModel):
+    """
+    Response for Unprocessable Entity
+    """
+
+    detail: list[ErrorDetails]
 
 
 class BaseWebHook(BaseModel, ABC):
