@@ -71,7 +71,13 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def commit_changes(
-        self, repo_id: str, ref: str, target_branch: str, commit_message: str, file_changes: list[FileChange]
+        self,
+        repo_id: str,
+        target_branch: str,
+        commit_message: str,
+        file_changes: list[FileChange],
+        start_branch: str | None = None,
+        override_commits: bool = False,
     ):
         pass
 
@@ -370,8 +376,27 @@ class GitLabClient(RepoClient):
                 return merge_request.get_id()
             raise e
 
+    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str):
+        """
+        Comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        merge_request.notes.create({"body": body})
+
     def commit_changes(
-        self, repo_id: str, ref: str, target_branch: str, commit_message: str, file_changes: list[FileChange]
+        self,
+        repo_id: str,
+        target_branch: str,
+        commit_message: str,
+        file_changes: list[FileChange],
+        start_branch: str | None = None,
+        override_commits: bool = False,
     ):
         """
         Commit changes to a repository.
@@ -388,19 +413,27 @@ class GitLabClient(RepoClient):
 
         for file_change in file_changes:
             action = {"action": file_change.action, "file_path": file_change.file_path}
-            if file_change.action in ["create", "update", "move"]:
+            if file_change.action in ["create", "update"]:
                 action["content"] = cast(str, file_change.content)
             if file_change.action == "move":
                 action["previous_path"] = cast(str, file_change.previous_path)
+                # Move actions that do not specify content preserve the existing file content,
+                # and any other value of content overwrites the file content.
+                if file_change.content:
+                    action["content"] = cast(str, file_change.content)
             actions.append(action)
 
-        project.commits.create({
+        commits = {
             "branch": target_branch,
-            "start_branch": ref,
             "commit_message": commit_message,
             "actions": actions,
-            "force": True,
-        })
+            "force": override_commits,
+        }
+
+        if start_branch:
+            commits["start_branch"] = start_branch
+
+        project.commits.create(commits)
 
     @contextmanager
     def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:

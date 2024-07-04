@@ -1,7 +1,7 @@
 from typing import Unpack
 
 from automation.agents.agent import LlmAgent
-from automation.agents.models import Message, Usage
+from automation.agents.models import Message
 from automation.coders.typings import RefactorInvoke
 from codebase.base import FileChange
 
@@ -21,7 +21,7 @@ class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):
         """
         memory = [
             Message(role="system", content=RefactorPrompts.format_system()),
-            Message(role="user", content=RefactorPrompts.format_user_prompt(kwargs["prompt"])),
+            Message(role="user", content=kwargs["prompt"]),
         ]
 
         code_actions = CodeActionTools(
@@ -42,13 +42,3 @@ class SimpleRefactorCoder(RefactorCoder[RefactorInvoke, list[FileChange]]):
             return []
 
         return list(code_actions.file_changes.values())
-
-
-if __name__ == "__main__":
-    coder = SimpleRefactorCoder(usage=Usage())
-
-    response: list[FileChange] = coder.invoke(
-        prompt="Normalize path names declared in sso/api/urls.py to reflect the view class name without the final redudant suffix.",  # noqa: E501
-        source_repo_id="dipcode/trueclinic/sso",
-        source_ref="dev",
-    )

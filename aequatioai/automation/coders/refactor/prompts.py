@@ -1,7 +1,5 @@
 import textwrap
 
-from codebase.base import RepositoryFile
-
 
 class RefactorPrompts:
     @staticmethod
@@ -35,7 +33,7 @@ class RefactorPrompts:
         )
 
     @staticmethod
-    def format_user_prompt(prompt: str) -> str:
+    def format_task_prompt(prompt: str) -> str:
         """
         Format the user prompt for the task.
         """
@@ -47,19 +45,34 @@ class RefactorPrompts:
         ).format(prompt=prompt)
 
     @staticmethod
-    def repository_files_to_str(repository_files: list[RepositoryFile]) -> str:
+    def format_file_review_feedback_prompt(file_path, comment):
         """
-        Get the content of the files in the repository to be used in a prompt.
+        Format the review feedback for the task.
         """
-        return "\n".join([
-            textwrap.dedent(
-                """\
-                ## File: {file_path} ##
-                {content}
-                """
-            ).format(file_path=repo_file.file_path, content=repo_file.content)
-            for repo_file in repository_files
-        ])
+        return textwrap.dedent(
+            """\
+            ### Tasks ###
+            A developer has reviewed file {file_path} and left a comment that you need to analyse and apply the changes.
+
+            ### Developer Comment ###
+            {comment}
+            """
+        ).format(file_path=file_path, comment=comment)
+
+    @staticmethod
+    def format_diff_review_feedback_prompt(file_path, diff_content):
+        """
+        Format the review feedback for the task.
+        """
+        return textwrap.dedent(
+            """\
+            ### Tasks ###
+            A developer has reviewed file {file_path} and left a comment that you need to analyse and apply the changes.
+
+            ### Developer Comment ###
+            {diff_content}
+            """
+        ).format(file_path=file_path, diff_content=diff_content)
 
 
 class PatchRefactorPrompts:

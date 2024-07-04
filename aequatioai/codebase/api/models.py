@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -39,6 +40,9 @@ class MergeRequest(BaseModel):
     description: str
     state: str
     work_in_progress: bool
+    source_branch: str
+    target_branch: str
+    assignee_id: int | None
 
 
 class NoteableType(StrEnum):
@@ -46,8 +50,59 @@ class NoteableType(StrEnum):
     Gitlab Noteable Type
     """
 
-    ISSUE = "issue"
-    MERGE_REQUEST = "merge_request"
+    ISSUE = "Issue"
+    MERGE_REQUEST = "MergeRequest"
+
+
+class NoteDiffPosition(BaseModel):
+    """
+    Gitlab Note Diff Position
+    """
+
+    type: Literal["new", "old"] | None
+    old_line: int | None
+    new_line: int | None
+
+
+class NotePositionLineRange(BaseModel):
+    """
+    Gitlab Note Position Line Range
+    """
+
+    start: NoteDiffPosition
+    end: NoteDiffPosition
+
+
+class NotePositionType(StrEnum):
+    """
+    Gitlab Note Position Type
+    """
+
+    TEXT = "text"
+    FILE = "file"
+
+
+class NotePosition(BaseModel):
+    """
+    Gitlab Note Position
+    """
+
+    head_sha: str
+    old_path: str
+    new_path: str
+    position_type: NotePositionType
+    old_line: int | None = None
+    new_line: int | None = None
+    line_range: NotePositionLineRange | None = None
+
+
+class NoteAction(StrEnum):
+    """
+    Gitlab Note Action
+    """
+
+    UPDATE = "update"
+    CREATE = "create"
 
 
 class Note(BaseModel):
@@ -56,10 +111,13 @@ class Note(BaseModel):
     """
 
     id: int
+    action: NoteAction
     noteable_type: NoteableType
     noteable_id: int
-    body: str
+    note: str
     system: bool
+    type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None
+    position: NotePosition | None = None
 
 
 class Project(BaseModel):

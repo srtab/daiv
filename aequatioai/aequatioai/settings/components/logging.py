@@ -12,5 +12,8 @@ LOGGING: dict = {
         "verbose": {"format": "[%(asctime)s] %(levelname)s - %(name)s - %(message)s", "datefmt": "%d-%m-%Y:%H:%M:%S %z"}
     },
     "handlers": {"console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"}},
-    "loggers": {"": {"level": LOGGING_LEVEL, "handlers": ["console"]}},
+    "loggers": {
+        "": {"level": LOGGING_LEVEL, "handlers": ["console"]},
+        "automation": {"level": "DEBUG", "handlers": ["console"], "propagate": False},
+    },
 }

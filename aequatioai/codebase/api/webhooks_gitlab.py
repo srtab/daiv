@@ -1,10 +1,22 @@
+import logging
 import textwrap
 from typing import TYPE_CHECKING, Literal
 
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangeDescriberCoder
 from automation.coders.refactor.coder_simple import SimpleRefactorCoder
-from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, Project, User
+from automation.coders.refactor.prompts import RefactorPrompts
+from codebase.api.models import (
+    Issue,
+    IssueAction,
+    MergeRequest,
+    Note,
+    NoteableType,
+    NoteAction,
+    NotePositionType,
+    Project,
+    User,
+)
 from codebase.api.webhooks import BaseWebHook
 from codebase.clients import RepoClient
 from codebase.tasks import update_index_repository
@@ -12,6 +24,8 @@ from codebase.tasks import update_index_repository
 if TYPE_CHECKING:
     from automation.coders.change_describer.models import ChangesDescription
     from codebase.base import FileChange
+
+logger = logging.getLogger(__name__)
 
 
 class IssueWebHook(BaseWebHook):
@@ -55,7 +69,7 @@ class IssueWebHook(BaseWebHook):
         usage = Usage()
 
         changes: list[FileChange] = SimpleRefactorCoder(usage=usage).invoke(
-            prompt=self.object_attributes.description,
+            prompt=RefactorPrompts.format_task_prompt(self.object_attributes.description),
             source_repo_id=self.project.path_with_namespace,
             source_ref=self.project.default_branch,
         )
@@ -94,17 +108,18 @@ class IssueWebHook(BaseWebHook):
 
             client.commit_changes(
                 self.project.path_with_namespace,
-                self.project.default_branch,
                 changes_description.branch,
                 changes_description.commit_message,
                 changes,
+                start_branch=self.project.default_branch,
+                override_commits=True,
             )
             merge_request_id = client.update_or_create_merge_request(
                 repo_id=self.project.path_with_namespace,
                 source_branch=changes_description.branch,
                 target_branch=self.project.default_branch,
-                title=changes_description.title,
                 assignee_id=current_user.id,
+                title=changes_description.title,
                 description=textwrap.dedent(
                     """\
                     👋 Hi there! This PR was automatically generated based on {source_repo_id}#{issue_id}
@@ -158,19 +173,83 @@ class NoteWebHook(BaseWebHook):
     object_kind: Literal["note"]
     project: Project
     user: User
-    issue: Issue | None = None
     merge_request: MergeRequest | None = None
     object_attributes: Note
 
     def accept_webhook(self) -> bool:
-        return (
+        client = RepoClient.create_instance()
+        return bool(
             self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+            and not self.object_attributes.system
+            and self.object_attributes.action == NoteAction.CREATE
             and self.merge_request
             and not self.merge_request.work_in_progress
-        ) or self.object_attributes.noteable_type == NoteableType.ISSUE
+            and client.get_current_user().id == self.merge_request.assignee_id
+        )
 
     def process_webhook(self):
-        pass
+        if self.merge_request and self.object_attributes.position:
+            usage = Usage()
+            client = RepoClient.create_instance()
+
+            changes: list[FileChange] = []
+
+            if self.object_attributes.position.position_type == NotePositionType.FILE:
+                changes = SimpleRefactorCoder(usage=usage).invoke(
+                    prompt=RefactorPrompts.format_file_review_feedback_prompt(
+                        self.object_attributes.position.new_path, self.object_attributes.note
+                    ),
+                    source_repo_id=self.project.path_with_namespace,
+                    source_ref=self.merge_request.source_branch,
+                )
+            elif self.object_attributes.position.position_type == NotePositionType.TEXT:
+                # TODO: Implement text position type
+                changes = SimpleRefactorCoder(usage=usage).invoke(
+                    prompt=RefactorPrompts.format_diff_review_feedback_prompt(
+                        self.object_attributes.position.new_path, self.object_attributes.note
+                    ),
+                    source_repo_id=self.project.path_with_namespace,
+                    source_ref=self.merge_request.source_branch,
+                )
+                return
+            else:
+                logger.warning("Unsupported position type: %s", self.object_attributes.position.position_type)
+                return
+
+            changes_description: ChangesDescription | None = ChangeDescriberCoder(usage).invoke(
+                changes=[". ".join(file_change.commit_messages) for file_change in changes]
+            )
+            if changes_description is None:
+                raise ValueError("No changes description was generated.")
+
+            client.commit_changes(
+                self.project.path_with_namespace,
+                self.merge_request.source_branch,
+                changes_description.commit_message,
+                changes,
+            )
+            client.comment_merge_request(
+                self.project.path_with_namespace,
+                self.merge_request.iid,
+                textwrap.dedent(
+                    """\
+                    I've made the changes: **{changes}**.
+
+                    Please review them and let me know if you need further assistance.
+
+                    ### 🤓 Stats for the nerds:
+                    Prompt tokens: **{prompt_tokens:,}** \\
+                    Completion tokens: **{completion_tokens:,}** \\
+                    Total tokens: **{total_tokens:,}** \\
+                    Estimated cost: **${total_cost:.10f}**"""
+                ).format(
+                    changes=changes_description.title,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    total_tokens=usage.total_tokens,
+                    total_cost=usage.cost,
+                ),
+            )
 
 
 class PushWebHook(BaseWebHook):

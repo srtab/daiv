@@ -30,6 +30,25 @@ class CreateFile(OpenAISchema):
     commit_message: str = Field(description="The commit message to use.")
 
 
+class RenameFile(OpenAISchema):
+    """
+    Use this as the primary tool to rename a file.
+    """
+
+    file_path: str = Field(description="The file path to rename.")
+    new_file_path: str = Field(description="The new file path.")
+    commit_message: str = Field(description="The commit message to use.")
+
+
+class DeleteFile(OpenAISchema):
+    """
+    Use this as the primary tool to delete a file.
+    """
+
+    file_path: str = Field(description="The file path to delete.")
+    commit_message: str = Field(description="The commit message to use.")
+
+
 class GetRepositoryFile(OpenAISchema):
     """
     Use this as the primary tool to get the content of a file from a repository.

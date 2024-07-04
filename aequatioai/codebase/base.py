@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -62,8 +62,15 @@ class MergeRequestDiff(BaseModel):
     deleted_file: bool = False
 
 
+class FileChangeAction(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    MOVE = "move"
+
+
 class FileChange(BaseModel):
-    action: Literal["create", "update", "delete", "move"]
+    action: FileChangeAction
     file_path: str
     content: str | None = None
     previous_path: str | None = None

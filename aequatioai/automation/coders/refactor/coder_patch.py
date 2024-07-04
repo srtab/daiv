@@ -12,7 +12,7 @@ from automation.coders.refactor import RefactorCoder
 from automation.coders.refactor.prompts import PatchRefactorPrompts
 from automation.coders.refactor.tools import CodeActionTools
 from automation.coders.typings import MergerRequestRefactorInvoke
-from codebase.base import FileChange, RepositoryFile
+from codebase.base import FileChange, FileChangeAction, RepositoryFile
 from codebase.document_loaders import EXCLUDE_PATTERN
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[
             if mr_diff.renamed_file:
                 # TODO: The filepaths can be different in the source and target repositories. We need to handle this.
                 code_actions.file_changes[mr_diff.old_path] = FileChange(
-                    action="move",
+                    action=FileChangeAction.MOVE,
                     previous_path=filepath_to_change,
                     file_path=mr_diff.new_path,
                     commit_messages=[f"Renamed file from {filepath_to_change} to {mr_diff.new_path}."],
@@ -74,7 +74,9 @@ class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[
 
             if mr_diff.deleted_file:
                 code_actions.file_changes[mr_diff.old_path] = FileChange(
-                    action="delete", file_path=mr_diff.old_path, commit_messages=["Deleted file {mr_diff.old_path}."]
+                    action=FileChangeAction.DELETE,
+                    file_path=mr_diff.old_path,
+                    commit_messages=["Deleted file {mr_diff.old_path}."],
                 )
                 continue
 

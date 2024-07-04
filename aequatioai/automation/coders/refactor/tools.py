@@ -3,9 +3,16 @@ import logging
 from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
 from automation.coders.paths_replacer.coder import PathsReplacerCoder
-from automation.coders.refactor.schemas import CreateFile, GetRepositoryFile, GetRepositoryTree, ReplaceSnippetWith
+from automation.coders.refactor.schemas import (
+    CreateFile,
+    DeleteFile,
+    GetRepositoryFile,
+    GetRepositoryTree,
+    RenameFile,
+    ReplaceSnippetWith,
+)
 from automation.coders.replacer import ReplacerCoder
-from codebase.base import FileChange
+from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
@@ -68,6 +75,9 @@ class CodeActionTools:
             file_path,
         )
 
+        if file_path in self.file_changes and self.file_changes[file_path].action == FileChangeAction.DELETE:
+            raise Exception("File is marked to be deleted.")
+
         repo_file_content = self._get_file_content(file_path)
 
         if self.replace_paths:
@@ -89,7 +99,10 @@ class CodeActionTools:
             self.file_changes[file_path].commit_messages.append(commit_message)
         else:
             self.file_changes[file_path] = FileChange(
-                action="update", file_path=file_path, content=replaced_content, commit_messages=[commit_message]
+                action=FileChangeAction.UPDATE,
+                file_path=file_path,
+                content=replaced_content,
+                commit_messages=[commit_message],
             )
 
         return "success: Snippet replaced."
@@ -119,13 +132,43 @@ class CodeActionTools:
             raise Exception("File already exists.")
 
         if self.replace_paths:
-            replacement_content = self._replace_paths(content)
+            content = self._replace_paths(content)
 
         self.file_changes[file_path] = FileChange(
-            action="create", file_path=file_path, content=replacement_content, commit_messages=[commit_message]
+            action=FileChangeAction.CREATE, file_path=file_path, content=content, commit_messages=[commit_message]
         )
 
         return f"success: Created new file {file_path}."
+
+    def rename_file(self, file_path: str, new_file_path: str, commit_message: str):
+        """
+        Renames a file.
+        """
+        logger.debug("[CodeActionTools.rename_file] Renaming file %s to %s", file_path, new_file_path)
+
+        if new_file_path in self.file_changes:
+            raise Exception("New file already exists.")
+
+        self.file_changes[new_file_path] = FileChange(
+            action=FileChangeAction.MOVE,
+            file_path=new_file_path,
+            previous_path=file_path,
+            commit_messages=[commit_message],
+        )
+
+        return f"success: Renamed file {file_path} to {new_file_path}."
+
+    def delete_file(self, file_path: str, commit_message: str):
+        """
+        Deletes a file.
+        """
+        logger.debug("[CodeActionTools.delete_file] Deleting file %s", file_path)
+
+        self.file_changes[file_path] = FileChange(
+            action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
+        )
+
+        return f"success: Deleted file {file_path}."
 
     def _replace_paths(self, replacement_snippet: str) -> str:
         """
@@ -183,6 +226,8 @@ class CodeActionTools:
         return [
             FunctionTool(schema_model=ReplaceSnippetWith, fn=self.replace_snippet_with),
             FunctionTool(schema_model=CreateFile, fn=self.create_file),
+            FunctionTool(schema_model=RenameFile, fn=self.rename_file),
+            FunctionTool(schema_model=DeleteFile, fn=self.delete_file),
             FunctionTool(schema_model=GetRepositoryFile, fn=self.get_repository_file),
             FunctionTool(schema_model=GetRepositoryTree, fn=self.get_repository_tree),
         ]
