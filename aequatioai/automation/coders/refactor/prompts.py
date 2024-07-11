@@ -45,33 +45,38 @@ class RefactorPrompts:
         ).format(prompt=prompt)
 
     @staticmethod
-    def format_file_review_feedback_prompt(file_path, comment):
+    def format_file_review_feedback_prompt(file_path: str, comments: list[str]) -> str:
         """
         Format the review feedback for the task.
         """
         return textwrap.dedent(
             """\
             ### Tasks ###
-            A developer has reviewed file {file_path} and left a comment that you need to analyse and apply the changes.
+            A developer has reviewed the file {file_path} and left comments that you need to analyze and apply changes.
 
-            ### Developer Comment ###
-            {comment}
+            ### Developer Comments ###
+            {comments}
             """
-        ).format(file_path=file_path, comment=comment)
+        ).format(file_path=file_path, comments="\n".join(comments))
 
     @staticmethod
-    def format_diff_review_feedback_prompt(file_path, diff_content):
+    def format_diff_review_feedback_prompt(file_path: str, comments: list[tuple[str, str]]) -> str:
         """
         Format the review feedback for the task.
         """
+        diff_content = ""
+        for comment in comments:
+            diff_content += f"\n{comment[0]}\n\nHunk:\n{comment[1]}\n\n"
+
         return textwrap.dedent(
             """\
             ### Tasks ###
-            A developer has reviewed file {file_path} and left a comment that you need to analyse and apply the changes.
+            A developer has reviewed the file {file_path} and left comments that you need to analyze and apply changes.
+            The comments below contain a hunk of a unified diff with the lines of code where the developer left the notes, and the corresponding notes to you address.
 
-            ### Developer Comment ###
+            ### Developer Comments ###
             {diff_content}
-            """
+            """  # noqa: E501
         ).format(file_path=file_path, diff_content=diff_content)
 
 

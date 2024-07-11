@@ -52,7 +52,7 @@ class MergeRequest(BaseModel):
 
 class MergeRequestDiff(BaseModel):
     repo_id: str
-    merge_request_id: str
+    merge_request_id: int
     ref: str
     old_path: str
     new_path: str
@@ -83,9 +83,63 @@ class User(BaseModel):
     username: str
 
 
-class IssueNote(BaseModel):
-    author: User
+class NoteableType(StrEnum):
+    """
+    Gitlab Noteable Type
+    """
+
+    ISSUE = "Issue"
+    MERGE_REQUEST = "MergeRequest"
+
+
+class NoteDiffPositionType(StrEnum):
+    OLD = "old"
+    NEW = "new"
+    EXPANDED = "expanded"
+
+
+class NoteDiffPosition(BaseModel):
+    type: NoteDiffPositionType | None
+    old_line: int | None
+    new_line: int | None
+
+
+class NotePositionLineRange(BaseModel):
+    start: NoteDiffPosition
+    end: NoteDiffPosition
+
+
+class NotePositionType(StrEnum):
+    TEXT = "text"
+    FILE = "file"
+
+
+class NotePosition(BaseModel):
+    head_sha: str
+    old_path: str
+    new_path: str
+    position_type: NotePositionType
+    old_line: int | None = None
+    new_line: int | None = None
+    line_range: NotePositionLineRange | None = None
+
+
+class NoteType(StrEnum):
+    DIFF_NOTE = "DiffNote"
+    DISCUSSION_NOTE = "DiscussionNote"
+    NOTE = "Note"
+
+
+class Note(BaseModel):
+    id: int
     body: str
+    author: User
+    noteable_type: NoteableType
+    system: bool
+    resolvable: bool
+    resolved: bool
+    type: NoteType | None = None
+    position: NotePosition | None = None
 
 
 class Issue(BaseModel):
@@ -93,5 +147,5 @@ class Issue(BaseModel):
     title: str
     description: str
     state: str
-    notes: list[IssueNote] = Field(default_factory=list)
+    notes: list[Note] = Field(default_factory=list)
     related_merge_requests: list[MergeRequest] = Field(default_factory=list)

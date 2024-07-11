@@ -11,7 +11,20 @@ from zipfile import ZipFile
 from gitlab import Gitlab, GitlabCreateError
 from gitlab.v4.objects import ProjectHook
 
-from .base import ClientType, FileChange, Issue, IssueNote, MergeRequest, MergeRequestDiff, Repository, User
+from .base import (
+    ClientType,
+    FileChange,
+    Issue,
+    MergeRequest,
+    MergeRequestDiff,
+    Note,
+    NoteDiffPosition,
+    NotePosition,
+    NotePositionLineRange,
+    NoteType,
+    Repository,
+    User,
+)
 from .conf import settings
 
 if TYPE_CHECKING:
@@ -54,7 +67,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: str) -> Generator[MergeRequestDiff, None, None]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
         pass
 
     @abc.abstractmethod
@@ -67,6 +80,10 @@ class RepoClient(abc.ABC):
         description: str,
         assignee_id: int | None = None,
     ) -> int | str | None:
+        pass
+
+    @abc.abstractmethod
+    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str):
         pass
 
     @abc.abstractmethod
@@ -104,7 +121,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[IssueNote]:
+    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
         pass
 
     @abc.abstractmethod
@@ -115,6 +132,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_current_user(self) -> User:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_notes(self, repo_id: str, merge_request_id: int, type: NoteType | None = None) -> list[Note]:  # noqa: A002
         pass
 
     @staticmethod
@@ -141,7 +162,7 @@ class GitLabClient(RepoClient):
     client_slug = ClientType.GITLAB
 
     def __init__(self, auth_token: str, url: str | None = None):
-        self.client = Gitlab(url=url, private_token=auth_token, timeout=10)
+        self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
 
     def get_repository(self, repo_id: str) -> Repository:
         """
@@ -299,7 +320,7 @@ class GitLabClient(RepoClient):
                 return cast(ProjectHook, hook)
         return None
 
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: str) -> Generator[MergeRequestDiff, None, None]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
         """
         Get the latest diff of a merge request.
         https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
@@ -547,7 +568,7 @@ class GitLabClient(RepoClient):
         issue = project.issues.get(issue_id, lazy=True)
         issue.notes.create({"body": body})
 
-    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[IssueNote]:
+    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
         """
         Get the notes of an issue.
 
@@ -561,8 +582,14 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         return [
-            IssueNote(
+            Note(
+                id=note.id,
                 body=note.body,
+                type=note.type,
+                noteable_type=note.noteable_type,
+                system=note.system,
+                resolvable=note.resolvable,
+                resolved=note.resolved,
                 author=User(
                     id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
                 ),
@@ -604,6 +631,58 @@ class GitLabClient(RepoClient):
         if user := self.client.user:
             return User(id=user.id, username=user.username, name=user.name)
         raise ValueError("Couldn't get current user profile")
+
+    def get_merge_request_notes(self, repo_id: str, merge_request_id: int, type: NoteType | None = None) -> list[Note]:  # noqa: A002
+        """
+        Get the diff notes from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+
+        Returns:
+            The list of merge request comments.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        return [
+            Note(
+                id=note.id,
+                body=note.body,
+                type=note.type,
+                noteable_type=note.noteable_type,
+                system=note.system,
+                resolvable=note.resolvable,
+                resolved=note.resolved,
+                author=User(
+                    id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
+                ),
+                position=NotePosition(
+                    head_sha=note.position.get("head_sha"),
+                    old_path=note.position.get("old_path"),
+                    new_path=note.position.get("new_path"),
+                    position_type=note.position.get("position_type"),
+                    old_line=note.position.get("old_line"),
+                    new_line=note.position.get("new_line"),
+                    line_range=NotePositionLineRange(
+                        start=NoteDiffPosition(
+                            type=note.position.get("line_range").get("start").get("type"),
+                            old_line=note.position.get("line_range").get("start").get("old_line"),
+                            new_line=note.position.get("line_range").get("start").get("new_line"),
+                        ),
+                        end=NoteDiffPosition(
+                            type=note.position.get("line_range").get("end").get("type"),
+                            old_line=note.position.get("line_range").get("end").get("old_line"),
+                            new_line=note.position.get("line_range").get("end").get("new_line"),
+                        ),
+                    )
+                    if note.position.get("line_range")
+                    else None,
+                ),
+            )
+            for note in merge_request.notes.list(all=True, iterator=True)
+            if not note.system and note.resolvable and not note.resolved and (type is None or note.type == type)
+        ]
 
 
 class GitHubClient(RepoClient):

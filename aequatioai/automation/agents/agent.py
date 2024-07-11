@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 litellm.telemetry = False
-# litellm.set_verbose = True
 
 
 class LlmAgent(ABC):

@@ -35,6 +35,7 @@ sentence-transformers = "==3.0.1"
 tantivy = "==0.22.0"
 tree-sitter = "==0.21.3"
 tree-sitter-languages = "==1.10.2"
+unidiff = "==0.7.5"
 uvicorn = "==0.30.1"
 
 [dev-packages]
