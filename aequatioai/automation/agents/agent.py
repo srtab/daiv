@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 litellm.telemetry = False
 
 
+CHEAPER_MODEL = "gpt-3.5-turbo"
+PERFORMANT_MODEL = "gpt-4o-2024-05-13"
+
+
 class LlmAgent(ABC):
     """
     An agent that interacts with the LLM API.
@@ -33,7 +37,7 @@ class LlmAgent(ABC):
     name: str
     memory: list[Message]
     tools: list[FunctionTool]
-    model: str = "gpt-4o-2024-05-13"
+    model: str = PERFORMANT_MODEL
 
     iterations: int = 0
     max_iterations: int = 10

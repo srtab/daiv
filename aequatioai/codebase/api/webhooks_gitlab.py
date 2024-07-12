@@ -177,6 +177,7 @@ class NoteWebHook(BaseWebHook):
             and self.object_attributes.action == NoteAction.CREATE
             and self.merge_request
             and not self.merge_request.work_in_progress
+            and self.merge_request.state == "opened"
             and client.get_current_user().id == self.merge_request.assignee_id
         )
 
@@ -184,12 +185,11 @@ class NoteWebHook(BaseWebHook):
         """
         Process the webhook by generating the changes and committing them to the source branch.
         """
-        if self.merge_request and self.object_attributes.position:
-            handle_mr_feedback.si(
-                repo_id=self.project.path_with_namespace,
-                merge_request_id=self.merge_request.iid,
-                merge_request_source_branch=self.merge_request.source_branch,
-            ).apply_async()
+        handle_mr_feedback.si(
+            repo_id=self.project.path_with_namespace,
+            merge_request_id=self.merge_request.iid,
+            merge_request_source_branch=self.merge_request.source_branch,
+        ).apply_async()
 
 
 class PushWebHook(BaseWebHook):

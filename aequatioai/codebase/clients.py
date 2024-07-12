@@ -13,6 +13,7 @@ from gitlab.v4.objects import ProjectHook
 
 from .base import (
     ClientType,
+    Discussion,
     FileChange,
     Issue,
     MergeRequest,
@@ -135,7 +136,9 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_notes(self, repo_id: str, merge_request_id: int, type: NoteType | None = None) -> list[Note]:  # noqa: A002
+    def get_merge_request_discussions(
+        self, repo_id: str, merge_request_id: int, note_type: NoteType | None = None
+    ) -> list[Discussion]:  # noqa: A002
         pass
 
     @staticmethod
@@ -632,9 +635,11 @@ class GitLabClient(RepoClient):
             return User(id=user.id, username=user.username, name=user.name)
         raise ValueError("Couldn't get current user profile")
 
-    def get_merge_request_notes(self, repo_id: str, merge_request_id: int, type: NoteType | None = None) -> list[Note]:  # noqa: A002
+    def get_merge_request_discussions(
+        self, repo_id: str, merge_request_id: int, note_type: NoteType | None = None
+    ) -> list[Discussion]:  # noqa: A002
         """
-        Get the diff notes from a merge request.
+        Get the discussions from a merge request.
 
         Args:
             repo_id: The repository ID.
@@ -646,43 +651,93 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return [
+            Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], note_type))
+            for discussion in merge_request.discussions.list(all=True, iterator=True)
+            if discussion.individual_note is False
+        ]
+
+    def _serialize_notes(self, notes: list[dict], note_type: NoteType | None = None) -> list[Note]:
+        """
+        Serialize dictionary of notes to Note objects.
+
+        Args:
+            notes: The list of notes.
+            note_type: The note type.
+
+        Returns:
+            The list of Note objects.
+        """
+        return [
             Note(
-                id=note.id,
-                body=note.body,
-                type=note.type,
-                noteable_type=note.noteable_type,
-                system=note.system,
-                resolvable=note.resolvable,
-                resolved=note.resolved,
+                id=note["id"],
+                body=note["body"],
+                type=note["type"],
+                noteable_type=note["noteable_type"],
+                system=note["system"],
+                resolvable=note["resolvable"],
+                resolved=note["resolved"],
                 author=User(
-                    id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
+                    id=note["author"].get("id"),
+                    username=note["author"].get("username"),
+                    name=note["author"].get("name"),
                 ),
                 position=NotePosition(
-                    head_sha=note.position.get("head_sha"),
-                    old_path=note.position.get("old_path"),
-                    new_path=note.position.get("new_path"),
-                    position_type=note.position.get("position_type"),
-                    old_line=note.position.get("old_line"),
-                    new_line=note.position.get("new_line"),
+                    head_sha=note["position"].get("head_sha"),
+                    old_path=note["position"].get("old_path"),
+                    new_path=note["position"].get("new_path"),
+                    position_type=note["position"].get("position_type"),
+                    old_line=note["position"].get("old_line"),
+                    new_line=note["position"].get("new_line"),
                     line_range=NotePositionLineRange(
                         start=NoteDiffPosition(
-                            type=note.position.get("line_range").get("start").get("type"),
-                            old_line=note.position.get("line_range").get("start").get("old_line"),
-                            new_line=note.position.get("line_range").get("start").get("new_line"),
+                            type=note["position"]["line_range"]["start"]["type"],
+                            old_line=note["position"]["line_range"]["start"]["old_line"],
+                            new_line=note["position"]["line_range"]["start"]["new_line"],
                         ),
                         end=NoteDiffPosition(
-                            type=note.position.get("line_range").get("end").get("type"),
-                            old_line=note.position.get("line_range").get("end").get("old_line"),
-                            new_line=note.position.get("line_range").get("end").get("new_line"),
+                            type=note["position"]["line_range"]["end"]["type"],
+                            old_line=note["position"]["line_range"]["end"]["old_line"],
+                            new_line=note["position"]["line_range"]["end"]["new_line"],
                         ),
                     )
-                    if note.position.get("line_range")
+                    if note["position"].get("line_range")
                     else None,
                 ),
             )
-            for note in merge_request.notes.list(all=True, iterator=True)
-            if not note.system and note.resolvable and not note.resolved and (type is None or note.type == type)
+            for note in notes
+            if not note["system"]
+            and note["resolvable"]
+            and not note["resolved"]
+            and (note_type is None or note["type"] == note_type)
         ]
+
+    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: int):
+        """
+        Resolve a discussion in a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        merge_request.discussions.update(discussion_id, {"resolved": True})
+
+    def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: int, body: str):
+        """
+        Create a note in a discussion of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+            body: The note body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        discussion = merge_request.discussions.get(discussion_id, lazy=True)
+        discussion.notes.create({"body": body})
 
 
 class GitHubClient(RepoClient):

@@ -66,15 +66,15 @@ class RefactorPrompts:
         """
         diff_content = ""
         for comment in comments:
-            diff_content += f"\n{comment[0]}\n\nHunk:\n{comment[1]}\n\n"
+            diff_content += f"\n{comment[0]}Hunk:\n{comment[1]}\n\n"
 
         return textwrap.dedent(
             """\
             ### Tasks ###
-            A developer has reviewed the file {file_path} and left comments that you need to analyze and apply changes.
-            The comments below contain a hunk of a unified diff with the lines of code where the developer left the notes, and the corresponding notes to you address.
+            A developer has reviewed the file {file_path} and left notes that you need to analyse and address one by one.
+            The review below contain a hunk of a unified diff, which includes the line number of the code where the developer left the review to locate you, and the corresponding notes to you address.
 
-            ### Developer Comments ###
+            ### Developer Review ###
             {diff_content}
             """  # noqa: E501
         ).format(file_path=file_path, diff_content=diff_content)

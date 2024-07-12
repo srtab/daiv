@@ -140,6 +140,12 @@ class Note(BaseModel):
     resolved: bool
     type: NoteType | None = None
     position: NotePosition | None = None
+    hunk: str | None = None
+
+
+class Discussion(BaseModel):
+    id: str
+    notes: list[Note] = Field(default_factory=list)
 
 
 class Issue(BaseModel):
