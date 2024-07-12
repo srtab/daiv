@@ -32,5 +32,5 @@ class PathsReplacerInvoke(Invoke):
     repository_tree: Iterator[str]
 
 
-class ChangeDescriberInvoke(Invoke):
+class ChangesDescriberInvoke(Invoke):
     changes: list[str]

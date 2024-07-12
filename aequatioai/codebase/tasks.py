@@ -10,7 +10,7 @@ from redis.exceptions import LockError
 from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.agents.models import Usage
-from automation.coders.change_describer.coder import ChangeDescriberCoder
+from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.refactor.coder_simple import SimpleRefactorCoder
 from automation.coders.refactor.prompts import RefactorPrompts
 from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
@@ -20,7 +20,7 @@ from codebase.indexes import CodebaseIndex
 if TYPE_CHECKING:
     from unidiff.patch import Line
 
-    from automation.coders.change_describer.models import ChangesDescription
+    from automation.coders.change_describer.models import ChangesDescriber
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, feedback_to_address: Fe
     if not changes:
         return
 
-    changes_description: ChangesDescription | None = ChangeDescriberCoder(usage).invoke(
+    changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
         changes=[". ".join(file_change.commit_messages) for file_change in changes]
     )
     if changes_description is None:

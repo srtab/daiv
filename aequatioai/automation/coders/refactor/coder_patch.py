@@ -6,8 +6,8 @@ from typing import Unpack
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message, Usage
-from automation.coders.change_describer.coder import ChangeDescriberCoder
-from automation.coders.change_describer.models import ChangesDescription
+from automation.coders.change_describer.coder import ChangesDescriberCoder
+from automation.coders.change_describer.models import ChangesDescriber
 from automation.coders.refactor import RefactorCoder
 from automation.coders.refactor.prompts import PatchRefactorPrompts
 from automation.coders.refactor.tools import CodeActionTools
@@ -151,7 +151,7 @@ if __name__ == "__main__":
         target_repo_id=repo_id, target_ref="dev", source_repo_id=source_repo_id, merge_request_id=merge_request_id
     )
 
-    changes_description: ChangesDescription | None = ChangeDescriberCoder(usage).invoke(
+    changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
         changes=[". ".join(file_change.commit_messages) for file_change in response]
     )
 

@@ -1,3 +1,3 @@
-from .coder import ChangeDescriberCoder
+from .coder import ChangesDescriberCoder
 
-__all__ = ["ChangeDescriberCoder"]
+__all__ = ["ChangesDescriberCoder"]

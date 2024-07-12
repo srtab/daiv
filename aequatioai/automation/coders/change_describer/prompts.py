@@ -1,7 +1,7 @@
 import textwrap
 
 
-class ChangeDescriberPrompts:
+class ChangesDescriberPrompts:
     @staticmethod
     def format_system_msg():
         return textwrap.dedent(

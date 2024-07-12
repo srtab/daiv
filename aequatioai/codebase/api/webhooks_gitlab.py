@@ -3,7 +3,7 @@ import textwrap
 from typing import TYPE_CHECKING, Literal
 
 from automation.agents.models import Usage
-from automation.coders.change_describer.coder import ChangeDescriberCoder
+from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.refactor.coder_simple import SimpleRefactorCoder
 from automation.coders.refactor.prompts import RefactorPrompts
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
@@ -12,7 +12,7 @@ from codebase.clients import RepoClient
 from codebase.tasks import handle_mr_feedback, update_index_repository
 
 if TYPE_CHECKING:
-    from automation.coders.change_describer.models import ChangesDescription
+    from automation.coders.change_describer.models import ChangesDescriber
     from codebase.base import FileChange
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class IssueWebHook(BaseWebHook):
         )
 
         if changes:
-            changes_description: ChangesDescription | None = ChangeDescriberCoder(usage).invoke(
+            changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
                 changes=[". ".join(file_change.commit_messages) for file_change in changes]
             )
 
