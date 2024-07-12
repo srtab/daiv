@@ -6,13 +6,13 @@ from automation.coders.base import CodebaseCoder
 from automation.coders.typings import CodebaseInvoke
 from codebase.base import FileChange
 
-from ..tools import CodeActionTools
-from .prompts import RefactorPrompts
+from .prompts import ReviewAddressorPrompts
+from .tools import ReviewAddressorTools
 
 
-class SimpleRefactorCoder(CodebaseCoder[CodebaseInvoke, list[FileChange]]):
+class ReviewAddressorCoder(CodebaseCoder[CodebaseInvoke, list[FileChange]]):
     """
-    A simple coder that takes the user input and generates the original and updated blocks.
+    Coder to address the review comments in the codebase.
     """
 
     def invoke(self, *args, **kwargs: Unpack[CodebaseInvoke]) -> list[FileChange]:
@@ -20,11 +20,11 @@ class SimpleRefactorCoder(CodebaseCoder[CodebaseInvoke, list[FileChange]]):
         Invoke the coder to generate the original and updated blocks from the user input.
         """
         memory = [
-            Message(role="system", content=RefactorPrompts.format_system()),
+            Message(role="system", content=ReviewAddressorPrompts.format_system()),
             Message(role="user", content=kwargs["prompt"]),
         ]
 
-        code_actions = CodeActionTools(
+        code_actions = ReviewAddressorTools(
             self.repo_client,
             self.codebase_index,
             self.usage,

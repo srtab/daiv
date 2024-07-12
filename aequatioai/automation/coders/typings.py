@@ -1,17 +1,14 @@
 from collections.abc import Iterator
 from typing import TypedDict
 
-from codebase.base import RepositoryFile
-
 
 class Invoke(TypedDict):
     prompt: str | None
 
 
-class RefactorInvoke(Invoke):
+class CodebaseInvoke(Invoke):
     source_repo_id: str
     source_ref: str
-    example_file: RepositoryFile | None
 
 
 class MergerRequestRefactorInvoke(Invoke):

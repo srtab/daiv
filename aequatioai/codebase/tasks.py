@@ -11,8 +11,8 @@ from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
-from automation.coders.refactor.coder_simple import SimpleRefactorCoder
-from automation.coders.refactor.prompts import RefactorPrompts
+from automation.coders.review_addressor.coder import ReviewAddressorCoder
+from automation.coders.review_addressor.prompts import ReviewAddressorPrompts
 from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -67,7 +67,7 @@ class FeedbackToAdress:
     text_notes: list[Note] = field(default_factory=list)
 
 
-def locked_task(key: str):
+def locked_task(key: str = ""):
     def decorator(func):
         def wrapper(*args, **kwargs):
             try:
@@ -184,8 +184,8 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, feedback_to_address: Fe
     changes: list[FileChange] = []
 
     if feedback_to_address.file_notes:
-        changes = SimpleRefactorCoder(usage=usage).invoke(
-            prompt=RefactorPrompts.format_file_review_feedback_prompt(
+        changes = ReviewAddressorCoder(usage=usage).invoke(
+            prompt=ReviewAddressorPrompts.format_file_review_feedback_prompt(
                 feedback_to_address.patch_file.path, [note.body for note in feedback_to_address.file_notes]
             ),
             source_repo_id=feedback_to_address.repo_id,
@@ -193,8 +193,8 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, feedback_to_address: Fe
         )
 
     if feedback_to_address.text_notes:
-        changes = SimpleRefactorCoder(usage=usage).invoke(
-            prompt=RefactorPrompts.format_diff_review_feedback_prompt(
+        changes = ReviewAddressorCoder(usage=usage).invoke(
+            prompt=ReviewAddressorPrompts.format_diff_review_feedback_prompt(
                 feedback_to_address.patch_file.path,
                 [(note.body, cast(str, note.hunk)) for note in feedback_to_address.text_notes],
             ),

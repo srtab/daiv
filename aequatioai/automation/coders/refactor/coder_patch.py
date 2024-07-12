@@ -6,11 +6,11 @@ from typing import Unpack
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message, Usage
+from automation.coders.base import CodebaseCoder
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.change_describer.models import ChangesDescriber
-from automation.coders.refactor import RefactorCoder
 from automation.coders.refactor.prompts import PatchRefactorPrompts
-from automation.coders.refactor.tools import CodeActionTools
+from automation.coders.tools import CodeActionTools
 from automation.coders.typings import MergerRequestRefactorInvoke
 from codebase.base import FileChange, FileChangeAction, RepositoryFile
 from codebase.document_loaders import EXCLUDE_PATTERN
@@ -18,7 +18,7 @@ from codebase.document_loaders import EXCLUDE_PATTERN
 logger = logging.getLogger(__name__)
 
 
-class MergeRequestRefactorCoder(RefactorCoder[MergerRequestRefactorInvoke, list[FileChange]]):
+class MergeRequestRefactorCoder(CodebaseCoder[MergerRequestRefactorInvoke, list[FileChange]]):
     """
     A coder that applies the changes from a merge request diff to a repository.
     """
