@@ -4,6 +4,7 @@ import abc
 import logging
 import tempfile
 from contextlib import AbstractContextManager, contextmanager
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
@@ -132,7 +133,8 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_current_user(self) -> User:
+    @cached_property
+    def current_user(self) -> User:
         pass
 
     @abc.abstractmethod
@@ -623,7 +625,8 @@ class GitLabClient(RepoClient):
             if assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id
         ]
 
-    def get_current_user(self) -> User:
+    @cached_property
+    def current_user(self) -> User:
         """
         Get the profile of the current user.
 

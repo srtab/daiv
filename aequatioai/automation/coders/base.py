@@ -7,6 +7,8 @@ from codebase.indexes import CodebaseIndex
 
 from .typings import Invoke
 
+STOP_MESSAGE = "<DONE>"
+
 TInvoke = TypeVar("TInvoke", bound=Invoke)
 TInvokeReturn = TypeVar("TInvokeReturn")
 

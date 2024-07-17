@@ -1,6 +1,8 @@
 from collections.abc import Iterator
 from typing import TypedDict
 
+from codebase.base import Note
+
 
 class Invoke(TypedDict):
     prompt: str | None
@@ -9,6 +11,12 @@ class Invoke(TypedDict):
 class CodebaseInvoke(Invoke):
     source_repo_id: str
     source_ref: str
+
+
+class ReviewAddressorInvoke(CodebaseInvoke):
+    file_path: str
+    notes: list[Note]
+    hunk: str | None = None
 
 
 class MergerRequestRefactorInvoke(Invoke):

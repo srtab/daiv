@@ -1,5 +1,7 @@
 import textwrap
 
+from automation.coders.base import STOP_MESSAGE
+
 
 class RefactorPrompts:
     @staticmethod
@@ -15,8 +17,8 @@ class RefactorPrompts:
             convert the task into code.
             It's absolutely vital that you completely and correctly execute your task.
 
-            When the task is complete, reply with "<DONE>"
-            If you are unable to complete the task, also reply with "<DONE>"
+            When the task is complete, reply with "{STOP_MESSAGE}".
+            If you are unable to complete the task, also reply with "{STOP_MESSAGE}".
 
             ### Guidelines ###
             - Think out loud step-by-step before you start writing code.
@@ -30,7 +32,7 @@ class RefactorPrompts:
             - Carefully review your code and ensure it respects and use existing conventions, libraries, etc that are already present in the codebase.
             You must use the provided tools/functions to do so.
             """  # noqa: E501
-        )
+        ).format(STOP_MESSAGE=STOP_MESSAGE)
 
     @staticmethod
     def format_task_prompt(prompt: str) -> str:
@@ -94,8 +96,8 @@ class PatchRefactorPrompts:
             convert the task into code.
             It's absolutely vital that you completely and correctly execute your task.
 
-            When the task is complete, reply with "<DONE>"
-            If you are unable to complete the task, also reply with "<DONE>"
+            When the task is complete, reply with "{STOP_MESSAGE}".
+            If you are unable to complete the task, also reply with "{STOP_MESSAGE}".}"
 
             ### Guidelines ###
             - Think out loud step-by-step before you start writing code.
@@ -109,7 +111,7 @@ class PatchRefactorPrompts:
             - Carefully review your code and ensure it is formatted correctly.
             You must use the provided tools/functions to do so.
             """
-        )
+        ).format(STOP_MESSAGE=STOP_MESSAGE)
 
     @staticmethod
     def format_code_to_refactor(file_path: str, files_content: str) -> str:

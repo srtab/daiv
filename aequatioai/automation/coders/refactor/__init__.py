@@ -1,4 +1,3 @@
-from .base import RefactorCoder
 from .coder_patch import MergeRequestRefactorCoder
 from .coder_simple import SimpleRefactorCoder
 
