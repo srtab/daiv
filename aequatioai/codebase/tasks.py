@@ -1,7 +1,7 @@
 import logging
 import textwrap
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
@@ -12,8 +12,7 @@ from unidiff import Hunk, PatchedFile, PatchSet
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.review_addressor.coder import ReviewAddressorCoder
-from automation.coders.review_addressor.prompts import ReviewAddressorPrompts
-from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
+from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
@@ -57,14 +56,14 @@ def update_index_repository(repo_id: str, reset: bool = False):
 
 
 @dataclass
-class FeedbackToAdress:
+class DiscussionToAdress:
     repo_id: str
     merge_request_id: int
     merge_request_source_branch: str
-    patch_file: PatchedFile
-    discussions: list[Discussion] = field(default_factory=list)
-    file_notes: list[Note] = field(default_factory=list)
-    text_notes: list[Note] = field(default_factory=list)
+    discussion: Discussion
+    patch_file: PatchedFile | None = None
+    notes: list[Note] = field(default_factory=list)
+    hunk: str | None = None
 
 
 def locked_task(key: str = ""):
@@ -92,19 +91,21 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
     usage = Usage()
     client = RepoClient.create_instance()
 
-    feedback_to_address_by_file: dict[str, FeedbackToAdress] = {}
+    merge_request_patchs: dict[str, PatchedFile] = {}
+    discussion_to_address_list: list[DiscussionToAdress] = []
 
     for merge_request_diff in client.get_merge_request_diff(repo_id, merge_request_id):
         # Each patch set contains a single file diff (no multiple files in a single MR diff)
         patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
-        feedback_to_address_by_file[patch_set[0].path] = FeedbackToAdress(
+        merge_request_patchs[patch_set[0].path] = patch_set[0]
+
+    for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
+        discussion_to_address = DiscussionToAdress(
             repo_id=repo_id,
             merge_request_id=merge_request_id,
             merge_request_source_branch=merge_request_source_branch,
-            patch_file=patch_set[0],
+            discussion=discussion,
         )
-
-    for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
         for note in discussion.notes:
             if not note.position or not note.position.line_range:
                 logger.warning("Ignoring note, no `position` or `line_range` defined: %s", note.id)
@@ -112,15 +113,14 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
 
             path = note.position.new_path or note.position.old_path
 
-            if path not in feedback_to_address_by_file:
+            if path not in merge_request_patchs:
                 continue
 
-            if discussion not in feedback_to_address_by_file[path].discussions:
-                feedback_to_address_by_file[path].discussions.append(discussion)
+            discussion_to_address.patch_file = merge_request_patchs[path]
 
-            if note.position.position_type == NotePositionType.FILE:
-                feedback_to_address_by_file[path].file_notes.append(note)
-            elif note.position.position_type == NotePositionType.TEXT:
+            discussion_to_address.notes.append(note)
+
+            if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.hunk:
                 if (
                     note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
                     or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
@@ -128,7 +128,7 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                     logger.warning("Ignoring diff note, expanded line range not supported yet: %s", note.id)
                     continue
 
-                if feedback_to_address_by_file[path].patch_file.is_added_file:
+                if discussion_to_address.patch_file.is_added_file:
                     pass
                     # TODO: optimized case for added files, no need to find the diff lines
 
@@ -144,7 +144,7 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                     end_side = "source"
                     end_line_no = note.position.line_range.end.old_line
 
-                for patch_hunk in feedback_to_address_by_file[path].patch_file:
+                for patch_hunk in discussion_to_address.patch_file:
                     start = getattr(patch_hunk, f"{start_side}_start")
                     length = getattr(patch_hunk, f"{start_side}_length")
                     if start <= start_line_no <= start + length:
@@ -173,58 +173,56 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                             tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
                         )
                         hunk.extend(diff_code_lines)
-                        note.hunk = str(hunk)
-                        feedback_to_address_by_file[path].text_notes.append(note)
+                        discussion_to_address.hunk = str(hunk)
+                        break
 
-    for feedback_to_address in feedback_to_address_by_file.values():
-        _handle_diff_notes(usage, client, feedback_to_address)
+        if discussion_to_address.notes:
+            discussion_to_address_list.append(discussion_to_address)
+
+    for discussion_to_address in discussion_to_address_list:
+        _handle_diff_notes(usage, client, discussion_to_address)
 
 
-def _handle_diff_notes(usage: Usage, client: RepoClient, feedback_to_address: FeedbackToAdress):
-    changes: list[FileChange] = []
+def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: DiscussionToAdress):
+    file_changes, questions = ReviewAddressorCoder(usage=usage).invoke(
+        source_repo_id=discussion_to_address.repo_id,
+        source_ref=discussion_to_address.merge_request_source_branch,
+        file_path=discussion_to_address.patch_file.path,
+        notes=discussion_to_address.notes,
+        hunk=discussion_to_address.hunk,
+    )
 
-    if feedback_to_address.file_notes:
-        changes = ReviewAddressorCoder(usage=usage).invoke(
-            prompt=ReviewAddressorPrompts.format_file_review_feedback_prompt(
-                feedback_to_address.patch_file.path, [note.body for note in feedback_to_address.file_notes]
-            ),
-            source_repo_id=feedback_to_address.repo_id,
-            source_ref=feedback_to_address.merge_request_source_branch,
+    if questions:
+        client.create_merge_request_discussion_note(
+            discussion_to_address.repo_id,
+            discussion_to_address.merge_request_id,
+            discussion_to_address.discussion.id,
+            "\n".join(questions),
         )
 
-    if feedback_to_address.text_notes:
-        changes = ReviewAddressorCoder(usage=usage).invoke(
-            prompt=ReviewAddressorPrompts.format_diff_review_feedback_prompt(
-                feedback_to_address.patch_file.path,
-                [(note.body, cast(str, note.hunk)) for note in feedback_to_address.text_notes],
-            ),
-            source_repo_id=feedback_to_address.repo_id,
-            source_ref=feedback_to_address.merge_request_source_branch,
-        )
-
-    if not changes:
+    if not file_changes:
         return
 
     changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
-        changes=[". ".join(file_change.commit_messages) for file_change in changes]
+        changes=[". ".join(file_change.commit_messages) for file_change in file_changes]
     )
     if changes_description is None:
         raise ValueError("No changes description was generated.")
 
-    for discussion in feedback_to_address.discussions:
+    if not questions:
         client.resolve_merge_request_discussion(
-            feedback_to_address.repo_id, feedback_to_address.merge_request_id, discussion.id
+            discussion_to_address.repo_id, discussion_to_address.merge_request_id, discussion_to_address.discussion.id
         )
 
     client.commit_changes(
-        feedback_to_address.repo_id,
-        feedback_to_address.merge_request_source_branch,
+        discussion_to_address.repo_id,
+        discussion_to_address.merge_request_source_branch,
         changes_description.commit_message,
-        changes,
+        file_changes,
     )
     client.comment_merge_request(
-        feedback_to_address.repo_id,
-        feedback_to_address.merge_request_id,
+        discussion_to_address.repo_id,
+        discussion_to_address.merge_request_id,
         textwrap.dedent(
             """\
                 I've made the changes: **{changes}**.

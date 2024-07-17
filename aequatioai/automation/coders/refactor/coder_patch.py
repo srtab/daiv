@@ -6,7 +6,7 @@ from typing import Unpack
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message, Usage
-from automation.coders.base import CodebaseCoder
+from automation.coders.base import STOP_MESSAGE, CodebaseCoder
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.change_describer.models import ChangesDescriber
 from automation.coders.refactor.prompts import PatchRefactorPrompts
@@ -110,7 +110,7 @@ class MergeRequestRefactorCoder(CodebaseCoder[MergerRequestRefactorInvoke, list[
                 ]
             memory.append(Message(role="user", content=PatchRefactorPrompts.format_diff(mr_diff.diff.decode())))
 
-            agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
+            agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_messages=[STOP_MESSAGE])
             response = agent.run()
 
             self.usage += agent.usage

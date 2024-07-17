@@ -30,17 +30,15 @@ class IssueWebHook(BaseWebHook):
 
     def accept_webhook(self) -> bool:
         client = RepoClient.create_instance()
-        current_user = client.get_current_user()
         return (
             self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE, IssueAction.REOPEN]
-            and current_user.id == self.object_attributes.assignee_id
+            and client.current_user.id == self.object_attributes.assignee_id
         )
 
     def process_webhook(self):
         client = RepoClient.create_instance()
-        current_user = client.get_current_user()
         issue_notes = client.get_issue_notes(self.project.path_with_namespace, self.object_attributes.iid)
-        if not next((note.body for note in issue_notes if note.author.id == current_user.id), None):
+        if not next((note.body for note in issue_notes if note.author.id == client.current_user.id), None):
             client.comment_issue(
                 self.project.path_with_namespace,
                 self.object_attributes.iid,
@@ -78,7 +76,7 @@ class IssueWebHook(BaseWebHook):
                 return
 
             merge_requests = client.get_issue_related_merge_requests(
-                self.project.path_with_namespace, self.object_attributes.iid, assignee_id=current_user.id
+                self.project.path_with_namespace, self.object_attributes.iid, assignee_id=client.current_user.id
             )
             if len(merge_requests) > 1:
                 client.comment_issue(
@@ -108,7 +106,7 @@ class IssueWebHook(BaseWebHook):
                 repo_id=self.project.path_with_namespace,
                 source_branch=changes_description.branch,
                 target_branch=self.project.default_branch,
-                assignee_id=current_user.id,
+                assignee_id=client.current_user.id,
                 title=changes_description.title,
                 description=textwrap.dedent(
                     """\
@@ -173,23 +171,26 @@ class NoteWebHook(BaseWebHook):
         client = RepoClient.create_instance()
         return bool(
             self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+            and self.user.id != client.current_user.id
             and not self.object_attributes.system
             and self.object_attributes.action == NoteAction.CREATE
             and self.merge_request
             and not self.merge_request.work_in_progress
             and self.merge_request.state == "opened"
-            and client.get_current_user().id == self.merge_request.assignee_id
+            and client.current_user.id == self.merge_request.assignee_id
         )
 
     def process_webhook(self):
         """
         Process the webhook by generating the changes and committing them to the source branch.
         """
-        handle_mr_feedback.si(
+        # handle_mr_feedback.si(
+        handle_mr_feedback(
             repo_id=self.project.path_with_namespace,
             merge_request_id=self.merge_request.iid,
             merge_request_source_branch=self.merge_request.source_branch,
-        ).apply_async()
+        )
+        # ).apply_async()
 
 
 class PushWebHook(BaseWebHook):

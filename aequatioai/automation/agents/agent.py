@@ -48,13 +48,13 @@ class LlmAgent(ABC):
         memory: list[Message] | None = None,
         tools: list[FunctionTool] | None = None,
         model: str | None = None,
-        stop_message: str | None = None,
+        stop_messages: list[str] | None = None,
     ):
         self.name = name
         self.memory = memory or []
         self.tools = tools or []
         self.model = model or self.model
-        self.stop_message = stop_message
+        self.stop_messages = stop_messages or []
         self.usage = Usage()
         self.api_key = config("OPENAI_API_KEY")
 
@@ -108,7 +108,7 @@ class LlmAgent(ABC):
 
         self.memory.append(message)
 
-        logger.debug("Message content:\n%s", message.content)
+        logger.debug("%s: %s", message.role, message.content)
 
         if message.tool_calls:
             for tool_call in message.tool_calls:
@@ -141,11 +141,15 @@ class LlmAgent(ABC):
         if single_iteration:
             return False
 
+        if (
+            self.stop_messages
+            and self.memory[-1].content
+            and any(stop_message for stop_message in self.stop_messages if stop_message in self.memory[-1].content)
+        ):
+            return False
+
         if self.memory[-1].role not in ["assistant", "model"]:
             return True
-
-        if self.stop_message and self.memory[-1].content and self.stop_message in self.memory[-1].content:
-            return False
 
         if self.memory[-1].content is None:
             return False
@@ -153,7 +157,7 @@ class LlmAgent(ABC):
         return self.iterations < self.max_iterations
 
     @cached_property
-    def max_input_tokens(self) -> int:
+    def max_input_tokens(self) -> int | None:
         """
         The maximum number of tokens that can be passed to the model.
         """

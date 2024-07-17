@@ -2,7 +2,7 @@ from typing import Unpack
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
-from automation.coders.base import CodebaseCoder
+from automation.coders.base import STOP_MESSAGE, CodebaseCoder
 from automation.coders.typings import CodebaseInvoke
 from codebase.base import FileChange
 
@@ -32,7 +32,7 @@ class SimpleRefactorCoder(CodebaseCoder[CodebaseInvoke, list[FileChange]]):
             ref=kwargs["source_ref"],
         )
 
-        self.agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_message="<DONE>")
+        self.agent = LlmAgent(memory=memory, tools=code_actions.get_tools(), stop_messages=[STOP_MESSAGE])
 
         response = self.agent.run()
 
