@@ -184,13 +184,11 @@ class NoteWebHook(BaseWebHook):
         """
         Process the webhook by generating the changes and committing them to the source branch.
         """
-        # handle_mr_feedback.si(
-        handle_mr_feedback(
+        handle_mr_feedback.si(
             repo_id=self.project.path_with_namespace,
             merge_request_id=self.merge_request.iid,
             merge_request_source_branch=self.merge_request.source_branch,
-        )
-        # ).apply_async()
+        ).apply_async()
 
 
 class PushWebHook(BaseWebHook):
