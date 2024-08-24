@@ -4,6 +4,7 @@ from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
 from automation.coders.paths_replacer.coder import PathsReplacerCoder
 from automation.coders.refactor.schemas import (
+    CodebaseSearch,
     CreateFile,
     DeleteFile,
     GetRepositoryFile,
@@ -222,6 +223,22 @@ class CodeActionTools:
             return repo_file
         return "error: File not found."
 
+    def codebase_search(self, query: str) -> list[str]:
+        """
+        Search for code snippets in the codebase
+
+        Args:
+            query: The query to search for.
+
+        Returns:
+            The search results.
+        """
+        logger.debug("[CodeActionTools.codebase_search] Searching codebase for %s", query)
+
+        return [
+            result.document.page_content for _, result in self.codebase_index.search_with_reranker(self.repo_id, query)
+        ]
+
     def get_tools(self):
         return [
             FunctionTool(schema_model=ReplaceSnippetWith, fn=self.replace_snippet_with),
@@ -230,4 +247,5 @@ class CodeActionTools:
             FunctionTool(schema_model=DeleteFile, fn=self.delete_file),
             FunctionTool(schema_model=GetRepositoryFile, fn=self.get_repository_file),
             FunctionTool(schema_model=GetRepositoryTree, fn=self.get_repository_tree),
+            FunctionTool(schema_model=CodebaseSearch, fn=self.codebase_search),
         ]

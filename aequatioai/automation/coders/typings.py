@@ -16,7 +16,7 @@ class CodebaseInvoke(Invoke):
 class ReviewAddressorInvoke(CodebaseInvoke):
     file_path: str
     notes: list[Note]
-    hunk: str | None = None
+    diff: str | None = None
 
 
 class MergerRequestRefactorInvoke(Invoke):

@@ -1,4 +1,4 @@
-from typing import Unpack
+from typing import Unpack, cast
 
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
@@ -6,18 +6,44 @@ from automation.coders.base import STOP_MESSAGE, CodebaseCoder
 from automation.coders.typings import ReviewAddressorInvoke
 from codebase.base import FileChange
 
-from .prompts import ReviewAddressorPrompts
+from .models import RequestFeedback
+from .prompts import ReviewAddressorPrompts, ReviewCommentorPrompts
 from .tools import ReviewAddressorTools
 
-STOP_MESSAGE_QUESTION = "<DONE_WITH_QUESTION>"
+
+class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, list[str]]):
+    """ """
+
+    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> list[str]:
+        """
+        Invoke the coder to address the review comments in the codebase.
+        """
+        memory = [Message(role="system", content=ReviewCommentorPrompts.format_system(kwargs["diff"]))]
+
+        for note in kwargs["notes"]:
+            # add previous notes to thread the conversation
+            if note.author.id == self.repo_client.current_user.id:
+                memory.append(Message(role="assistant", content=note.body))
+            else:
+                memory.append(Message(role="user", content=note.body))
+
+        self.agent = LlmAgent(memory=memory)
+        response = self.agent.run(response_model=RequestFeedback, single_iteration=True)
+
+        self.usage += self.agent.usage
+
+        if response is None:
+            return []
+
+        return cast(RequestFeedback, response).questions
 
 
-class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, tuple[list[FileChange], list[str]]]):
+class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, list[FileChange]]):
     """
     Coder to address the review comments in the codebase.
     """
 
-    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> tuple[list[FileChange], list[str]]:
+    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> list[FileChange]:
         """
         Invoke the coder to address the review comments in the codebase.
         """
@@ -30,17 +56,8 @@ class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, tuple[list[FileC
         )
 
         memory = [
-            Message(role="system", content=ReviewAddressorPrompts.format_system()),
-            Message(role="user", content=ReviewAddressorPrompts.format_review_task_prompt(kwargs["file_path"])),
+            Message(role="system", content=ReviewAddressorPrompts.format_system(kwargs["file_path"], kwargs["diff"]))
         ]
-
-        if kwargs["hunk"]:
-            memory.append(Message(role="user", content=ReviewAddressorPrompts.format_review_hunk_prompt()))
-            memory.append(Message(role="user", content=kwargs["hunk"]))
-
-        memory.append(
-            Message(role="assistant", content="Could you please pass on the comments you have left for me to address?")
-        )
 
         for note in kwargs["notes"]:
             # add previous notes to thread the conversation
@@ -54,7 +71,4 @@ class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, tuple[list[FileC
 
         self.usage += self.agent.usage
 
-        if code_actions.questions:
-            return [], code_actions.questions
-
-        return list(code_actions.file_changes.values()), []
+        return list(code_actions.file_changes.values())

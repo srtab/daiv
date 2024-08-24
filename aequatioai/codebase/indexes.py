@@ -116,13 +116,15 @@ class CodebaseIndex(abc.ABC):
             Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
         ).delete()
 
-    def search_with_reranker(self, repo_id: str, query: str) -> list[tuple[float, ScoredResult]]:
-        """ """
-        semantic_results = self.semantic_search_engine.search(repo_id, query)
-        lexical_results = self.lexical_search_engine.search(repo_id, query)
+    def search_with_reranker(self, repo_id: str, query: str, k=10) -> list[tuple[float, ScoredResult]]:
+        """
+        Search the codebase and rerank the results.
+        """
+        semantic_results = self.semantic_search_engine.search(repo_id, query, k=k)
+        lexical_results = self.lexical_search_engine.search(repo_id, query, k=k)
         combined_results = semantic_results + lexical_results
         score_results = RerankerEngine.rerank(query, [result.document.page_content for result in combined_results])
-        return sorted(zip(score_results, combined_results, strict=True), key=lambda result: result[0], reverse=True)
+        return sorted(zip(score_results, combined_results, strict=True), key=lambda result: result[0], reverse=True)[:k]
 
     def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """

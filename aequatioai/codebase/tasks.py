@@ -11,7 +11,7 @@ from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
-from automation.coders.review_addressor.coder import ReviewAddressorCoder
+from automation.coders.review_addressor.coder import ReviewAddressorCoder, ReviewCommentorCoder
 from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -63,7 +63,7 @@ class DiscussionToAdress:
     discussion: Discussion
     patch_file: PatchedFile | None = None
     notes: list[Note] = field(default_factory=list)
-    hunk: str | None = None
+    diff: str | None = None
 
 
 def locked_task(key: str = ""):
@@ -120,7 +120,7 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
 
             discussion_to_address.notes.append(note)
 
-            if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.hunk:
+            if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.diff:
                 if (
                     note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
                     or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
@@ -173,7 +173,8 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                             tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
                         )
                         hunk.extend(diff_code_lines)
-                        discussion_to_address.hunk = str(hunk)
+                        diff_header = "\n".join(str(discussion_to_address.patch_file).splitlines()[:2]) + "\n"
+                        discussion_to_address.diff = diff_header + str(hunk)
                         break
 
         if discussion_to_address.notes:
@@ -184,12 +185,12 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
 
 
 def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: DiscussionToAdress):
-    file_changes, questions = ReviewAddressorCoder(usage=usage).invoke(
+    questions = ReviewCommentorCoder(usage=usage).invoke(
         source_repo_id=discussion_to_address.repo_id,
         source_ref=discussion_to_address.merge_request_source_branch,
         file_path=discussion_to_address.patch_file.path,
         notes=discussion_to_address.notes,
-        hunk=discussion_to_address.hunk,
+        diff=discussion_to_address.diff,
     )
 
     if questions:
@@ -199,6 +200,16 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
             discussion_to_address.discussion.id,
             "\n".join(questions),
         )
+
+        return  # Do not proceed with the changes if there are questions
+
+    file_changes = ReviewAddressorCoder(usage=usage).invoke(
+        source_repo_id=discussion_to_address.repo_id,
+        source_ref=discussion_to_address.merge_request_source_branch,
+        file_path=discussion_to_address.patch_file.path,
+        notes=discussion_to_address.notes,
+        diff=discussion_to_address.diff,
+    )
 
     if not file_changes:
         return
