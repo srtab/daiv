@@ -70,3 +70,12 @@ class GetRepositoryTree(OpenAISchema):
         ),
         default="",
     )
+
+
+class CodebaseSearch(OpenAISchema):
+    """
+    Search for code snippets in the codebase.
+    Providing long and detailed queries with entire code snippets will yield better results.
+    """
+
+    query: str = Field(description=("The query to search for."))

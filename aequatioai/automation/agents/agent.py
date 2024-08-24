@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 litellm.telemetry = False
 
 
-CHEAPER_MODEL = "gpt-3.5-turbo"
+CHEAPER_MODEL = "gpt-4o-mini"
 PERFORMANT_MODEL = "gpt-4o-2024-05-13"
 
 
@@ -177,6 +177,9 @@ class LlmAgent(ABC):
 
         tool = next(tool for tool in self.tools if tool.name == tool_call.function)
         tool_result = tool.call(**tool_call.kwargs)
+
+        if not isinstance(tool_result, str):
+            tool_result = str(tool_result)
 
         logger.debug("Tool %s returned \n%s", tool_call.function, tool_result)
 
