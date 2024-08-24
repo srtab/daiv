@@ -1,5 +1,5 @@
 [project]
-name = "aequatioai"
+name = "daiv"
 requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",

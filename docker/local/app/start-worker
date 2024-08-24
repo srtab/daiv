@@ -2,4 +2,4 @@
 
 set -eu pipefail
 
-exec pipenv run celery -A aequatioai worker -l INFO -c 1 --beat --scheduler django
+exec pipenv run celery -A daiv worker -l INFO -c 1 --beat --scheduler django

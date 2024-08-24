@@ -35,7 +35,7 @@ RUN apt-get update \
 
 USER app
 
-ENV PYTHONPATH=$PYTHONPATH:/home/app/src/aequatioai
+ENV PYTHONPATH=$PYTHONPATH:/home/app/src/daiv
 ENV PYTHONUNBUFFERED=1
 # this prevents Python from writing out pyc files
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -1,17 +1,12 @@
 {
-  "python.autoComplete.extraPaths": [
-    "./aequatioai"
-  ],
+  "python.autoComplete.extraPaths": ["./daiv"],
   "python.testing.pytestEnabled": false,
   "python.testing.unittestEnabled": true,
-  "python.analysis.extraPaths": ["./aequatioai"],
+  "python.analysis.extraPaths": ["./daiv"],
   "python.analysis.typeCheckingMode": "off",
   "stylelint.enable": true,
-  "stylelint.configBasedir": "./aequatioai/static",
-  "stylelint.configFile": "./aequatioai/static/.stylelintrc.json",
+  "stylelint.configBasedir": "./daiv/static",
+  "stylelint.configFile": "./daiv/static/.stylelintrc.json",
   "stylelint.validate": ["css", "scss"],
-  "stylelint.snippet": [
-    "css",
-    "scss"
-  ]
+  "stylelint.snippet": ["css", "scss"]
 }

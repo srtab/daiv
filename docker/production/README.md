@@ -9,9 +9,9 @@ This folder contains the required files to build the application image productio
 ```bash
 # [Required] Django settings to be loaded. This value tipically change by environment.
 # Examples:
-#     DJANGO_SETTINGS_MODULE=aequatioai.settings.development
-#     DJANGO_SETTINGS_MODULE=aequatioai.settings.production
-DJANGO_SETTINGS_MODULE=aequatioai.settings.production
+#     DJANGO_SETTINGS_MODULE=daiv.settings.development
+#     DJANGO_SETTINGS_MODULE=daiv.settings.production
+DJANGO_SETTINGS_MODULE=daiv.settings.production
 
 # [Required] Django only serves if host or hosts are declared in this variable.
 # Comma separated hosts for more than one.

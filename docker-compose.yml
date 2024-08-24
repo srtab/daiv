@@ -22,7 +22,7 @@ x-app-defaults: &x_app_default
 services:
   db:
     image: postgres:16.3-alpine
-    container_name: aequatioai-db
+    container_name: daiv-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: dbuser
@@ -36,7 +36,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     restart: unless-stopped
-    container_name: aequatioai-pgadmin
+    container_name: daiv-pgadmin
     environment:
       - PGADMIN_DEFAULT_EMAIL=srtabs@gmail.com
       - PGADMIN_DEFAULT_PASSWORD=password
@@ -54,7 +54,7 @@ services:
   chromadb:
     image: ghcr.io/chroma-core/chroma:latest
     restart: unless-stopped
-    container_name: aequatioai-chromadb
+    container_name: daiv-chromadb
     environment:
       - ANONYMIZED_TELEMETRY=False
       - ALLOW_RESET=TRUE
@@ -69,20 +69,20 @@ services:
     image: redis:latest
     command: redis-server --save "" --appendonly no
     restart: unless-stopped
-    container_name: aequatioai-redis
+    container_name: daiv-redis
     ports:
       - "6379:6379"
 
   app:
     <<: *x_app_default
-    container_name: aequatioai-app
+    container_name: daiv-app
     command: sh /home/app/docker/start-app
     ports:
       - "8000:8000"
 
   worker:
     <<: *x_app_default
-    container_name: aequatioai-worker
+    container_name: daiv-worker
     command: sh /home/app/docker/start-worker
     environment:
       - C_FORCE_ROOT=true
@@ -90,7 +90,7 @@ services:
 
   gitlab:
     image: gitlab/gitlab-ce:latest
-    container_name: aequatioai-gitlab
+    container_name: daiv-gitlab
     restart: on-failure
     logging:
       driver: "none"

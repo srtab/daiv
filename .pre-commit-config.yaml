@@ -5,11 +5,10 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: no-commit-to-branch
-        args:
-          ["--branch", "main"]
+        args: ["--branch", "main"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.2
+    rev: v0.6.2
     hooks:
       - id: ruff
         name: Run the ruff linter
@@ -22,7 +21,7 @@ repos:
     hooks:
       - id: prettier
         name: Pretty format files
-        exclude: "^aequatioai/static/"
+        exclude: "^daiv/static/"
         files: "\\.(\
           css|scss\
           |js|jsx\
