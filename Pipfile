@@ -43,7 +43,7 @@ coverage = "==7.5.0"
 mypy = "==1.10.0"
 pre-commit = "==3.7.0"
 pyproject-fmt = "==1.7.0"
-pyopenssl = "==24.1.0"
+pyopenssl = "==24.2.1"
 ruff = "==0.4.4"
 
 [requires]
