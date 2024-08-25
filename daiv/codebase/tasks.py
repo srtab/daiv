@@ -12,7 +12,7 @@ from unidiff import Hunk, PatchedFile, PatchSet
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.review_addressor.coder import ReviewAddressorCoder, ReviewCommentorCoder
-from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
+from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
@@ -82,110 +82,115 @@ def locked_task(key: str = ""):
 
 
 @shared_task
-@locked_task("{repo_id}:{merge_request_id}")
 def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
     """
     Handle feedback for a merge request.
     """
-
     usage = Usage()
     client = RepoClient.create_instance()
 
     merge_request_patchs: dict[str, PatchedFile] = {}
     discussion_to_address_list: list[DiscussionToAdress] = []
 
-    for merge_request_diff in client.get_merge_request_diff(repo_id, merge_request_id):
-        # Each patch set contains a single file diff (no multiple files in a single MR diff)
-        patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
-        merge_request_patchs[patch_set[0].path] = patch_set[0]
+    try:
+        for merge_request_diff in client.get_merge_request_diff(repo_id, merge_request_id):
+            # Each patch set contains a single file diff (no multiple files in a single MR diff)
+            patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
+            merge_request_patchs[patch_set[0].path] = patch_set[0]
 
-    for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
-        discussion_to_address = DiscussionToAdress(
-            repo_id=repo_id,
-            merge_request_id=merge_request_id,
-            merge_request_source_branch=merge_request_source_branch,
-            discussion=discussion,
-        )
-        for note in discussion.notes:
-            if not note.position or not note.position.line_range:
-                logger.warning("Ignoring note, no `position` or `line_range` defined: %s", note.id)
-                continue
-
-            path = note.position.new_path or note.position.old_path
-
-            if path not in merge_request_patchs:
-                continue
-
-            discussion_to_address.patch_file = merge_request_patchs[path]
-
-            discussion_to_address.notes.append(note)
-
-            if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.diff:
-                if (
-                    note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
-                    or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
-                ):
-                    logger.warning("Ignoring diff note, expanded line range not supported yet: %s", note.id)
+        for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
+            discussion_to_address = DiscussionToAdress(
+                repo_id=repo_id,
+                merge_request_id=merge_request_id,
+                merge_request_source_branch=merge_request_source_branch,
+                discussion=discussion,
+            )
+            for note in discussion.notes:
+                if not note.position or not note.position.line_range:
+                    logger.warning("Ignoring note, no `position` or `line_range` defined: %s", note.id)
                     continue
 
-                if discussion_to_address.patch_file.is_added_file:
-                    pass
-                    # TODO: optimized case for added files, no need to find the diff lines
+                path = note.position.new_path or note.position.old_path
 
-                start_side = "target"
-                start_line_no = note.position.line_range.start.new_line
-                if note.position.line_range.start.type == NoteDiffPositionType.OLD:
-                    start_side = "source"
-                    start_line_no = note.position.line_range.start.old_line
+                if path not in merge_request_patchs:
+                    continue
 
-                end_side = "target"
-                end_line_no = note.position.line_range.end.new_line
-                if note.position.line_range.end.type == NoteDiffPositionType.OLD:
-                    end_side = "source"
-                    end_line_no = note.position.line_range.end.old_line
+                discussion_to_address.patch_file = merge_request_patchs[path]
 
-                for patch_hunk in discussion_to_address.patch_file:
-                    start = getattr(patch_hunk, f"{start_side}_start")
-                    length = getattr(patch_hunk, f"{start_side}_length")
-                    if start <= start_line_no <= start + length:
-                        diff_code_lines: list[Line] = []
+                discussion_to_address.notes.append(note)
 
-                        for patch_line in patch_hunk:
-                            start_side_line_no = getattr(patch_line, f"{start_side}_line_no")
-                            end_side_line_no = getattr(patch_line, f"{end_side}_line_no")
+                if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.diff:
+                    if (
+                        note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
+                        or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
+                    ):
+                        logger.warning("Ignoring diff note, expanded line range not supported yet: %s", note.id)
+                        continue
 
-                            if (
-                                (start_side_line_no and start_side_line_no >= start_line_no)
-                                # we need to check diff_code_lines here to only check the end_line_no after we have
-                                # found the start_line_no.
-                                # Otherwise, we might end up with a line that is not part of the diff code lines.
-                                or (diff_code_lines and end_side_line_no and end_side_line_no <= end_line_no)
-                            ):
-                                diff_code_lines.append(patch_line)
+                    if discussion_to_address.patch_file.is_added_file:
+                        pass
+                        # TODO: optimized case for added files, no need to find the diff lines
 
-                            if end_side_line_no and end_line_no == end_side_line_no:
-                                break
+                    start_side = "target"
+                    start_line_no = note.position.line_range.start.new_line
+                    if note.position.line_range.start.type == NoteDiffPositionType.OLD:
+                        start_side = "source"
+                        start_line_no = note.position.line_range.start.old_line
 
-                        hunk = Hunk(
-                            src_start=diff_code_lines[0].source_line_no or diff_code_lines[0].target_line_no,
-                            src_len=len([line for line in diff_code_lines if line.is_context or line.is_removed]),
-                            tgt_start=diff_code_lines[0].target_line_no or diff_code_lines[0].source_line_no,
-                            tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
-                        )
-                        hunk.extend(diff_code_lines)
-                        diff_header = "\n".join(str(discussion_to_address.patch_file).splitlines()[:2]) + "\n"
-                        discussion_to_address.diff = diff_header + str(hunk)
-                        break
+                    end_side = "target"
+                    end_line_no = note.position.line_range.end.new_line
+                    if note.position.line_range.end.type == NoteDiffPositionType.OLD:
+                        end_side = "source"
+                        end_line_no = note.position.line_range.end.old_line
 
-        if discussion_to_address.notes:
-            discussion_to_address_list.append(discussion_to_address)
+                    for patch_hunk in discussion_to_address.patch_file:
+                        start = getattr(patch_hunk, f"{start_side}_start")
+                        length = getattr(patch_hunk, f"{start_side}_length")
+                        if start <= start_line_no <= start + length:
+                            diff_code_lines: list[Line] = []
 
-    for discussion_to_address in discussion_to_address_list:
-        _handle_diff_notes(usage, client, discussion_to_address)
+                            for patch_line in patch_hunk:
+                                start_side_line_no = getattr(patch_line, f"{start_side}_line_no")
+                                end_side_line_no = getattr(patch_line, f"{end_side}_line_no")
+
+                                if (
+                                    (start_side_line_no and start_side_line_no >= start_line_no)
+                                    # we need to check diff_code_lines here to only check the end_line_no after we have
+                                    # found the start_line_no.
+                                    # Otherwise, we might end up with a line that is not part of the diff code lines.
+                                    or (diff_code_lines and end_side_line_no and end_side_line_no <= end_line_no)
+                                ):
+                                    diff_code_lines.append(patch_line)
+
+                                if end_side_line_no and end_line_no == end_side_line_no:
+                                    break
+
+                            hunk = Hunk(
+                                src_start=diff_code_lines[0].source_line_no or diff_code_lines[0].target_line_no,
+                                src_len=len([line for line in diff_code_lines if line.is_context or line.is_removed]),
+                                tgt_start=diff_code_lines[0].target_line_no or diff_code_lines[0].source_line_no,
+                                tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
+                            )
+                            hunk.extend(diff_code_lines)
+                            diff_header = "\n".join(str(discussion_to_address.patch_file).splitlines()[:2]) + "\n"
+                            discussion_to_address.diff = diff_header + str(hunk)
+                            break
+
+            if discussion_to_address.notes:
+                discussion_to_address_list.append(discussion_to_address)
+
+        for discussion_to_address in discussion_to_address_list:
+            _handle_diff_notes(usage, client, discussion_to_address)
+
+    except Exception as e:
+        logger.exception("Error handling merge request feedback: %s", e)
+    finally:
+        # Delete the lock after the task is completed
+        cache.delete(f"{repo_id}:{merge_request_id}")
 
 
 def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: DiscussionToAdress):
-    questions = ReviewCommentorCoder(usage=usage).invoke(
+    feedback = ReviewCommentorCoder(usage=usage).invoke(
         source_repo_id=discussion_to_address.repo_id,
         source_ref=discussion_to_address.merge_request_source_branch,
         file_path=discussion_to_address.patch_file.path,
@@ -193,25 +198,34 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
         diff=discussion_to_address.diff,
     )
 
-    if questions:
+    if feedback.questions:
         client.create_merge_request_discussion_note(
             discussion_to_address.repo_id,
             discussion_to_address.merge_request_id,
             discussion_to_address.discussion.id,
-            "\n".join(questions),
+            "\n".join(feedback.questions),
         )
 
         return  # Do not proceed with the changes if there are questions
 
-    file_changes = ReviewAddressorCoder(usage=usage).invoke(
-        source_repo_id=discussion_to_address.repo_id,
-        source_ref=discussion_to_address.merge_request_source_branch,
-        file_path=discussion_to_address.patch_file.path,
-        notes=discussion_to_address.notes,
-        diff=discussion_to_address.diff,
-    )
+    file_changes: list[FileChange] = []
+
+    if feedback.code_changes_needed:
+        file_changes = ReviewAddressorCoder(usage=usage).invoke(
+            source_repo_id=discussion_to_address.repo_id,
+            source_ref=discussion_to_address.merge_request_source_branch,
+            file_path=discussion_to_address.patch_file.path,
+            notes=discussion_to_address.notes,
+            diff=discussion_to_address.diff,
+        )
+
+    if not feedback.questions:
+        client.resolve_merge_request_discussion(
+            discussion_to_address.repo_id, discussion_to_address.merge_request_id, discussion_to_address.discussion.id
+        )
 
     if not file_changes:
+        # No changes were made, no need to commit
         return
 
     changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
@@ -219,11 +233,6 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
     )
     if changes_description is None:
         raise ValueError("No changes description was generated.")
-
-    if not questions:
-        client.resolve_merge_request_discussion(
-            discussion_to_address.repo_id, discussion_to_address.merge_request_id, discussion_to_address.discussion.id
-        )
 
     client.commit_changes(
         discussion_to_address.repo_id,

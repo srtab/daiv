@@ -37,7 +37,7 @@ class ReviewCommentorPrompts:
             {diff}
 
             ### Task ###
-            Analyze and verify if there's clear what you need to change on the codebase based on the user feedback. If the comments are ambiguous or off-topic (not related with this context), ask for more context about the intended changes.
+            Analyze and verify if there's clear what you need to change on the unified diff based on the user feedback. If the comments are ambiguous or off-topic (not related with this context), ask for more context about the intended changes.
             """  # noqa: E501
         ).format(diff=diff)
 

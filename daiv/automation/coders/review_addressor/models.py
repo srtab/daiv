@@ -16,3 +16,6 @@ class RequestFeedback(BaseModel):
             """
         ),
     )
+    code_changes_needed: bool = Field(
+        default=False, description="Whether code changes are needed to complete the task."
+    )

@@ -2,6 +2,8 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING, Literal
 
+from django.core.cache import cache
+
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.refactor.coder_simple import SimpleRefactorCoder
@@ -180,15 +182,27 @@ class NoteWebHook(BaseWebHook):
             and client.current_user.id == self.merge_request.assignee_id
         )
 
-    def process_webhook(self):
+    async def process_webhook(self):
         """
         Process the webhook by generating the changes and committing them to the source branch.
+
+        GitLab Note Webhook is called multiple times, one per note/discussion.
+        We need to prevent multiple webhook processing for the same merge request.
         """
-        handle_mr_feedback.si(
-            repo_id=self.project.path_with_namespace,
-            merge_request_id=self.merge_request.iid,
-            merge_request_source_branch=self.merge_request.source_branch,
-        ).apply_async()
+        cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
+        with await cache.alock(f"{cache_key}::lock"):
+            if await cache.aget(cache_key) is None:
+                await cache.aset(cache_key, "launched", timeout=60 * 10)
+                handle_mr_feedback.si(
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_id=self.merge_request.iid,
+                    merge_request_source_branch=self.merge_request.source_branch,
+                ).apply_async()
+            else:
+                logger.info(
+                    "Merge request %s is already being processed. Skipping the webhook processing.",
+                    self.merge_request.iid,
+                )
 
 
 class PushWebHook(BaseWebHook):

@@ -11,12 +11,14 @@ from .prompts import ReviewAddressorPrompts, ReviewCommentorPrompts
 from .tools import ReviewAddressorTools
 
 
-class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, list[str]]):
-    """ """
+class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, RequestFeedback]):
+    """
+    Coder to review the comments in the pull request.
+    """
 
-    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> list[str]:
+    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> RequestFeedback:
         """
-        Invoke the coder to address the review comments in the codebase.
+        Invoke the coder to review the comments in the pull request.
         """
         memory = [Message(role="system", content=ReviewCommentorPrompts.format_system(kwargs["diff"]))]
 
@@ -35,7 +37,7 @@ class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, list[str]]):
         if response is None:
             return []
 
-        return cast(RequestFeedback, response).questions
+        return cast(RequestFeedback, response)
 
 
 class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, list[FileChange]]):
