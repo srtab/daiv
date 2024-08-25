@@ -11,13 +11,13 @@ router = Router()
 
 
 @router.post("/webhooks/gitlab/", response={204: None, 423: UnprocessableEntityResponse})
-def gitlab_webhook(request, payload: IssueWebHook | NoteWebHook | PushWebHook):
+async def gitlab_webhook(request, payload: IssueWebHook | NoteWebHook | PushWebHook):
     """
     GitLab webhook endpoint for processing webhooks.
     """
     if payload.accept_webhook():
         logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
-        payload.process_webhook()
+        await payload.process_webhook()
     else:
         logger.info(
             "GitLab Hook: Ignored hook '%s' for project %d, conditions for acceptance not met.",

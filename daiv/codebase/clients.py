@@ -647,9 +647,10 @@ class GitLabClient(RepoClient):
         Args:
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
+            note_type: The note type.
 
         Returns:
-            The list of merge request comments.
+            The list of discussions.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)

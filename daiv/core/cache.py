@@ -1,6 +1,8 @@
 from django.core.cache.backends.redis import RedisCache as DJRedisCache
 from django.core.cache.backends.redis import RedisCacheClient as DJRedisCacheClient
 
+from asgiref.sync import sync_to_async
+
 Number = int | float
 
 
@@ -39,3 +41,15 @@ class RedisCache(DJRedisCache):
         blocking_timeout: Number | None = None,
     ):
         return self._cache.lock(key, timeout=timeout, sleep=sleep, blocking=blocking, blocking_timeout=blocking_timeout)
+
+    async def alock(
+        self,
+        key,
+        timeout: Number | None = None,
+        sleep: Number = 0.1,
+        blocking: bool = True,
+        blocking_timeout: Number | None = None,
+    ):
+        return await sync_to_async(self.lock, thread_sensitive=True)(
+            key, timeout=timeout, sleep=sleep, blocking=blocking, blocking_timeout=blocking_timeout
+        )
