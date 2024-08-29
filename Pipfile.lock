@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "5160723e720469f67348fe879cb1a4c32e744d9721a2def0eecccddbe7fa0f37"
+            "sha256": "71cba0f8336226f4802f211f69f512daa7b98049fb28deb0f7fee9ebb3ca60be"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1160,12 +1160,12 @@
         },
         "litellm": {
             "hashes": [
-                "sha256:76f30428c4dc37c3571ce746f8141ed4a4cac1506dcad1c0213a2c23cbb701b9",
-                "sha256:885d19db883fb13c8e32563cfbbc3d02dc1b80fe4bb52a67ebdbf6cdc8d0cb83"
+                "sha256:4490a24f158bfee279ac28ee2b4bc404d3ebedc29be9e910a0e7413ff99e7a24",
+                "sha256:c618deeafc8ec9c109a953ad86e5d9897b52870cc89062ce69147717fa1ea2cd"
             ],
             "index": "pypi",
             "markers": "python_version not in '2.7, 3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7' and python_version >= '3.8'",
-            "version": "==1.44.8"
+            "version": "==1.44.10"
         },
         "markdown-it-py": {
             "hashes": [
@@ -3218,7 +3218,7 @@
                 "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d",
                 "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8"
             ],
-            "markers": "python_version >= '3.8'",
+            "markers": "python_version < '3.13'",
             "version": "==4.12.2"
         },
         "typing-inspect": {
