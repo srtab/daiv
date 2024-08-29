@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError
+from gitlab import Gitlab, GitlabCreateError, GitlabHttpError
 from gitlab.v4.objects import ProjectHook
 
 from .base import (
@@ -237,7 +237,12 @@ class GitLabClient(RepoClient):
             The content of the file. If the file is binary or not a text file, it returns None.
         """
         project = self.client.projects.get(repo_id)
-        project_file = project.files.get(file_path=file_path, ref=ref or project.default_branch)
+        try:
+            project_file = project.files.get(file_path=file_path, ref=ref or project.default_branch)
+        except GitlabHttpError as e:
+            if e.response_code == 404:
+                return None
+            raise e
         try:
             return project_file.decode().decode()
         except UnicodeDecodeError:
@@ -594,7 +599,7 @@ class GitLabClient(RepoClient):
                 noteable_type=note.noteable_type,
                 system=note.system,
                 resolvable=note.resolvable,
-                resolved=note.resolved,
+                resolved=note.resolvable and note.resolved or None,
                 author=User(
                     id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
                 ),
@@ -620,7 +625,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         return [
-            MergeRequest(repo_id=repo_id, merge_request_id=mr["iid"], source_branch=mr["source_branch"])
+            MergeRequest(repo_id=repo_id, merge_request_id=cast(int, mr["iid"]), source_branch=mr["source_branch"])
             for mr in issue.related_merge_requests(all=True)
             if assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id
         ]

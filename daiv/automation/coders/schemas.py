@@ -23,6 +23,8 @@ class ReplaceSnippetWith(OpenAISchema):
 class CreateFile(OpenAISchema):
     """
     Use this as primary tool to create a new file with the provided content.
+
+    If the file already exists, it will raise an error. Only use this to create inexistent files.
     """
 
     file_path: str = Field(description="The file path to create.")

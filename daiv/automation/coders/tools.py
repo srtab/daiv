@@ -1,9 +1,11 @@
 import logging
+import textwrap
 
 from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
 from automation.coders.paths_replacer.coder import PathsReplacerCoder
-from automation.coders.refactor.schemas import (
+from automation.coders.replacer import ReplacerCoder
+from automation.coders.schemas import (
     CodebaseSearch,
     CreateFile,
     DeleteFile,
@@ -12,7 +14,6 @@ from automation.coders.refactor.schemas import (
     RenameFile,
     ReplaceSnippetWith,
 )
-from automation.coders.replacer import ReplacerCoder
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -20,9 +21,9 @@ from codebase.indexes import CodebaseIndex
 logger = logging.getLogger(__name__)
 
 
-class CodeActionTools:
+class CodeInspectTools:
     """
-    A class that provides tools for code actions.
+    A class that provides tools for code inspection.
     """
 
     def __init__(
@@ -33,10 +34,9 @@ class CodeActionTools:
         *,
         repo_id: str,
         ref: str | None = None,
-        replace_paths: bool = False,
     ):
         """
-        Initializes the code action tools.
+        Initializes the code inspection tools.
 
         Args:
             repo_client: The repository client to use.
@@ -44,13 +44,113 @@ class CodeActionTools:
             usage: The usage to use.
             repo_id: The repository ID to use.
             ref: The reference to use.
-            replace_paths: Whether to replace paths in the snippets. Usefull for cross projects coding.
         """
         self.repo_client = repo_client
         self.codebase_index = codebase_index
         self.usage = usage
         self.repo_id = repo_id
         self.ref = ref
+
+    def get_repository_tree(self, path: str = "") -> str:
+        """
+        Gets the repository tree.
+
+        Args:
+            path: The path to get the tree of.
+
+        Returns:
+            The repository tree.
+        """
+        logger.debug("[CodeInspectTools.get_repository_tree] Getting repository tree %s", path)
+
+        if tree := self.repo_client.get_repository_tree(self.repo_id, self.ref, path=path):
+            return f"Repository files and directories found in {path}: {", ".join(tree)}"
+        return f"No files/directories found in {path}."
+
+    def get_repository_file(self, file_path: str) -> str:
+        """
+        Gets the content of a repository file.
+
+        Args:
+            file_path: The file path to get the content of.
+
+        Returns:
+            The content of the file. If the file is not found, returns an error message.
+        """
+        logger.debug("[CodeInspectTools.get_repository_file] Getting repository file %s", file_path)
+        if repo_file := self.repo_client.get_repository_file(self.repo_id, file_path, self.ref):
+            return textwrap.dedent(
+                """\
+                file path: {file_path}
+                ```
+                {repo_file}
+                ```
+                """
+            ).format(file_path=file_path, repo_file=repo_file)
+        return f"error: File '{file_path}' not found."
+
+    def codebase_search(self, query: str) -> str:
+        """
+        Search for code snippets in the codebase
+
+        Args:
+            query: The query to search for.
+
+        Returns:
+            The search results.
+        """
+        logger.debug("[CodeInspectTools.codebase_search] Searching codebase for %s", query)
+
+        search_results_str = "No search results found."
+
+        if search_results := self.codebase_index.search_with_reranker(self.repo_id, query):
+            search_results_str = "### Search results ###"
+            for reranked_score, result in search_results:
+                logger.debug(
+                    "[CodeInspectTools.codebase_search] file_path=%s score=%r",
+                    result.document.metadata["source"],
+                    reranked_score,
+                )
+                search_results_str += textwrap.dedent(
+                    """\
+                    \n\n
+                    file path: {file_path}
+                    ```{language}
+                    {content}
+                    ```\n\n
+                    """
+                ).format(
+                    file_path=result.document.metadata["source"],
+                    language=result.document.metadata.get("language", ""),
+                    content=result.document.page_content,
+                )
+
+        return search_results_str
+
+    def get_tools(self):
+        """
+        Gets the tools for the code inspection.
+        """
+        return [
+            FunctionTool(schema_model=GetRepositoryFile, fn=self.get_repository_file),
+            FunctionTool(schema_model=GetRepositoryTree, fn=self.get_repository_tree),
+            FunctionTool(schema_model=CodebaseSearch, fn=self.codebase_search),
+        ]
+
+
+class CodeActionTools(CodeInspectTools):
+    """
+    A class that provides tools for code actions.
+    """
+
+    def __init__(self, *args, replace_paths: bool = False, **kwargs):
+        """
+        Initializes the code action tools.
+
+        Args:
+            replace_paths: Whether to replace paths in the snippets. Usefull for cross projects coding.
+        """
+        super().__init__(*args, **kwargs)
         self.replace_paths = replace_paths
         self.file_changes: dict[str, FileChange] = {}
 
@@ -125,7 +225,15 @@ class CodeActionTools:
 
     def create_file(self, file_path: str, content: str, commit_message: str):
         """
-        Creates a new file with the provided content.
+        Creates a new file with the provided content in the repository.
+
+        Args:
+            file_path: The file path to create.
+            content: The content of the file.
+            commit_message: The commit message to use for the creation.
+
+        Returns:
+            A message indicating the success of the creation
         """
         logger.debug("[CodeActionTools.create_file] Creating new file %s", file_path)
 
@@ -143,7 +251,15 @@ class CodeActionTools:
 
     def rename_file(self, file_path: str, new_file_path: str, commit_message: str):
         """
-        Renames a file.
+        Renames a file on the repository.
+
+        Args:
+            file_path: The file path to rename.
+            new_file_path: The new file path.
+            commit_message: The commit message to use for the rename.
+
+        Returns:
+            A message indicating the success of the rename.
         """
         logger.debug("[CodeActionTools.rename_file] Renaming file %s to %s", file_path, new_file_path)
 
@@ -161,7 +277,14 @@ class CodeActionTools:
 
     def delete_file(self, file_path: str, commit_message: str):
         """
-        Deletes a file.
+        Deletes a file from the repository.
+
+        Args:
+            file_path: The file path to delete.
+            commit_message: The commit message to use for the deletion.
+
+        Returns:
+            A message indicating the success of the deletion.
         """
         logger.debug("[CodeActionTools.delete_file] Deleting file %s", file_path)
 
@@ -194,58 +317,13 @@ class CodeActionTools:
 
         return replacement_snippet_result
 
-    def get_repository_tree(self, path: str = "") -> list[str]:
-        """
-        Gets the repository tree.
-
-        Args:
-            path: The path to get the tree of.
-
-        Returns:
-            The repository tree.
-        """
-        logger.debug("[CodeActionTools.get_repository_tree] Getting repository tree %s", path)
-
-        return self.repo_client.get_repository_tree(self.repo_id, self.ref, path=path)
-
-    def get_repository_file(self, file_path: str) -> str:
-        """
-        Gets the content of a repository file.
-
-        Args:
-            file_path: The file path to get the content of.
-
-        Returns:
-            The content of the file. If the file is not found, returns an error message.
-        """
-        logger.debug("[CodeActionTools.get_repository_file] Getting repository file %s", file_path)
-        if repo_file := self.repo_client.get_repository_file(self.repo_id, file_path, self.ref):
-            return repo_file
-        return "error: File not found."
-
-    def codebase_search(self, query: str) -> list[str]:
-        """
-        Search for code snippets in the codebase
-
-        Args:
-            query: The query to search for.
-
-        Returns:
-            The search results.
-        """
-        logger.debug("[CodeActionTools.codebase_search] Searching codebase for %s", query)
-
-        return [
-            result.document.page_content for _, result in self.codebase_index.search_with_reranker(self.repo_id, query)
-        ]
-
     def get_tools(self):
-        return [
+        """
+        Gets the tools for the code actions.
+        """
+        return super().get_tools() + [
             FunctionTool(schema_model=ReplaceSnippetWith, fn=self.replace_snippet_with),
             FunctionTool(schema_model=CreateFile, fn=self.create_file),
             FunctionTool(schema_model=RenameFile, fn=self.rename_file),
             FunctionTool(schema_model=DeleteFile, fn=self.delete_file),
-            FunctionTool(schema_model=GetRepositoryFile, fn=self.get_repository_file),
-            FunctionTool(schema_model=GetRepositoryTree, fn=self.get_repository_tree),
-            FunctionTool(schema_model=CodebaseSearch, fn=self.codebase_search),
         ]

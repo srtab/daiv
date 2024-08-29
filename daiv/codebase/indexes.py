@@ -120,11 +120,17 @@ class CodebaseIndex(abc.ABC):
         """
         Search the codebase and rerank the results.
         """
-        semantic_results = self.semantic_search_engine.search(repo_id, query, k=k)
+        semantic_results = self.semantic_search_engine.search(repo_id, query, k=k, content_type="functions_classes")
         lexical_results = self.lexical_search_engine.search(repo_id, query, k=k)
         combined_results = semantic_results + lexical_results
         score_results = RerankerEngine.rerank(query, [result.document.page_content for result in combined_results])
-        return sorted(zip(score_results, combined_results, strict=True), key=lambda result: result[0], reverse=True)[:k]
+        return [
+            item
+            for item in sorted(
+                zip(score_results, combined_results, strict=True), key=lambda result: result[0], reverse=True
+            )[:k]
+            if item[0] > 0
+        ]
 
     def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """

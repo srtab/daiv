@@ -89,5 +89,7 @@ check_untyped_defs = true
     "django_extensions.*",
     "litellm.*",
     "transformers.*",
+    "unidiff.*",
+    "redis.*",
   ]
   ignore_missing_imports = true

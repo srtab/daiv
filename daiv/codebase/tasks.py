@@ -106,8 +106,8 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                 discussion=discussion,
             )
             for note in discussion.notes:
-                if not note.position or not note.position.line_range:
-                    logger.warning("Ignoring note, no `position` or `line_range` defined: %s", note.id)
+                if not note.position:
+                    logger.warning("Ignoring note, no `position` defined: %s", note.id)
                     continue
 
                 path = note.position.new_path or note.position.old_path
@@ -119,7 +119,14 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
 
                 discussion_to_address.notes.append(note)
 
-                if note.position.position_type == NotePositionType.TEXT and not discussion_to_address.diff:
+                if note.position.position_type == NotePositionType.FILE and not discussion_to_address.diff:
+                    discussion_to_address.diff = str(discussion_to_address.patch_file)
+
+                elif (
+                    note.position.position_type == NotePositionType.TEXT
+                    and note.position.line_range
+                    and not discussion_to_address.diff
+                ):
                     if (
                         note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
                         or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED

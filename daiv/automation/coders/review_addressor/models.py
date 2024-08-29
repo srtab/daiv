@@ -9,13 +9,10 @@ class RequestFeedback(BaseModel):
     """
 
     questions: list[str] = Field(
-        default_factory=list,
         description=dedent(
             """\
             Questions for the user to answer to help you complete the task. Leave empty if there are no questions.
             """
-        ),
+        )
     )
-    code_changes_needed: bool = Field(
-        default=False, description="Whether code changes are needed to complete the task."
-    )
+    code_changes_needed: bool = Field(description="Whether code changes are needed to complete the task.")

@@ -51,7 +51,7 @@ class MergeRequestRefactorCoder(CodebaseCoder[MergerRequestRefactorInvoke, list[
             )
             if (
                 not (
-                    filepath_to_change := self.codebase_index.search_most_similar_filepath(
+                    filepath_to_change := self.codebase_index.search_most_similar_file(
                         kwargs["target_repo_id"], repository_file
                     )
                 )

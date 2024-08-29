@@ -37,7 +37,7 @@ class IssueWebHook(BaseWebHook):
             and client.current_user.id == self.object_attributes.assignee_id
         )
 
-    def process_webhook(self):
+    async def process_webhook(self):
         client = RepoClient.create_instance()
         issue_notes = client.get_issue_notes(self.project.path_with_namespace, self.object_attributes.iid)
         if not next((note.body for note in issue_notes if note.author.id == client.current_user.id), None):
@@ -193,11 +193,13 @@ class NoteWebHook(BaseWebHook):
         with await cache.alock(f"{cache_key}::lock"):
             if await cache.aget(cache_key) is None:
                 await cache.aset(cache_key, "launched", timeout=60 * 10)
-                handle_mr_feedback.si(
+                # handle_mr_feedback.si(
+                handle_mr_feedback(
                     repo_id=self.project.path_with_namespace,
                     merge_request_id=self.merge_request.iid,
                     merge_request_source_branch=self.merge_request.source_branch,
-                ).apply_async()
+                )
+                # ).apply_async()
             else:
                 logger.info(
                     "Merge request %s is already being processed. Skipping the webhook processing.",
@@ -221,7 +223,7 @@ class PushWebHook(BaseWebHook):
         """
         return self.ref.endswith(self.project.default_branch)
 
-    def process_webhook(self):
+    async def process_webhook(self):
         """
         Trigger the update of the codebase index.
         """
