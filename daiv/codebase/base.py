@@ -46,7 +46,7 @@ class RepositoryFile(BaseModel):
 
 class MergeRequest(BaseModel):
     repo_id: str
-    merge_request_id: str
+    merge_request_id: int
     source_branch: str
 
 
@@ -137,7 +137,7 @@ class Note(BaseModel):
     noteable_type: NoteableType
     system: bool
     resolvable: bool
-    resolved: bool
+    resolved: bool | None = None
     type: NoteType | None = None
     position: NotePosition | None = None
     hunk: str | None = None

@@ -6,7 +6,6 @@ from abc import ABC
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-import instructor
 import litellm
 from decouple import config
 from litellm import completion
@@ -26,7 +25,7 @@ litellm.telemetry = False
 
 
 CHEAPER_MODEL = "gpt-4o-mini"
-PERFORMANT_MODEL = "gpt-4o-2024-05-13"
+PERFORMANT_MODEL = "gpt-4o-2024-08-06"
 
 
 class LlmAgent(ABC):
@@ -40,7 +39,7 @@ class LlmAgent(ABC):
     model: str = PERFORMANT_MODEL
 
     iterations: int = 0
-    max_iterations: int = 10
+    max_iterations: int = 20
 
     def __init__(
         self,
@@ -94,23 +93,22 @@ class LlmAgent(ABC):
 
         completion_kwargs = {"model": self.model, "messages": messages, "temperature": 0, "api_key": self.api_key}
 
-        if response_model is None:
-            response: ModelResponse = completion(
-                tools=([tool.to_schema() for tool in self.tools] if self.tools else NotGiven()), **completion_kwargs
-            )
+        response: ModelResponse = completion(
+            tools=([tool.to_schema() for tool in self.tools] if self.tools else NotGiven()),
+            response_format=response_model,
+            **completion_kwargs,
+        )
 
-            message = Message(**response.choices[0].message.model_dump())
-        else:
-            model_instance, response = instructor.from_litellm(completion).chat.completions.create_with_completion(
-                response_model=response_model, **completion_kwargs
-            )
-            message = Message(model_instance=model_instance, content=model_instance.model_dump_json(), role="assistant")
+        message = Message(**response.choices[0].message.json())
 
         self.memory.append(message)
 
         logger.debug("%s: %s", message.role, message.content)
 
-        if message.tool_calls:
+        # If the response has a model instance, avoid call the tools, it means the model has already done the job.
+        if response_model and message.content:
+            message.model_instance = response_model.model_validate_json(message.content)
+        elif message.tool_calls:
             for tool_call in message.tool_calls:
                 tool_response = self.call_tool(
                     ToolCall(
@@ -139,6 +137,9 @@ class LlmAgent(ABC):
             return True
 
         if single_iteration:
+            return False
+
+        if self.memory[-1].model_instance is not None:
             return False
 
         if (
