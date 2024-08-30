@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "5160723e720469f67348fe879cb1a4c32e744d9721a2def0eecccddbe7fa0f37"
+            "sha256": "2fc23df00b50db4037837b0a808bb8be128299c4036f6ceed4f613481e260737"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1150,13 +1150,30 @@
             "markers": "python_version < '4.0' and python_full_version >= '3.8.1'",
             "version": "==0.2.2"
         },
+        "langgraph": {
+            "hashes": [
+                "sha256:a430151d7a67011923d8b0d175fa8a59eca4584e2e8d72dd85616ebdd39ddd77",
+                "sha256:c2e37a273d207dc2e2428b68e094466066288b9b803c6a6b70be9e9c9bf20779"
+            ],
+            "index": "pypi",
+            "markers": "python_version < '4.0' and python_full_version >= '3.9.0'",
+            "version": "==0.2.14"
+        },
+        "langgraph-checkpoint": {
+            "hashes": [
+                "sha256:6ce541cbfb5d73cbceebac27e1214a3b07270a7f571de659d6e2215e3070c23e",
+                "sha256:b2435e1e42b11cfc8f3ce06d114c75cd04846e83a0214f75e9b4f512e3d5fa4e"
+            ],
+            "markers": "python_full_version >= '3.9.0' and python_full_version < '4.0.0'",
+            "version": "==1.0.6"
+        },
         "langsmith": {
             "hashes": [
-                "sha256:64a890a05640d64692f5515ebb444b0457332a9cf9e7605c4651de6737a7d3a0",
-                "sha256:a418161c98de72ee2c6eea6667c6217814b67db4b9a3a024788013384216ff35"
+                "sha256:ddd0c846980474e271a553e9c220122e32d1f2ce877cc87d39ecd86726b9e78c",
+                "sha256:f44de0a5f199381d0b518ecbe295d541c44ff33d13f18098ecc54a4547eccb3f"
             ],
             "markers": "python_version < '4.0' and python_full_version >= '3.8.1'",
-            "version": "==0.1.106"
+            "version": "==0.1.107"
         },
         "litellm": {
             "hashes": [
@@ -1600,12 +1617,12 @@
         },
         "nvidia-nvjitlink-cu12": {
             "hashes": [
-                "sha256:562ab97ea2c23164823b2a89cb328d01d45cb99634b8c65fe7cd60d14562bd79",
-                "sha256:84fb38465a5bc7c70cbc320cfd0963eb302ee25a5e939e9f512bbba55b6072fb",
-                "sha256:ed3c43a17f37b0c922a919203d2d36cbef24d41cc3e6b625182f8b58203644f6"
+                "sha256:125a6c2a44e96386dda634e13d944e60b07a0402d391a070e8fb4104b34ea1ab",
+                "sha256:a55744c98d70317c5e23db14866a8cc2b733f7324509e941fc96276f9f37801d",
+                "sha256:b3fd0779845f68b92063ab1393abab1ed0a23412fc520df79a8190d098b5cd6b"
             ],
             "markers": "python_version >= '3'",
-            "version": "==12.6.20"
+            "version": "==12.6.68"
         },
         "nvidia-nvtx-cu12": {
             "hashes": [
