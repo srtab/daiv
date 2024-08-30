@@ -1,9 +1,13 @@
 import textwrap
+from typing import Annotated, Literal
 
 from langchain_core.callbacks import CallbackManagerForToolRun
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
@@ -75,19 +79,17 @@ class ExtractedPaths(BaseModel):
     paths: list[str] = Field(description="Valid filesystem paths found in the code snippet.")
 
 
-def extract_paths():
+def extract_paths_agent(code_snippet: str) -> ExtractedPaths:
     prompt_template = ChatPromptTemplate.from_messages([
-        (
-            "system",
+        SystemMessage(
             textwrap.dedent(
                 """\
                 Act as an exceptional senior software engineer that is specialized in extraction algorithm.
                 It's absolutely vital that you completely and correctly execute your task.
                 """
-            ),
+            )
         ),
-        (
-            "user",
+        HumanMessage(
             textwrap.dedent(
                 """\
                 ### Task ###
@@ -99,15 +101,57 @@ def extract_paths():
                 ### Code Snippet ###
                 {code_snippet}
                 """
-            ),
+            )
         ),
     ])
 
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-    chain = prompt_template | model.with_structured_output(ExtractedPaths)
+    chain = prompt_template | model.with_structured_output(ExtractedPaths, strict=True)
 
-    return chain.invoke({"changes": "- Added a new feature\n- Fixed a bug"})
+    return chain.invoke({"code_snippet": code_snippet})
 
 
-tool_node = ToolNode([])
+tools = [RepositoryTreeTool()]
+
+
+class PathsReplacerState(BaseModel):
+    code_snippet: str
+    extracted_paths: ExtractedPaths
+    path_replacements: list[str]
+    messages: Annotated[list, add_messages]
+
+
+def should_continue(state: PathsReplacerState) -> Literal["tools", "__end__"]:
+    messages = state["extracted_paths"]
+    last_message = messages[-1]
+    if last_message.tool_calls:
+        return "tools"
+    return "__end__"
+
+
+workflow = StateGraph(PathsReplacerState)
+
+
+@workflow.add_node
+def call_extractor(state: PathsReplacerState):
+    return {"extracted_paths": extract_paths_agent(state.code_snippet)}
+
+
+@workflow.add_node
+def call_replacer(state: PathsReplacerState):
+    return {"path_replacements": extract_paths_agent(state.code_snippet)}
+
+
+# Define the two nodes we will cycle between
+workflow.add_node("tools", ToolNode(tools))
+
+workflow.add_edge("__start__", "paths_extractor")
+workflow.add_edge("paths_extractor", "paths_replacer")
+workflow.add_edge("tools", "paths_replacer")
+
+workflow.add_conditional_edges("paths_extractor", should_continue)
+
+workflow.add_conditional_edges("paths_replacer", should_continue)
+
+app = workflow.compile()

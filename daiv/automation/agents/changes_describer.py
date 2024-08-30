@@ -12,20 +12,24 @@ class PullRequestMetadata(BaseModel):
     commit_message: str = Field(description="Commit message, short and concise.")
 
 
-prompt_template = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        textwrap.dedent(
-            """\
-            Act as an exceptional senior software engineer that is specialized in describing changes.
-            """
+def pull_request_metadata_agent(changes: str) -> PullRequestMetadata:
+    """
+    Agent that gen metadata for a pull request based on the changes.
+    """
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            textwrap.dedent(
+                """\
+                Act as an exceptional senior software engineer that is specialized in describing changes.
+                """
+            ),
         ),
-    ),
-    ("user", "Describe the following changes:\n {changes}"),
-])
+        ("user", "Describe the following changes:\n {changes}"),
+    ])
 
-model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    chain = prompt_template | model.with_structured_output(PullRequestMetadata, strict=True)
 
-chain = prompt_template | model.with_structured_output(PullRequestMetadata)
-
-result = chain.invoke({"changes": "- Added a new feature\n- Fixed a bug"})
+    return chain.invoke({"changes": changes})
