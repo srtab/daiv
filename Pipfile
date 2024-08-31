@@ -42,7 +42,7 @@ uvicorn = "==0.30.6"
 coverage = "==7.6.1"
 mypy = "==1.11.2"
 pre-commit = "==3.8.0"
-pyproject-fmt = "==1.7.0"
+pyproject-fmt = "==2.2.1"
 pyopenssl = "==24.2.1"
 ruff = "==0.6.2"
 
