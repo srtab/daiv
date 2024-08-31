@@ -12,15 +12,15 @@ class UnprocessableEntityResponse(BaseModel):
     detail: list[ErrorDetails]
 
 
-class BaseWebHook(BaseModel, ABC):
+class BaseCallback(BaseModel, ABC):
     """
-    Base class for all webhooks
+    Base class for all callbacks.
     """
 
     @abstractmethod
-    def accept_webhook(self) -> bool:
+    def accept_callback(self) -> bool:
         pass
 
     @abstractmethod
-    def process_webhook(self):
+    def process_callback(self):
         pass

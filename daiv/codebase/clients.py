@@ -80,7 +80,7 @@ class RepoClient(abc.ABC):
         target_branch: str,
         title: str,
         description: str,
-        assignee_id: int | None = None,
+        labels: list[str] | None = None,
     ) -> int | str | None:
         pass
 
@@ -306,27 +306,27 @@ class GitLabClient(RepoClient):
         }
         if push_events_branch_filter:
             data["push_events_branch_filter"] = push_events_branch_filter
-        if project_hook := self._get_repository_hook_by_url(repo_id, url):
+        if project_hook := self._get_repository_hook_by_name(repo_id, data["name"]):
             for key, value in data.items():
                 setattr(project_hook, key, value)
             project_hook.save()
         else:
             project.hooks.create(data)
 
-    def _get_repository_hook_by_url(self, repo_id: str, url: str) -> ProjectHook | None:
+    def _get_repository_hook_by_name(self, repo_id: str, name: str) -> ProjectHook | None:
         """
-        Get a webhook by URL.
+        Get a webhook by name.
 
         Args:
             repo_id: The repository ID.
-            url: The webhook URL.
+            name: The webhook name.
 
         Returns:
             The webhook object if it exists, otherwise None.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         for hook in project.hooks.list(all=True, iterator=True):
-            if hook.url == url:
+            if hook.name == name:
                 return cast(ProjectHook, hook)
         return None
 
@@ -370,7 +370,7 @@ class GitLabClient(RepoClient):
         target_branch: str,
         title: str,
         description: str,
-        assignee_id: int | None = None,
+        labels: list[str] | None = None,
     ) -> int | str | None:
         """
         Create a merge request in a repository or update an existing one if it already exists.
@@ -381,6 +381,7 @@ class GitLabClient(RepoClient):
             target_branch: The target branch.
             title: The title of the merge request.
             description: The description of the merge request.
+            labels: The list of labels.
 
         Returns:
             The merge request ID.
@@ -392,6 +393,7 @@ class GitLabClient(RepoClient):
                 "target_branch": target_branch,
                 "title": title,
                 "description": description,
+                "labels": labels or [],
             }).get_id()
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -402,7 +404,7 @@ class GitLabClient(RepoClient):
                 merge_request = merge_requests.next()
                 merge_request.title = title
                 merge_request.description = description
-                merge_request.assignee_id = assignee_id
+                merge_request.labels = labels or []
                 merge_request.save()
                 return merge_request.get_id()
             raise e
@@ -609,7 +611,7 @@ class GitLabClient(RepoClient):
         ]
 
     def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None
+        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
         """
         Get the related merge requests of an issue.
@@ -627,7 +629,8 @@ class GitLabClient(RepoClient):
         return [
             MergeRequest(repo_id=repo_id, merge_request_id=cast(int, mr["iid"]), source_branch=mr["source_branch"])
             for mr in issue.related_merge_requests(all=True)
-            if assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id
+            if (assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id)
+            and (label is None or label in mr["labels"])
         ]
 
     @cached_property

@@ -99,7 +99,7 @@ class SemanticSearchEngine(SearchEngine):
         conditions: list[dict[str, str]] = [{"repo_id": index_name}]
 
         if content_type := kwargs.pop("content_type", None):
-            assert content_type not in ["functions_classes", "simplified_code"], "Invalid content type."
+            assert content_type in ["functions_classes", "simplified_code"], "Invalid content type."
             conditions.append({"content_type": content_type})
 
         chroma_filter: dict[str, str | list | dict[str, str]] = {}

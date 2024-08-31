@@ -1,12 +1,17 @@
 from typing import Unpack, cast
 
+from pydantic import BaseModel, Field
+
 from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
 from automation.coders.base import Coder
 from automation.coders.typings import ReplacerInvoke
-from automation.utils import extract_text_inside_tags
 
 from .prompts import ReplacerPrompts
+
+
+class ReplacedCodeSnippet(BaseModel):
+    content: str = Field(description="The content of the resulting snippet after replacement.")
 
 
 class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
@@ -31,11 +36,8 @@ class ReplacerCoder(Coder[ReplacerInvoke, str | None]):
                 ),
             ]
         )
-        response = agent.run(single_iteration=True)
+        response = agent.run(response_model=ReplacedCodeSnippet)
 
         self.usage += agent.usage
 
-        if response is None:
-            return None
-
-        return extract_text_inside_tags(cast(str, response), "code", strip_newlines=True)
+        return cast(ReplacedCodeSnippet, response).content
