@@ -16,7 +16,7 @@ class Command(BaseCommand):
         for project in repo_client.list_repositories(load_all=True):
             repo_client.set_repository_webhooks(
                 project.slug,
-                f"{options["base_url"]}/api/codebase/webhooks/{settings.CODEBASE_CLIENT}/",
+                f"{options["base_url"]}/api/codebase/callbacks/{settings.CODEBASE_CLIENT}/",
                 ["push_events", "merge_requests_events", "issues_events"],
                 push_events_branch_filter=project.default_branch,
                 enable_ssl_verification=not options["disable_ssl_verification"],

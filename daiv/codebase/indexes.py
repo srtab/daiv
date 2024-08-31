@@ -123,6 +123,8 @@ class CodebaseIndex(abc.ABC):
         semantic_results = self.semantic_search_engine.search(repo_id, query, k=k, content_type="functions_classes")
         lexical_results = self.lexical_search_engine.search(repo_id, query, k=k)
         combined_results = semantic_results + lexical_results
+        if not combined_results:
+            return []
         score_results = RerankerEngine.rerank(query, [result.document.page_content for result in combined_results])
         return [
             item

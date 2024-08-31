@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import cast
 
@@ -12,6 +13,8 @@ from codebase.search_engines.base import ScoredResult, SearchEngine
 from daiv.settings.components import DATA_DIR
 
 TANTIVY_INDEX_PATH = DATA_DIR / "tantivy_index"
+
+variable_pattern = re.compile(r"([A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z]|$))")
 
 
 @lru_cache
@@ -110,7 +113,7 @@ class LexicalSearchEngine(SearchEngine):
         index = self._get_index(index_name)
         index.reload()
         searcher = index.searcher()
-        parsed_query = index.parse_query(query, ["page_content"])
+        parsed_query = index.parse_query(self._tokenize_code(query), ["page_content"])
         results = []
         for score, best_doc_address in searcher.search(parsed_query, k, **kwargs).hits:
             document = searcher.doc(best_doc_address)
@@ -124,6 +127,35 @@ class LexicalSearchEngine(SearchEngine):
                 )
             )
         return results
+
+    def _tokenize_code(self, code: str) -> str:
+        """
+        Tokenize the code snippet.
+
+        Args:
+            code (str): The code snippet.
+
+        Returns:
+            str: The tokenized code snippet.
+        """
+        matches = re.finditer(r"\b\w{2,}\b", code)
+        tokens = []
+        for m in matches:
+            text = m.group()
+
+            for section in text.split("_"):
+                for part in variable_pattern.findall(section):
+                    if len(part) < 2:
+                        continue
+                    # if more than half of the characters are letters
+                    # and the ratio of unique characters to the number of characters is less than 5
+                    if (
+                        sum(1 for c in part if "a" <= c <= "z" or "A" <= c <= "Z" or "0" <= c <= "9") > len(part) // 2
+                        and len(part) / len(set(part)) < 4
+                    ):
+                        tokens.append(part.lower())
+
+        return " ".join(tokens)
 
     def _get_index(self, index_name: str) -> Index:
         """
