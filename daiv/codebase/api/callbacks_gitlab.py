@@ -9,7 +9,17 @@ from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.refactor.coder_simple import SimpleRefactorCoder
 from automation.coders.refactor.prompts import RefactorPrompts
 from codebase.api.callbacks import BaseCallback
-from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from codebase.api.models import (
+    LABEL_DAIV,
+    Issue,
+    IssueAction,
+    MergeRequest,
+    Note,
+    NoteableType,
+    NoteAction,
+    Project,
+    User,
+)
 from codebase.clients import RepoClient
 from codebase.tasks import handle_mr_feedback, update_index_repository
 
@@ -18,8 +28,6 @@ if TYPE_CHECKING:
     from codebase.base import FileChange
 
 logger = logging.getLogger(__name__)
-
-LABEL_DAIV = "daiv"
 
 
 class IssueCallback(BaseCallback):
@@ -33,10 +41,9 @@ class IssueCallback(BaseCallback):
     object_attributes: Issue
 
     def accept_callback(self) -> bool:
-        client = RepoClient.create_instance()
         return (
             self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE, IssueAction.REOPEN]
-            and client.current_user.id == self.object_attributes.assignee_id
+            and self.object_attributes.is_daiv()
         )
 
     async def process_callback(self):
@@ -181,7 +188,7 @@ class NoteCallback(BaseCallback):
             and self.merge_request
             and not self.merge_request.work_in_progress
             and self.merge_request.state == "opened"
-            and client.current_user.id == self.merge_request.assignee_id
+            and self.merge_request.is_daiv()
         )
 
     async def process_callback(self):

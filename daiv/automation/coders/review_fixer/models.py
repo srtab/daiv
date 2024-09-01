@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 class RequestFeedback(BaseModel):
     """
-    This tool is used to ask for feedback if you are unable to address the comments or the comments are ambiguous.
+    This tool is used to ask for feedback when less well-specified comments, where the user's requests are
+    vague or incomplete.
     """
 
     questions: list[str] = Field(

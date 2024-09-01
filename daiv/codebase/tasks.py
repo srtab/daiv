@@ -11,7 +11,7 @@ from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
-from automation.coders.review_addressor.coder import ReviewAddressorCoder, ReviewCommentorCoder
+from automation.coders.review_fixer.coder import ReviewCommentorCoder, ReviewFixerCoder
 from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -205,6 +205,9 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
         diff=discussion_to_address.diff,
     )
 
+    if not feedback:
+        return
+
     if feedback.questions:
         client.create_merge_request_discussion_note(
             discussion_to_address.repo_id,
@@ -218,7 +221,7 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
     file_changes: list[FileChange] = []
 
     if feedback.code_changes_needed:
-        file_changes = ReviewAddressorCoder(usage=usage).invoke(
+        file_changes = ReviewFixerCoder(usage=usage).invoke(
             source_repo_id=discussion_to_address.repo_id,
             source_ref=discussion_to_address.merge_request_source_branch,
             file_path=discussion_to_address.patch_file.path,

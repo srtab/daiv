@@ -4,21 +4,21 @@ from automation.agents.agent import LlmAgent
 from automation.agents.models import Message
 from automation.coders.base import STOP_MESSAGE, CodebaseCoder
 from automation.coders.tools import CodeActionTools, CodeInspectTools
-from automation.coders.typings import ReviewAddressorInvoke
+from automation.coders.typings import ReviewFixerInvoke
 from codebase.base import FileChange
 
 from .models import RequestFeedback
-from .prompts import ReviewAddressorPrompts, ReviewCommentorPrompts
+from .prompts import ReviewCommentorPrompts, ReviewFixerPrompts
 
 
-class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, RequestFeedback | None]):
+class ReviewCommentorCoder(CodebaseCoder[ReviewFixerInvoke, RequestFeedback | None]):
     """
     Coder to review the comments left in a diff extracted from a pull request.
 
     The coder will review the comments and ask for more information if needed.
     """
 
-    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> RequestFeedback | None:
+    def invoke(self, *args, **kwargs: Unpack[ReviewFixerInvoke]) -> RequestFeedback | None:
         """
         Invoke the coder to review the comments in the pull request.
         """
@@ -50,14 +50,14 @@ class ReviewCommentorCoder(CodebaseCoder[ReviewAddressorInvoke, RequestFeedback 
         return cast(RequestFeedback, response)
 
 
-class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, list[FileChange]]):
+class ReviewFixerCoder(CodebaseCoder[ReviewFixerInvoke, list[FileChange]]):
     """
     Coder to address the review comments left on a pull request.
 
     The coder will address the comments and make the necessary changes in the codebase.
     """
 
-    def invoke(self, *args, **kwargs: Unpack[ReviewAddressorInvoke]) -> list[FileChange]:
+    def invoke(self, *args, **kwargs: Unpack[ReviewFixerInvoke]) -> list[FileChange]:
         """
         Invoke the coder to address the review comments in the codebase.
         """
@@ -69,9 +69,7 @@ class ReviewAddressorCoder(CodebaseCoder[ReviewAddressorInvoke, list[FileChange]
             ref=kwargs["source_ref"],
         )
 
-        memory = [
-            Message(role="system", content=ReviewAddressorPrompts.format_system(kwargs["file_path"], kwargs["diff"]))
-        ]
+        memory = [Message(role="system", content=ReviewFixerPrompts.format_system(kwargs["file_path"], kwargs["diff"]))]
 
         for note in kwargs["notes"]:
             # add previous notes to thread the conversation

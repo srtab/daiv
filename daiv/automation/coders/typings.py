@@ -13,7 +13,7 @@ class CodebaseInvoke(Invoke):
     source_ref: str
 
 
-class ReviewAddressorInvoke(CodebaseInvoke):
+class ReviewFixerInvoke(CodebaseInvoke):
     file_path: str
     notes: list[Note]
     diff: str | None = None
