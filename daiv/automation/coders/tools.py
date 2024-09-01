@@ -103,7 +103,7 @@ class CodeInspectTools:
 
         search_results_str = "No search results found."
 
-        if search_results := self.codebase_index.search_with_reranker(self.repo_id, query):
+        if search_results := self.codebase_index.search_with_reranker(self.repo_id, query, k=5):
             search_results_str = "### Search results ###"
             for reranked_score, result in search_results:
                 logger.debug(
@@ -117,7 +117,7 @@ class CodeInspectTools:
                     file path: {file_path}
                     ```{language}
                     {content}
-                    ```\n\n
+                    ```
                     """
                 ).format(
                     file_path=result.document.metadata["source"],
