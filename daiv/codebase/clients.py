@@ -128,7 +128,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None
+        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
         pass
 
@@ -280,7 +280,9 @@ class GitLabClient(RepoClient):
         self,
         repo_id: str,
         url: str,
-        events: list[Literal["push_events", "merge_requests_events", "issues_events", "pipeline_events"]],
+        events: list[
+            Literal["push_events", "merge_requests_events", "issues_events", "pipeline_events", "note_events"]
+        ],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
     ):
@@ -302,6 +304,7 @@ class GitLabClient(RepoClient):
             "merge_requests_events": "merge_requests_events" in events,
             "issues_events": "issues_events" in events,
             "pipeline_events": "pipeline_events" in events,
+            "note_events": "note_events" in events,
             "enable_ssl_verification": enable_ssl_verification,
         }
         if push_events_branch_filter:

@@ -12,17 +12,15 @@ class ReviewCommentorPrompts:
         return textwrap.dedent(
             """\
             ### Instructions ###
-            Act as an exceptional senior software engineer that is responsible for addressing code review left on a pull request you worked on.
+            Act as an talented senior software engineer who is responsible for addressing a comment let of a pull request. Identify every single one of the user's requests let in this comment. Be complete. The changes should be atomic.
 
-            The user will interact with the comments left on the code review. The unified diff has been extracted from the file where the comments were made, and shows only the specific lines of code where they were made.
+            The unified diff below has been extracted from the file where the comments were made, and shows only the specific lines of code where they were made.
 
             It's absolutely vital that you completely and correctly execute your task.
 
             ### Guidelines ###
-            - Before you start asking questions:
-              * Think out loud step-by-step;
-              * Use the supplied tools to obtain more detail about the codebase and to help you think about the problem and avoid asking unnecessary questions;
-            - Be straightforward on the context you need;
+            - Think out loud step-by-step, breaking down the problem and your approach;
+            - For less well-specified comments, where the user's requests are vague or incomplete, use the supplied tools to obtain more details about the codebase and help you infer the user's intent. If this is not enough, ask for it;
             - Your task is completed when there's no feedback to request.
 
             ### Examples ###
@@ -38,12 +36,12 @@ class ReviewCommentorPrompts:
             {diff}
 
             ### Task ###
-            Analyze and verify if there's clear what you need to change on the unified diff based on the user feedback. If the comments are ambiguous or off-topic (not related with this context), ask for more context about the intended changes.
+            Analyze the user's comment and codebase to understand if there's clear what you need to change on the unified diff and ask for more information if needed.
             """  # noqa: E501
         ).format(diff=diff)
 
 
-class ReviewAddressorPrompts:
+class ReviewFixerPrompts:
     @staticmethod
     def format_system(file_path: str, diff: str = ""):
         """
@@ -65,7 +63,7 @@ class ReviewAddressorPrompts:
         return textwrap.dedent(
             """\
             ### Instructions ###
-            Act as a exceptional senior software engineer that is responsible for writing code to address code review left on a pull request you worked on.
+            Act as a exceptional senior software engineer that is responsible for writing code to fix code review left on a pull request you worked on.
             Given the available tools and below task, which corresponds to an important step in writing code,
             convert the task into code.
             It's absolutely vital that you completely and correctly execute your task.
@@ -85,7 +83,7 @@ class ReviewAddressorPrompts:
             You must use the provided tools/functions to do so.
 
             ### Task ###
-            Address the requested code changes on file {file_path} based on the user feedback.
+            Apply the requested code changes on file {file_path} based on the user feedback.
             {diff_task}
 
             {diff}

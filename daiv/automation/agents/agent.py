@@ -136,10 +136,7 @@ class LlmAgent(ABC):
         if self.iterations == 0:
             return True
 
-        if single_iteration:
-            return False
-
-        if self.memory[-1].model_instance is not None:
+        if single_iteration or self.iterations >= self.max_iterations or self.memory[-1].model_instance is not None:
             return False
 
         if (
