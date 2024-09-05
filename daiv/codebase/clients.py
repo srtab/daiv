@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabHttpError
+from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabHttpError
 from gitlab.v4.objects import ProjectHook
 
 from .base import (
@@ -54,6 +54,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
+        pass
+
+    @abc.abstractmethod
+    def repository_file_exists(self, repo_id: str, file_path: str, ref: str | None = None) -> bool:
         pass
 
     @abc.abstractmethod
@@ -247,6 +251,27 @@ class GitLabClient(RepoClient):
             return project_file.decode().decode()
         except UnicodeDecodeError:
             return None
+
+    def repository_file_exists(self, repo_id: str, file_path: str, ref: str | None = None) -> bool:
+        """
+        Check if a file exists in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            file_path: The file path.
+            ref: The branch or tag name.
+
+        Returns:
+            True if the file exists, otherwise False.
+        """
+        project = self.client.projects.get(repo_id)
+        try:
+            project.files.head(file_path=file_path, ref=ref or project.default_branch)
+        except GitlabHeadError as e:
+            if e.response_code == 404:
+                return False
+            raise e
+        return True
 
     def get_repository_tree(
         self,
