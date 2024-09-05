@@ -20,7 +20,7 @@ class ReviewCommentorPrompts:
 
             ### Guidelines ###
             - Think out loud step-by-step, breaking down the problem and your approach;
-            - For less well-specified comments, where the user's requests are vague or incomplete, use the supplied tools to obtain more details about the codebase and help you infer the user's intent. If this is not enough, ask for it;
+            - For less well-specified comments, where the user's requests are vague or incomplete, use the supplied tools to obtain more details about the codebase and help you infer the user's intent. If this is not enough, ask for it. Important note: Avoid crawling accross all files in the codebase, use instead the codebase_search tool to find the relevant files;
             - Your task is completed when there's no feedback to request.
 
             ### Examples ###

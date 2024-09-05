@@ -39,7 +39,7 @@ class LlmAgent(ABC):
     model: str = PERFORMANT_MODEL
 
     iterations: int = 0
-    max_iterations: int = 20
+    max_iterations: int = 10
 
     def __init__(
         self,

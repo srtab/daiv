@@ -3,6 +3,7 @@ import functools
 import chromadb
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_openai import OpenAIEmbeddings
 
 from codebase.conf import settings
@@ -82,6 +83,36 @@ class SemanticSearchEngine(SearchEngine):
         results = self.db.get(where={"repo_id": index_name})
         for document_id in results["ids"]:
             self.db.delete(document_id)
+
+    def as_retriever(self, index_name: str, **kwargs) -> VectorStoreRetriever:
+        """
+        Return the search engine as a retriever.
+
+        Args:
+            index_name (str): The name of the index.
+            k (int): The number of results to return.
+            **kwargs: Additional search parameters to pass to Chroma.
+
+        Returns:
+            VectorStoreRetriever: The retriever.
+        """
+        conditions: list[dict[str, str]] = [{"repo_id": index_name}]
+
+        if exclude_content_type := kwargs.pop("exclude_content_type", None):
+            assert exclude_content_type in ["functions_classes", "simplified_code"], "Invalid content type."
+            conditions.append({"content_type": {"$ne": exclude_content_type}})
+
+        if content_type := kwargs.pop("content_type", None):
+            assert exclude_content_type in ["functions_classes", "simplified_code"], "Invalid content type."
+            conditions.append({"content_type": content_type})
+
+        chroma_filter: dict[str, str | list | dict[str, str]] = {}
+        if len(conditions) > 1:
+            chroma_filter = {"$and": conditions}
+        elif len(conditions) == 1:
+            chroma_filter = conditions[0]
+
+        return self.db.as_retriever(search_kwargs={"filter": chroma_filter, **kwargs})
 
     def search(self, index_name: str, query: str, k: int = 10, **kwargs) -> list[ScoredResult]:
         """

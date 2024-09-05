@@ -10,6 +10,7 @@ from langchain_core.documents import Document as LangDocument
 from tantivy import Document, Index, SchemaBuilder
 
 from codebase.search_engines.base import ScoredResult, SearchEngine
+from codebase.search_engines.retrievers import TantityRetriever
 from daiv.settings.components import DATA_DIR
 
 TANTIVY_INDEX_PATH = DATA_DIR / "tantivy_index"
@@ -96,6 +97,19 @@ class LexicalSearchEngine(SearchEngine):
         writer = self._get_index(index_name).writer()
         writer.delete_all_documents()
         writer.commit()
+
+    def as_retriever(self, index_name: str, **kwargs) -> TantityRetriever:
+        """
+        Convert the search engine to a retriever.
+
+        Args:
+            index_name (str): The name of the index.
+            **kwargs: Additional keyword arguments to pass to the retriever.
+
+        Returns:
+            TantityRetriever: The lexical retriever.
+        """
+        return TantityRetriever(index=self._get_index(index_name), **kwargs)
 
     def search(self, index_name: str, query: str, k: int = 10, **kwargs) -> list[ScoredResult]:
         """

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from django.db import transaction
 from django.db.models import Q
 
+from langchain.retrievers import EnsembleRetriever
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.language import LanguageParser
 
@@ -18,6 +19,8 @@ from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
 
 if TYPE_CHECKING:
+    from langchain_core.documents import Document
+
     from codebase.base import RepositoryFile
     from codebase.clients import GitHubClient, GitLabClient
     from codebase.search_engines.base import ScoredResult
@@ -134,6 +137,25 @@ class CodebaseIndex(abc.ABC):
             if item[0] > 0
         ]
 
+    def search(self, repo_id: str, query: str) -> list[Document]:
+        """
+        Hybrid search using both lexical and semantic search engines.
+
+        Args:
+            repo_id (str): The repository id.
+            query (str): The query.
+
+        Returns:
+            list[Document]: The search results.
+        """
+        return EnsembleRetriever(
+            retrievers=[
+                self.lexical_search_engine.as_retriever(repo_id, k=3),
+                self.semantic_search_engine.as_retriever(repo_id, k=4, exclude_content_type="simplified_code"),
+            ],
+            weights=[0.4, 0.6],
+        ).invoke(query)
+
     def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """
         Search the most similar file in the codebase.
@@ -183,3 +205,13 @@ class CodebaseIndex(abc.ABC):
                 for filename in filenames:
                     extracted_paths.add(dirpath.joinpath(filename).relative_to(repo_dir).as_posix())
         return extracted_paths
+
+
+if __name__ == "__main__":
+    from codebase.clients import RepoClient
+    from codebase.indexes import CodebaseIndex
+
+    client = RepoClient.create_instance()
+    index = CodebaseIndex(client)
+
+    index.search("dipcode/python/django-extra-toolkit", "class IBANField")
