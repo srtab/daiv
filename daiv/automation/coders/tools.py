@@ -105,9 +105,12 @@ class CodeInspectTools:
 
         search_results_str = "No search results found."
 
-        if search_results := search_agent.invoke({"repo_id": self.repo_id, "query": query, "query_intent": intent}).get(
-            "documents"
-        ):
+        if search_results := search_agent.invoke({
+            "index": self.codebase_index,
+            "repo_id": self.repo_id,
+            "query": query,
+            "query_intent": intent,
+        }).get("documents"):
             search_results_str = "### Search results ###"
             for document in search_results:
                 logger.debug("[CodeInspectTools.codebase_search] file_path=%s", document.metadata["source"])

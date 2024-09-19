@@ -147,8 +147,16 @@ class RepoClient(abc.ABC):
     ) -> list[Discussion]:  # noqa: A002
         pass
 
+    @abc.abstractmethod
+    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: int):
+        pass
+
+    @abc.abstractmethod
+    def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: str, body: str):
+        pass
+
     @staticmethod
-    def create_instance() -> GitHubClient | GitLabClient:
+    def create_instance() -> AllRepoClient:
         """
         Get the repository client based on the configuration.
 
@@ -764,7 +772,7 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         merge_request.discussions.update(discussion_id, {"resolved": True})
 
-    def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: int, body: str):
+    def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: str, body: str):
         """
         Create a note in a discussion of a merge request.
 
@@ -788,3 +796,6 @@ class GitHubClient(RepoClient):
     """
 
     client_slug = ClientType.GITHUB
+
+
+AllRepoClient = GitHubClient | GitLabClient

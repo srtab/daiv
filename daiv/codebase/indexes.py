@@ -22,16 +22,16 @@ if TYPE_CHECKING:
     from langchain_core.documents import Document
 
     from codebase.base import RepositoryFile
-    from codebase.clients import GitHubClient, GitLabClient
+    from codebase.clients import AllRepoClient
     from codebase.search_engines.base import ScoredResult
 
 logger = logging.getLogger(__name__)
 
 
 class CodebaseIndex(abc.ABC):
-    repo_client: GitLabClient | GitHubClient
+    repo_client: AllRepoClient
 
-    def __init__(self, repo_client: GitLabClient | GitHubClient):
+    def __init__(self, repo_client: AllRepoClient):
         self.repo_client = repo_client
         self.semantic_search_engine = SemanticSearchEngine(collection_name=settings.CODEBASE_COLLECTION_NAME)
         self.lexical_search_engine = LexicalSearchEngine()
