@@ -9,7 +9,6 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
 MAX_ITERATIONS = 3
@@ -38,6 +37,7 @@ class SearchState(TypedDict):
     Represents the state of our graph.
     """
 
+    index: CodebaseIndex
     repo_id: str
     query: str
     query_intent: str
@@ -55,8 +55,11 @@ def retrieve(state: SearchState):
     Args:
         state (GraphState): The current state of the graph.
     """
-    index = CodebaseIndex(RepoClient.create_instance())
-    return {"documents": index.search(state["repo_id"], state["query"]), "iterations": state.get("iterations", 0) + 1}
+    codebase_index = state["index"]
+    return {
+        "documents": codebase_index.search(state["repo_id"], state["query"]),
+        "iterations": state.get("iterations", 0) + 1,
+    }
 
 
 def grade_documents(state: SearchState):

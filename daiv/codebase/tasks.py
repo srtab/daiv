@@ -12,8 +12,9 @@ from unidiff import Hunk, PatchedFile, PatchSet
 from automation.agents.models import Usage
 from automation.coders.change_describer.coder import ChangesDescriberCoder
 from automation.coders.review_fixer.coder import ReviewCommentorCoder, ReviewFixerCoder
+from automation.graphs.review_adressor.agent import ReviewAdressorAgent
 from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
-from codebase.clients import RepoClient
+from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
 
 if TYPE_CHECKING:
@@ -196,7 +197,19 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
         cache.delete(f"{repo_id}:{merge_request_id}")
 
 
-def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: DiscussionToAdress):
+def _handle_diff_notes(usage: Usage, client: AllRepoClient, discussion_to_address: DiscussionToAdress):
+    reviewer_agent = ReviewAdressorAgent(
+        client,
+        source_repo_id=discussion_to_address.repo_id,
+        source_ref=discussion_to_address.merge_request_source_branch,
+        merge_request_id=discussion_to_address.merge_request_id,
+        discussion_id=discussion_to_address.discussion.id,
+    )
+
+    reviewer_agent.graph.invoke({"diff": discussion_to_address.diff, "notes": discussion_to_address.notes})
+
+    return
+
     feedback = ReviewCommentorCoder(usage=usage).invoke(
         source_repo_id=discussion_to_address.repo_id,
         source_ref=discussion_to_address.merge_request_source_branch,
@@ -207,14 +220,6 @@ def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: 
 
     if not feedback:
         return
-
-    if feedback.questions:
-        client.create_merge_request_discussion_note(
-            discussion_to_address.repo_id,
-            discussion_to_address.merge_request_id,
-            discussion_to_address.discussion.id,
-            "\n".join(feedback.questions),
-        )
 
         return  # Do not proceed with the changes if there are questions
 
