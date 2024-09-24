@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 
@@ -14,10 +15,10 @@ class BaseAgent(ABC):
 
     def __init__(self):
         self.model = self.get_model()
-        self.graph = self.compile()
+        self.agent = self.compile()
 
     @abstractmethod
-    def compile(self) -> CompiledStateGraph:
+    def compile(self) -> CompiledStateGraph | Runnable:
         pass
 
     def get_model(self) -> ChatOpenAI:

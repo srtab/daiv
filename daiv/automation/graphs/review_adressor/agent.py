@@ -3,12 +3,13 @@ from textwrap import dedent
 from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 
 from automation.graphs.agents import BaseAgent
-from automation.graphs.pr_describer_agent import PullRequestDescriberOutput, pr_describer_agent
+from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
 from automation.tools import CodebaseSearchTool, ReplaceSnippetWithTool, RepositoryFileTool
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
@@ -52,7 +53,7 @@ class ReviewAdressorAgent(BaseAgent):
         self.codebase_changes = CodebaseChanges()
         super().__init__()
 
-    def compile(self) -> CompiledStateGraph:
+    def compile(self) -> CompiledStateGraph | Runnable:
         """
         Compile the workflow for the agent.
 
@@ -207,11 +208,12 @@ class ReviewAdressorAgent(BaseAgent):
             self.source_repo_id, self.merge_request_id, self.discussion_id
         )
 
+        pr_describer = PullRequestDescriberAgent()
         changes_description = cast(
             PullRequestDescriberOutput,
-            pr_describer_agent.invoke({
-                "changes": [". ".join(file_change.commit_messages) for file_change in state["file_changes"].values()]
-            }),
+            pr_describer.agent.invoke([
+                ". ".join(file_change.commit_messages) for file_change in state["file_changes"].values()
+            ]),
         )
 
         self.repo_client.commit_changes(
