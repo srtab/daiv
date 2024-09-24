@@ -2,11 +2,12 @@ import logging
 from typing import cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from automation.graphs.agents import BaseAgent
-from automation.graphs.search_agent import GradeDocumentsOutput, ImprovedQueryOutput
+from automation.graphs.codebase_search.schemas import GradeDocumentsOutput, ImprovedQueryOutput
 from codebase.indexes import CodebaseIndex
 
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
@@ -27,7 +28,7 @@ class CodebaseSearchAgent(BaseAgent):
         self.index = index
         self.source_repo_id = source_repo_id
 
-    def compile(self) -> CompiledStateGraph:
+    def compile(self) -> CompiledStateGraph | Runnable:
         workflow = StateGraph(OverallState)
 
         # Add nodes
