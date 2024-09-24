@@ -148,7 +148,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: int):
+    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
     @abc.abstractmethod
@@ -699,9 +699,10 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return [
-            Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], note_type))
+            Discussion(id=discussion.id, notes=notes)
             for discussion in merge_request.discussions.list(all=True, iterator=True)
             if discussion.individual_note is False
+            and (notes := self._serialize_notes(discussion.attributes["notes"], note_type))
         ]
 
     def _serialize_notes(self, notes: list[dict], note_type: NoteType | None = None) -> list[Note]:
@@ -759,7 +760,7 @@ class GitLabClient(RepoClient):
             and (note_type is None or note["type"] == note_type)
         ]
 
-    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: int):
+    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """
         Resolve a discussion in a merge request.
 

@@ -1,12 +1,16 @@
+import operator
+from typing import Annotated
+
 from langgraph.graph import MessagesState
 
-from codebase.base import Note
+from codebase.base import FileChange
 
 
-class InputState(MessagesState):
-    notes: list[Note]
+class PlanExecute(MessagesState):
     diff: str
-
-
-class OverallState(InputState):
-    pass
+    plan_steps: list[str]
+    goal: str
+    past_steps: Annotated[list[tuple], operator.add]
+    file_changes: dict[str, FileChange]
+    response: str
+    finished: bool
