@@ -77,6 +77,10 @@ class FileChange(BaseModel):
     commit_messages: list[str] = []
 
 
+class CodebaseChanges(BaseModel):
+    file_changes: dict[str, FileChange] = Field(default_factory=dict)
+
+
 class User(BaseModel):
     id: int
     name: str

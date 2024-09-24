@@ -3,27 +3,52 @@ from textwrap import dedent
 from pydantic import BaseModel, Field
 
 
-class FinalFeedback(BaseModel):
-    """
-    Use this tool to provide feedback to the user after the task is completed.
+class Plan(BaseModel):
+    """Plan to follow in future"""
 
-    Feedback should be used to:
-     - question when less well-specified comments, where the user's requests are vague or incomplete;
-     - provide feedback when the user's requests are clear and complete and no code changes are needed.
-    """
+    steps: list[str] = Field(description="different steps to follow, should be in sorted order")
 
-    code_changes_needed: bool = Field(description="Whether code changes are needed to complete the task.")
-    feedback: str = Field(
-        description="Feedback to the user. Leave blank if code changes are needed or questions to make."
-    )
+
+class InitialPlan(Plan):
+    """Plan to follow in future"""
+
+    goal: str = Field(description="goal of the requested changes")
+
+
+class Response(BaseModel):
+    """Final response to user."""
+
+    response: str
+    finished: bool = Field(default=False, description="If the task has been completed, set to True, otherwise False.")
+
+
+class AskForClarification(BaseModel):
+    """Questions for the user to answer to help you complete the task."""
+
     questions: list[str] = Field(
         description=dedent(
             """\
-            Questions for the user to answer to help you complete the task. Leave empty if there are no questions.
+            Ask in first person, e.g. 'Can you provide more details?' as you where talking directly to the reviewer.
             """
         )
     )
 
-    @property
-    def discussion_note(self):
-        return self.questions and "\n".join(self.questions) or self.feedback
+
+class Act(BaseModel):
+    """Action to perform."""
+
+    action: Response | Plan | AskForClarification = Field(
+        description="Action to perform. If you want to respond to user, use Response. "
+        "If you want to ask the user for clarification, use AskForClarification. "
+        "If you need to further use tools to get the answer, use Plan."
+    )
+
+
+class InitialAct(BaseModel):
+    """Action to perform."""
+
+    action: Response | InitialPlan | AskForClarification = Field(
+        description="Action to perform. If you want to respond to user, use Response. "
+        "If you want to ask the user for clarification, use AskForClarification. "
+        "If you need to further use tools to get the answer, use Plan."
+    )
