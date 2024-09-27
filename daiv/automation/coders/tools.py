@@ -14,7 +14,7 @@ from automation.coders.schemas import (
     RenameFile,
     ReplaceSnippetWith,
 )
-from automation.graphs.search_agent import search_agent
+from automation.graphs.codebase_search import CodebaseSearchAgent
 from automation.utils import find_original_snippet
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
@@ -104,13 +104,8 @@ class CodeInspectTools:
         logger.debug("[CodeInspectTools.codebase_search] Searching codebase for %s", query)
 
         search_results_str = "No search results found."
-
-        if search_results := search_agent.invoke({
-            "index": self.codebase_index,
-            "repo_id": self.repo_id,
-            "query": query,
-            "query_intent": intent,
-        }).get("documents"):
+        search = CodebaseSearchAgent(self.repo_id, self.codebase_index)
+        if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
             search_results_str = "### Search results ###"
             for document in search_results:
                 logger.debug("[CodeInspectTools.codebase_search] file_path=%s", document.metadata["source"])

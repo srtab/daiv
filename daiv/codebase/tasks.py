@@ -213,8 +213,4 @@ def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionT
         discussion_id=discussion_to_address.discussion.id,
     )
 
-    reviewer_agent.graph.invoke({
-        "diff": discussion_to_address.diff,
-        "messages": messages,
-        "reviewer": note.author.username,
-    })
+    reviewer_agent.agent.invoke({"diff": discussion_to_address.diff, "messages": messages})

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
@@ -13,7 +14,8 @@ class BaseAgent(ABC):
     model_class: type[ChatOpenAI] = ChatOpenAI
     model_name: str = "gpt-4o-mini-2024-07-18"
 
-    def __init__(self):
+    def __init__(self, usage_handler: OpenAICallbackHandler | None = None):
+        self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.model = self.get_model()
         self.agent = self.compile()
 
@@ -37,7 +39,7 @@ class BaseAgent(ABC):
         Returns:
             dict: The keyword arguments
         """
-        return {"model": self.model_name, "temperature": 0}
+        return {"model": self.model_name, "temperature": 0, "callbacks": [self.usage_handler]}
 
     def draw_mermaid(self):
         """
@@ -46,4 +48,4 @@ class BaseAgent(ABC):
         Returns:
             str: The Mermaid graph
         """
-        return self.graph.get_graph().draw_mermaid()
+        return self.agent.get_graph().draw_mermaid()

@@ -6,20 +6,20 @@ from pydantic import BaseModel, Field
 class Plan(BaseModel):
     """Plan to follow in future"""
 
-    steps: list[str] = Field(description="different steps to follow, should be in sorted order")
+    tasks: list[str] = Field(description="different tasks to follow, should be in sorted order")
 
 
 class InitialPlan(Plan):
     """Plan to follow in future"""
 
-    goal: str = Field(description="goal of the requested changes")
+    goal: str = Field(description="detailed objective of the requested changes to be made")
 
 
 class Response(BaseModel):
     """Final response to user."""
 
     response: str
-    finished: bool = Field(default=False, description="If the task has been completed, set to True, otherwise False.")
+    finished: bool = Field(description="If the task has been completed, set to True, otherwise False.")
 
 
 class AskForClarification(BaseModel):
