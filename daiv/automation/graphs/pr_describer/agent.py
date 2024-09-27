@@ -1,5 +1,5 @@
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langgraph.graph.state import CompiledStateGraph
 
@@ -15,7 +15,10 @@ class PullRequestDescriberAgent(BaseAgent):
     """
 
     def compile(self) -> CompiledStateGraph | Runnable:
-        prompt = ChatPromptTemplate.from_messages([SystemMessage(system), HumanMessage(human)])
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessage(system),
+            HumanMessagePromptTemplate.from_template(human),
+        ])
         return (
             {"changes": RunnablePassthrough()} | prompt | self.model.with_structured_output(PullRequestDescriberOutput)
         )

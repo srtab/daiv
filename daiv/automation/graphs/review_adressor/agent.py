@@ -3,6 +3,7 @@ from textwrap import dedent
 from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -15,13 +16,7 @@ from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
 
-from .prompts import (
-    review_analizer_replan,
-    review_analyzer_execute,
-    review_analyzer_objective,
-    review_analyzer_plan,
-    review_analyzer_task,
-)
+from .prompts import review_analizer_replan, review_analyzer_execute, review_analyzer_plan, review_analyzer_task
 from .schemas import Act, AskForClarification, InitialAct, Response
 from .state import PlanExecute
 
@@ -64,17 +59,18 @@ class ReviewAdressorAgent(BaseAgent):
 
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_step", self.execute_step)
-        workflow.add_node("replan", self.replan)
+        # workflow.add_node("replan", self.replan)
         workflow.add_node("human_feedback", self.human_feedback)
         workflow.add_node("commit_changes", self.commit_changes)
 
         workflow.add_edge(START, "plan")
-        workflow.add_edge("execute_step", "replan")
+        # workflow.add_edge("execute_step", "replan")
+        workflow.add_edge("execute_step", "commit_changes")
         workflow.add_edge("human_feedback", END)
         workflow.add_edge("commit_changes", END)
 
         workflow.add_conditional_edges("plan", self.continue_plan_execution)
-        workflow.add_conditional_edges("replan", self.continue_plan_execution)
+        # workflow.add_conditional_edges("replan", self.continue_plan_execution)
 
         return workflow.compile()
 
@@ -88,25 +84,20 @@ class ReviewAdressorAgent(BaseAgent):
         Returns:
             dict: The state of the agent to update.
         """
-        act = cast(
-            InitialAct,
-            self.model.with_structured_output(InitialAct).invoke(
-                [
-                    SystemMessage(
-                        review_analyzer_plan.format(
-                            diff=state["diff"], task=review_analyzer_task, objective=review_analyzer_objective
-                        )
-                    )
-                ]
-                + state["messages"]
-            ),
-        )
+
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
+        ])
+
+        planner = prompt | self.model.with_structured_output(InitialAct, method="json_schema").bind(temperature=0.7)
+
+        act = cast(InitialAct, planner.invoke({"diff": state["diff"], "messages": state["messages"]}))
 
         if isinstance(act.action, Response):
             return {"response": act.action.response}
         elif isinstance(act.action, AskForClarification):
             return {"response": " ".join(act.action.questions)}
-        return {"plan_steps": act.action.steps, "goal": act.action.goal, "file_changes": {}}
+        return {"plan_tasks": act.action.tasks, "goal": act.action.goal, "file_changes": {}}
 
     def replan(self, state: PlanExecute):
         """
@@ -120,23 +111,20 @@ class ReviewAdressorAgent(BaseAgent):
         """
         act = cast(
             Act,
-            self.model.with_structured_output(Act).invoke(
-                [
-                    review_analizer_replan.format(
-                        task=review_analyzer_task,
-                        objective=review_analyzer_objective,
-                        plan=self.pretty_print_plan_steps(state["plan_steps"]),
-                        past_steps=self.pretty_print_past_steps(state["past_steps"]),
-                    )
-                ]
-                + state["messages"]
-            ),
+            self.model.with_structured_output(Act).invoke([
+                review_analizer_replan.format(
+                    task=review_analyzer_task,
+                    goal=state["goal"],
+                    plan=self.pretty_print_plan_tasks(state["plan_tasks"]),
+                    past_steps=self.pretty_print_past_steps(state["past_steps"]),
+                )
+            ]),
         )
         if isinstance(act.action, Response):
             return {"response": act.action.response, "finished": act.action.finished}
         elif isinstance(act.action, AskForClarification):
             return {"response": act.action.questions, "finished": False}
-        return {"plan_steps": act.action.steps}
+        return {"plan_tasks": act.action.steps}
 
     def execute_step(self, state: PlanExecute):
         """
@@ -169,20 +157,23 @@ class ReviewAdressorAgent(BaseAgent):
         ]
 
         agent = create_react_agent(self.model, tools)
-        response = agent.invoke({
-            "messages": [
-                SystemMessage(
-                    review_analyzer_execute.format(
-                        diff=state["diff"],
-                        plan_steps=self.pretty_print_plan_steps(state["plan_steps"]),
-                        plan_to_execute=state["plan_steps"][0],
-                        goal=state["goal"],
+        response = agent.invoke(
+            {
+                "messages": [
+                    SystemMessage(
+                        review_analyzer_execute.format(
+                            diff=state["diff"],
+                            goal=state["goal"],
+                            plan_tasks=self.pretty_print_plan_tasks(state["plan_tasks"]),
+                            plan_to_execute=state["plan_tasks"][0],
+                        )
                     )
-                )
-            ]
-        })
+                ]
+            },
+            config={"callbacks": [self.usage_handler]},
+        )
         return {
-            "past_steps": [(state["plan_steps"][0], response["messages"][-1].content)],
+            "past_steps": [(state["plan_tasks"][0], response["messages"][-1].content)],
             "file_changes": codebase_changes.file_changes,
         }
 
@@ -208,7 +199,7 @@ class ReviewAdressorAgent(BaseAgent):
             self.source_repo_id, self.merge_request_id, self.discussion_id
         )
 
-        pr_describer = PullRequestDescriberAgent()
+        pr_describer = PullRequestDescriberAgent(self.usage_handler)
         changes_description = cast(
             PullRequestDescriberOutput,
             pr_describer.agent.invoke([
@@ -235,16 +226,20 @@ class ReviewAdressorAgent(BaseAgent):
                 Prompt tokens: **{prompt_tokens:,}** \\
                 Completion tokens: **{completion_tokens:,}** \\
                 Total tokens: **{total_tokens:,}** \\
-                Estimated cost: **${total_cost:.10f}**
+                Successful requests: **{total_requests:,}** \\
+                Total cost (USD): **${total_cost:.10f}**
                 """
             ).format(
-                changes=changes_description.title, prompt_tokens=0, completion_tokens=0, total_tokens=0, total_cost=0
+                changes=changes_description.title,
+                prompt_tokens=self.usage_handler.prompt_tokens,
+                completion_tokens=self.usage_handler.completion_tokens,
+                total_tokens=self.usage_handler.total_tokens,
+                total_requests=self.usage_handler.successful_requests,
+                total_cost=self.usage_handler.total_cost,
             ),
         )
 
-    def continue_plan_execution(
-        self, state: PlanExecute
-    ) -> Literal["execute_step", "commit_changes", "human_feedback"]:
+    def continue_plan_execution(self, state: PlanExecute) -> Literal["execute_step", "human_feedback"]:
         """
         Determine if the agent should continue executing the plan or request feedback.
 
@@ -255,22 +250,22 @@ class ReviewAdressorAgent(BaseAgent):
             str: The next state to transition to.
         """
         if "response" in state and state["response"]:
-            if state["finished"] and state["file_changes"]:
-                return "commit_changes"
+            # if state["finished"] and state["file_changes"]:
+            #     return "commit_changes"
             return "human_feedback"
         return "execute_step"
 
-    def pretty_print_plan_steps(self, plan_steps: list[str]) -> str:
+    def pretty_print_plan_tasks(self, plan_tasks: list[str]) -> str:
         """
         Pretty print the plan steps.
 
         Args:
-            plan_steps (list[str]): The plan steps.
+            plan_tasks (list[str]): The plan steps.
 
         Returns:
             str: The pretty printed plan steps.
         """
-        return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan_steps))
+        return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan_tasks))
 
     def pretty_print_past_steps(self, past_steps: list[tuple]) -> str:
         """

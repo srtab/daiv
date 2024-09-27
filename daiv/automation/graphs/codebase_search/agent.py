@@ -13,7 +13,7 @@ from codebase.indexes import CodebaseIndex
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
 from .state import OverallState
 
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 1
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class CodebaseSearchAgent(BaseAgent):
             state (GraphState): The current state of the graph.
         """
 
-        grader_agent = self.model.with_structured_output(GradeDocumentsOutput)
+        grader_agent = self.model.with_structured_output(GradeDocumentsOutput, method="json_schema")
 
         filtered_docs = []
 
@@ -79,7 +79,7 @@ class CodebaseSearchAgent(BaseAgent):
             ]
             response = cast(GradeDocumentsOutput, grader_agent.invoke(messages))
 
-            if response.binary_score:
+            if response.binary_score and document.metadata["source"] not in filtered_docs:
                 logger.info("[grade_documents] Document '%s' is relevant to the query", document.metadata["source"])
                 filtered_docs.append(document)
 
@@ -97,7 +97,9 @@ class CodebaseSearchAgent(BaseAgent):
             HumanMessage(re_write_human.format(query=state["query"], query_intent=state["query_intent"])),
         ]
 
-        query_rewriter = self.model.with_structured_output(ImprovedQueryOutput).with_config(temperature=0.5)
+        query_rewriter = self.model.with_structured_output(ImprovedQueryOutput, method="json_schema").bind(
+            temperature=0.7
+        )
         response = cast(ImprovedQueryOutput, query_rewriter.invoke(messages))
 
         logger.info("[transform_query] Query '%s' improved to '%s'", state["query"], response.query)

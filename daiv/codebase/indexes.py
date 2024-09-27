@@ -150,10 +150,10 @@ class CodebaseIndex(abc.ABC):
         """
         return EnsembleRetriever(
             retrievers=[
-                self.lexical_search_engine.as_retriever(repo_id, k=10),
-                self.semantic_search_engine.as_retriever(repo_id, k=10, exclude_content_type="simplified_code"),
-            ],
-            weights=[0.4, 0.6],
+                # self.lexical_search_engine.as_retriever(repo_id, k=5),
+                self.semantic_search_engine.as_retriever(repo_id, k=10, exclude_content_type="simplified_code")
+            ]
+            # weights=[0.4, 0.6],
         ).invoke(query)
 
     def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:

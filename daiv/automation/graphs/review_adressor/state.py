@@ -8,7 +8,7 @@ from codebase.base import FileChange
 
 class PlanExecute(MessagesState):
     diff: str
-    plan_steps: list[str]
+    plan_tasks: list[str]
     goal: str
     past_steps: Annotated[list[tuple], operator.add]
     file_changes: dict[str, FileChange]
