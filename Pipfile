@@ -30,7 +30,7 @@ psycopg = { version = "==3.2.1", extras = ["binary"] }
 pydantic = "==2.8.2"
 python-decouple = "==3.8"
 python-gitlab = "==4.10.0"
-redis = "==4.6.0"
+redis = "==5.1.0"
 sentence-transformers = "==3.0.1"
 tantivy = "==0.22.0"
 tree-sitter = "==0.21.3"
