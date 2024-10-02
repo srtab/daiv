@@ -5,120 +5,37 @@ from langchain.callbacks.manager import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from automation.graphs.codebase_search.agent import CodebaseSearchAgent
+from automation.graphs.codebase_search import CodebaseSearchAgent
 from automation.utils import find_original_snippet
 from codebase.base import CodebaseChanges, FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
-logger = logging.getLogger(__name__)
+from .schemas import (
+    AppendToFileInput,
+    CreateFileInput,
+    DeleteFileInput,
+    RenameFileInput,
+    ReplaceSnippetWithInput,
+    RepositoryFileInput,
+    RepositoryTreeInput,
+    SearchRepositoryInput,
+)
+
+logger = logging.getLogger("daiv.tools")
 
 
-class RepositoryTreeInput(BaseModel):
-    """
-    Obtain the tree of the repository from a given path.
-    """
-
-    path: str = Field(
-        description=(
-            "The path inside the repository. "
-            "The default is the root of the repository. "
-            "Use it to navigate through directories."
-        ),
-        default="",
-    )
-
-
-class RepositoryFileInput(BaseModel):
-    """
-    Get the content of a file from the repository.
-    """
-
-    file_path: str = Field(description="The file path to get.")
-
-
-class CodebaseSearchInput(BaseModel):
-    """
-    Search for code snippets in the codebase.
-    """
-
-    query: str = Field(
-        description=textwrap.dedent(
-            """\
-            The query should be a code snippet or a function/class/method name and/or include more **code-related keywords**. Focus on keywords that developers would typically use when searching for code snippets.
-
-            ## Tips
-            1. Avoid ambiguous terms in the query to get precise results.
-            2. Don't use: "code", "snippet", "example", "sample", etc. as they are redundant.
-            3. The query must be optimized for hybrid search: vectorstore retrieval and/or sparse retrieval.
-            """  # noqa: E501
-        ),
-        examples=["function foo", "class CharField", "def get", "method get_foo on class User"],
-    )
-    intent: str = Field(description=("The intent of the search query, why you are searching for this code."))
-
-
-class CommitableBaseModel(BaseModel):
-    commit_message: str = Field(description="The commit message to use.")
-
-
-class ReplaceSnippetWithInput(CommitableBaseModel):
-    """
-    Replaces a snippet in a file with the provided replacement.
-    """  # noqa: E501
-
-    file_path: str = Field(description="The file_path of code to refactor. Ignore referenced unified diff file path.")
-    original_snippet: str = Field(description="The snippet to replace.")
-    replacement_snippet: str = Field(description="The replacement for the snippet.")
-    commit_message: str = Field(description="The commit message to use.")
-
-
-class CreateFileInput(CommitableBaseModel):
-    """
-    Create a new file in the repository.
-    """
-
-    file_path: str = Field(description="The file path to create.")
-    content: str = Field(description="The content to insert.")
-
-
-class RenameFileInput(CommitableBaseModel):
-    """
-    Rename a file in the repository.
-    """
-
-    file_path: str = Field(description="The file path to rename.")
-    new_file_path: str = Field(description="The new file path.")
-
-
-class DeleteFileInput(CommitableBaseModel):
-    """
-    Delete a file in the repository.
-    """
-
-    file_path: str = Field(description="The file path to delete.")
-
-
-class AppendToFileInput(CommitableBaseModel):
-    """
-    Append content to a file in the repository.
-    """
-
-    file_path: str = Field(description="The file path to append to.")
-    content: str = Field(description="The content to APPEND, including necessary newlines and indentation.")
-
-
-class CodebaseSearchTool(BaseTool):
-    name: str = "codebase_search"
+class SearchRepositoryTool(BaseTool):
+    name: str = "search_code_snippets"
     description: str = textwrap.dedent(
         """\
-        Search for code snippets in the codebase.
+        Search for code snippets in the repository.
 
         Only use this tool if you don't know the exact file path to obtain from the repository.
         """
     )
 
-    args_schema: type[BaseModel] = CodebaseSearchInput
+    args_schema: type[BaseModel] = SearchRepositoryInput
 
     source_repo_id: str = Field(description="The repository ID to search in.")
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
@@ -134,7 +51,7 @@ class CodebaseSearchTool(BaseTool):
         Returns:
             The search results.
         """
-        logger.debug("[CodeInspectTools.codebase_search] Searching codebase for %s", query)
+        logger.debug("[codebase_search] Searching codebase for '%s'", query)
 
         search_results_str = "No search results found."
 
@@ -143,7 +60,7 @@ class CodebaseSearchTool(BaseTool):
         if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
             search_results_str = ""
             for document in search_results:
-                logger.debug("[CodeInspectTools.codebase_search] file_path=%s", document.metadata["source"])
+                logger.debug("[codebase_search] Found snippet in '%s'", document.metadata["source"])
 
                 search_results_str += textwrap.dedent(
                     """\
@@ -156,7 +73,11 @@ class CodebaseSearchTool(BaseTool):
         return search_results_str
 
 
-class BaseGitLabTool(BaseTool):
+class BaseRepositoryTool(BaseTool):
+    """
+    Base class for repository interaction tools.
+    """
+
     source_repo_id: str = Field(description="The repository ID to search in.")
     source_ref: str = Field(description="The branch or commit to search in.")
 
@@ -180,25 +101,51 @@ class BaseGitLabTool(BaseTool):
         return self.codebase_changes.file_changes[file_path].content
 
 
-class RepositoryTreeTool(BaseGitLabTool):
+class RepositoryTreeTool(BaseRepositoryTool):
     name: str = "get_repository_tree"
-    description: str = "Use this as the primary tool to help find files or folders in the repository."
+    description: str = textwrap.dedent(
+        """\
+        Tool to navigate through directories. Use it to find files or folders in the repository.
+        Only use it if you don't know the exact file path to obtain from the repository.
+        """
+    )
 
     args_schema: type[BaseModel] = RepositoryTreeInput
 
-    def _run(self, path: str, repo_id: str, ref: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
-        if tree := self.api_wrapper.get_repository_tree(repo_id, ref, path=path):
+    def _run(self, path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+        """
+        Gets the files and directories in a repository.
+
+        Args:
+            path: The path to search in.
+
+        Returns:
+            The files and directories in the repository.
+        """
+        logger.debug("[get_repository_tree] Getting files and directories in '%s' (intent: %s)", path, intent)
+        if tree := self.api_wrapper.get_repository_tree(self.source_repo_id, self.source_ref, path=path):
             return f"Repository files and directories found in {path}: {", ".join(tree)}"
         return f"No files/directories found in {path}."
 
 
-class RepositoryFileTool(BaseGitLabTool):
+class RepositoryFileTool(BaseRepositoryTool):
     name: str = "get_repository_file"
     description: str = "Use this as the primary tool to get the content of a file from a repository."
 
     args_schema: type[BaseModel] = RepositoryFileInput
 
-    def _run(self, file_path: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(self, file_path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+        """
+        Gets the content of a file from the repository.
+
+        Args:
+            file_path: The file path to get the content of.
+
+        Returns:
+            The content of the file.
+        """
+        logger.debug("[get_repository_file] Getting file '%s' (intent: %s)", file_path, intent)
+
         content = self._get_file_content(file_path)
 
         if not content:
@@ -213,7 +160,7 @@ class RepositoryFileTool(BaseGitLabTool):
         ).format(file_path=file_path, content=content)
 
 
-class ReplaceSnippetWithTool(BaseGitLabTool):
+class ReplaceSnippetWithTool(BaseRepositoryTool):
     name: str = "replace_snippet_with"
     description: str = textwrap.dedent(
         """\
@@ -250,15 +197,16 @@ class ReplaceSnippetWithTool(BaseGitLabTool):
         Returns:
             A message indicating the success of the replacement.
         """
+        logger.debug("[replace_snippet_with] Replacing snippet in file '%s'", file_path)
+
         if (
             file_path in self.codebase_changes.file_changes
             and self.codebase_changes.file_changes[file_path].action == FileChangeAction.DELETE
         ):
-            raise Exception("File is marked to be deleted.")
+            return "error: You previously marked {file_path} to be deleted."
 
-        repo_file_content = self._get_file_content(file_path)
-        if not repo_file_content:
-            raise ValueError(f"File {file_path} not found.")
+        if not (repo_file_content := self._get_file_content(file_path)):
+            return f"error: File {file_path} not found."
 
         original_snippet_found = find_original_snippet(
             original_snippet, repo_file_content, threshold=0.75, initial_line_threshold=0.95
@@ -289,7 +237,7 @@ class ReplaceSnippetWithTool(BaseGitLabTool):
         return "success: Snippet replaced."
 
 
-class CreateFileTool(BaseGitLabTool):
+class CreateFileTool(BaseRepositoryTool):
     name: str = "create_file"
     description: str = textwrap.dedent(
         """\
@@ -314,7 +262,7 @@ class CreateFileTool(BaseGitLabTool):
         Returns:
             A message indicating the success of the creation
         """
-        logger.debug("[CodeActionTools.create_file] Creating new file %s", file_path)
+        logger.debug("[create_file] Creating new file '%s'", file_path)
 
         if file_path in self.codebase_changes.file_changes or self.api_wrapper.repository_file_exists(
             self.source_repo_id, file_path, self.source_ref
@@ -328,7 +276,7 @@ class CreateFileTool(BaseGitLabTool):
         return f"success: Created new file {file_path}."
 
 
-class RenameFileTool(BaseGitLabTool):
+class RenameFileTool(BaseRepositoryTool):
     name: str = "rename_file"
     description: str = "Use this as the primary tool to rename a file."
 
@@ -352,6 +300,8 @@ class RenameFileTool(BaseGitLabTool):
         Returns:
             A message indicating the success of the renaming.
         """
+        logger.debug("[rename_file] Renaming file '%s' to '%s'", file_path, new_file_path)
+
         if new_file_path in self.codebase_changes.file_changes or self.api_wrapper.repository_file_exists(
             self.source_repo_id, new_file_path, self.source_ref
         ):
@@ -367,7 +317,7 @@ class RenameFileTool(BaseGitLabTool):
         return f"success: Renamed file {file_path} to {new_file_path}."
 
 
-class DeleteFileTool(BaseGitLabTool):
+class DeleteFileTool(BaseRepositoryTool):
     name: str = "delete_file"
     description: str = "Use this as the primary tool to delete a file."
 
@@ -384,6 +334,8 @@ class DeleteFileTool(BaseGitLabTool):
         Returns:
             A message indicating the success of the deletion.
         """
+        logger.debug("[delete_file] Deleting file '%s'", file_path)
+
         if file_path in self.codebase_changes.file_changes:
             return f"error: File {file_path} has uncommited changes."
 
@@ -396,7 +348,7 @@ class DeleteFileTool(BaseGitLabTool):
         return f"error: File {file_path} not found."
 
 
-class AppendToFileTool(BaseGitLabTool):
+class AppendToFileTool(BaseRepositoryTool):
     name: str = "append_to_file"
     description: str = "Use this as the primary tool to append content to the end of a file."
 
@@ -416,16 +368,18 @@ class AppendToFileTool(BaseGitLabTool):
         Returns:
             A message indicating the success of the appending.
         """
+        logger.debug("[append_to_file] Appending content to file '%s'", file_path)
+
         if file_path in self.codebase_changes.file_changes:
             self.codebase_changes.file_changes[file_path].content += content
             self.codebase_changes.file_changes[file_path].commit_messages.append(commit_message)
-        else:
-            repo_file_content = self._get_file_content(file_path)
+        elif repo_file_content := self._get_file_content(file_path):
             self.codebase_changes.file_changes[file_path] = FileChange(
                 action=FileChangeAction.UPDATE,
                 file_path=file_path,
                 content=repo_file_content + content,
                 commit_messages=[commit_message],
             )
-
+        else:
+            return f"error: File {file_path} not found."
         return f"success: Appended content to file {file_path}."

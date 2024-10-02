@@ -1,54 +1,64 @@
 from textwrap import dedent
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+ACT_RESPONSE_TOOL_NAME = "act"
 
 
 class Plan(BaseModel):
-    """Plan to follow in future"""
+    """
+    Plan to follow in future
+    """
 
     tasks: list[str] = Field(description="different tasks to follow, should be in sorted order")
-
-
-class InitialPlan(Plan):
-    """Plan to follow in future"""
-
     goal: str = Field(description="detailed objective of the requested changes to be made")
 
 
 class Response(BaseModel):
-    """Final response to user."""
+    """
+    Final response to reviewer if the reviewer ask a question or no more work need to be done.
+    """
 
-    response: str
+    response: str = Field(
+        description=dedent(
+            """\
+            Just answers without asking if he wants to do something more.
+            Answer in the first person, e.g. 'The changes you requested have been made', as if you were speaking directly to the reviewer.
+            """  # noqa: E501
+        )
+    )
     finished: bool = Field(description="If the task has been completed, set to True, otherwise False.")
 
 
 class AskForClarification(BaseModel):
-    """Questions for the user to answer to help you complete the task."""
+    """
+    If the reviewer request is not clear, use this to ask the reviewer for clarification to help you complete the task.
+    """
 
     questions: list[str] = Field(
         description=dedent(
             """\
-            Ask in first person, e.g. 'Can you provide more details?' as you where talking directly to the reviewer.
-            """
+            Ask in the first person, e.g. 'Can you provide more details?', as you where speaking directly to the reviewer.
+            """  # noqa: E501
         )
     )
 
 
-class Act(BaseModel):
-    """Action to perform."""
+class ActPlannerResponse(BaseModel):
+    """
+    Use this tool to respond to the reviewer with the proper action to take.
+    """
 
-    action: Response | Plan | AskForClarification = Field(
-        description="Action to perform. If you want to respond to user, use Response. "
-        "If you want to ask the user for clarification, use AskForClarification. "
-        "If you need to further use tools to get the answer, use Plan."
-    )
+    model_config = ConfigDict(title=ACT_RESPONSE_TOOL_NAME)
+
+    action: Response | Plan | AskForClarification = Field(description="Next action to be taken.")
 
 
-class InitialAct(BaseModel):
-    """Action to perform."""
+class ActExecuterResponse(BaseModel):
+    """
+    Use this tool to respond to the reviewer with the proper action.
+    """
 
-    action: Response | InitialPlan | AskForClarification = Field(
-        description="Action to perform. If you want to respond to user, use Response. "
-        "If you want to ask the user for clarification, use AskForClarification. "
-        "If you need to further use tools to get the answer, use Plan."
-    )
+    model_config = ConfigDict(title=ACT_RESPONSE_TOOL_NAME)
+
+    action: Response | AskForClarification = Field(description="Next action to be taken.")
