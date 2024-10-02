@@ -79,7 +79,7 @@ class CodebaseSearchAgent(BaseAgent):
             ]
             response = cast(GradeDocumentsOutput, grader_agent.invoke(messages))
 
-            if response.binary_score and document.metadata["source"] not in filtered_docs:
+            if response.binary_score:
                 logger.info("[grade_documents] Document '%s' is relevant to the query", document.metadata["source"])
                 filtered_docs.append(document)
 

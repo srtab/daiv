@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 
 from langchain_community.callbacks import OpenAICallbackHandler
+from langchain_core.language_models import LanguageModelInput
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
@@ -23,7 +25,7 @@ class BaseAgent(ABC):
     def compile(self) -> CompiledStateGraph | Runnable:
         pass
 
-    def get_model(self) -> ChatOpenAI:
+    def get_model(self) -> ChatOpenAI | Runnable[LanguageModelInput, BaseMessage]:
         """
         Get the model instance to use for the agent.
 

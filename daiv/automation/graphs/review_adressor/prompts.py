@@ -24,13 +24,13 @@ To generate the checklist, follow these steps:
 
 5. Provide enough context for each task so that agents can understand and execute the task without referring to other tasks on the checklist. This will help agents avoid duplicating tasks.
 
-6. Pay attention to the way files are passed in the tasks, always use full paths. For example 'project/main.py'.
+6. Pay attention to the way file paths are passed in the tasks, always use full paths. For example 'project/main.py'.
 
 7. Do not take long and complex routes, minimize tasks and steps as much as possible.
 
 8. Use the unified diff to Identify clearly and disambiguously which lines should be considered for each task, remembering that the file may contain more lines with the same code snippet. Don't use the number of lines to identify them in the tasks, rather use descriptions of how they can be found in the code.
 
-9. Although the task is aimed at the diff hunk, the changes requested may affect other references of the code and you should be aware of this.
+9. Although the task is aimed at the <DiffHunk>, the changes requested may affect other references of the code and you should be aware of this.
 
 ### Diff Hunk ###
 
@@ -41,7 +41,7 @@ The <DiffHunk> identifies where the comments were made by the reviewer and shows
 
 Here are the thread of comments:
 <Comments>{% for message in messages %}
-  <Comment role="{{ message.type }}">{{ message.content }}</Comment>{% endfor %}
+  <Comment role="{% if message.type == 'human' %}reviewer{% else %}{{ message.type }}{% endif %}">{{ message.content }}</Comment>{% endfor %}
 </Comments>
 """  # noqa: E501
 

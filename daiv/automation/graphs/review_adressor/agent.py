@@ -2,22 +2,21 @@ import logging
 from textwrap import dedent
 from typing import Literal, cast
 
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
 
 from automation.graphs.agents import BaseAgent
 from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
-from automation.tools import CodebaseSearchTool, ReplaceSnippetWithTool, RepositoryFileTool
+from automation.graphs.prebuilt import REACTAgent
+from automation.graphs.review_adressor.tools import act_executer_response_tool, act_planner_response_tool
+from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
-from codebase.indexes import CodebaseIndex
 
-from .prompts import review_analizer_replan, review_analyzer_execute, review_analyzer_plan, review_analyzer_task
-from .schemas import Act, AskForClarification, InitialAct, Response
+from .prompts import review_analyzer_execute, review_analyzer_plan
+from .schemas import ActExecuterResponse, ActPlannerResponse, AskForClarification, Response
 from .state import PlanExecute
 
 logger = logging.getLogger(__name__)
@@ -44,8 +43,6 @@ class ReviewAdressorAgent(BaseAgent):
         self.source_ref = source_ref
         self.merge_request_id = merge_request_id
         self.discussion_id = discussion_id
-
-        self.codebase_changes = CodebaseChanges()
         super().__init__()
 
     def compile(self) -> CompiledStateGraph | Runnable:
@@ -59,18 +56,15 @@ class ReviewAdressorAgent(BaseAgent):
 
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_step", self.execute_step)
-        # workflow.add_node("replan", self.replan)
         workflow.add_node("human_feedback", self.human_feedback)
         workflow.add_node("commit_changes", self.commit_changes)
 
         workflow.add_edge(START, "plan")
-        # workflow.add_edge("execute_step", "replan")
         workflow.add_edge("execute_step", "commit_changes")
         workflow.add_edge("human_feedback", END)
         workflow.add_edge("commit_changes", END)
 
         workflow.add_conditional_edges("plan", self.continue_plan_execution)
-        # workflow.add_conditional_edges("replan", self.continue_plan_execution)
 
         return workflow.compile()
 
@@ -84,51 +78,33 @@ class ReviewAdressorAgent(BaseAgent):
         Returns:
             dict: The state of the agent to update.
         """
-
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
-        ])
-
-        planner = prompt | self.model.with_structured_output(InitialAct, method="json_schema").bind(temperature=0.7)
-
-        act = cast(InitialAct, planner.invoke({"diff": state["diff"], "messages": state["messages"]}))
-
-        if isinstance(act.action, Response):
-            return {"response": act.action.response}
-        elif isinstance(act.action, AskForClarification):
-            return {"response": " ".join(act.action.questions)}
-        return {"plan_tasks": act.action.tasks, "goal": act.action.goal, "file_changes": {}}
-
-    def replan(self, state: PlanExecute):
-        """
-        Replan the steps to follow.
-
-        Args:
-            state (PlanExecute): The state of the agent.
-
-        Returns:
-            dict: The state of the agent to update.
-        """
-        act = cast(
-            Act,
-            self.model.with_structured_output(Act).invoke([
-                review_analizer_replan.format(
-                    task=review_analyzer_task,
-                    goal=state["goal"],
-                    plan=self.pretty_print_plan_tasks(state["plan_tasks"]),
-                    past_steps=self.pretty_print_past_steps(state["past_steps"]),
-                )
-            ]),
+        # TODO: turn codebase_changes optional, don't need it on inpection because no changes are made ate this level
+        codebase_changes = CodebaseChanges()
+        toolkit = ReadRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
         )
-        if isinstance(act.action, Response):
-            return {"response": act.action.response, "finished": act.action.finished}
-        elif isinstance(act.action, AskForClarification):
-            return {"response": act.action.questions, "finished": False}
-        return {"plan_tasks": act.action.steps}
+
+        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
+        system_message = system_message_template.format(diff=state["diff"], messages=state["messages"])
+
+        react_agent = REACTAgent(
+            tools=toolkit.get_tools() + [act_planner_response_tool], with_structured_output=ActPlannerResponse
+        )
+        response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
+
+        if isinstance(response["response"].action, Response):
+            return {"response": response["response"].action.response}
+        elif isinstance(response["response"].action, AskForClarification):
+            return {"response": " ".join(response["response"].action.questions)}
+        return {
+            "plan_tasks": response["response"].action.tasks,
+            "goal": response["response"].action.goal,
+            "file_changes": {},
+        }
 
     def execute_step(self, state: PlanExecute):
         """
-        Execute the first step of the plan.
+        Execute the next step in the plan.
 
         Args:
             state (PlanExecute): The state of the agent.
@@ -136,46 +112,32 @@ class ReviewAdressorAgent(BaseAgent):
         Returns:
             dict: The state of the agent to update.
         """
-        codebase_changes = CodebaseChanges(file_changes=state["file_changes"])
-
-        tools = [
-            CodebaseSearchTool(
-                source_repo_id=self.source_repo_id, api_wrapper=CodebaseIndex(repo_client=self.repo_client)
-            ),
-            RepositoryFileTool(
-                source_repo_id=self.source_repo_id,
-                source_ref=self.source_ref,
-                codebase_changes=codebase_changes,
-                api_wrapper=self.repo_client,
-            ),
-            ReplaceSnippetWithTool(
-                source_repo_id=self.source_repo_id,
-                source_ref=self.source_ref,
-                codebase_changes=codebase_changes,
-                api_wrapper=self.repo_client,
-            ),
-        ]
-
-        agent = create_react_agent(self.model, tools)
-        response = agent.invoke(
-            {
-                "messages": [
-                    SystemMessage(
-                        review_analyzer_execute.format(
-                            diff=state["diff"],
-                            goal=state["goal"],
-                            plan_tasks=self.pretty_print_plan_tasks(state["plan_tasks"]),
-                            plan_to_execute=state["plan_tasks"][0],
-                        )
-                    )
-                ]
-            },
-            config={"callbacks": [self.usage_handler]},
+        codebase_changes = CodebaseChanges()
+        toolkit = WriteRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
         )
-        return {
-            "past_steps": [(state["plan_tasks"][0], response["messages"][-1].content)],
-            "file_changes": codebase_changes.file_changes,
-        }
+
+        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_execute)
+        system_message = system_message_template.format(
+            diff=state["diff"],
+            goal=state["goal"],
+            plan_tasks=self.pretty_print_plan_tasks(state["plan_tasks"]),
+            plan_to_execute=state["plan_tasks"][0],
+        )
+
+        react_agent = REACTAgent(
+            tools=toolkit.get_tools() + [act_executer_response_tool], with_structured_output=ActExecuterResponse
+        )
+        response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
+
+        if isinstance(response["response"].action, Response):
+            return {"response": response["response"].action.response, "file_changes": codebase_changes.file_changes}
+        elif isinstance(response["response"].action, AskForClarification):
+            return {
+                "response": " ".join(response["response"].action.questions),
+                "file_changes": codebase_changes.file_changes,
+            }
+        return {"file_changes": codebase_changes.file_changes}
 
     def human_feedback(self, state: PlanExecute):
         """
@@ -250,8 +212,6 @@ class ReviewAdressorAgent(BaseAgent):
             str: The next state to transition to.
         """
         if "response" in state and state["response"]:
-            # if state["finished"] and state["file_changes"]:
-            #     return "commit_changes"
             return "human_feedback"
         return "execute_step"
 
@@ -266,19 +226,3 @@ class ReviewAdressorAgent(BaseAgent):
             str: The pretty printed plan steps.
         """
         return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan_tasks))
-
-    def pretty_print_past_steps(self, past_steps: list[tuple]) -> str:
-        """
-        Pretty print the past steps.
-
-        Args:
-            past_steps (list[tuple]): The past steps.
-
-        Returns:
-            str: The pretty printed past steps.
-        """
-        pprint_past_steps = "<steps>"
-        for task, result in past_steps:
-            pprint_past_steps += f"\n\t<step>\n\t\t<task>{task}</task>\n\t\t<result>{result}</result>\n\t</step>"
-        pprint_past_steps += "</steps>"
-        return pprint_past_steps
