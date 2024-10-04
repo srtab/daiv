@@ -81,7 +81,7 @@ class BaseRepositoryTool(BaseTool):
     source_repo_id: str = Field(description="The repository ID to search in.")
     source_ref: str = Field(description="The branch or commit to search in.")
 
-    codebase_changes: CodebaseChanges
+    codebase_changes: CodebaseChanges = Field(default_factory=CodebaseChanges)
 
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
@@ -164,7 +164,7 @@ class ReplaceSnippetWithTool(BaseRepositoryTool):
     name: str = "replace_snippet_with"
     description: str = textwrap.dedent(
         """\
-        Use this as the primary tool to write code changes to a file.
+        Use this as the primary tool to write code changes to an existing file.
 
         Replaces a snippet in a file with the provided replacement.
         - The snippet must be an exact match;
@@ -208,16 +208,13 @@ class ReplaceSnippetWithTool(BaseRepositoryTool):
         if not (repo_file_content := self._get_file_content(file_path)):
             return f"error: File {file_path} not found."
 
-        original_snippet_found = find_original_snippet(
-            original_snippet, repo_file_content, threshold=0.75, initial_line_threshold=0.95
-        )
+        original_snippet_found = find_original_snippet(original_snippet, repo_file_content, initial_line_threshold=1)
         if not original_snippet_found:
-            raise Exception("Original snippet not found.")
+            return "error: Original snippet not found."
 
         replaced_content = repo_file_content.replace(original_snippet_found, replacement_snippet)
-
         if not replaced_content:
-            raise Exception("Snippet replacement failed.")
+            return "error: Snippet replacement failed."
 
         # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
         if not replaced_content.endswith("\n"):
@@ -369,6 +366,10 @@ class AppendToFileTool(BaseRepositoryTool):
             A message indicating the success of the appending.
         """
         logger.debug("[append_to_file] Appending content to file '%s'", file_path)
+
+        # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
+        if not content.endswith("\n"):
+            content += "\n"
 
         if file_path in self.codebase_changes.file_changes:
             self.codebase_changes.file_changes[file_path].content += content

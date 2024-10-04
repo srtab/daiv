@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 
@@ -19,7 +19,7 @@ class BaseAgent(ABC):
     def __init__(self, usage_handler: OpenAICallbackHandler | None = None):
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.model = self.get_model()
-        self.agent = self.compile()
+        self.agent = self.compile().with_config(self.get_config())
 
     @abstractmethod
     def compile(self) -> CompiledStateGraph | Runnable:
@@ -42,6 +42,15 @@ class BaseAgent(ABC):
             dict: The keyword arguments
         """
         return {"model": self.model_name, "temperature": 0, "callbacks": [self.usage_handler]}
+
+    def get_config(self) -> RunnableConfig:
+        """
+        Get the configuration for the agent.
+
+        Returns:
+            dict: The configuration
+        """
+        return RunnableConfig(run_name=self.__class__.__name__, tags=[self.__class__.__name__], metadata={})
 
     def draw_mermaid(self):
         """

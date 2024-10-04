@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from langchain_core.tools.base import BaseTool
 from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
 
+from codebase.base import CodebaseChanges
 from codebase.indexes import CodebaseIndex
 
 from .repository import (
@@ -20,7 +21,6 @@ from .repository import (
 )
 
 if TYPE_CHECKING:
-    from codebase.base import CodebaseChanges
     from codebase.clients import AllRepoClient
 
 
@@ -45,8 +45,14 @@ class ReadRepositoryToolkit(BaseToolkit):
 
     @classmethod
     def create_instance(
-        cls, repo_client: AllRepoClient, source_repo_id: str, source_ref: str, codebase_changes: CodebaseChanges
+        cls,
+        repo_client: AllRepoClient,
+        source_repo_id: str,
+        source_ref: str,
+        codebase_changes: CodebaseChanges | None = None,
     ) -> BaseToolkit:
+        if codebase_changes is None:
+            codebase_changes = CodebaseChanges()
         return cls(
             tools=[
                 SearchRepositoryTool(source_repo_id=source_repo_id, api_wrapper=CodebaseIndex(repo_client=repo_client)),
@@ -75,8 +81,14 @@ class WriteRepositoryToolkit(ReadRepositoryToolkit):
 
     @classmethod
     def create_instance(
-        cls, repo_client: AllRepoClient, source_repo_id: str, source_ref: str, codebase_changes: CodebaseChanges
+        cls,
+        repo_client: AllRepoClient,
+        source_repo_id: str,
+        source_ref: str,
+        codebase_changes: CodebaseChanges | None = None,
     ) -> BaseToolkit:
+        if codebase_changes is None:
+            codebase_changes = CodebaseChanges()
         super_instance = super().create_instance(
             repo_client=repo_client,
             source_repo_id=source_repo_id,

@@ -10,6 +10,10 @@ class Plan(BaseModel):
     Plan to follow in future
     """
 
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `ActPlannerResponse` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
+
     tasks: list[str] = Field(description="different tasks to follow, should be in sorted order")
     goal: str = Field(description="detailed objective of the requested changes to be made")
 
@@ -18,6 +22,10 @@ class Response(BaseModel):
     """
     Final response to reviewer if the reviewer ask a question or no more work need to be done.
     """
+
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `ActPlannerResponse` and `ActExecuterResponse` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     response: str = Field(
         description=dedent(
@@ -34,6 +42,10 @@ class AskForClarification(BaseModel):
     """
     If the reviewer request is not clear, use this to ask the reviewer for clarification to help you complete the task.
     """
+
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `ActPlannerResponse` and `ActExecuterResponse` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     questions: list[str] = Field(
         description=dedent(
