@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.utils.function_calling import convert_to_openai_function
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class StructuredAgentState(AgentState):
-    response: BaseModel | None = None
+    response: BaseModel | None
 
 
 class REACTAgent(BaseAgent):
@@ -44,7 +43,8 @@ class REACTAgent(BaseAgent):
         self.structured_tool_name = None
         self.state_class = AgentState
         if self.with_structured_output:
-            self.structured_tool_name = convert_to_openai_function(self.with_structured_output)["name"]
+            self.tool_classes.append(self.with_structured_output)
+            self.structured_tool_name = self.with_structured_output.model_json_schema()["title"]
             self.state_class = StructuredAgentState
         super().__init__(*args, **kwargs)
 
@@ -55,7 +55,7 @@ class REACTAgent(BaseAgent):
         tools_kwargs = {}
         if self.with_structured_output:
             # Use strict mode and any to increase chances of model calling the structured tool.
-            tools_kwargs = {"tool_choice": "any", "parallel_tool_calls": False}
+            tools_kwargs = {"tool_choice": "any", "parallel_tool_calls": False, "strict": True}
         return super().get_model().bind_tools(self.tool_classes, **tools_kwargs)
 
     def compile(self) -> CompiledStateGraph | Runnable:

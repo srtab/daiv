@@ -1,5 +1,11 @@
 import difflib
 import re
+from decimal import Decimal
+
+from langsmith.client import Client
+from langsmith.utils import get_tracer_project
+
+from automation.agents.models import Usage
 
 
 def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> str | None:
@@ -80,3 +86,42 @@ def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
         text2 = re.sub(r"\s+", "", text2)
 
     return difflib.SequenceMatcher(None, text1, text2).ratio()
+
+
+def total_traced_cost(agent_name: str, filter_by: dict) -> Usage:
+    """
+    This function calculates the total cost of all traced runs for a given agent with the specified metadata.
+
+    Args:
+        agent_name (str): The name of the agent.
+        filter_by (dict): The metadata to filter the runs by.
+
+    Returns:
+        Usage: The total cost of the traced runs.
+    """
+    metadata = [f'eq(metadata_key, "{key}")' for key in filter_by]
+    for value in filter_by.values():
+        if isinstance(value, int):
+            metadata.append(f"eq(metadata_value, {value})")
+        else:
+            metadata.append(f'eq(metadata_value, "{value}")')
+
+    filter_str = f'and(eq(name, "{agent_name}"), {", ".join(metadata)})'
+
+    project_runs = Client().list_runs(
+        project_name=get_tracer_project(),
+        is_root=True,
+        select=["prompt_tokens", "completion_tokens", "total_tokens", "prompt_cost", "completion_cost", "total_cost"],
+        filter=filter_str,
+    )
+    usage = Usage()
+    for run in project_runs:
+        usage += Usage(
+            prompt_tokens=run.prompt_tokens or 0,
+            completion_tokens=run.completion_tokens or 0,
+            total_tokens=run.total_tokens or 0,
+            prompt_cost=run.prompt_cost or Decimal(0.0),
+            completion_cost=run.completion_cost or Decimal(0.0),
+            total_cost=run.total_cost or Decimal(0.0),
+        )
+    return usage

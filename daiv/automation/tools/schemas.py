@@ -58,7 +58,13 @@ class ReplaceSnippetWithInput(CommitableBaseModel):
     """
 
     file_path: str = Field(description="The file_path of code to refactor. Ignore referenced unified diff file path.")
-    original_snippet: str = Field(description="The snippet to replace.")
+    original_snippet: str = Field(
+        description=textwrap.dedent(
+            """\
+            The more complete and specific, the better, to help disambiguate possible identical code in the same file.
+            """
+        )
+    )
     replacement_snippet: str = Field(description="The replacement for the snippet.")
     commit_message: str = Field(description="The commit message to use.")
 

@@ -3,14 +3,13 @@ from textwrap import dedent
 from typing import Literal, cast
 
 from langchain_core.prompts import SystemMessagePromptTemplate
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from automation.graphs.agents import BaseAgent
 from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
 from automation.graphs.prebuilt import REACTAgent
-from automation.graphs.review_adressor.tools import act_executer_response_tool, act_planner_response_tool
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
@@ -45,6 +44,24 @@ class ReviewAdressorAgent(BaseAgent):
         self.discussion_id = discussion_id
         super().__init__()
 
+    def get_config(self) -> RunnableConfig:
+        """
+        Include the metadata identifying the source repository, reference, merge request, and discussion.
+
+        Returns:
+            dict: The configuration for the agent.
+        """
+        config = super().get_config()
+        config["tags"].append(self.repo_client.client_slug)
+        config["metadata"].update({
+            "repo_client": self.repo_client.client_slug,
+            "source_repo_id": self.source_repo_id,
+            "source_ref": self.source_ref,
+            "merge_request_id": self.merge_request_id,
+            "discussion_id": self.discussion_id,
+        })
+        return config
+
     def compile(self) -> CompiledStateGraph | Runnable:
         """
         Compile the workflow for the agent.
@@ -78,18 +95,12 @@ class ReviewAdressorAgent(BaseAgent):
         Returns:
             dict: The state of the agent to update.
         """
-        # TODO: turn codebase_changes optional, don't need it on inpection because no changes are made ate this level
-        codebase_changes = CodebaseChanges()
-        toolkit = ReadRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
-        )
+        toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(diff=state["diff"], messages=state["messages"])
 
-        react_agent = REACTAgent(
-            tools=toolkit.get_tools() + [act_planner_response_tool], with_structured_output=ActPlannerResponse
-        )
+        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=ActPlannerResponse)
         response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
 
         if isinstance(response["response"].action, Response):
@@ -117,17 +128,10 @@ class ReviewAdressorAgent(BaseAgent):
             self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
         )
 
-        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_execute)
-        system_message = system_message_template.format(
-            diff=state["diff"],
-            goal=state["goal"],
-            plan_tasks=self.pretty_print_plan_tasks(state["plan_tasks"]),
-            plan_to_execute=state["plan_tasks"][0],
-        )
+        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_execute, "jinja2")
+        system_message = system_message_template.format(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
 
-        react_agent = REACTAgent(
-            tools=toolkit.get_tools() + [act_executer_response_tool], with_structured_output=ActExecuterResponse
-        )
+        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=ActExecuterResponse)
         response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
 
         if isinstance(response["response"].action, Response):
@@ -214,15 +218,3 @@ class ReviewAdressorAgent(BaseAgent):
         if "response" in state and state["response"]:
             return "human_feedback"
         return "execute_step"
-
-    def pretty_print_plan_tasks(self, plan_tasks: list[str]) -> str:
-        """
-        Pretty print the plan steps.
-
-        Args:
-            plan_tasks (list[str]): The plan steps.
-
-        Returns:
-            str: The pretty printed plan steps.
-        """
-        return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan_tasks))
