@@ -17,8 +17,10 @@ class PullRequestDescriberAgent(BaseAgent):
     def compile(self) -> CompiledStateGraph | Runnable:
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(system),
-            HumanMessagePromptTemplate.from_template(human),
+            HumanMessagePromptTemplate.from_template(human, "jinja2"),
         ])
         return (
-            {"changes": RunnablePassthrough()} | prompt | self.model.with_structured_output(PullRequestDescriberOutput)
+            {"changes": RunnablePassthrough()}
+            | prompt
+            | self.model.with_structured_output(PullRequestDescriberOutput, method="json_schema")
         )

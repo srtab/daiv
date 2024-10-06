@@ -54,7 +54,7 @@ class REACTAgent(BaseAgent):
         """
         tools_kwargs = {}
         if self.with_structured_output:
-            # Use strict mode and any to increase chances of model calling the structured tool.
+            # Use strict mode and tool_choice=any to increase chances of model calling the structured tool.
             tools_kwargs = {"tool_choice": "any", "parallel_tool_calls": False, "strict": True}
         return super().get_model().bind_tools(self.tool_classes, **tools_kwargs)
 
