@@ -16,4 +16,4 @@ class SnippetReplacerAgent(BaseAgent):
 
     def compile(self) -> CompiledStateGraph | Runnable:
         prompt = ChatPromptTemplate.from_messages([SystemMessage(system), HumanMessage(human)])
-        return prompt | self.model.with_structured_output(SnippetReplacerOutput)
+        return prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")

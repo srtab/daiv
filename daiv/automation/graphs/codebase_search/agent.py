@@ -3,6 +3,7 @@ from typing import cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
+from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -11,7 +12,7 @@ from automation.graphs.codebase_search.schemas import GradeDocumentsOutput, Impr
 from codebase.indexes import CodebaseIndex
 
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
-from .state import OverallState
+from .state import GradeDocumentState, OverallState
 
 MAX_ITERATIONS = 1
 
@@ -33,13 +34,13 @@ class CodebaseSearchAgent(BaseAgent):
 
         # Add nodes
         workflow.add_node("retrieve", self.retrieve)
-        workflow.add_node("grade_documents", self.grade_documents)
+        workflow.add_node("grade_document", self.grade_document)
         workflow.add_node("transform_query", self.transform_query)
 
         # Add edges
         workflow.add_edge(START, "retrieve")
         workflow.add_conditional_edges("retrieve", self.should_grade_documents)
-        workflow.add_conditional_edges("grade_documents", self.should_transform_query)
+        workflow.add_conditional_edges("grade_document", self.should_transform_query)
         workflow.add_edge("transform_query", "retrieve")
 
         return workflow.compile()
@@ -56,9 +57,9 @@ class CodebaseSearchAgent(BaseAgent):
             "iterations": state.get("iterations", 0) + 1,
         }
 
-    def grade_documents(self, state: OverallState):
+    def grade_document(self, state: GradeDocumentState):
         """
-        Grade the relevance of the retrieved documents to the query.
+        Grade the relevance of the retrieved document to the query.
 
         Args:
             state (GraphState): The current state of the graph.
@@ -66,24 +67,20 @@ class CodebaseSearchAgent(BaseAgent):
 
         grader_agent = self.model.with_structured_output(GradeDocumentsOutput, method="json_schema")
 
-        filtered_docs = []
+        messages = [
+            SystemMessage(grade_system),
+            HumanMessage(
+                grade_human.format(
+                    query=state["query"], query_intent=state["query_intent"], document=state["document"].page_content
+                )
+            ),
+        ]
+        response = cast(GradeDocumentsOutput, grader_agent.invoke(messages))
 
-        for document in state["documents"]:
-            messages = [
-                SystemMessage(grade_system),
-                HumanMessage(
-                    grade_human.format(
-                        query=state["query"], query_intent=state["query_intent"], document=document.page_content
-                    )
-                ),
-            ]
-            response = cast(GradeDocumentsOutput, grader_agent.invoke(messages))
-
-            if response.binary_score:
-                logger.info("[grade_documents] Document '%s' is relevant to the query", document.metadata["source"])
-                filtered_docs.append(document)
-
-        return {"documents": filtered_docs}
+        if response.binary_score:
+            logger.info("[grade_document] Document '%s' is relevant to the query", state["document"].metadata["source"])
+            return {"documents": []}
+        return {"documents": [state["document"]]}
 
     def transform_query(self, state: OverallState):
         """
@@ -113,8 +110,14 @@ class CodebaseSearchAgent(BaseAgent):
         if not state["documents"]:
             logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
             return "transform_query"
+
         logger.info("[should_grade_documents] Documents retrieved. Moving to grade_documents state.")
-        return "grade_documents"
+        return [
+            Send(
+                "grade_document", {"document": document, "query": state["query"], "query_intent": state["query_intent"]}
+            )
+            for document in state["documents"]
+        ]
 
     def should_transform_query(self, state: OverallState):
         """
