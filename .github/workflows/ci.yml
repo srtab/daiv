@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install ibomp-dev
-        run: sudo apt-get install -y ibomp-dev
+      - name: Install libomp-dev
+        run: sudo apt-get install -y libomp-dev
 
       - uses: actions/checkout@v4
 
