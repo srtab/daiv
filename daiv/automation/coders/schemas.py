@@ -51,6 +51,16 @@ class DeleteFile(OpenAISchema):
     commit_message: str = Field(description="The commit message to use.")
 
 
+class AppendToFile(OpenAISchema):
+    """
+    Use this as the primary tool to append content to a file.
+    """
+
+    file_path: str = Field(description="The file path to append to.")
+    content: str = Field(description="The content to append.")
+    commit_message: str = Field(description="The commit message to use.")
+
+
 class GetRepositoryFile(OpenAISchema):
     """
     Use this as the primary tool to get the content of a file from a repository.
@@ -77,7 +87,13 @@ class GetRepositoryTree(OpenAISchema):
 class CodebaseSearch(OpenAISchema):
     """
     Search for code snippets in the codebase.
-    Providing long and detailed queries with entire code snippets will yield better results.
+
+    The query must be optimized for hybrid search: vectorstore retrieval and/or sparse retrieval.
+
+    Example queries:
+    - "Implementation of function foo"
+    - "Implementation of class CharField"
     """
 
     query: str = Field(description=("The query to search for."))
+    intent: str = Field(description=("The intent of the search query, why you are searching for this code."))

@@ -1,6 +1,3 @@
-from daiv.settings.components import PROJECT_DIR
-from daiv.settings.components.common import WEBPACK_LOADER
-
 TESTING = True
 
 
@@ -26,11 +23,6 @@ PASSWORD_HASHERS = ("django.contrib.auth.hashers.MD5PasswordHasher",)
 # ignore emails
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-
-
-# WEBPACK LOADER
-
-WEBPACK_LOADER["DEFAULT"]["STATS_FILE"] = PROJECT_DIR / "static" / "webpack-stats-test.json"
 
 
 # CELERY

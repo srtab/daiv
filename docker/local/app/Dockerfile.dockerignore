@@ -6,6 +6,7 @@ target/
 
 # local settings
 venv/
+.venv/
 data/
 .tox/
 

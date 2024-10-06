@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal
 
 from openai.types.chat import ChatCompletionMessageToolCall  # noqa: TCH002
@@ -44,12 +45,20 @@ class Usage(BaseModel):
     total_tokens: int = 0
     """The total number of tokens used."""
 
-    cost: float = 0
-    """The cost of the completion."""
+    prompt_cost: Decimal = Decimal(0.0)
+    """The cost of the prompt tokens."""
+
+    completion_cost: Decimal = Decimal(0.0)
+    """The cost of the completion tokens."""
+
+    total_cost: Decimal = Decimal(0.0)
+    """The total cost of the tokens."""
 
     def __add__(self, other: Usage):
         self.completion_tokens += other.completion_tokens
         self.prompt_tokens += other.prompt_tokens
         self.total_tokens += other.total_tokens
-        self.cost += other.cost
+        self.prompt_cost += other.prompt_cost
+        self.completion_cost += other.completion_cost
+        self.total_cost += other.total_cost
         return self

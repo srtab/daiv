@@ -8,5 +8,12 @@
   "stylelint.configBasedir": "./daiv/static",
   "stylelint.configFile": "./daiv/static/.stylelintrc.json",
   "stylelint.validate": ["css", "scss"],
-  "stylelint.snippet": ["css", "scss"]
+  "stylelint.snippet": ["css", "scss"],
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit"
+    }
+  }
 }

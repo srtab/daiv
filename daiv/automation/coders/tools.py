@@ -4,8 +4,8 @@ import textwrap
 from automation.agents.models import Usage
 from automation.agents.tools import FunctionTool
 from automation.coders.paths_replacer.coder import PathsReplacerCoder
-from automation.coders.replacer import ReplacerCoder
 from automation.coders.schemas import (
+    AppendToFile,
     CodebaseSearch,
     CreateFile,
     DeleteFile,
@@ -14,6 +14,8 @@ from automation.coders.schemas import (
     RenameFile,
     ReplaceSnippetWith,
 )
+from automation.graphs.codebase_search import CodebaseSearchAgent
+from automation.utils import find_original_snippet
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -89,7 +91,7 @@ class CodeInspectTools:
             ).format(file_path=file_path, repo_file=repo_file)
         return f"error: File '{file_path}' not found."
 
-    def codebase_search(self, query: str) -> str:
+    def codebase_search(self, query: str, intent: str) -> str:
         """
         Search for code snippets in the codebase
 
@@ -102,27 +104,23 @@ class CodeInspectTools:
         logger.debug("[CodeInspectTools.codebase_search] Searching codebase for %s", query)
 
         search_results_str = "No search results found."
-
-        if search_results := self.codebase_index.search_with_reranker(self.repo_id, query):
+        search = CodebaseSearchAgent(self.repo_id, self.codebase_index)
+        if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
             search_results_str = "### Search results ###"
-            for reranked_score, result in search_results:
-                logger.debug(
-                    "[CodeInspectTools.codebase_search] file_path=%s score=%r",
-                    result.document.metadata["source"],
-                    reranked_score,
-                )
+            for document in search_results:
+                logger.debug("[CodeInspectTools.codebase_search] file_path=%s", document.metadata["source"])
                 search_results_str += textwrap.dedent(
                     """\
-                    \n\n
+                    \n
                     file path: {file_path}
                     ```{language}
                     {content}
-                    ```\n\n
+                    ```
                     """
                 ).format(
-                    file_path=result.document.metadata["source"],
-                    language=result.document.metadata.get("language", ""),
-                    content=result.document.page_content,
+                    file_path=document.metadata["source"],
+                    language=document.metadata.get("language", ""),
+                    content=document.page_content,
                 )
 
         return search_results_str
@@ -180,13 +178,19 @@ class CodeActionTools(CodeInspectTools):
             raise Exception("File is marked to be deleted.")
 
         repo_file_content = self._get_file_content(file_path)
+        if not repo_file_content:
+            raise ValueError(f"File {file_path} not found.")
 
         if self.replace_paths:
             replacement_snippet = self._replace_paths(replacement_snippet)
 
-        replaced_content = ReplacerCoder(self.usage).invoke(
-            original_snippet=original_snippet, replacement_snippet=replacement_snippet, content=repo_file_content
+        original_snippet_found = find_original_snippet(
+            original_snippet, repo_file_content, threshold=0.75, initial_line_threshold=0.95
         )
+        if not original_snippet_found:
+            raise Exception("Original snippet not found.")
+
+        replaced_content = repo_file_content.replace(original_snippet_found, replacement_snippet)
 
         if not replaced_content:
             raise Exception("Snippet replacement failed.")
@@ -237,7 +241,7 @@ class CodeActionTools(CodeInspectTools):
         """
         logger.debug("[CodeActionTools.create_file] Creating new file %s", file_path)
 
-        if file_path in self.file_changes:
+        if file_path in self.file_changes or self.repo_client.repository_file_exists(self.repo_id, file_path, self.ref):
             raise Exception("File already exists.")
 
         if self.replace_paths:
@@ -263,8 +267,10 @@ class CodeActionTools(CodeInspectTools):
         """
         logger.debug("[CodeActionTools.rename_file] Renaming file %s to %s", file_path, new_file_path)
 
-        if new_file_path in self.file_changes:
-            raise Exception("New file already exists.")
+        if new_file_path in self.file_changes or self.repo_client.repository_file_exists(
+            self.repo_id, new_file_path, self.ref
+        ):
+            return f"error: File {new_file_path} already exists."
 
         self.file_changes[new_file_path] = FileChange(
             action=FileChangeAction.MOVE,
@@ -288,11 +294,37 @@ class CodeActionTools(CodeInspectTools):
         """
         logger.debug("[CodeActionTools.delete_file] Deleting file %s", file_path)
 
+        if file_path in self.file_changes:
+            return f"error: File {file_path} is already marked for change."
+
         self.file_changes[file_path] = FileChange(
             action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
         )
 
         return f"success: Deleted file {file_path}."
+
+    def append_to_file(self, file_path: str, content: str, commit_message: str):
+        """
+        Appends content to a file in the repository.
+
+        Args:
+            file_path: The file path to append content to.
+            content: The content to append.
+            commit_message: The commit message to use for the append.
+
+        Returns:
+            A message indicating the success of the append.
+        """
+        logger.debug("[CodeActionTools.append_file] Appending content to file %s", file_path)
+
+        if file_path in self.file_changes:
+            self.file_changes[file_path].content += content
+        else:
+            self.file_changes[file_path] = FileChange(
+                action=FileChangeAction.UPDATE, file_path=file_path, content=content, commit_messages=[commit_message]
+            )
+
+        return f"success: Appended content to file {file_path}."
 
     def _replace_paths(self, replacement_snippet: str) -> str:
         """
@@ -326,4 +358,5 @@ class CodeActionTools(CodeInspectTools):
             FunctionTool(schema_model=CreateFile, fn=self.create_file),
             FunctionTool(schema_model=RenameFile, fn=self.rename_file),
             FunctionTool(schema_model=DeleteFile, fn=self.delete_file),
+            FunctionTool(schema_model=AppendToFile, fn=self.append_to_file),
         ]

@@ -2,22 +2,22 @@ import logging
 
 from ninja import Router
 
-from .webhooks import UnprocessableEntityResponse
-from .webhooks_gitlab import IssueWebHook, NoteWebHook, PushWebHook
+from .callbacks import UnprocessableEntityResponse
+from .callbacks_gitlab import IssueCallback, NoteCallback, PushCallback
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
 
-@router.post("/webhooks/gitlab/", response={204: None, 423: UnprocessableEntityResponse})
-async def gitlab_webhook(request, payload: IssueWebHook | NoteWebHook | PushWebHook):
+@router.post("/callbacks/gitlab/", response={204: None, 423: UnprocessableEntityResponse})
+async def gitlab_callback(request, payload: IssueCallback | NoteCallback | PushCallback):
     """
-    GitLab webhook endpoint for processing webhooks.
+    GitLab callback endpoint for processing callbacks.
     """
-    if payload.accept_webhook():
+    if payload.accept_callback():
         logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
-        await payload.process_webhook()
+        await payload.process_callback()
     else:
         logger.info(
             "GitLab Hook: Ignored hook '%s' for project %d, conditions for acceptance not met.",

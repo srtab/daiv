@@ -1,16 +1,12 @@
 from django.conf import settings
-from django.urls import include, path
+from django.urls import path
 from django.utils import timezone
 
 from daiv.api import api
 
 last_modified_date = timezone.now()
 
-urlpatterns = [
-    path(route="accounts/", view=include("accounts.urls")),
-    path(route="api/", view=api.urls),
-    path(route="", view=include("core.urls")),
-]
+urlpatterns = [path(route="api/", view=api.urls)]
 
 if settings.DEBUG:  # pragma: no cover
     from django.conf.urls.static import static

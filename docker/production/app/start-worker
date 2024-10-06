@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -eu pipefail
-
-exec celery -A trueclinic worker \
-    --loglevel=${CELERY_LOGLEVEL:-"INFO"} \
-    --concurrency=${CELERY_CONCURRENCY:-2}

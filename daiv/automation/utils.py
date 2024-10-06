@@ -1,135 +1,69 @@
 import difflib
 import re
+from decimal import Decimal
+
+from langsmith.client import Client
+from langsmith.utils import get_tracer_project
+
+from automation.agents.models import Usage
 
 
-def extract_text_inside_tags(content: str, tag: str, strip_newlines: bool = True) -> str:
-    """
-    Extract the text inside the specified XML tag.
-
-    Args:
-        content (str): The XML content.
-        tag (str): The tag to extract the text from.
-
-    Returns:
-        str: The text inside the specified XML tag.
-    """
-    start_tag = f"<{tag}>"
-    end_tag = f"</{tag}>"
-
-    start_index = content.find(start_tag)
-    end_index = content.find(end_tag)
-
-    if start_index == -1 or end_index == -1:
-        return ""
-
-    text = content[start_index + len(start_tag) : end_index]
-
-    return text.strip("\n") if strip_newlines else text
-
-
-def find_original_snippet(snippet: str, file_contents: str, threshold=0.9) -> tuple[str, int, int] | None:
+def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> str | None:
     """
     This function finds the original snippet of code in a file given a snippet and the file contents.
 
-    Parameters:
-    snippet (str): A string containing a snippet of code.
-    file_contents (str): A string containing the contents of a file.
+    The function first searches for a line in the file that matches the first non-empty line of the snippet
+    with a similarity above the initial_line_threshold. It then continues from that point to match the
+    rest of the snippet, handling ellipsis cases and using the compute_similarity function to compare
+    the accumulated snippet with the file contents.
 
-    The function works by splitting the snippet and the file contents into lines and comparing them line by line.
-    It uses the compute_similarity function to find the first line of the snippet in the file.
-    It then continues comparing the following lines, handling ellipsis cases, until it finds a discrepancy or reaches
-    the end of the snippet.
-    If the last line of the snippet is not at least `threshold` similar to the corresponding line in the file, it
-    returns None.
-    Otherwise, it returns the original snippet from the file.
+    Args:
+        snippet (str): The snippet of code to find in the file.
+        file_contents (str): The contents of the file to search in.
+        threshold (float): The similarity threshold for matching the snippet.
+        initial_line_threshold (float): The similarity threshold for matching the initial line of the snippet
+                                        with a line in the file.
 
     Returns:
-    str: The original snippet from the file, or None if the snippet could not be found.
+        tuple[str, int, int] | None: A tuple containing the original snippet from the file, start index, and end index,
+                                     or None if the snippet could not be found.
     """
-    snippet_lines = snippet.split("\n")
+    if snippet.strip() == "":
+        return None
+
+    snippet_lines = [line for line in snippet.split("\n") if line.strip()]
     file_lines = file_contents.split("\n")
 
-    first_line = snippet_lines[0].strip()
-    while first_line == "":
-        snippet_lines = snippet_lines[1:]
-        if len(snippet_lines) == 0:
-            return None
-        first_line = snippet_lines[0].strip()
+    # Find the first non-empty line in the snippet
+    first_snippet_line = next((line for line in snippet_lines if line.strip()), "")
 
-    snippet_start = None
-    for i, file_line in enumerate(file_lines):
-        if compute_similarity(first_line, file_line) > threshold:
-            snippet_start = i
-            break
+    # Search for a matching initial line in the file
+    for start_index, file_line in enumerate(file_lines):
+        if compute_similarity(first_snippet_line, file_line) >= initial_line_threshold:
+            accumulated_snippet = ""
+            snippet_index = 0
+            file_index = start_index
 
-    if snippet_start is None:
-        return None
+            while snippet_index < len(snippet_lines) and file_index < len(file_lines):
+                file_line = file_lines[file_index].strip()
 
-    ellipsis_comment_cases = ["// ...", "# ...", "/* ... */"]
-    ellipsis_found = False
-    snippet_index = 0
-    file_line_index = snippet_start
-    while snippet_index < len(snippet_lines) and file_line_index < len(file_lines):
-        snippet_line = snippet_lines[snippet_index]
+                if not file_line:
+                    file_index += 1
+                    continue
 
-        if not ellipsis_found:
-            ellipsis_found = snippet_line.strip() == "..." or any(s in snippet_line for s in ellipsis_comment_cases)
-            if ellipsis_found:
-                snippet_index += 1
-                if snippet_index >= len(snippet_lines):
-                    break
-                snippet_line = snippet_lines[snippet_index]
+                accumulated_snippet += file_line + "\n"
+                similarity = compute_similarity("\n".join(snippet_lines[: snippet_index + 1]), accumulated_snippet)
 
-        file_line = file_lines[file_line_index]
+                if similarity >= threshold:
+                    snippet_index += 1
 
-        if snippet_line.strip() == "":
-            snippet_index += 1
-            continue
-        if file_line.strip() == "":
-            file_line_index += 1
-            continue
+                file_index += 1
 
-        similarity = compute_similarity(snippet_line, file_line)
+            if snippet_index == len(snippet_lines):
+                # All lines in the snippet have been matched
+                return "\n".join(file_lines[start_index:file_index])
 
-        if ellipsis_found and similarity < threshold:
-            file_line_index += 1
-        else:
-            ellipsis_found = False
-            if similarity < threshold:
-                snippet_index = 0
-                file_line_index += 1
-            else:
-                snippet_index += 1
-                file_line_index += 1
-    final_file_snippet = "\n".join(file_lines[snippet_start:file_line_index])
-
-    # Ensure the last line of the file is at least `threshold` similar to the last line of the snippet
-    if (
-        compute_similarity(
-            get_last_non_empty_line("\n".join(snippet_lines)), get_last_non_empty_line(final_file_snippet)
-        )
-        < threshold
-    ):
-        return None
-
-    return final_file_snippet, snippet_start, file_line_index
-
-
-def get_last_non_empty_line(text: str) -> str:
-    """
-    This function returns the last non-empty line in a piece of text.
-
-    Parameters:
-    text (str): A string containing a piece of text.
-
-    Returns:
-    str: The last non-empty line in the piece of text.
-    """
-    lines = text.split("\n")
-    for line in reversed(lines):
-        if line.strip() != "":
-            return line
-    return ""
+    return None
 
 
 def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
@@ -152,3 +86,42 @@ def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
         text2 = re.sub(r"\s+", "", text2)
 
     return difflib.SequenceMatcher(None, text1, text2).ratio()
+
+
+def total_traced_cost(agent_name: str, filter_by: dict) -> Usage:
+    """
+    This function calculates the total cost of all traced runs for a given agent with the specified metadata.
+
+    Args:
+        agent_name (str): The name of the agent.
+        filter_by (dict): The metadata to filter the runs by.
+
+    Returns:
+        Usage: The total cost of the traced runs.
+    """
+    metadata = [f'eq(metadata_key, "{key}")' for key in filter_by]
+    for value in filter_by.values():
+        if isinstance(value, int):
+            metadata.append(f"eq(metadata_value, {value})")
+        else:
+            metadata.append(f'eq(metadata_value, "{value}")')
+
+    filter_str = f'and(eq(name, "{agent_name}"), {", ".join(metadata)})'
+
+    project_runs = Client().list_runs(
+        project_name=get_tracer_project(),
+        is_root=True,
+        select=["prompt_tokens", "completion_tokens", "total_tokens", "prompt_cost", "completion_cost", "total_cost"],
+        filter=filter_str,
+    )
+    usage = Usage()
+    for run in project_runs:
+        usage += Usage(
+            prompt_tokens=run.prompt_tokens or 0,
+            completion_tokens=run.completion_tokens or 0,
+            total_tokens=run.total_tokens or 0,
+            prompt_cost=run.prompt_cost or Decimal(0.0),
+            completion_cost=run.completion_cost or Decimal(0.0),
+            total_cost=run.total_cost or Decimal(0.0),
+        )
+    return usage

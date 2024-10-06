@@ -48,6 +48,10 @@ class MergeRequest(BaseModel):
     repo_id: str
     merge_request_id: int
     source_branch: str
+    target_branch: str
+    title: str
+    description: str
+    labels: list[str] = Field(default_factory=list)
 
 
 class MergeRequestDiff(BaseModel):
@@ -75,6 +79,10 @@ class FileChange(BaseModel):
     content: str | None = None
     previous_path: str | None = None
     commit_messages: list[str] = []
+
+
+class CodebaseChanges(BaseModel):
+    file_changes: dict[str, FileChange] = Field(default_factory=dict)
 
 
 class User(BaseModel):

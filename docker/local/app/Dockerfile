@@ -1,4 +1,4 @@
-FROM python:3.12.4-slim-bookworm
+FROM python:3.12.7-slim-bookworm
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -23,6 +23,7 @@ RUN apt-get update \
         gettext \
         unzip \
         gnupg \
+        ca-certificates \
         # Cleaning up unused files
     && apt-get purge -y --auto-remove \
         -o APT::AutoRemove::RecommendsImportant=0 \
@@ -34,31 +35,23 @@ RUN apt-get update \
     && adduser --home /home/app --uid 1000 --system --ingroup app app
 
 USER app
+WORKDIR /home/app/src
 
-ENV PYTHONPATH=$PYTHONPATH:/home/app/src/daiv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+ENV PYTHONPATH="/home/app/src/daiv"
 ENV PYTHONUNBUFFERED=1
-# this prevents Python from writing out pyc files
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PATH=/home/app/.local/bin:$PATH
-ENV PIPENV_PIPFILE=/home/app/src/Pipfile
+ENV PATH="/home/app/.venv/bin:/home/app/.cargo/bin/:$PATH"
+ENV UV_PROJECT_ENVIRONMENT="/home/app/.venv"
 
-COPY --chown=app:app Pipfile Pipfile.lock /home/app/src/
-
-RUN python -m pip install --user -U pip wheel \
-    && python -m pip install --user -U pipenv \
-    && pipenv sync --dev
-
+COPY --chown=app:app pyproject.toml uv.lock ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
-RUN echo 'alias makemigrations="pipenv run django-admin makemigrations"' >> /home/app/.bashrc \
-    && echo 'alias migrate="pipenv run django-admin migrate"' >> /home/app/.bashrc \
-    && echo 'alias compilemessages="pipenv run django-admin compilemessages"' >> /home/app/.bashrc \
-    && echo 'alias makemessages="pipenv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all"' >> /home/app/.bashrc \
-    && echo 'alias makemessagesjs="pipenv run django-admin makemessages -d djangojs --ignore=*/node_modules/* --ignore=.venv -e ts --no-wrap --all"' >> /home/app/.bashrc \
-    && echo 'alias django-admin="pipenv run django-admin"' >> /home/app/.bashrc \
+RUN uv sync --frozen \
+    && echo 'alias compilemessages="django-admin compilemessages"' >> /home/app/.bashrc \
+    && echo 'alias makemessages="django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all"' >> /home/app/.bashrc \
     && chmod +x /home/app/docker/entrypoint \
     && mkdir -p /home/app/data
-
-WORKDIR /home/app/src
 
 ENTRYPOINT ["/home/app/docker/entrypoint"]

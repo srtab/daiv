@@ -14,7 +14,7 @@ RELEASE_VERSION = RELEASE
 
 LOCAL_APPS = ["accounts", "codebase", "core"]
 
-THIRD_PARTY_APPS = ["allauth", "allauth.account", "django_celery_beat", "django_extensions", "webpack_loader"]
+THIRD_PARTY_APPS = ["django_celery_beat", "django_extensions"]
 
 DJANGO_APPS = [
     "django.contrib.auth",
@@ -39,7 +39,6 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "csp.middleware.CSPMiddleware",
-    "allauth.account.middleware.AccountMiddleware",
 ]
 
 
@@ -95,23 +94,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTH_USER_MODEL = "accounts.User"
 
-AUTHENTICATION_BACKENDS = [
-    "allauth.account.auth_backends.AuthenticationBackend",
-    "django.contrib.auth.backends.ModelBackend",
-]
-
-
-# ALLAUTH - https://django-allauth.readthedocs.io/en/latest/configuration.html
-
-ACCOUNT_ADAPTER = "accounts.adapter.AccountAdapter"
-ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
-ACCOUNT_AUTHENTICATION_METHOD = "username"
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_EMAIL_VERIFICATION = "none"
-ACCOUNT_USERNAME_REQUIRED = True
-ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"
-ACCOUNT_LOGOUT_ON_GET = True
-
 
 # MESSAGES
 
@@ -149,13 +131,6 @@ STATICFILES_FINDERS = (
     "django.contrib.staticfiles.finders.FileSystemFinder",
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 )
-
-
-# WEBPACK LOADER - https://github.com/owais/django-webpack-loader#default-configuration
-
-WEBPACK_LOADER = {
-    "DEFAULT": {"BUNDLE_DIR_NAME": "bundles/", "STATS_FILE": PROJECT_DIR / "static" / "webpack-stats.json"}
-}
 
 
 # Media files

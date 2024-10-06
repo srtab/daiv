@@ -1,25 +1,22 @@
 import logging
-import textwrap
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
 from celery import shared_task
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from redis.exceptions import LockError
 from unidiff import Hunk, PatchedFile, PatchSet
 
-from automation.agents.models import Usage
-from automation.coders.change_describer.coder import ChangesDescriberCoder
-from automation.coders.review_addressor.coder import ReviewAddressorCoder, ReviewCommentorCoder
-from codebase.base import Discussion, FileChange, Note, NoteDiffPositionType, NotePositionType, NoteType
-from codebase.clients import RepoClient
+from automation.graphs.review_adressor.agent import ReviewAdressorAgent
+from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
+from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
 
-    from automation.coders.change_describer.models import ChangesDescriber
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +83,6 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
     """
     Handle feedback for a merge request.
     """
-    usage = Usage()
     client = RepoClient.create_instance()
 
     merge_request_patchs: dict[str, PatchedFile] = {}
@@ -99,6 +95,10 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
             merge_request_patchs[patch_set[0].path] = patch_set[0]
 
         for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
+            if discussion.notes[-1].author.id == client.current_user.id:
+                # Skip the discussion if the last note was made by the bot
+                continue
+
             discussion_to_address = DiscussionToAdress(
                 repo_id=repo_id,
                 merge_request_id=merge_request_id,
@@ -187,7 +187,7 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                 discussion_to_address_list.append(discussion_to_address)
 
         for discussion_to_address in discussion_to_address_list:
-            _handle_diff_notes(usage, client, discussion_to_address)
+            _handle_diff_notes(client, discussion_to_address)
 
     except Exception as e:
         logger.exception("Error handling merge request feedback: %s", e)
@@ -196,76 +196,21 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
         cache.delete(f"{repo_id}:{merge_request_id}")
 
 
-def _handle_diff_notes(usage: Usage, client: RepoClient, discussion_to_address: DiscussionToAdress):
-    feedback = ReviewCommentorCoder(usage=usage).invoke(
+def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionToAdress):
+    messages: list[AnyMessage] = []
+
+    for note in discussion_to_address.notes:
+        if note.author.id == client.current_user.id:
+            messages.append(AIMessage(content=note.body, name="DAIV"))
+        else:
+            messages.append(HumanMessage(content=note.body, name=note.author.username))
+
+    reviewer_agent = ReviewAdressorAgent(
+        client,
         source_repo_id=discussion_to_address.repo_id,
         source_ref=discussion_to_address.merge_request_source_branch,
-        file_path=discussion_to_address.patch_file.path,
-        notes=discussion_to_address.notes,
-        diff=discussion_to_address.diff,
+        merge_request_id=discussion_to_address.merge_request_id,
+        discussion_id=discussion_to_address.discussion.id,
     )
 
-    if feedback.questions:
-        client.create_merge_request_discussion_note(
-            discussion_to_address.repo_id,
-            discussion_to_address.merge_request_id,
-            discussion_to_address.discussion.id,
-            "\n".join(feedback.questions),
-        )
-
-        return  # Do not proceed with the changes if there are questions
-
-    file_changes: list[FileChange] = []
-
-    if feedback.code_changes_needed:
-        file_changes = ReviewAddressorCoder(usage=usage).invoke(
-            source_repo_id=discussion_to_address.repo_id,
-            source_ref=discussion_to_address.merge_request_source_branch,
-            file_path=discussion_to_address.patch_file.path,
-            notes=discussion_to_address.notes,
-            diff=discussion_to_address.diff,
-        )
-
-    if not feedback.questions:
-        client.resolve_merge_request_discussion(
-            discussion_to_address.repo_id, discussion_to_address.merge_request_id, discussion_to_address.discussion.id
-        )
-
-    if not file_changes:
-        # No changes were made, no need to commit
-        return
-
-    changes_description: ChangesDescriber | None = ChangesDescriberCoder(usage).invoke(
-        changes=[". ".join(file_change.commit_messages) for file_change in file_changes]
-    )
-    if changes_description is None:
-        raise ValueError("No changes description was generated.")
-
-    client.commit_changes(
-        discussion_to_address.repo_id,
-        discussion_to_address.merge_request_source_branch,
-        changes_description.commit_message,
-        file_changes,
-    )
-    client.comment_merge_request(
-        discussion_to_address.repo_id,
-        discussion_to_address.merge_request_id,
-        textwrap.dedent(
-            """\
-                I've made the changes: **{changes}**.
-
-                Please review them and let me know if you need further assistance.
-
-                ### 🤓 Stats for the nerds:
-                Prompt tokens: **{prompt_tokens:,}** \\
-                Completion tokens: **{completion_tokens:,}** \\
-                Total tokens: **{total_tokens:,}** \\
-                Estimated cost: **${total_cost:.10f}**"""
-        ).format(
-            changes=changes_description.title,
-            prompt_tokens=usage.prompt_tokens,
-            completion_tokens=usage.completion_tokens,
-            total_tokens=usage.total_tokens,
-            total_cost=usage.cost,
-        ),
-    )
+    reviewer_agent.agent.invoke({"diff": discussion_to_address.diff, "messages": messages})

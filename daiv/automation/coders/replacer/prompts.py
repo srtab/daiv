@@ -35,8 +35,5 @@ class ReplacerPrompts:
 
             ### Code snippet  ###
             {content}
-
-            ### Output ###
-            You MUST return the code result inside a <code></code> tag.
             """  # noqa: E501
         ).format(original_snippet=original_snippet, replacement_snippet=replacement_snippet, content=content)

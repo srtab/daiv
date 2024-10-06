@@ -3,7 +3,7 @@
 set -euo pipefail
 
 postgres_ready() {
-pipenv run python << END
+uv run python << END
 import sys
 import traceback
 import psycopg

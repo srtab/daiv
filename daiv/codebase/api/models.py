@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+LABEL_DAIV = "daiv"
+
 
 class IssueAction(StrEnum):
     """
@@ -13,6 +15,10 @@ class IssueAction(StrEnum):
     UPDATE = "update"
     REOPEN = "reopen"
     CLOSE = "close"
+
+
+class Label(BaseModel):
+    title: str
 
 
 class Issue(BaseModel):
@@ -27,6 +33,13 @@ class Issue(BaseModel):
     state: str
     assignee_id: int | None
     action: IssueAction
+    labels: list[Label]
+
+    def is_daiv(self) -> bool:
+        """
+        Check if the issue is a DAIV issue
+        """
+        return any(label.title == LABEL_DAIV for label in self.labels)
 
 
 class MergeRequest(BaseModel):
@@ -43,6 +56,13 @@ class MergeRequest(BaseModel):
     source_branch: str
     target_branch: str
     assignee_id: int | None
+    labels: list[Label]
+
+    def is_daiv(self) -> bool:
+        """
+        Check if the merge request is a DAIV merge request
+        """
+        return any(label.title == LABEL_DAIV for label in self.labels)
 
 
 class NoteableType(StrEnum):

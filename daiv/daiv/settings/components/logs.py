@@ -13,6 +13,6 @@ LOGGING: dict = {
     "handlers": {"console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"}},
     "loggers": {
         "": {"level": LOGGING_LEVEL, "handlers": ["console"]},
-        "automation": {"level": "DEBUG", "handlers": ["console"], "propagate": False},
+        "daiv": {"level": "DEBUG", "handlers": ["console"], "propagate": False},
     },
 }

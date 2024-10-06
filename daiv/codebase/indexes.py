@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from django.db import transaction
 from django.db.models import Q
 
+from langchain.retrievers import EnsembleRetriever
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.language import LanguageParser
 
@@ -18,17 +19,19 @@ from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
 
 if TYPE_CHECKING:
+    from langchain_core.documents import Document
+
     from codebase.base import RepositoryFile
-    from codebase.clients import GitHubClient, GitLabClient
+    from codebase.clients import AllRepoClient
     from codebase.search_engines.base import ScoredResult
 
 logger = logging.getLogger(__name__)
 
 
 class CodebaseIndex(abc.ABC):
-    repo_client: GitLabClient | GitHubClient
+    repo_client: AllRepoClient
 
-    def __init__(self, repo_client: GitLabClient | GitHubClient):
+    def __init__(self, repo_client: AllRepoClient):
         self.repo_client = repo_client
         self.semantic_search_engine = SemanticSearchEngine(collection_name=settings.CODEBASE_COLLECTION_NAME)
         self.lexical_search_engine = LexicalSearchEngine()
@@ -123,6 +126,8 @@ class CodebaseIndex(abc.ABC):
         semantic_results = self.semantic_search_engine.search(repo_id, query, k=k, content_type="functions_classes")
         lexical_results = self.lexical_search_engine.search(repo_id, query, k=k)
         combined_results = semantic_results + lexical_results
+        if not combined_results:
+            return []
         score_results = RerankerEngine.rerank(query, [result.document.page_content for result in combined_results])
         return [
             item
@@ -131,6 +136,24 @@ class CodebaseIndex(abc.ABC):
             )[:k]
             if item[0] > 0
         ]
+
+    def search(self, repo_id: str, query: str) -> list[Document]:
+        """
+        Hybrid search using both lexical and semantic search engines.
+
+        Args:
+            repo_id (str): The repository id.
+            query (str): The query.
+
+        Returns:
+            list[Document]: The search results.
+        """
+        return EnsembleRetriever(
+            retrievers=[
+                self.semantic_search_engine.as_retriever(repo_id, k=10, exclude_content_type="simplified_code")
+            ],
+            weights=[1],
+        ).invoke(query)
 
     def search_most_similar_file(self, repo_id: str, repository_file: RepositoryFile) -> str | None:
         """
@@ -181,3 +204,13 @@ class CodebaseIndex(abc.ABC):
                 for filename in filenames:
                     extracted_paths.add(dirpath.joinpath(filename).relative_to(repo_dir).as_posix())
         return extracted_paths
+
+
+if __name__ == "__main__":
+    from codebase.clients import RepoClient
+    from codebase.indexes import CodebaseIndex
+
+    client = RepoClient.create_instance()
+    index = CodebaseIndex(client)
+
+    index.search("dipcode/python/django-extra-toolkit", "class IBANField")
