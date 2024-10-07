@@ -28,7 +28,7 @@ dependencies = [
   "esprima==4.0.1",
   "get-docker-secret==2",
   "instructor==1.4.2",
-  "ipython==8.27",
+  "ipython==8.28.0",
   "langchain==0.3.2",
   "langchain-chroma==0.1.4",
   "langchain-community==0.3.1",
