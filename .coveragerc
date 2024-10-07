@@ -1,12 +1,13 @@
 [run]
-source = store
+source = daiv
 branch = True
 omit =
-    *tests*
-    *migrations*
-    *static*
-    store/manage.py
-    store/store/wsgi.py
+    */tests/*
+    */migrations/*
+    */static/*
+    daiv/manage.py
+    daiv/wsgi.py
+    daiv/asgi.py
 
 [report]
 skip_covered = True

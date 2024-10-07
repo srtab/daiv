@@ -12,6 +12,7 @@ help:
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with mypy"
 	@echo "  make lock           - Update uv lock"
+	@echo "  make unittests      - Run unit tests"
 
 test:
 	uv run coverage run runtests.py
@@ -42,3 +43,6 @@ lint-typing:
 
 lock:
 	uv lock
+
+unittests:
+	uv run pytest tests
