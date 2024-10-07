@@ -115,6 +115,23 @@ lint.isort.section-order = [
 lint.isort.sections."django" = [ "django" ]
 lint.isort.split-on-trailing-comma = false
 
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "daiv.settings.test"
+pythonpath = "daiv"
+python_files = "test_*.py"
+python_classes = "*Test"
+addopts = "--cov --cov-config=.coveragerc"
+
+[tool.pytest_env]
+DJANGO_SETTINGS_MODULE = "daiv.settings.test"
+DJANGO_SECRET_KEY = "not-so-secret"
+DB_HOST = "db"
+DB_NAME = "db"
+DB_USER = "dbuser"
+DB_PASSWORD = "dbpass"
+DB_PORT = "5432"
+DB_SSLMODE = "prefer"
+
 [tool.mypy]
 python_version = "3.12"
 check_untyped_defs = true
@@ -139,5 +156,9 @@ dev-dependencies = [
   "pre-commit==4.0.0",
   "pyproject-fmt==2.2.4",
   "pyopenssl==24.2.1",
+  "pytest-cov>=5.0.0",
+  "pytest-django>=4.9.0",
+  "pytest-env>=1.1.5",
+  "pytest-xdist>=3.6.1",
   "ruff==0.6.9",
 ]
