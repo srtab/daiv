@@ -3,31 +3,7 @@ import textwrap
 from pydantic import BaseModel, Field
 
 
-class RepositoryTreeInput(BaseModel):
-    """
-    Obtain the tree of the repository from a given path.
-    """
-
-    path: str = Field(
-        description=(
-            "The path inside the repository. "
-            "Empty string is the root of the repository. "
-            "Use it to navigate through directories."
-        )
-    )
-    intent: str = Field(description=("Why you're navigating to this path."))
-
-
-class RepositoryFileInput(BaseModel):
-    """
-    Get the content of a file from the repository.
-    """
-
-    file_path: str = Field(description="The file path to get.")
-    intent: str = Field(description=("Why you're obtainging this file."))
-
-
-class SearchRepositoryInput(BaseModel):
+class SearchCodeSnippetsInput(BaseModel):
     """
     Search for code snippets in the codebase.
     """
@@ -35,70 +11,96 @@ class SearchRepositoryInput(BaseModel):
     query: str = Field(
         description=textwrap.dedent(
             """\
-            The query should be a code snippet or a function/class/method name and/or include more **code-related keywords**. Focus on keywords that developers would typically use when searching for code snippets.
+            A code-centric search term including code snippets, function/class/method names, or code-related keywords.
 
-            ## Tips
-            1. Avoid ambiguous terms in the query to get precise results.
-            2. Don't use: "code", "snippet", "example", "sample", etc. as they are redundant.
-            3. The query must be optimized for hybrid search: vectorstore retrieval and/or sparse retrieval.
+            Tips:
+            1. Avoid ambiguous terms for precise results.
+            2. Do not use redundant words like "code", "snippet", "example", or "sample".
+            3. Optimize the query for hybrid search methods (vector and sparse retrieval).
             """  # noqa: E501
         ),
         examples=["function foo", "class CharField", "def get", "method get_foo on class User"],
     )
-    intent: str = Field(description=("The intent of the search query, why you are searching for this code."))
+    intent: str = Field(description=("A brief description of why you are searching for this code."))
+
+
+class ExploreRepositoryPathInput(BaseModel):
+    """
+    Obtain the tree of the repository from a given path.
+    """
+
+    path: str = Field(
+        description=(
+            "The path inside the repository to navigate. An empty string '' represents the root of the repository."
+        )
+    )
+    intent: str = Field(description=("A description of why you're navigating to this path."))
+
+
+class RetrieveFileContentInput(BaseModel):
+    """
+    Get the content of a file from the repository.
+    """
+
+    file_path: str = Field(description="The path to the file to retrieve (e.g., 'webhooks/tests/test_admin.py').")
+    intent: str = Field(description=("A description of why you're obtaining this file"))
 
 
 class CommitableBaseModel(BaseModel):
     commit_message: str = Field(description="The commit message to use.")
 
 
-class ReplaceSnippetWithInput(CommitableBaseModel):
+class ReplaceSnippetInFileInput(CommitableBaseModel):
     """
     Replaces a snippet in a file with the provided replacement.
     """
 
-    file_path: str = Field(description="The file_path of code to refactor. Ignore referenced unified diff file path.")
+    file_path: str = Field(description="The path to the file where the replacement will take place.")
     original_snippet: str = Field(
-        description=textwrap.dedent(
-            """\
-            The more complete and specific, the better, to help disambiguate possible identical code in the same file.
-            """
+        description=(
+            "The exact snippet to be replaced, including indentation and spacing.\n"
+            "Tip: Copy the snippet directly from the file to ensure an exact match."
         )
     )
-    replacement_snippet: str = Field(description="The replacement for the snippet.")
+    replacement_snippet: str = Field(
+        description=(
+            "The new snippet to replace the original, including necessary indentation and spacing.\n"
+            "Tip: Align the indentation level with the surrounding code for consistency."
+        )
+    )
     commit_message: str = Field(description="The commit message to use.")
 
 
-class CreateFileInput(CommitableBaseModel):
+class CreateNewRepositoryFileInput(CommitableBaseModel):
     """
     Create a new file in the repository.
     """
 
-    file_path: str = Field(description="The file path to create.")
-    content: str = Field(description="The content to insert.")
+    file_path: str = Field(description="The path within the repository where the new file will be created.")
+    content: str = Field(description="The content to insert into the new file.")
 
 
-class RenameFileInput(CommitableBaseModel):
+class RenameRepositoryFileInput(CommitableBaseModel):
     """
     Rename a file in the repository.
     """
 
-    file_path: str = Field(description="The file path to rename.")
-    new_file_path: str = Field(description="The new file path.")
+    file_path: str = Field(description="The current path of the file to rename.")
+    new_file_path: str = Field(description="The new path and name for the file.")
 
 
-class DeleteFileInput(CommitableBaseModel):
+class DeleteRepositoryFileInput(CommitableBaseModel):
     """
     Delete a file in the repository.
     """
 
-    file_path: str = Field(description="The file path to delete.")
+    file_path: str = Field(description="The path of the file to delete within the repository.")
 
 
-class AppendToFileInput(CommitableBaseModel):
+class AppendToRepositoryFileInput(CommitableBaseModel):
     """
     Append content to a file in the repository.
     """
 
-    file_path: str = Field(description="The file path to append to.")
-    content: str = Field(description="The content to APPEND, including necessary newlines and indentation.")
+    file_path: str = Field(description="The path of the file to append to within the repository.")
+    content: str = Field(description="The content to append, including necessary newlines and indentation.")

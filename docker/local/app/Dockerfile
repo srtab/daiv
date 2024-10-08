@@ -48,7 +48,7 @@ ENV UV_PROJECT_ENVIRONMENT="/home/app/.venv"
 COPY --chown=app:app pyproject.toml uv.lock ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
-RUN uv sync --frozen \
+RUN uv sync \
     && echo 'alias compilemessages="django-admin compilemessages"' >> /home/app/.bashrc \
     && echo 'alias makemessages="django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all"' >> /home/app/.bashrc \
     && chmod +x /home/app/docker/entrypoint \

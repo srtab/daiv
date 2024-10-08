@@ -26,7 +26,7 @@ jobs:
         run: uv python install
 
       - name: Install the project
-        run: uv sync --all-extras --dev
+        run: uv sync --locked
 
       - name: Run linting
         run: make lint
@@ -52,7 +52,7 @@ jobs:
         run: uv python install
 
       - name: Install the project
-        run: uv sync --all-extras --dev
+        run: uv sync --locked
 
       - name: Run unittests
         run: make unittests

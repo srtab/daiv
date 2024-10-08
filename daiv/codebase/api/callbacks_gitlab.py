@@ -199,7 +199,7 @@ class NoteCallback(BaseCallback):
         We need to prevent multiple webhook processing for the same merge request.
         """
         cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
-        with await cache.alock(f"{cache_key}::lock"):
+        with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
             if await cache.aget(cache_key) is None:
                 await cache.aset(cache_key, "launched", timeout=60 * 10)
                 # handle_mr_feedback.si(

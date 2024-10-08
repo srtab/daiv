@@ -79,7 +79,7 @@ class NoteDiffPosition(BaseModel):
     Gitlab Note Diff Position
     """
 
-    type: Literal["new", "old"] | None
+    type: Literal["new", "old", "expanded"] | None
     old_line: int | None
     new_line: int | None
 

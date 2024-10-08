@@ -50,6 +50,6 @@ class RedisCache(DJRedisCache):
         blocking: bool = True,
         blocking_timeout: Number | None = None,
     ):
-        return await sync_to_async(self.lock, thread_sensitive=True)(
+        return await sync_to_async(self.lock)(
             key, timeout=timeout, sleep=sleep, blocking=blocking, blocking_timeout=blocking_timeout
         )

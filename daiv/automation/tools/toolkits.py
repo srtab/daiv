@@ -10,14 +10,14 @@ from codebase.base import CodebaseChanges
 from codebase.indexes import CodebaseIndex
 
 from .repository import (
-    AppendToFileTool,
-    CreateFileTool,
-    DeleteFileTool,
-    RenameFileTool,
-    ReplaceSnippetWithTool,
-    RepositoryFileTool,
-    RepositoryTreeTool,
-    SearchRepositoryTool,
+    AppendToRepositoryFileTool,
+    CreateNewRepositoryFileTool,
+    DeleteRepositoryFileTool,
+    ExploreRepositoryPathTool,
+    RenameRepositoryFileTool,
+    ReplaceSnippetInFileTool,
+    RetrieveFileContentTool,
+    SearchCodeSnippetsTool,
 )
 
 if TYPE_CHECKING:
@@ -55,14 +55,16 @@ class ReadRepositoryToolkit(BaseToolkit):
             codebase_changes = CodebaseChanges()
         return cls(
             tools=[
-                SearchRepositoryTool(source_repo_id=source_repo_id, api_wrapper=CodebaseIndex(repo_client=repo_client)),
-                RepositoryFileTool(
+                SearchCodeSnippetsTool(
+                    source_repo_id=source_repo_id, api_wrapper=CodebaseIndex(repo_client=repo_client)
+                ),
+                RetrieveFileContentTool(
                     source_repo_id=source_repo_id,
                     source_ref=source_ref,
                     codebase_changes=codebase_changes,
                     api_wrapper=repo_client,
                 ),
-                RepositoryTreeTool(
+                ExploreRepositoryPathTool(
                     source_repo_id=source_repo_id,
                     source_ref=source_ref,
                     codebase_changes=codebase_changes,
@@ -96,31 +98,31 @@ class WriteRepositoryToolkit(ReadRepositoryToolkit):
             codebase_changes=codebase_changes,
         )
         super_instance.tools.extend([
-            ReplaceSnippetWithTool(
+            ReplaceSnippetInFileTool(
                 source_repo_id=source_repo_id,
                 source_ref=source_ref,
                 codebase_changes=codebase_changes,
                 api_wrapper=repo_client,
             ),
-            CreateFileTool(
+            CreateNewRepositoryFileTool(
                 source_repo_id=source_repo_id,
                 source_ref=source_ref,
                 codebase_changes=codebase_changes,
                 api_wrapper=repo_client,
             ),
-            RenameFileTool(
+            RenameRepositoryFileTool(
                 source_repo_id=source_repo_id,
                 source_ref=source_ref,
                 codebase_changes=codebase_changes,
                 api_wrapper=repo_client,
             ),
-            DeleteFileTool(
+            DeleteRepositoryFileTool(
                 source_repo_id=source_repo_id,
                 source_ref=source_ref,
                 codebase_changes=codebase_changes,
                 api_wrapper=repo_client,
             ),
-            AppendToFileTool(
+            AppendToRepositoryFileTool(
                 source_repo_id=source_repo_id,
                 source_ref=source_ref,
                 codebase_changes=codebase_changes,

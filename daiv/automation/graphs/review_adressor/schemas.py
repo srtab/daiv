@@ -2,75 +2,71 @@ from textwrap import dedent
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ACT_RESPONSE_TOOL_NAME = "act"
+DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 
-class Plan(BaseModel):
+class HumanFeedbackResponse(BaseModel):
     """
-    Plan to follow in future
+    Provide a final response to the reviewer.
     """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `ActPlannerResponse` as tool with strict mode
-    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
-
-    tasks: list[str] = Field(description="different tasks to follow, should be in sorted order")
-    goal: str = Field(description="detailed objective of the requested changes to be made")
-
-
-class Response(BaseModel):
-    """
-    Final response to reviewer if the reviewer ask a question or no more work need to be done.
-    """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `ActPlannerResponse` and `ActExecuterResponse` as tool with strict mode
-    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     response: str = Field(
         description=dedent(
             """\
-            Just answers without asking if he wants to do something more.
-            Answer in the first person, e.g. 'The changes you requested have been made', as if you were speaking directly to the reviewer.
+            Answer in the first person, without asking if they want more changes. E.g., "The changes you requested have been made."
             """  # noqa: E501
         )
     )
-    finished: bool = Field(description="If the task has been completed, set to True, otherwise False.")
 
 
 class AskForClarification(BaseModel):
     """
-    If the reviewer request is not clear, use this to ask the reviewer for clarification to help you complete the task.
+    Ask the reviewer for clarification if their request is unclear.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
-    # `ActPlannerResponse` and `ActExecuterResponse` as tool with strict mode
+    # `DetermineNextActionResponse` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     questions: list[str] = Field(
-        description=dedent(
-            """\
-            Ask in the first person, e.g. 'Can you provide more details?', as you where speaking directly to the reviewer.
-            """  # noqa: E501
-        )
+        description="Questions phrased in the first person. E.g., 'Could you please clarify what you mean by...?'"
     )
 
 
-class ActPlannerResponse(BaseModel):
+class Plan(BaseModel):
     """
-    Use this tool to respond to the reviewer with the proper action to take.
-    """
-
-    model_config = ConfigDict(title=ACT_RESPONSE_TOOL_NAME)
-
-    action: Response | Plan | AskForClarification = Field(description="Next action to be taken.")
-
-
-class ActExecuterResponse(BaseModel):
-    """
-    Use this tool to respond to the reviewer with the proper action.
+    Outline future tasks to address the reviewer's feedback.
     """
 
-    model_config = ConfigDict(title=ACT_RESPONSE_TOOL_NAME)
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `DetermineNextActionResponse` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    action: Response | AskForClarification = Field(description="Next action to be taken.")
+    tasks: list[str] = Field(description="A sorted list of tasks to follow.")
+    goal: str = Field(description="A detailed objective of the requested changes to be made.")
+
+
+class DetermineNextActionResponse(BaseModel):
+    """
+    Respond to the reviewer with the appropriate action.
+
+    Usage Guidelines:
+     - Choose the appropriate action based on the reviewer's feedback.
+     - Communicate in the first person, as if speaking directly to the reviewer.
+     - Be clear, concise, and professional in your responses, tasks, or questions.
+    """
+
+    model_config = ConfigDict(title=DETERMINE_NEXT_ACTION_TOOL_NAME)
+
+    action: Plan | AskForClarification = Field(description="The next action to be taken.")
+
+
+class RequestAssessmentResponse(BaseModel):
+    """
+    Output schema for the `RequestForChanges` tool.
+    """
+
+    model_config = ConfigDict(title="request_assessment")
+
+    request_for_changes: bool = Field(description="Set to True if the reviewer requested changes; otherwise, False.")
+    justification: str = Field(description="Justify why you think it's a change request.")
