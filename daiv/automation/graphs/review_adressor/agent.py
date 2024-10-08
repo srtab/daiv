@@ -2,6 +2,7 @@ import logging
 from textwrap import dedent
 from typing import Literal, cast
 
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -14,9 +15,9 @@ from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryTool
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
 
-from .prompts import review_analyzer_execute, review_analyzer_plan
-from .schemas import ActExecuterResponse, ActPlannerResponse, AskForClarification, Response
-from .state import PlanExecute
+from .prompts import review_analyzer_assessment, review_analyzer_execute, review_analyzer_plan, review_analyzer_response
+from .schemas import AskForClarification, DetermineNextActionResponse, HumanFeedbackResponse, RequestAssessmentResponse
+from .state import OverallState
 
 logger = logging.getLogger(__name__)
 
@@ -69,28 +70,53 @@ class ReviewAdressorAgent(BaseAgent):
         Returns:
             CompiledStateGraph: The compiled workflow.
         """
-        workflow = StateGraph(PlanExecute)
+        workflow = StateGraph(OverallState)
 
+        workflow.add_node("assessment", self.assessment)
         workflow.add_node("plan", self.plan)
-        workflow.add_node("execute_step", self.execute_step)
+        workflow.add_node("execute_plan", self.execute_plan)
         workflow.add_node("human_feedback", self.human_feedback)
         workflow.add_node("commit_changes", self.commit_changes)
 
-        workflow.add_edge(START, "plan")
-        workflow.add_edge("execute_step", "commit_changes")
+        workflow.add_edge(START, "assessment")
+        workflow.add_edge("execute_plan", "commit_changes")
         workflow.add_edge("human_feedback", END)
         workflow.add_edge("commit_changes", END)
 
-        workflow.add_conditional_edges("plan", self.continue_plan_execution)
+        workflow.add_conditional_edges("assessment", self.continue_planning)
+        workflow.add_conditional_edges("plan", self.continue_executing)
 
         return workflow.compile()
 
-    def plan(self, state: PlanExecute):
+    def assessment(self, state: OverallState):
+        """
+        Assess the feedback provided by the reviewer.
+
+        This node will help distinguish if the comments are requests to change the code or just feedback and
+        define the next steps to follow.
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            dict: The state of the agent to update.
+        """
+        evaluator = self.model.with_structured_output(RequestAssessmentResponse, method="json_schema")
+        response = cast(
+            RequestAssessmentResponse,
+            evaluator.invoke(
+                [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
+                config={"callbacks": [self.usage_handler]},
+            ),
+        )
+        return {"request_for_changes": response.request_for_changes}
+
+    def plan(self, state: OverallState):
         """
         Plan the steps to follow.
 
         Args:
-            state (PlanExecute): The state of the agent.
+            state (OverallState): The state of the agent.
 
         Returns:
             dict: The state of the agent to update.
@@ -98,14 +124,14 @@ class ReviewAdressorAgent(BaseAgent):
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
-        system_message = system_message_template.format(diff=state["diff"], messages=state["messages"])
+        system_message = system_message_template.format(diff=state["diff"])
 
-        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=ActPlannerResponse)
-        response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
+        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=DetermineNextActionResponse)
+        response = react_agent.agent.invoke(
+            {"messages": [system_message] + state["messages"]}, config={"callbacks": [self.usage_handler]}
+        )
 
-        if isinstance(response["response"].action, Response):
-            return {"response": response["response"].action.response}
-        elif isinstance(response["response"].action, AskForClarification):
+        if isinstance(response["response"].action, AskForClarification):
             return {"response": " ".join(response["response"].action.questions)}
         return {
             "plan_tasks": response["response"].action.tasks,
@@ -113,12 +139,12 @@ class ReviewAdressorAgent(BaseAgent):
             "file_changes": {},
         }
 
-    def execute_step(self, state: PlanExecute):
+    def execute_plan(self, state: OverallState):
         """
-        Execute the next step in the plan.
+        Execute the plan by making the necessary changes to the codebase.
 
         Args:
-            state (PlanExecute): The state of the agent.
+            state (OverallState): The state of the agent.
 
         Returns:
             dict: The state of the agent to update.
@@ -131,35 +157,49 @@ class ReviewAdressorAgent(BaseAgent):
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_execute, "jinja2")
         system_message = system_message_template.format(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
 
-        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=ActExecuterResponse)
-        response = react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
+        react_agent = REACTAgent(tools=toolkit.get_tools())
+        react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
 
-        if isinstance(response["response"].action, Response):
-            return {"response": response["response"].action.response, "file_changes": codebase_changes.file_changes}
-        elif isinstance(response["response"].action, AskForClarification):
-            return {
-                "response": " ".join(response["response"].action.questions),
-                "file_changes": codebase_changes.file_changes,
-            }
         return {"file_changes": codebase_changes.file_changes}
 
-    def human_feedback(self, state: PlanExecute):
+    def human_feedback(self, state: OverallState):
         """
-        Request feedback from the user by updating the merge request discussion.
+        Request human feedback to address the reviewer's comments.
 
         Args:
-            state (PlanExecute): The state of the agent.
-        """
-        self.repo_client.create_merge_request_discussion_note(
-            self.source_repo_id, self.merge_request_id, self.discussion_id, state["response"]
-        )
+            state (OverallState): The state of the agent.
 
-    def commit_changes(self, state: PlanExecute):
+        Returns:
+            dict: The state of the agent to update.
+        """
+        response = state.get("response")
+
+        # this means that none of the previous steps raised a response for the reviewer
+        if not response:
+            toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+
+            system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_response, "jinja2")
+            system_message = system_message_template.format(diff=state["diff"])
+
+            react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=HumanFeedbackResponse)
+            result = react_agent.agent.invoke(
+                {"messages": [system_message] + state["messages"]}, config={"callbacks": [self.usage_handler]}
+            )
+            response = cast(HumanFeedbackResponse, result["response"]).response
+
+        if response:
+            self.repo_client.create_merge_request_discussion_note(
+                self.source_repo_id, self.merge_request_id, self.discussion_id, response
+            )
+
+        return {"response": ""}
+
+    def commit_changes(self, state: OverallState):
         """
         Commit the changes to the codebase.
 
         Args:
-            state (PlanExecute): The state of the agent.
+            state (OverallState): The state of the agent.
         """
         self.repo_client.resolve_merge_request_discussion(
             self.source_repo_id, self.merge_request_id, self.discussion_id
@@ -205,16 +245,30 @@ class ReviewAdressorAgent(BaseAgent):
             ),
         )
 
-    def continue_plan_execution(self, state: PlanExecute) -> Literal["execute_step", "human_feedback"]:
+    def continue_planning(self, state: OverallState) -> Literal["plan", "human_feedback"]:
         """
-        Determine if the agent should continue executing the plan or request feedback.
+        Check if the agent should continue planning or provide/request human feedback.
 
         Args:
-            state (PlanExecute): The state of the agent.
+            state (OverallState): The state of the agent.
+
+        Returns:
+            str: The next state to transition to.
+        """
+        if "request_for_changes" in state and state["request_for_changes"]:
+            return "plan"
+        return "human_feedback"
+
+    def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
+        """
+        Check if the agent should continue executing the plan or request human feedback
+
+        Args:
+            state (OverallState): The state of the agent.
 
         Returns:
             str: The next state to transition to.
         """
         if "response" in state and state["response"]:
             return "human_feedback"
-        return "execute_step"
+        return "execute_plan"
