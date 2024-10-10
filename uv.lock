@@ -604,7 +604,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.2" },
     { name = "pydantic", specifier = "==2.9.2" },
     { name = "python-decouple", specifier = "==3.8" },
-    { name = "python-gitlab", specifier = "==4.13.0" },
+    { name = "python-gitlab", specifier = "==4.13" },
     { name = "redis", specifier = "==5.1.1" },
     { name = "sentence-transformers", specifier = "==3.1" },
     { name = "tantivy", specifier = "==0.22" },
