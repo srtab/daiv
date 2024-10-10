@@ -19,7 +19,7 @@ class SearchEngine(ABC):
         pass
 
     @abstractmethod
-    def delete_documents(self, index_name: str, field_name: str, field_value: str | list[str]):
+    def delete_documents(self, index_name: str, ref: str, field_name: str, field_value: str | list[str]):
         pass
 
     @abstractmethod

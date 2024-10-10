@@ -47,7 +47,12 @@ class RetrieveFileContentInput(BaseModel):
 
 
 class CommitableBaseModel(BaseModel):
-    commit_message: str = Field(description="The commit message to use.")
+    commit_message: str = Field(
+        description=(
+            "The commit message to use. This will be used to describe the changes. "
+            "Use an imperative tone, such as 'Add', 'Update', 'Remove'."
+        )
+    )
 
 
 class ReplaceSnippetInFileInput(CommitableBaseModel):
@@ -68,7 +73,6 @@ class ReplaceSnippetInFileInput(CommitableBaseModel):
             "Tip: Align the indentation level with the surrounding code for consistency."
         )
     )
-    commit_message: str = Field(description="The commit message to use.")
 
 
 class CreateNewRepositoryFileInput(CommitableBaseModel):

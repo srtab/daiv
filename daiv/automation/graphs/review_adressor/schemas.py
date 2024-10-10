@@ -1,5 +1,3 @@
-from textwrap import dedent
-
 from pydantic import BaseModel, ConfigDict, Field
 
 DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
@@ -11,10 +9,9 @@ class HumanFeedbackResponse(BaseModel):
     """
 
     response: str = Field(
-        description=dedent(
-            """\
-            Answer in the first person, without asking if they want more changes. E.g., "The changes you requested have been made."
-            """  # noqa: E501
+        description=(
+            "Answer in the first person, without asking if they want more changes. E.g., "
+            "'The changes you requested have been made.'"
         )
     )
 
@@ -44,6 +41,13 @@ class Plan(BaseModel):
 
     tasks: list[str] = Field(description="A sorted list of tasks to follow.")
     goal: str = Field(description="A detailed objective of the requested changes to be made.")
+    show_diff_hunk_to_executor: bool = Field(
+        description=(
+            "Set to True if you want to show the diff hunk to the executor agent; otherwise, False. "
+            "Only show the diff hunk if the reviewer asks to revert changes, "
+            "to help the executor recover the required code."
+        )
+    )
 
 
 class DetermineNextActionResponse(BaseModel):

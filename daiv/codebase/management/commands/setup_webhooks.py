@@ -18,7 +18,6 @@ class Command(BaseCommand):
                 project.slug,
                 f"{options["base_url"]}/api/codebase/callbacks/{settings.CODEBASE_CLIENT}/",
                 ["push_events", "issues_events", "note_events"],
-                push_events_branch_filter=project.default_branch,
                 enable_ssl_verification=not options["disable_ssl_verification"],
             )
             self.stdout.write(self.style.SUCCESS(f"Set webhook for {project.slug}."))

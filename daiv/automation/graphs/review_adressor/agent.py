@@ -3,23 +3,29 @@ from textwrap import dedent
 from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from automation.graphs.agents import BaseAgent
+from automation.graphs.agents import PERFORMANT_CODING_MODEL_NAME, PERFORMANT_GENERIC_MODEL_NAME, BaseAgent
 from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
 from automation.graphs.prebuilt import REACTAgent
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
 
-from .prompts import review_analyzer_assessment, review_analyzer_execute, review_analyzer_plan, review_analyzer_response
+from .prompts import (
+    review_analyzer_assessment,
+    review_analyzer_execute_human,
+    review_analyzer_execute_system,
+    review_analyzer_plan,
+    review_analyzer_response,
+)
 from .schemas import AskForClarification, DetermineNextActionResponse, HumanFeedbackResponse, RequestAssessmentResponse
 from .state import OverallState
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.agents")
 
 
 class ReviewAdressorAgent(BaseAgent):
@@ -27,7 +33,7 @@ class ReviewAdressorAgent(BaseAgent):
     Agent to address reviews by providing feedback and asking questions.
     """
 
-    model_name = "gpt-4o-2024-08-06"
+    model_name = PERFORMANT_GENERIC_MODEL_NAME
 
     def __init__(
         self,
@@ -37,13 +43,14 @@ class ReviewAdressorAgent(BaseAgent):
         source_ref: str,
         merge_request_id: int,
         discussion_id: str,
+        **kwargs,
     ):
         self.repo_client = repo_client
         self.source_repo_id = source_repo_id
         self.source_ref = source_ref
         self.merge_request_id = merge_request_id
         self.discussion_id = discussion_id
-        super().__init__()
+        super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
         """
@@ -104,10 +111,7 @@ class ReviewAdressorAgent(BaseAgent):
         evaluator = self.model.with_structured_output(RequestAssessmentResponse, method="json_schema")
         response = cast(
             RequestAssessmentResponse,
-            evaluator.invoke(
-                [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
-                config={"callbacks": [self.usage_handler]},
-            ),
+            evaluator.invoke([SystemMessage(review_analyzer_assessment), state["messages"][-1]]),
         )
         return {"request_for_changes": response.request_for_changes}
 
@@ -126,16 +130,19 @@ class ReviewAdressorAgent(BaseAgent):
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(diff=state["diff"])
 
-        react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=DetermineNextActionResponse)
-        response = react_agent.agent.invoke(
-            {"messages": [system_message] + state["messages"]}, config={"callbacks": [self.usage_handler]}
+        react_agent = REACTAgent(
+            model_name=PERFORMANT_GENERIC_MODEL_NAME,
+            tools=toolkit.get_tools(),
+            with_structured_output=DetermineNextActionResponse,
         )
+        response = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
 
         if isinstance(response["response"].action, AskForClarification):
             return {"response": " ".join(response["response"].action.questions)}
         return {
             "plan_tasks": response["response"].action.tasks,
             "goal": response["response"].action.goal,
+            "show_diff_hunk_to_executor": response["response"].action.show_diff_hunk_to_executor,
             "file_changes": {},
         }
 
@@ -154,11 +161,19 @@ class ReviewAdressorAgent(BaseAgent):
             self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
         )
 
-        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_execute, "jinja2")
-        system_message = system_message_template.format(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessage(review_analyzer_execute_system),
+            HumanMessagePromptTemplate.from_template(review_analyzer_execute_human, "jinja2"),
+        ])
+        result = prompt.invoke({
+            "goal": state["goal"],
+            "plan_tasks": enumerate(state["plan_tasks"]),
+            "diff": state["diff"],
+            "show_diff_hunk_to_executor": state["show_diff_hunk_to_executor"],
+        })
 
-        react_agent = REACTAgent(tools=toolkit.get_tools())
-        react_agent.agent.invoke({"messages": [system_message]}, config={"callbacks": [self.usage_handler]})
+        react_agent = REACTAgent(model_name=PERFORMANT_CODING_MODEL_NAME, tools=toolkit.get_tools())
+        react_agent.agent.invoke({"messages": result.to_messages()})
 
         return {"file_changes": codebase_changes.file_changes}
 
@@ -182,9 +197,7 @@ class ReviewAdressorAgent(BaseAgent):
             system_message = system_message_template.format(diff=state["diff"])
 
             react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=HumanFeedbackResponse)
-            result = react_agent.agent.invoke(
-                {"messages": [system_message] + state["messages"]}, config={"callbacks": [self.usage_handler]}
-            )
+            result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
             response = cast(HumanFeedbackResponse, result["response"]).response
 
         if response:
@@ -205,7 +218,7 @@ class ReviewAdressorAgent(BaseAgent):
             self.source_repo_id, self.merge_request_id, self.discussion_id
         )
 
-        pr_describer = PullRequestDescriberAgent(self.usage_handler)
+        pr_describer = PullRequestDescriberAgent()
         changes_description = cast(
             PullRequestDescriberOutput,
             pr_describer.agent.invoke([

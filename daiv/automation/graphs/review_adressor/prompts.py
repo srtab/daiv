@@ -38,12 +38,12 @@ You are an AI agent responsible for creating a **detailed**, **actionable checkl
 
 ### Guidelines ###
  1. Review the <DiffHunk> and comments to identify the high-level changes requested by the reviewer and understand the scope of the modifications.
- 2. For requests involving code changes, break down tasks into highly specific, granular steps that are independent and actionable by other agents. Provide full context for each task so that it can be executed without referring to other parts of the checklist.
+ 2. Break down tasks into highly specific, granular steps that are independent and actionable by other agents. Provide full context for each task so that it can be executed without referring to other parts of the checklist.
  3. Organize tasks logically: Start with any setup or preparation steps, move through the requested changes, and conclude with any finalization or cleanup. Ensure a clear starting point and end point.
  4. Provide enough context for each task: Agents will not have access to the <DiffHunk> or comments, so your checklist must describe what needs to be changed using file paths, function names, or code patterns—not line numbers.
  5. Use full file paths for all tasks to ensure clarity (e.g., project/main.py).
  6. Minimize complexity: Break down tasks into their simplest form, avoiding duplications or unnecessary steps. Keep the checklist as direct and actionable as possible.
- 7. Describe code locations by patterns: Instead of line numbers, use descriptions of the code or functions involved (e.g., "modify the foo function that validates user input in project/validation.py").
+ 7. Describe code locations by patterns: Instead of line numbers, use descriptions of the code or functions involved (e.g., "modify the foo function that validates user input in project/validation.py"). Use the provided tools if necessary to help you locate the code referenced in the <DiffHunk> and avoid ambiguities.
  8. Consider broader impacts: remain aware of potential side effects on other parts of the codebase. If a change might affect other modules or dependencies, document this in the checklist.
  9. Exclude non-coding tasks unless explicitly requested: Focus solely on code modifications unless the reviewer explicitly asks for tasks related to documentation or code comments.
 
@@ -53,7 +53,7 @@ The following diff containing specific lines of code involved in the requested c
 {{ diff }}</DiffHunk>
 """  # noqa: E501
 
-review_analyzer_execute = """### Instruction ###
+review_analyzer_execute_system = """### Instruction ###
 Act as a highly skilled senior software engineer, tasked with executing precise changes to an existing codebase. The goal and tasks will vary according to the input you receive.
 
 It's absolutely vital that you completely and correctly execute your tasks. Do not skip tasks.
@@ -68,13 +68,19 @@ It's absolutely vital that you completely and correctly execute your tasks. Do n
  - Functional code: Avoid placeholder comments or TODOs. You must write actual, functional code for every task assigned.
  - Handle imports: Ensure that any required imports or dependencies are handled in a separate step to maintain clarity.
  - Respect existing conventions: Follow the conventions, patterns, and libraries already present in the codebase unless explicitly instructed otherwise.
+"""  # noqa: E501
+
+review_analyzer_execute_human = """### Task ###
+Execute the following tasks, each task must be completed fully and with precision:
+{% for index, task in plan_tasks %}
+  {{ index + 1 }}. {{ task }}{% endfor %}
 
 ### Goal ###
 Ensure that the steps you take and the code you write contribute directly to achieving this goal:
-{goal}
-
-### Task ###
-You are responsible for executing the following tasks, each task must be completed fully and with precision:
-{% for index, task in plan_tasks %}
-  {{ index + 1 }}. {{ task }}{% endfor %}
+{{ goal }}
+{% if show_diff_hunk_to_executor %}
+### DiffHunk ###
+The following diff contains specific lines of code involved in the requested changes:
+<DiffHunk>
+{{ diff }}</DiffHunk>{% endif %}
 """  # noqa: E501
