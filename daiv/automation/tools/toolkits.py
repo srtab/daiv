@@ -56,7 +56,9 @@ class ReadRepositoryToolkit(BaseToolkit):
         return cls(
             tools=[
                 SearchCodeSnippetsTool(
-                    source_repo_id=source_repo_id, api_wrapper=CodebaseIndex(repo_client=repo_client)
+                    source_repo_id=source_repo_id,
+                    source_ref=source_ref,
+                    api_wrapper=CodebaseIndex(repo_client=repo_client),
                 ),
                 RetrieveFileContentTool(
                     source_repo_id=source_repo_id,

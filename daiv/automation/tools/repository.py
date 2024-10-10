@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import textwrap
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from automation.graphs.codebase_search import CodebaseSearchAgent
+from automation.graphs.snippet_replacer.agent import SnippetReplacerAgent, SnippetReplacerInput
+from automation.graphs.snippet_replacer.schemas import SnippetReplacerOutput
 from automation.utils import find_original_snippet
 from codebase.base import CodebaseChanges, FileChange, FileChangeAction
 from codebase.clients import RepoClient
@@ -50,10 +52,11 @@ class SearchCodeSnippetsTool(BaseTool):
         - If you know the exact file path, use '{RETRIEVE_FILE_CONTENT_NAME}' instead.
         """
     )
-
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
 
     source_repo_id: str = Field(description="The repository ID to search in.")
+    source_ref: str = Field(description="The branch or commit to search in.")
+
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
     def _run(self, query: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
@@ -71,7 +74,9 @@ class SearchCodeSnippetsTool(BaseTool):
 
         search_results_str = "No search results found."
 
-        search = CodebaseSearchAgent(source_repo_id=self.source_repo_id, index=self.api_wrapper)
+        search = CodebaseSearchAgent(
+            source_repo_id=self.source_repo_id, source_ref=self.source_ref, index=self.api_wrapper
+        )
 
         if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
             search_results_str = ""
@@ -192,7 +197,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
          - Do not alter indentation levels unless intentionally modifying code block structures.
          - Inspect the code beforehand to understand what needs to change.
 
-        Examples:
+        ### Examples ###
         Suppose the original code in the file is:
         ```python
         def greet():
@@ -250,17 +255,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         if not (repo_file_content := self._get_file_content(file_path)):
             return f"error: File {file_path} not found."
 
-        original_snippet_found = find_original_snippet(original_snippet, repo_file_content, initial_line_threshold=1)
-        if not original_snippet_found:
-            return "error: Original snippet not found."
-
-        replaced_content = repo_file_content.replace(original_snippet_found, replacement_snippet)
-        if not replaced_content:
-            return "error: Snippet replacement failed."
-
-        # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
-        if not replaced_content.endswith("\n"):
-            replaced_content += "\n"
+        replaced_content = self._replace_content(original_snippet, replacement_snippet, repo_file_content)
 
         if file_path in self.codebase_changes.file_changes:
             self.codebase_changes.file_changes[file_path].content = replaced_content
@@ -274,6 +269,43 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
             )
 
         return "success: Snippet replaced."
+
+    def _replace_content(self, original_snippet: str, replacement_snippet: str, content: str) -> str:
+        """
+        Replaces a snippet in a file with the provided replacement.
+
+        Args:
+            original_snippet: The original snippet to replace.
+            replacement_snippet: The replacement snippet.
+            content: The content of the file to replace the snippet in.
+
+        Returns:
+            The content of the file with the snippet replaced.
+        """
+        replaced_content = ""
+
+        replacer = SnippetReplacerAgent()
+        data_to_invoke = SnippetReplacerInput(
+            original_snippet=original_snippet, replacement_snippet=replacement_snippet, content=content
+        ).model_dump()
+
+        if replacer.validate_max_token_not_exceeded(data_to_invoke):
+            result = cast(SnippetReplacerOutput, replacer.agent.invoke(data_to_invoke))
+            replaced_content = result.content
+        else:
+            original_snippet_found = find_original_snippet(original_snippet, content, initial_line_threshold=1)
+            if not original_snippet_found:
+                return "error: Original snippet not found."
+
+            replaced_content = content.replace(original_snippet_found, replacement_snippet)
+            if not replaced_content:
+                return "error: Snippet replacement failed."
+
+        # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
+        if not replaced_content.endswith("\n"):
+            replaced_content += "\n"
+
+        return replaced_content
 
 
 class CreateNewRepositoryFileTool(BaseRepositoryTool):

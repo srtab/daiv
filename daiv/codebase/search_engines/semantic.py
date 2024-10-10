@@ -9,13 +9,15 @@ from langchain_openai import OpenAIEmbeddings
 from codebase.conf import settings
 from codebase.search_engines.base import ScoredResult, SearchEngine
 
+EMBEDDING_MODEL_NAME = "text-embedding-3-small"
+
 
 @functools.cache
 def embedding_function() -> OpenAIEmbeddings:
     """
     Return the OpenAI embeddings function.
     """
-    return OpenAIEmbeddings(model="text-embedding-3-small", chunk_size=500)
+    return OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME, chunk_size=500)  # chunk_size=500 to optimeze memory usage
 
 
 class SemanticSearchEngine(SearchEngine):
@@ -38,7 +40,7 @@ class SemanticSearchEngine(SearchEngine):
         """
         Chroma.from_documents(documents=documents, embedding=self.embedding, **self._chroma_common_kwargs())
 
-    def delete_documents(self, index_name: str, field_name: str, field_value: str | list[str]):
+    def delete_documents(self, index_name: str, ref: str, field_name: str, field_value: str | list[str]):
         """
         Delete documents from the index by a field value.
 
@@ -50,7 +52,11 @@ class SemanticSearchEngine(SearchEngine):
         if isinstance(field_value, str):
             field_value = [field_value]
 
-        self.db.delete(where={"$and": [{"repo_id": index_name}, {field_name: {"$in": field_value}}]})
+        results = self.db.get(
+            where={"$and": [{"repo_id": index_name}, {"ref": ref}, {field_name: {"$in": field_value}}]}, include=[]
+        )
+        for document_id in results["ids"]:
+            self.db.delete(document_id)
 
     def get_documents(self, index_name: str, field_name: str, field_value: str | list[str]) -> list[Document]:
         """
@@ -80,7 +86,7 @@ class SemanticSearchEngine(SearchEngine):
         Args:
             index_name (str): The name of the index.
         """
-        results = self.db.get(where={"repo_id": index_name})
+        results = self.db.get(where={"repo_id": index_name}, include=[])
         for document_id in results["ids"]:
             self.db.delete(document_id)
 
@@ -105,6 +111,9 @@ class SemanticSearchEngine(SearchEngine):
         if content_type := kwargs.pop("content_type", None):
             assert exclude_content_type in ["functions_classes", "simplified_code"], "Invalid content type."
             conditions.append({"content_type": content_type})
+
+        if ref := kwargs.pop("ref", None):
+            conditions.append({"ref": ref})
 
         chroma_filter: dict[str, str | list | dict[str, str]] = {}
         if len(conditions) > 1:

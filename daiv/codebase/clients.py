@@ -43,7 +43,7 @@ class RepoClient(abc.ABC):
     client_slug: ClientType
 
     @abc.abstractmethod
-    def get_repository(self, repo_id) -> Repository:
+    def get_repository(self, repo_id, ref: str | None = None) -> Repository:
         pass
 
     @abc.abstractmethod
@@ -181,7 +181,7 @@ class GitLabClient(RepoClient):
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
 
-    def get_repository(self, repo_id: str) -> Repository:
+    def get_repository(self, repo_id: str, ref: str | None = None) -> Repository:
         """
         Get a repository.
 
@@ -199,7 +199,7 @@ class GitLabClient(RepoClient):
             default_branch=project.default_branch,
             client=self.client_slug,
             topics=project.topics,
-            head_sha=self.get_repo_head_sha(repo_id, branch=project.default_branch),
+            head_sha=self.get_repo_head_sha(repo_id, branch=ref or project.default_branch),
         )
 
     def list_repositories(
@@ -366,6 +366,31 @@ class GitLabClient(RepoClient):
                 return cast(ProjectHook, hook)
         return None
 
+    def get_commit_related_merge_requests(self, repo_id: str, commit_sha: str) -> list[MergeRequest]:
+        """
+        Get the related merge requests of a commit.
+
+        Args:
+            repo_id: The repository ID.
+            commit_sha: The commit sha.
+
+        Returns:
+            The list of merge requests.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        return [
+            MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=cast(int, mr["iid"]),
+                source_branch=mr["source_branch"],
+                target_branch=mr["target_branch"],
+                title=mr["title"],
+                description=mr["description"],
+                labels=mr["labels"],
+            )
+            for mr in project.commits.get(commit_sha).merge_requests()
+        ]
+
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
         """
         Get the latest diff of a merge request.
@@ -518,12 +543,15 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id)
         sha = sha or project.default_branch
+        safe_sha = sha.replace("/", "_").replace(" ", "-")
 
-        tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{sha}-repo")
+        tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{safe_sha}-repo")
         logger.debug("Loading repository to %s", tmpdir)
 
         try:
-            with tempfile.NamedTemporaryFile(prefix=f"{project.get_id()}-{sha}-archive", suffix=".zip") as repo_archive:
+            with tempfile.NamedTemporaryFile(
+                prefix=f"{project.get_id()}-{safe_sha}-archive", suffix=".zip"
+            ) as repo_archive:
                 project.repository_archive(streamed=True, action=repo_archive.write, format="zip", sha=sha)
                 repo_archive.flush()
                 repo_archive.seek(0)

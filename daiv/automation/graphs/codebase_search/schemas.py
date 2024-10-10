@@ -6,7 +6,9 @@ class GradeDocumentsOutput(BaseModel):
     Binary score for relevance check on retrieved documents.
     """
 
-    binary_score: bool = Field(description="Documents are relevant to the query. True if relevant, False otherwise.")
+    binary_score: bool = Field(
+        description="True if the code snippet is relevant to the query and its intent; False if it is not relevant."
+    )
 
 
 class ImprovedQueryOutput(BaseModel):

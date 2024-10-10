@@ -31,7 +31,7 @@ def tantivy_index(index_name: str, persistent: bool = True) -> Index:
         Index: The Tantivy index.
     """
     schema_builder = SchemaBuilder()
-    schema_builder.add_text_field("page_source", stored=True)
+    schema_builder.add_text_field("page_source", stored=True, index_option="basic")
     schema_builder.add_text_field("page_content", stored=True)
     schema = schema_builder.build()
 
@@ -194,5 +194,5 @@ if __name__ == "__main__":
             LangDocument(metadata={"source": "source3"}, page_content="Madrid is the capital of Spain."),
         ],
     )
-    results = search.search("repo1", "What is the capital of France?")
+    results = search.search("repo1", "page_content:What is the capital of France?")
     print(results)  # noqa: T201

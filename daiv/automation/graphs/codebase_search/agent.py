@@ -24,10 +24,11 @@ class CodebaseSearchAgent(BaseAgent):
     Agent to search for code snippets in the codebase.
     """
 
-    def __init__(self, source_repo_id: str, index: CodebaseIndex):
+    def __init__(self, source_repo_id: str, source_ref: str, index: CodebaseIndex):
         super().__init__()
         self.index = index
         self.source_repo_id = source_repo_id
+        self.source_ref = source_ref
 
     def compile(self) -> CompiledStateGraph | Runnable:
         workflow = StateGraph(OverallState)
@@ -53,7 +54,7 @@ class CodebaseSearchAgent(BaseAgent):
             state (GraphState): The current state of the graph.
         """
         return {
-            "documents": self.index.search(self.source_repo_id, state["query"]),
+            "documents": self.index.search(self.source_repo_id, self.source_ref, state["query"]),
             "iterations": state.get("iterations", 0) + 1,
         }
 
@@ -94,10 +95,10 @@ class CodebaseSearchAgent(BaseAgent):
             HumanMessage(re_write_human.format(query=state["query"], query_intent=state["query_intent"])),
         ]
 
-        query_rewriter = self.model.with_structured_output(ImprovedQueryOutput, method="json_schema").bind(
-            temperature=0.7
+        query_rewriter = self.model.with_structured_output(ImprovedQueryOutput, method="json_schema")
+        response = cast(
+            ImprovedQueryOutput, query_rewriter.invoke(messages, config={"configurable": {"temperature": 0.7}})
         )
-        response = cast(ImprovedQueryOutput, query_rewriter.invoke(messages))
 
         logger.info("[transform_query] Query '%s' improved to '%s'", state["query"], response.query)
 

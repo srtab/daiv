@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import fnmatch
 import logging
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-import litellm
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
 from langchain_community.document_loaders.parsers.language import LanguageParser
@@ -55,9 +53,9 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
 
         paths = self.path.glob(self.glob)
         for path in paths:
-            if self.exclude and any(fnmatch.fnmatch(str(path).lower(), glob) for glob in self.exclude):
+            if self.exclude and any(path.match(glob, case_sensitive=False) for glob in self.exclude):
                 continue
-            if self.limit_to and not any(fnmatch.fnmatch(str(path).lower(), glob) for glob in self.limit_to):
+            if self.limit_to and not any(path.match(glob, case_sensitive=False) for glob in self.limit_to):
                 continue
             if path.is_file():
                 if self.suffixes and path.suffix not in self.suffixes:
@@ -70,19 +68,18 @@ class GenericLanguageLoader(BaseLoader):
     A generic document loader that loads documents from a filesystem and splits them into chunks.
     """
 
-    chunk_size = 1024
+    chunk_size = 1000
+    chunk_overlap = 200
 
     def __init__(
         self,
         blob_loader: FileSystemBlobLoader,
         blob_parser: LanguageParser,
         documents_metadata: dict[str, str] | None = None,
-        tokenizer_model: str | None = None,
     ):
         self.blob_loader = blob_loader
         self.blob_parser = blob_parser
         self.documents_metadata = documents_metadata or {}
-        self.tokenizer_model = tokenizer_model
 
     def lazy_load(self) -> Iterator[Document]:
         """
@@ -105,6 +102,9 @@ class GenericLanguageLoader(BaseLoader):
         """
         documents_by_language: dict[str | None, list[Document]] = {}
         for document in self.lazy_load():
+            # avoid documents without content
+            if not document.page_content:
+                continue
             source_path = Path(document.metadata["source"]).relative_to(self.blob_loader.path)
             document.metadata.update(self.documents_metadata)
             document.metadata["source"] = source_path.as_posix()
@@ -126,7 +126,7 @@ class GenericLanguageLoader(BaseLoader):
                 "Splitting %d %s documents from repo %s",
                 len(documents),
                 language or "Text",
-                self.documents_metadata["repo_id"],
+                self.documents_metadata.get("repo_id", "unknown"),
             )
             text_splitter = self._get_text_splitter(language)
             splitted_documents.extend(text_splitter.split_documents(documents))
@@ -136,17 +136,11 @@ class GenericLanguageLoader(BaseLoader):
         """
         Get the text splitter for a given language.
         """
-
-        def _tokenizer_length(text: str) -> int:
-            assert self.tokenizer_model is not None, "tokenizer_model must be set set."
-            return litellm.token_counter(model=self.tokenizer_model, text=text)
-
-        kwargs = {"length_function": _tokenizer_length, "chunk_size": self.chunk_size}
-
-        if language is None:
-            return RecursiveCharacterTextSplitter(**kwargs)
-        language = cast(Language, language)
-        return RecursiveCharacterTextSplitter.from_language(language=language, **kwargs)
+        return RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            separators=language and RecursiveCharacterTextSplitter.get_separators_for_language(language) or None,
+        )
 
     @classmethod
     def from_filesystem(

@@ -35,8 +35,6 @@ class REACTAgent(BaseAgent):
     https://github.com/langchain-ai/langgraph/blob/main/libs/langgraph/langgraph/prebuilt/chat_agent_executor.py#L158
     """
 
-    model_name = "gpt-4o-2024-08-06"
-
     def __init__(self, tools: list[BaseTool], *args, with_structured_output: type[BaseModel] | None = None, **kwargs):
         self.tool_classes = tools
         self.with_structured_output = with_structured_output

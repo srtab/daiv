@@ -17,7 +17,9 @@ class ClientChoices(models.TextChoices):
 
 
 class CodebaseNamespaceManager(models.Manager):
-    def get_or_create_from_repository(self, repository: Repository) -> tuple[CodebaseNamespace, bool]:
+    def get_or_create_from_repository(
+        self, repository: Repository, tracking_ref: str | None = None
+    ) -> tuple[CodebaseNamespace, bool]:
         """
         Get or create a namespace for the given repository.
         """
@@ -25,10 +27,16 @@ class CodebaseNamespaceManager(models.Manager):
             external_id=repository.pk, defaults={"client": repository.client, "external_slug": repository.slug}
         )
         try:
-            latest_namespace = self.filter(repository_info=repo_info, status=CodebaseNamespace.Status.INDEXED).latest()
+            latest_namespace = self.filter(
+                repository_info=repo_info,
+                tracking_ref=tracking_ref or repository.default_branch,
+                status=CodebaseNamespace.Status.INDEXED,
+            ).latest()
         except CodebaseNamespace.DoesNotExist:
             latest_namespace = self.create(
-                repository_info=repo_info, sha=repository.head_sha, tracking_branch=repository.default_branch
+                repository_info=repo_info,
+                sha=repository.head_sha,
+                tracking_ref=tracking_ref or repository.default_branch,
             )
             return latest_namespace, True
         else:
@@ -63,7 +71,7 @@ class CodebaseNamespace(TimeStampedModel):
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     repository_info = models.ForeignKey(RepositoryInfo, on_delete=models.CASCADE, related_name="namespaces")
     sha = models.CharField(max_length=64)
-    tracking_branch = models.CharField(max_length=256, blank=True)
+    tracking_ref = models.CharField(max_length=256, blank=True)
     status = models.CharField(max_length=16, default=Status.PENDING, choices=Status.choices)
 
     objects: CodebaseNamespaceManager = CodebaseNamespaceManager()

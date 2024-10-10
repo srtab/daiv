@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from django.core.cache import cache
 
 from celery import shared_task
+from langchain_community.callbacks import get_openai_callback
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from redis.exceptions import LockError
 from unidiff import Hunk, PatchedFile, PatchSet
@@ -41,15 +42,15 @@ def update_index_by_topics(topics: list[str], reset: bool = False):
 
 
 @shared_task
-def update_index_repository(repo_id: str, reset: bool = False):
+def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = False):
     """
     Update codebase index of a repository.
     """
     repo_client = RepoClient.create_instance()
     indexer = CodebaseIndex(repo_client=repo_client)
     if reset:
-        indexer.delete(repo_id=repo_id)
-    indexer.update(repo_id=repo_id)
+        indexer.delete(repo_id=repo_id, ref=ref)
+    indexer.update(repo_id=repo_id, ref=ref)
 
 
 @dataclass
@@ -165,7 +166,14 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
                                     # we need to check diff_code_lines here to only check the end_line_no after we have
                                     # found the start_line_no.
                                     # Otherwise, we might end up with a line that is not part of the diff code lines.
-                                    or (diff_code_lines and end_side_line_no and end_side_line_no <= end_line_no)
+                                    or (
+                                        diff_code_lines
+                                        and (
+                                            end_side_line_no is None
+                                            or end_side_line_no
+                                            and end_side_line_no <= end_line_no
+                                        )
+                                    )
                                 ):
                                     diff_code_lines.append(patch_line)
 
@@ -205,12 +213,14 @@ def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionT
         else:
             messages.append(HumanMessage(content=note.body, name=note.author.username))
 
-    reviewer_agent = ReviewAdressorAgent(
-        client,
-        source_repo_id=discussion_to_address.repo_id,
-        source_ref=discussion_to_address.merge_request_source_branch,
-        merge_request_id=discussion_to_address.merge_request_id,
-        discussion_id=discussion_to_address.discussion.id,
-    )
+    with get_openai_callback() as usage_handler:
+        reviewer_agent = ReviewAdressorAgent(
+            client,
+            source_repo_id=discussion_to_address.repo_id,
+            source_ref=discussion_to_address.merge_request_source_branch,
+            merge_request_id=discussion_to_address.merge_request_id,
+            discussion_id=discussion_to_address.discussion.id,
+            usage_handler=usage_handler,
+        )
 
-    reviewer_agent.agent.invoke({"diff": discussion_to_address.diff, "messages": messages})
+        reviewer_agent.agent.invoke({"diff": discussion_to_address.diff, "messages": messages})
