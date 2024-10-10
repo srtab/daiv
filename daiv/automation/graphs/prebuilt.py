@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
@@ -11,12 +11,10 @@ from pydantic import BaseModel  # noqa: TCH002
 from automation.graphs.agents import BaseAgent
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
+    from collections.abc import Hashable, Sequence
 
-    from langchain_core.language_models import LanguageModelInput
     from langchain_core.runnables import Runnable, RunnableConfig
     from langchain_core.tools.base import BaseTool
-    from langchain_openai import ChatOpenAI
     from langgraph.graph.state import CompiledStateGraph
 
 
@@ -35,26 +33,22 @@ class REACTAgent(BaseAgent):
     https://github.com/langchain-ai/langgraph/blob/main/libs/langgraph/langgraph/prebuilt/chat_agent_executor.py#L158
     """
 
-    def __init__(self, tools: list[BaseTool], *args, with_structured_output: type[BaseModel] | None = None, **kwargs):
+    def __init__(
+        self,
+        tools: Sequence[BaseTool | type[BaseModel]],
+        *args,
+        with_structured_output: type[BaseModel] | None = None,
+        **kwargs,
+    ):
         self.tool_classes = tools
         self.with_structured_output = with_structured_output
         self.structured_tool_name = None
-        self.state_class = AgentState
+        self.state_class: type[AgentState] = AgentState
         if self.with_structured_output:
             self.tool_classes.append(self.with_structured_output)
             self.structured_tool_name = self.with_structured_output.model_json_schema()["title"]
             self.state_class = StructuredAgentState
         super().__init__(*args, **kwargs)
-
-    def get_model(self) -> ChatOpenAI | Runnable[LanguageModelInput, BaseMessage]:
-        """
-        Rewrite the get_model method to bind the tools to the model.
-        """
-        tools_kwargs = {}
-        if self.with_structured_output:
-            # Use strict mode and tool_choice=any to increase chances of model calling the structured tool.
-            tools_kwargs = {"tool_choice": "any", "parallel_tool_calls": False, "strict": True}
-        return super().get_model().bind_tools(self.tool_classes, **tools_kwargs)
 
     def compile(self) -> CompiledStateGraph | Runnable:
         """
@@ -94,7 +88,10 @@ class REACTAgent(BaseAgent):
         Returns:
             dict: The response from the model.
         """
-        response = self.model.invoke(state["messages"], config)
+        tools_kwargs = {}
+        if self.with_structured_output:
+            tools_kwargs = {"tool_choice": "any"}
+        response = self.model.bind_tools(self.tool_classes, **tools_kwargs).invoke(state["messages"])
         if state["is_last_step"] and isinstance(response, AIMessage) and response.tool_calls:
             return {"messages": [AIMessage(id=response.id, content="Sorry, need more steps to process this request.")]}
         return {"messages": [response]}
@@ -112,7 +109,7 @@ class REACTAgent(BaseAgent):
         if not self.with_structured_output:
             raise ValueError("No structured output model provided.")
 
-        last_message = state["messages"][-1]
+        last_message = cast(AIMessage, state["messages"][-1])
         return {"response": self.with_structured_output(**last_message.tool_calls[0]["args"])}
 
     def should_continue(self, state: AgentState) -> Literal["respond", "continue", "end"]:
@@ -125,7 +122,7 @@ class REACTAgent(BaseAgent):
         Returns:
             str: The next step for the agent.
         """
-        last_message = state["messages"][-1]
+        last_message = cast(AIMessage, state["messages"][-1])
 
         if (
             last_message.tool_calls

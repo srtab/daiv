@@ -1,11 +1,9 @@
 from abc import ABC, abstractmethod
 
 from langchain.chat_models import init_chat_model
+from langchain.chat_models.base import BaseChatModel
 from langchain_community.callbacks import OpenAICallbackHandler
-from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 
 PERFORMANT_GENERIC_MODEL_NAME = "gpt-4o-2024-08-06"
@@ -30,12 +28,12 @@ class BaseAgent(ABC):
     def compile(self) -> CompiledStateGraph | Runnable:
         pass
 
-    def get_model(self) -> ChatOpenAI | Runnable[LanguageModelInput, BaseMessage]:
+    def get_model(self) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
-            ChatOpenAI: The model instance
+            BaseChatModel: The model instance
         """
         return init_chat_model(**self.get_model_kwargs())
 
@@ -50,7 +48,7 @@ class BaseAgent(ABC):
             "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
-            "configurable_fields": ("model", "model_provider", "temperature"),
+            "configurable_fields": ("model", "model_provider", "temperature", "max_tokens", "parallel_tool_calls"),
         }
 
     def get_config(self) -> RunnableConfig:

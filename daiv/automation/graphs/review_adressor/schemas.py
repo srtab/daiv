@@ -67,10 +67,11 @@ class DetermineNextActionResponse(BaseModel):
 
 class RequestAssessmentResponse(BaseModel):
     """
-    Output schema for the `RequestForChanges` tool.
+    Respond to the reviewer's feedback with an assessment of the requested changes.
     """
 
-    model_config = ConfigDict(title="request_assessment")
+    # this is commented to avoid the error: https://github.com/langchain-ai/langchain/issues/27260#issue-2579527949
+    # model_config = ConfigDict(title="request_assessment")  # noqa: ERA001
 
     request_for_changes: bool = Field(description="Set to True if the reviewer requested changes; otherwise, False.")
     justification: str = Field(description="Justify why you think it's a change request.")

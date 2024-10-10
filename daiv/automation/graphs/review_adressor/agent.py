@@ -33,8 +33,6 @@ class ReviewAdressorAgent(BaseAgent):
     Agent to address reviews by providing feedback and asking questions.
     """
 
-    model_name = PERFORMANT_GENERIC_MODEL_NAME
-
     def __init__(
         self,
         repo_client: AllRepoClient,
@@ -111,7 +109,10 @@ class ReviewAdressorAgent(BaseAgent):
         evaluator = self.model.with_structured_output(RequestAssessmentResponse, method="json_schema")
         response = cast(
             RequestAssessmentResponse,
-            evaluator.invoke([SystemMessage(review_analyzer_assessment), state["messages"][-1]]),
+            evaluator.invoke(
+                [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
+                config={"configurable": {"model": PERFORMANT_CODING_MODEL_NAME}},
+            ),
         )
         return {"request_for_changes": response.request_for_changes}
 
@@ -196,7 +197,11 @@ class ReviewAdressorAgent(BaseAgent):
             system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_response, "jinja2")
             system_message = system_message_template.format(diff=state["diff"])
 
-            react_agent = REACTAgent(tools=toolkit.get_tools(), with_structured_output=HumanFeedbackResponse)
+            react_agent = REACTAgent(
+                model_name=PERFORMANT_CODING_MODEL_NAME,
+                tools=toolkit.get_tools(),
+                with_structured_output=HumanFeedbackResponse,
+            )
             result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
             response = cast(HumanFeedbackResponse, result["response"]).response
 
