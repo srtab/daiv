@@ -132,8 +132,9 @@ class ReviewAdressorAgent(BaseAgent):
         system_message = system_message_template.format(diff=state["diff"])
 
         react_agent = REACTAgent(
-            model_name=PERFORMANT_GENERIC_MODEL_NAME,
+            run_name="plan_react_agent",
             tools=toolkit.get_tools(),
+            model_name=PERFORMANT_GENERIC_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
         )
         response = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
@@ -173,7 +174,9 @@ class ReviewAdressorAgent(BaseAgent):
             "show_diff_hunk_to_executor": state["show_diff_hunk_to_executor"],
         })
 
-        react_agent = REACTAgent(model_name=PERFORMANT_CODING_MODEL_NAME, tools=toolkit.get_tools())
+        react_agent = REACTAgent(
+            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=PERFORMANT_CODING_MODEL_NAME
+        )
         react_agent.agent.invoke({"messages": result.to_messages()})
 
         return {"file_changes": codebase_changes.file_changes}
@@ -198,8 +201,9 @@ class ReviewAdressorAgent(BaseAgent):
             system_message = system_message_template.format(diff=state["diff"])
 
             react_agent = REACTAgent(
-                model_name=PERFORMANT_CODING_MODEL_NAME,
+                run_name="human_feedback_react_agent",
                 tools=toolkit.get_tools(),
+                model_name=PERFORMANT_CODING_MODEL_NAME,
                 with_structured_output=HumanFeedbackResponse,
             )
             result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})

@@ -18,7 +18,14 @@ class BaseAgent(ABC):
 
     model_name: str = COST_EFFICIENT_GENERIC_MODEL_NAME
 
-    def __init__(self, *, model_name: str | None = None, usage_handler: OpenAICallbackHandler | None = None):
+    def __init__(
+        self,
+        *,
+        run_name: str | None = None,
+        model_name: str | None = None,
+        usage_handler: OpenAICallbackHandler | None = None,
+    ):
+        self.run_name = run_name or self.__class__.__name__
         self.model_name = model_name or self.model_name
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.model = self.get_model()
@@ -58,7 +65,7 @@ class BaseAgent(ABC):
         Returns:
             dict: The configuration
         """
-        return RunnableConfig(run_name=self.__class__.__name__, tags=[self.__class__.__name__], metadata={})
+        return RunnableConfig(run_name=self.run_name, tags=[self.run_name], metadata={})
 
     def get_max_token_value(self) -> int:
         """

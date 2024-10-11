@@ -14,7 +14,7 @@ from codebase.indexes import CodebaseIndex
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
 from .state import GradeDocumentState, OverallState
 
-MAX_ITERATIONS = 1
+MAX_ITERATIONS = 2
 
 logger = logging.getLogger(__name__)
 

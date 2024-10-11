@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
@@ -13,9 +13,12 @@ from automation.graphs.agents import BaseAgent
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
 
-    from langchain_core.runnables import Runnable, RunnableConfig
+    from langchain_core.runnables import Runnable
     from langchain_core.tools.base import BaseTool
     from langgraph.graph.state import CompiledStateGraph
+
+
+LIMIT_CONSECUTIVE_TOOL_CALLS = 3
 
 
 class StructuredAgentState(AgentState):
@@ -77,13 +80,12 @@ class REACTAgent(BaseAgent):
 
         return workflow.compile()
 
-    def call_model(self, state: AgentState, config: RunnableConfig):
+    def call_model(self, state: AgentState):
         """
-        Call the model with the current state and configuration.
+        Call the model with the current state.
 
         Args:
             state (AgentState): The current state of the agent.
-            config (RunnableConfig): The configuration for the agent.
 
         Returns:
             dict: The response from the model.
@@ -91,9 +93,27 @@ class REACTAgent(BaseAgent):
         tools_kwargs = {}
         if self.with_structured_output:
             tools_kwargs = {"tool_choice": "any"}
-        response = self.model.bind_tools(self.tool_classes, **tools_kwargs).invoke(state["messages"])
-        if state["is_last_step"] and isinstance(response, AIMessage) and response.tool_calls:
-            return {"messages": [AIMessage(id=response.id, content="Sorry, need more steps to process this request.")]}
+
+        llm_with_tools = self.model.bind_tools(self.tool_classes, **tools_kwargs)
+        response = llm_with_tools.invoke(state["messages"])
+
+        if isinstance(response, AIMessage) and response.tool_calls:
+            tool_name = response.tool_calls[0]["name"]
+
+            if state["is_last_step"]:
+                response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
+            elif check_consecutive_tool_calls(state["messages"], tool_name) > LIMIT_CONSECUTIVE_TOOL_CALLS:
+                tool_message = ToolMessage(
+                    tool_call_id=response.tool_calls[0]["id"],
+                    content=(
+                        f"You reached the limit of consecutive tool calls for {tool_name}. "
+                        "Try to use another tool, if possible."
+                    ),
+                )
+                response = llm_with_tools.invoke(state["messages"] + [tool_message])
+
+                return {"messages": [tool_message, response]}
+
         return {"messages": [response]}
 
     def respond(self, state: AgentState):
@@ -133,3 +153,24 @@ class REACTAgent(BaseAgent):
         elif not last_message.tool_calls:
             return "end"
         return "continue"
+
+
+def check_consecutive_tool_calls(messages: list[AnyMessage], tool_name: str) -> int:
+    """
+    Calculate the total number of consecutive messages with tool_calls for the same tool.
+
+    Args:
+        messages (list[AnyMessage]): The list of messages.
+        tool_name (str): The name of the tool.
+
+    Returns:
+        int: The total number of consecutive messages with tool_calls for the same tool.
+    """
+    consecutive_tool_calls = 0
+    for i in range(len(messages) - 1, -1, -2):
+        message = messages[i]
+        if isinstance(message, AIMessage) and message.tool_calls and message.tool_calls[0]["name"] == tool_name:
+            consecutive_tool_calls += 1
+        else:
+            break
+    return consecutive_tool_calls
