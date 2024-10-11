@@ -5,24 +5,15 @@
 help:
 	@echo "Available commands:"
 	@echo "  make test           - Run tests with coverage report"
-	@echo "  make test-ci        - Run tests and generate XML coverage report (for CI)"
 	@echo "  make lint           - Run lint check and format check"
 	@echo "  make lint-check     - Run lint check only (ruff)"
 	@echo "  make lint-format    - Check code formatting"
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with mypy"
 	@echo "  make lock           - Update uv lock"
-	@echo "  make unittests      - Run unit tests"
 
 test:
-	uv run coverage run runtests.py
-	uv run coverage report
-	uv run coverage erase
-
-test-ci:
-	uv run coverage run runtests.py
-	uv run coverage report
-	uv run coverage xml
+	uv run pytest tests
 
 lint: lint-check lint-format
 
@@ -43,6 +34,3 @@ lint-typing:
 
 lock:
 	uv lock
-
-unittests:
-	uv run pytest tests
