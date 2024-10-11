@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from redis.exceptions import LockError
 from unidiff import Hunk, PatchedFile, PatchSet
 
-from automation.graphs.review_adressor.agent import ReviewAdressorAgent
+from automation.graphs.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
@@ -214,7 +214,7 @@ def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionT
             messages.append(HumanMessage(content=note.body, name=note.author.username))
 
     with get_openai_callback() as usage_handler:
-        reviewer_agent = ReviewAdressorAgent(
+        reviewer_agent = ReviewAddressorAgent(
             client,
             source_repo_id=discussion_to_address.repo_id,
             source_ref=discussion_to_address.merge_request_source_branch,

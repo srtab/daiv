@@ -28,7 +28,7 @@ from .state import OverallState
 logger = logging.getLogger("daiv.agents")
 
 
-class ReviewAdressorAgent(BaseAgent):
+class ReviewAddressorAgent(BaseAgent):
     """
     Agent to address reviews by providing feedback and asking questions.
     """
