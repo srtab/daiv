@@ -58,5 +58,5 @@ jobs:
       - name: Install the project
         run: uv sync --locked
 
-      - name: Run unittests
-        run: make unittests
+      - name: Run Unittests
+        run: make test
