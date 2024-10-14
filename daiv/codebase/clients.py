@@ -6,10 +6,11 @@ import tempfile
 from contextlib import AbstractContextManager, contextmanager
 from functools import cached_property
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabHttpError
+from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabHttpError, GraphQL
 from gitlab.v4.objects import ProjectHook
 
 from .base import (
@@ -17,6 +18,7 @@ from .base import (
     Discussion,
     FileChange,
     Issue,
+    IssueType,
     MergeRequest,
     MergeRequestDiff,
     Note,
@@ -180,6 +182,7 @@ class GitLabClient(RepoClient):
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
+        self.client_graphql = GraphQL(url=url, token=auth_token, timeout=10)
 
     def get_repository(self, repo_id: str, ref: str | None = None) -> Repository:
         """
@@ -612,6 +615,7 @@ class GitLabClient(RepoClient):
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
         Get an issue.
+        API documentation: https://docs.gitlab.com/ee/api/issues.html#single-issue
 
         Args:
             repo_id: The repository ID.
@@ -623,13 +627,119 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id)
         return Issue(
-            id=issue.iid,
+            id=issue.id,
+            iid=issue.iid,
             title=issue.title,
             description=issue.description,
             state=issue.state,
+            has_tasks=issue.has_tasks,
             notes=self.get_issue_notes(repo_id, issue_id),
+            labels=issue.labels,
+            assignee=User(
+                id=issue.assignee.get("id"), username=issue.assignee.get("username"), name=issue.assignee.get("name")
+            ),
             related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
         )
+
+    def create_issue_tasks(self, repo_id, parent_issue_id: int, tasks: list[Issue]):
+        """
+        Create a list of tasks for an issue.
+        API documentation: https://docs.gitlab.com/ee/api/issues.html
+
+        Args:
+            repo_id: The repository ID.
+            parent_issue_id: The parent issue ID.
+            tasks: The list of tasks.
+
+        Returns:
+            The issue ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        for task in tasks:
+            issue_task = project.issues.create({
+                "title": task.title,
+                "description": task.description,
+                "assignee_ids": [task.assignee.id] if task.assignee else [],
+                "issue_type": task.issue_type,
+                "labels": task.labels,
+            })
+            # It's not possible to create a task with a parent issue using the API.
+            # We implemented a workaround using the GraphQL API.
+            # For more info: https://gitlab.com/gitlab-org/gitlab/-/issues/207883
+            self.client_graphql.execute(
+                dedent(
+                    """\
+                    mutation {
+                        workItemUpdate(input: { id: "gid://gitlab/WorkItem/%i", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/%i" } }) {
+                            workItem {
+                                id
+                            }
+                            errors
+                        }
+                    }
+                    """  # noqa: E501
+                )
+                % (issue_task.id, parent_issue_id)
+            )
+
+    def get_issue_tasks(self, repo_id: str, parent_issue_id: int) -> list[Issue]:
+        """
+        Get the tasks of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            parent_issue_id: The parent issue ID.
+
+        Returns:
+            The list of issue tasks.
+        """
+        data = self.client_graphql.execute(
+            dedent(
+                """\
+                {
+                    workItem(id: "gid://gitlab/WorkItem/%s") {
+                        title
+                        widgets {
+                        ... on WorkItemWidgetHierarchy {
+                            children(first: 50) {
+                            nodes {
+                                id
+                                iid
+                                title
+                                description
+                            }
+                            }
+                        }
+                        }
+                    }
+                }
+                """
+            )
+            % (parent_issue_id,)
+        )
+        issues = []
+        for widget in data["workItem"]["widgets"]:
+            if "children" in widget:
+                issues = [
+                    Issue(
+                        iid=task["iid"], title=task["title"], description=task["description"], issue_type=IssueType.TASK
+                    )
+                    for task in widget["children"]["nodes"]
+                ]
+                break
+        return issues
+
+    def delete_issue(self, repo_id: str, issue_id: int):
+        """
+        Delete an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        issue.delete()
 
     def comment_issue(self, repo_id: str, issue_id: int, body: str):
         """
@@ -674,6 +784,29 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
+    def get_issue_discussions(
+        self, repo_id: str, issue_id: int, note_type: NoteType | None = None
+    ) -> Generator[Discussion, None, None]:  # noqa: A002
+        """
+        Get the discussions from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The merge request ID.
+            note_type: The note type.
+
+        Returns:
+            The list of discussions.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+
+        for discussion in issue.discussions.list(all=True, iterator=True):
+            if discussion.individual_note is False and (
+                notes := self._serialize_notes(discussion.attributes["notes"], note_type)
+            ):
+                yield Discussion(id=discussion.id, notes=notes)
+
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
@@ -691,11 +824,52 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         return [
-            MergeRequest(repo_id=repo_id, merge_request_id=cast(int, mr["iid"]), source_branch=mr["source_branch"])
+            MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=cast(int, mr["iid"]),
+                source_branch=mr["source_branch"],
+                target_branch=mr["target_branch"],
+                title=mr["title"],
+                description=mr["description"],
+                labels=mr["labels"],
+            )
             for mr in issue.related_merge_requests(all=True)
             if (assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id)
             and (label is None or label in mr["labels"])
         ]
+
+    def create_issue_discussion_note(self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None):
+        """
+        Create a note in a discussion of a issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            discussion_id: The discussion ID.
+            body: The note body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        if discussion_id:
+            discussion = issue.discussions.get(discussion_id, lazy=True)
+            discussion.notes.create({"body": body})
+        else:
+            issue.discussions.create({"body": body})
+
+    def delete_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str):
+        """
+        Delete a discussion in an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The merge request ID.
+            discussion_id: The discussion ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        discussion = issue.discussions.get(discussion_id, lazy=True)
+        for note in discussion.attributes["notes"]:
+            discussion.notes.delete(note["id"])
 
     @cached_property
     def current_user(self) -> User:
@@ -777,7 +951,7 @@ class GitLabClient(RepoClient):
                             new_line=note["position"]["line_range"]["end"]["new_line"],
                         ),
                     )
-                    if note["position"].get("line_range")
+                    if "position" in note and note["position"].get("line_range")
                     else None,
                 ),
             )

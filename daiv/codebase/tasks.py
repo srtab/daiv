@@ -3,23 +3,53 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
+from django.db import connections
 
 from celery import shared_task
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
-from redis.exceptions import LockError
+from langgraph.checkpoint.postgres import PostgresSaver
 from unidiff import Hunk, PatchedFile, PatchSet
 
+from automation.graphs.issue_addressor.agent import IssueAddressorAgent
 from automation.graphs.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
+from core.constants import BOT_LABEL, BOT_NAME
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.tasks")
+
+
+ISSUE_PLANNING_TEMPLATE = """Hello @{assignee} 👋,
+
+I'm **{bot_name}**, your assistant for refactoring the codebase. Here's the process:
+
+1. 📝 **Planning:** I'll process this issue and create a detailed plan.
+2. 🔍 **Review:** Once ready, I'll share the plan for your review. Feel free to ask questions or suggest changes.
+3. 🚀 **Execution:** After approval, I'll implement the plan and submit a merge request with the updates.
+
+⚠️ *Note:* This may take some time. I'll notify you once the plan is ready.
+
+Thank you for your patience! 😊
+"""  # noqa: E501
+
+
+def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
+    """
+    Convert a list of notes to a list of messages.
+    """
+    messages = []
+    for note in notes:
+        if note.author.id == bot_user_id:
+            messages.append(AIMessage(content=note.body, name=BOT_NAME))
+        else:
+            messages.append(HumanMessage(content=note.body, name=note.author.username))
+    return messages
 
 
 @shared_task
@@ -53,6 +83,48 @@ def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = 
     indexer.update(repo_id=repo_id, ref=ref)
 
 
+@shared_task
+def address_issue_task(repo_id: str, ref: str, issue_id: int, should_reset_plan: bool, cache_key: str):
+    """
+    Address an issue by creating a merge request with the changes described on the issue description.
+    """
+    try:
+        client = RepoClient.create_instance()
+        issue = client.get_issue(repo_id, issue_id)
+
+        # Check if the issue already has a comment from the bot. If it doesn't, we need to add one.
+        if not next((note.body for note in issue.notes if note.author.id == client.current_user.id), None):
+            client.comment_issue(
+                repo_id, issue.iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_LABEL)
+            )
+
+        # Check if the issue already has a plan. If it does and title or description where changed, we need to reset it.
+        # Otherwise, we will keep the plan tasks.
+        plan_tasks = []
+        if tasks := client.get_issue_tasks(repo_id, issue.id):
+            if should_reset_plan:
+                for task in tasks:
+                    client.delete_issue(repo_id, task.iid)
+            else:
+                plan_tasks = [task.title for task in tasks]
+
+        with connections["langgraph"].pool as pool:
+            checkpointer = PostgresSaver(pool)
+
+            config = {"configurable": {"thread_id": f"{repo_id}#{issue_id}"}}
+
+            issue_addressor = IssueAddressorAgent(
+                client, source_repo_id=repo_id, source_ref=ref, issue_id=issue_id, checkpointer=checkpointer
+            ).agent
+            issue_addressor.invoke({"issue": issue, "plan_tasks": plan_tasks}, config)
+
+    except Exception as e:
+        logger.exception("Error handling issue: %s", e)
+    finally:
+        # Delete the lock after the task is completed
+        cache.delete(cache_key)
+
+
 @dataclass
 class DiscussionToAdress:
     repo_id: str
@@ -64,23 +136,8 @@ class DiscussionToAdress:
     diff: str | None = None
 
 
-def locked_task(key: str = ""):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            try:
-                with cache.lock(f"{func.__name__}:{key.format(**kwargs)}", blocking=False):
-                    func(*args, **kwargs)
-            except LockError:
-                logger.warning("Task: Ignored task, already processing.")
-                return
-
-        return wrapper
-
-    return decorator
-
-
 @shared_task
-def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
+def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source_branch: str, cache_key: str):
     """
     Handle feedback for a merge request.
     """
@@ -201,7 +258,7 @@ def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source
         logger.exception("Error handling merge request feedback: %s", e)
     finally:
         # Delete the lock after the task is completed
-        cache.delete(f"{repo_id}:{merge_request_id}")
+        cache.delete(cache_key)
 
 
 def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionToAdress):
@@ -209,7 +266,7 @@ def _handle_diff_notes(client: AllRepoClient, discussion_to_address: DiscussionT
 
     for note in discussion_to_address.notes:
         if note.author.id == client.current_user.id:
-            messages.append(AIMessage(content=note.body, name="DAIV"))
+            messages.append(AIMessage(content=note.body, name=BOT_NAME))
         else:
             messages.append(HumanMessage(content=note.body, name=note.author.username))
 

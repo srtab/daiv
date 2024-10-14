@@ -16,7 +16,7 @@ from .state import GradeDocumentState, OverallState
 
 MAX_ITERATIONS = 2
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.agents")
 
 
 class CodebaseSearchAgent(BaseAgent):

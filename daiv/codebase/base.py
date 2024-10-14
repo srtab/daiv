@@ -156,10 +156,20 @@ class Discussion(BaseModel):
     notes: list[Note] = Field(default_factory=list)
 
 
+class IssueType(StrEnum):
+    ISSUE = "issue"
+    TASK = "task"
+
+
 class Issue(BaseModel):
-    id: int
+    id: int | None = None
+    iid: int | None = None
     title: str
-    description: str
-    state: str
+    description: str | None = None
+    state: str | None = None
+    assignee: User | None = None
+    issue_type: IssueType = IssueType.ISSUE
+    has_tasks: bool = False
     notes: list[Note] = Field(default_factory=list)
     related_merge_requests: list[MergeRequest] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)

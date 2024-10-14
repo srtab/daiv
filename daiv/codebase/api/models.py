@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-LABEL_DAIV = "daiv"
+from core.constants import BOT_LABEL
 
 
 class IssueAction(StrEnum):
@@ -29,17 +29,18 @@ class Issue(BaseModel):
     id: int
     iid: int
     title: str
-    description: str
+    description: str | None
     state: str
     assignee_id: int | None
     action: IssueAction
     labels: list[Label]
+    type: Literal["Issue", "Task"]
 
     def is_daiv(self) -> bool:
         """
         Check if the issue is a DAIV issue
         """
-        return any(label.title == LABEL_DAIV for label in self.labels)
+        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 
 class MergeRequest(BaseModel):
@@ -62,7 +63,7 @@ class MergeRequest(BaseModel):
         """
         Check if the merge request is a DAIV merge request
         """
-        return any(label.title == LABEL_DAIV for label in self.labels)
+        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 
 class NoteableType(StrEnum):

@@ -1,9 +1,9 @@
 from automation.graphs.state import PlanExecuteState
-from codebase.base import FileChange
+from codebase.base import FileChange, Issue
 
 
 class OverallState(PlanExecuteState):
-    diff: str
-    show_diff_hunk_to_executor: bool
+    issue: Issue
     request_for_changes: bool
+    human_approved: bool
     file_changes: dict[str, FileChange]
