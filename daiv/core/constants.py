@@ -1,0 +1,2 @@
+BOT_NAME = "DAIV"
+BOT_LABEL = "daiv"

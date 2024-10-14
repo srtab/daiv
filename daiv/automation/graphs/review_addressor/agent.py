@@ -8,9 +8,10 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from automation.graphs.agents import PERFORMANT_CODING_MODEL_NAME, PERFORMANT_GENERIC_MODEL_NAME, BaseAgent
+from automation.graphs.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_PERFORMANT_MODEL_NAME, BaseAgent
 from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
 from automation.graphs.prebuilt import REACTAgent
+from automation.graphs.schemas import AskForClarification, RequestAssessmentResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
@@ -22,7 +23,7 @@ from .prompts import (
     review_analyzer_plan,
     review_analyzer_response,
 )
-from .schemas import AskForClarification, DetermineNextActionResponse, HumanFeedbackResponse, RequestAssessmentResponse
+from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
 from .state import OverallState
 
 logger = logging.getLogger("daiv.agents")
@@ -111,7 +112,7 @@ class ReviewAddressorAgent(BaseAgent):
             RequestAssessmentResponse,
             evaluator.invoke(
                 [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
-                config={"configurable": {"model": PERFORMANT_CODING_MODEL_NAME}},
+                config={"configurable": {"model": CODING_PERFORMANT_MODEL_NAME}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -134,7 +135,7 @@ class ReviewAddressorAgent(BaseAgent):
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=toolkit.get_tools(),
-            model_name=PERFORMANT_GENERIC_MODEL_NAME,
+            model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
         )
         response = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
@@ -175,7 +176,7 @@ class ReviewAddressorAgent(BaseAgent):
         })
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=PERFORMANT_CODING_MODEL_NAME
+            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=CODING_PERFORMANT_MODEL_NAME
         )
         react_agent.agent.invoke({"messages": result.to_messages()})
 
@@ -203,7 +204,7 @@ class ReviewAddressorAgent(BaseAgent):
             react_agent = REACTAgent(
                 run_name="human_feedback_react_agent",
                 tools=toolkit.get_tools(),
-                model_name=PERFORMANT_CODING_MODEL_NAME,
+                model_name=CODING_PERFORMANT_MODEL_NAME,
                 with_structured_output=HumanFeedbackResponse,
             )
             result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})

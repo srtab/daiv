@@ -28,6 +28,7 @@ from .schemas import (
 
 if TYPE_CHECKING:
     from langchain.callbacks.manager import CallbackManagerForToolRun
+    from langchain_core.runnables import RunnableConfig
 
 logger = logging.getLogger("daiv.tools")
 
@@ -59,7 +60,13 @@ class SearchCodeSnippetsTool(BaseTool):
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(self, query: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(
+        self,
+        query: str,
+        intent: str,
+        config: RunnableConfig | None = None,
+        run_manager: CallbackManagerForToolRun | None = None,
+    ) -> str:
         """
         Searches the codebase for a given query.
 
@@ -136,7 +143,13 @@ class ExploreRepositoryPathTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = ExploreRepositoryPathInput
 
-    def _run(self, path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(
+        self,
+        path: str,
+        intent: str,
+        config: RunnableConfig | None = None,
+        run_manager: CallbackManagerForToolRun | None = None,
+    ) -> str:
         """
         Gets the files and directories in a repository.
 
@@ -158,7 +171,13 @@ class RetrieveFileContentTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
-    def _run(self, file_path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(
+        self,
+        file_path: str,
+        intent: str,
+        config: RunnableConfig | None = None,
+        run_manager: CallbackManagerForToolRun | None = None,
+    ) -> str:
         """
         Gets the content of a file from the repository.
 
