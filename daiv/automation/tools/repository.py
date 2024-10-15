@@ -362,7 +362,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
         if file_path in self.codebase_changes.file_changes or self.api_wrapper.repository_file_exists(
             self.source_repo_id, file_path, self.source_ref
         ):
-            return f"File already exists. Use '{ReplaceSnippetInFileTool.name}' to update the file instead."
+            return f"File already exists. Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
 
         self.codebase_changes.file_changes[file_path] = FileChange(
             action=FileChangeAction.CREATE, file_path=file_path, content=content, commit_messages=[commit_message]

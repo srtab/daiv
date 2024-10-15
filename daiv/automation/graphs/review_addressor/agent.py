@@ -11,18 +11,13 @@ from langgraph.graph.state import CompiledStateGraph
 from automation.graphs.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_PERFORMANT_MODEL_NAME, BaseAgent
 from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
 from automation.graphs.prebuilt import REACTAgent
+from automation.graphs.prompts import execute_plan_human, execute_plan_system
 from automation.graphs.schemas import AskForClarification, RequestAssessmentResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
 
-from .prompts import (
-    review_analyzer_assessment,
-    review_analyzer_execute_human,
-    review_analyzer_execute_system,
-    review_analyzer_plan,
-    review_analyzer_response,
-)
+from .prompts import review_analyzer_assessment, review_analyzer_plan, review_analyzer_response
 from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
 from .state import OverallState
 
@@ -165,8 +160,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(review_analyzer_execute_system),
-            HumanMessagePromptTemplate.from_template(review_analyzer_execute_human, "jinja2"),
+            SystemMessage(execute_plan_system),
+            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])
         result = prompt.invoke({
             "goal": state["goal"],

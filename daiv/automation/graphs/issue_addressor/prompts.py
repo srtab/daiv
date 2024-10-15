@@ -45,7 +45,7 @@ Act as a senior software developer AI agent responsible for creating a **detaile
 
 **Important notes about the AI agents that will execute your task list**:
  - They cannot open or edit files directly, like an code editor will do, so avoid tasks like "open file x" or "save file y".
- - The AI agents are not equipped with the ability to run test suites or assess the program's functionality. Exclude tasks that involve running tests or verifying if the program is working as expected.
+ - They cannot run test suites or verify the actual code coverage. Exclude tasks that involve running tests or verifying if the program is working/running as expected.
  - They can use helper tools to inspect the codebase, so assume access to basic code exploration capabilities such as searching for files, reading file contents, and navigating the directory structure.
 
 **Warning**: Do not attempt to guess file paths or code snippets. Always use the available tools to inspect the codebase and make informed decisions when suggesting tasks. Guessing or assuming code structure without verification can lead to incorrect or ineffective task lists.
@@ -97,7 +97,8 @@ Act as a senior software developer AI agent responsible for creating a **detaile
 """  # noqa: E501
 
 issue_addressor_human = """### Task ###
-Analyse this issue and create a detailed task list to resolve it:
+Analyse this issue and create a detailed task list to resolve it within the existing codebase:
+
 <Issue>
     <Title>{{ issue_title }}</Title>
     <Description>{{ issue_description }}</Description>
@@ -106,7 +107,6 @@ Analyse this issue and create a detailed task list to resolve it:
 
 human_feedback_system = """### Instruction ###
 Evaluate whether a response is an unambiguous approval.
-
 - Assess the response for clear and explicit approval language.
 - Analyze context to ensure no mixed signals, contradictory statements, or requests for modifications are present.
 - Consider typical affirmative phrases such as "I agree," "approved," "yes," "that works," and any similar expressions.
@@ -142,7 +142,6 @@ Evaluate whether a response is an unambiguous approval.
   ```
 
 ### Notes ###
-
 - Evaluate responses in their entirety to capture nuances.
 - Analyze cultural context if necessary, as approval expressions can vary.
 - Approval must be explicit and without conditions to classify as "unambiguous."
