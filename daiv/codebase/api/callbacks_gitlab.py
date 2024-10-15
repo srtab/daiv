@@ -34,6 +34,7 @@ class IssueCallback(BaseCallback):
             # We need to check the type too to avoid processing work_items as issues.
             and self.object_kind == "issue"
             and self.object_attributes.type == "Issue"
+            and self.object_attributes.state == "opened"
         )
 
     async def process_callback(self):
@@ -45,7 +46,7 @@ class IssueCallback(BaseCallback):
                 address_issue_task(
                     repo_id=self.project.path_with_namespace,
                     ref=self.project.default_branch,
-                    issue_id=self.object_attributes.iid,
+                    issue_iid=self.object_attributes.iid,
                     should_reset_plan=self.should_reset_plan(),
                     cache_key=cache_key,
                 )
@@ -75,6 +76,7 @@ class NoteCallback(BaseCallback):
     project: Project
     user: User
     merge_request: MergeRequest | None = None
+    issue: Issue | None = None
     object_attributes: Note
 
     def accept_callback(self) -> bool:
@@ -83,14 +85,24 @@ class NoteCallback(BaseCallback):
         """
         client = RepoClient.create_instance()
         return bool(
-            self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
-            and self.user.id != client.current_user.id
+            self.user.id != client.current_user.id
             and not self.object_attributes.system
             and self.object_attributes.action == NoteAction.CREATE
-            and self.merge_request
-            and not self.merge_request.work_in_progress
-            and self.merge_request.state == "opened"
-            and self.merge_request.is_daiv()
+            and (
+                (
+                    self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+                    and self.merge_request
+                    and not self.merge_request.work_in_progress
+                    and self.merge_request.state == "opened"
+                    and self.merge_request.is_daiv()
+                )
+                or (
+                    self.object_attributes.noteable_type == NoteableType.ISSUE
+                    and self.issue
+                    and self.issue.is_daiv()
+                    and self.issue.state == "opened"
+                )
+            )
         )
 
     async def process_callback(self):
@@ -100,23 +112,28 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         We need to prevent multiple webhook processing for the same merge request.
         """
-        cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
-        with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
-            if await cache.aget(cache_key) is None:
-                await cache.aset(cache_key, "launched", timeout=60 * 10)
-                # handle_mr_feedback.si(
-                handle_mr_feedback(
-                    repo_id=self.project.path_with_namespace,
-                    merge_request_id=self.merge_request.iid,
-                    merge_request_source_branch=self.merge_request.source_branch,
-                    cache_key=cache_key,
-                )
-                # ).apply_async()
-            else:
-                logger.info(
-                    "Merge request %s is already being processed. Skipping the webhook processing.",
-                    self.merge_request.iid,
-                )
+        if self.issue:
+            address_issue_task(
+                repo_id=self.project.path_with_namespace, ref=self.project.default_branch, issue_iid=self.issue.iid
+            )
+        if self.merge_request:
+            cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
+            with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
+                if await cache.aget(cache_key) is None:
+                    await cache.aset(cache_key, "launched", timeout=60 * 10)
+                    # handle_mr_feedback.si(
+                    handle_mr_feedback(
+                        repo_id=self.project.path_with_namespace,
+                        merge_request_id=self.merge_request.iid,
+                        merge_request_source_branch=self.merge_request.source_branch,
+                        cache_key=cache_key,
+                    )
+                    # ).apply_async()
+                else:
+                    logger.info(
+                        "Merge request %s is already being processed. Skipping the webhook processing.",
+                        self.merge_request.iid,
+                    )
 
 
 class PushCallback(BaseCallback):

@@ -3,7 +3,6 @@ from functools import cached_property
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import Runnable
-from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from automation.graphs.agents import BaseAgent
@@ -22,12 +21,12 @@ class SnippetReplacerInput(BaseModel):
     content: str = ""
 
 
-class SnippetReplacerAgent(BaseAgent):
+class SnippetReplacerAgent(BaseAgent[Runnable]):
     """
     Agent to replace a code snippet in a codebase.
     """
 
-    def compile(self) -> CompiledStateGraph | Runnable:
+    def compile(self) -> Runnable:
         """
         Compile the agent.
 

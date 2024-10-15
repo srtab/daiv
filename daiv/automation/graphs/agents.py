@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.graph.state import CompiledStateGraph
 
 GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
 CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20240620"
@@ -13,7 +13,10 @@ PLANING_PERFORMANT_MODEL_NAME = "claude-3-opus-20240229"
 GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
 
 
-class BaseAgent(ABC):
+T = TypeVar("T", bound=Runnable)
+
+
+class BaseAgent(ABC, Generic[T]):
     """
     Base agent class for creating agents that interact with a model.
     """
@@ -36,7 +39,7 @@ class BaseAgent(ABC):
         self.agent = self.compile().with_config(self.get_config())
 
     @abstractmethod
-    def compile(self) -> CompiledStateGraph | Runnable:
+    def compile(self) -> T:
         pass
 
     def get_model(self) -> BaseChatModel:

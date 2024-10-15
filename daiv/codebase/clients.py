@@ -951,9 +951,11 @@ class GitLabClient(RepoClient):
                             new_line=note["position"]["line_range"]["end"]["new_line"],
                         ),
                     )
-                    if "position" in note and note["position"].get("line_range")
+                    if note["position"].get("line_range")
                     else None,
-                ),
+                )
+                if "position" in note
+                else None,
             )
             for note in notes
             if not note["system"]
