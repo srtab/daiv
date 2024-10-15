@@ -21,6 +21,8 @@ class BaseAgent(ABC, Generic[T]):
     Base agent class for creating agents that interact with a model.
     """
 
+    agent: T
+
     model_name: str = GENERIC_COST_EFFICIENT_MODEL_NAME
 
     def __init__(

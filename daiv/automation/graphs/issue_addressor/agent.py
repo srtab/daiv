@@ -10,11 +10,12 @@ from langgraph.graph.state import CompiledStateGraph
 from automation.graphs.agents import (
     CODING_PERFORMANT_MODEL_NAME,
     GENERIC_COST_EFFICIENT_MODEL_NAME,
-    PLANING_PERFORMANT_MODEL_NAME,
+    GENERIC_PERFORMANT_MODEL_NAME,
     BaseAgent,
 )
 from automation.graphs.issue_addressor.schemas import HumanFeedbackResponse
 from automation.graphs.prebuilt import REACTAgent
+from automation.graphs.prompts import execute_plan_human, execute_plan_system
 from automation.graphs.schemas import AskForClarification, DetermineNextActionResponse, RequestAssessmentResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import CodebaseChanges
@@ -74,12 +75,10 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_plan", self.execute_plan)
         workflow.add_node("human_feedback", self.human_feedback)
-        workflow.add_node("commit_changes", self.commit_changes)
 
         workflow.add_edge(START, "assessment")
         workflow.add_edge("plan", "human_feedback")
-        workflow.add_edge("execute_plan", "commit_changes")
-        workflow.add_edge("commit_changes", END)
+        workflow.add_edge("execute_plan", END)
 
         workflow.add_conditional_edges("assessment", self.continue_planning)
         workflow.add_conditional_edges("human_feedback", self.continue_executing)
@@ -151,7 +150,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=toolkit.get_tools(),
-            model_name=PLANING_PERFORMANT_MODEL_NAME,
+            model_name=GENERIC_PERFORMANT_MODEL_NAME,  # PLANING_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
         )
         result = react_agent.agent.invoke({"messages": messages})
@@ -160,34 +159,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             return {"response": " ".join(result["response"].action.questions)}
 
         return {"plan_tasks": result["response"].action.tasks, "goal": result["response"].action.goal}
-
-    def execute_plan(self, state: OverallState):
-        """
-        Execute the plan by making the necessary changes to the codebase.
-
-        Args:
-            state (OverallState): The state of the agent.
-
-        Returns:
-            dict: The state of the agent to update.
-        """
-        codebase_changes = CodebaseChanges()
-        toolkit = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
-        )
-
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage("review_analyzer_execute_system"),
-            HumanMessagePromptTemplate.from_template("review_analyzer_execute_human", "jinja2"),
-        ])
-        messages = prompt.format_messages({"goal": state["goal"], "plan_tasks": enumerate(state["plan_tasks"])})
-
-        react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=CODING_PERFORMANT_MODEL_NAME
-        )
-        react_agent.agent.invoke({"messages": messages})
-
-        return {"file_changes": codebase_changes.file_changes}
 
     def human_feedback(self, state: OverallState):
         """
@@ -208,14 +179,33 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return {"response": result.feedback, "human_approved": result.is_unambiguous_approval}
 
-    def commit_changes(self, state: OverallState):
+    def execute_plan(self, state: OverallState):
         """
-        Commit the changes to the codebase.
+        Execute the plan by making the necessary changes to the codebase.
 
         Args:
             state (OverallState): The state of the agent.
+
+        Returns:
+            dict: The state of the agent to update.
         """
-        # TODO: Implement the commit changes logic
+        codebase_changes = CodebaseChanges()
+        toolkit = WriteRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
+        )
+
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessage(execute_plan_system),
+            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
+        ])
+        messages = prompt.format_messages(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
+
+        react_agent = REACTAgent(
+            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=CODING_PERFORMANT_MODEL_NAME
+        )
+        react_agent.agent.invoke({"messages": messages}, config={"configurable": {"max_tokens": 8192}})
+
+        return {"file_changes": codebase_changes.file_changes}
 
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """

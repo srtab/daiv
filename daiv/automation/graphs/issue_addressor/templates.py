@@ -11,11 +11,14 @@ I'm **{bot_name}**, your assistant for refactoring the codebase. Here's the proc
 Thank you for your patience! 😊
 """  # noqa: E501
 
-ISSUE_REVIEW_PLAN_TEMPLATE = """📌 **Please take a moment to examine the plan.**
+ISSUE_REVIEW_PLAN_TEMPLATE = """🔍 ***Please take a moment to examine the plan***
 
 - **Modify Tasks:** You can add, delete, or adjust tasks as needed. Customized tasks will be considered when executing the plan.
 - **Plan Adjustments:** If the plan doesn't meet your expectations, please refine the issue description and add more details or examples to help me understand the problem better. I will then replan the tasks and delete the existing ones.
-- **Approval:** If everything looks good, please reply directly to this comment with your approval, and I'll proceed.
+
+✅ ***Approval is Required***
+
+If everything looks good, please **reply directly to this comment** with your approval, and I'll proceed.
 
 ---
 
