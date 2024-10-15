@@ -33,15 +33,9 @@ DATABASES = {
         "PORT": config("DB_PORT", default=5432, cast=int),
         "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=0, cast=int),
         "OPTIONS": DATABASES_OPTIONS,
-    },
-    "langgraph": {
-        "ENGINE": DB_ENGINE,
-        "NAME": config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": get_docker_secret("DB_PASSWORD", safe=False),
-        "HOST": config("DB_HOST", default="localhost"),
-        "PORT": config("DB_PORT", default=5432, cast=int),
-        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=0, cast=int),
-        "OPTIONS": {**DATABASES_OPTIONS, "server_side_binding": True},
-    },
+    }
 }
+
+DB_URI = "postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{NAME}?sslmode={sslmode}".format(
+    sslmode=DATABASES_OPTIONS["sslmode"], **DATABASES["default"]
+)

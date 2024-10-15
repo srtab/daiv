@@ -2,18 +2,20 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import connections
 
 from celery import shared_task
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph import START
 from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.graphs.issue_addressor.agent import IssueAddressorAgent
+from automation.graphs.issue_addressor.templates import ISSUE_PLANNING_TEMPLATE, ISSUE_REVIEW_PLAN_TEMPLATE
 from automation.graphs.review_addressor.agent import ReviewAddressorAgent
-from codebase.base import Discussion, Note, NoteDiffPositionType, NotePositionType, NoteType
+from codebase.base import Discussion, Issue, IssueType, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
 from core.constants import BOT_LABEL, BOT_NAME
@@ -23,20 +25,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.tasks")
-
-
-ISSUE_PLANNING_TEMPLATE = """Hello @{assignee} 👋,
-
-I'm **{bot_name}**, your assistant for refactoring the codebase. Here's the process:
-
-1. 📝 **Planning:** I'll process this issue and create a detailed plan.
-2. 🔍 **Review:** Once ready, I'll share the plan for your review. Feel free to ask questions or suggest changes.
-3. 🚀 **Execution:** After approval, I'll implement the plan and submit a merge request with the updates.
-
-⚠️ *Note:* This may take some time. I'll notify you once the plan is ready.
-
-Thank you for your patience! 😊
-"""  # noqa: E501
 
 
 def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
@@ -84,13 +72,15 @@ def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = 
 
 
 @shared_task
-def address_issue_task(repo_id: str, ref: str, issue_id: int, should_reset_plan: bool, cache_key: str):
+def address_issue_task(
+    repo_id: str, ref: str, issue_iid: int, should_reset_plan: bool = False, cache_key: str | None = None
+):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
     """
     try:
         client = RepoClient.create_instance()
-        issue = client.get_issue(repo_id, issue_id)
+        issue = client.get_issue(repo_id, issue_iid)
 
         # Check if the issue already has a comment from the bot. If it doesn't, we need to add one.
         if not next((note.body for note in issue.notes if note.author.id == client.current_user.id), None):
@@ -98,31 +88,60 @@ def address_issue_task(repo_id: str, ref: str, issue_id: int, should_reset_plan:
                 repo_id, issue.iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_LABEL)
             )
 
-        # Check if the issue already has a plan. If it does and title or description where changed, we need to reset it.
-        # Otherwise, we will keep the plan tasks.
-        plan_tasks = []
-        if tasks := client.get_issue_tasks(repo_id, issue.id):
-            if should_reset_plan:
-                for task in tasks:
-                    client.delete_issue(repo_id, task.iid)
-            else:
-                plan_tasks = [task.title for task in tasks]
+        config = {"configurable": {"thread_id": f"{repo_id}#{issue_iid}"}}
 
-        with connections["langgraph"].pool as pool:
-            checkpointer = PostgresSaver(pool)
-
-            config = {"configurable": {"thread_id": f"{repo_id}#{issue_id}"}}
-
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             issue_addressor = IssueAddressorAgent(
-                client, source_repo_id=repo_id, source_ref=ref, issue_id=issue_id, checkpointer=checkpointer
+                client, source_repo_id=repo_id, source_ref=ref, issue_id=issue_iid, checkpointer=checkpointer
             ).agent
-            issue_addressor.invoke({"issue": issue, "plan_tasks": plan_tasks}, config)
+
+            if should_reset_plan and (history_states := list(issue_addressor.get_state_history(config))):
+                config = history_states[-1].config  # Replay the first state to reset the plan, just like a reset
+
+            current_state = issue_addressor.get_state(config)
+
+            if START in current_state.next:
+                result = issue_addressor.invoke(
+                    {"issue_title": issue.title, "issue_description": issue.description}, config
+                )
+
+                if result["request_for_changes"] and result["plan_tasks"]:
+                    # Delete all the tasks before creating new ones
+                    for issue_tasks in client.get_issue_tasks(repo_id, issue.iid):
+                        client.delete_issue(repo_id, issue_tasks.id)
+
+                    # Create the new tasks
+                    issue_tasks = [
+                        Issue(
+                            title=plan_task, assignee=client.current_user, issue_type=IssueType.TASK, labels=[BOT_LABEL]
+                        )
+                        for plan_task in result["plan_tasks"]
+                    ]
+                    client.create_issue_tasks(repo_id, issue.id, issue_tasks)
+
+                    # Request the reporter to review the plan
+                    client.comment_issue(repo_id, issue.iid, ISSUE_REVIEW_PLAN_TEMPLATE)
+
+                elif not result["request_for_changes"]:
+                    client.comment_issue(repo_id, issue.iid, "No tasks were planned.")
+
+            elif "human_feedback" in current_state.next:
+                if discussions := list(client.get_issue_discussions(repo_id, issue.iid)):
+                    issue_addressor.update_state(
+                        config, {"messages": notes_to_messages(discussions[-1].notes, client.current_user.id)}
+                    )
+                    result = issue_addressor.invoke(None, config)
+                    if result["response"]:
+                        client.comment_issue(repo_id, issue.iid, result["response"])
+                else:
+                    client.comment_issue(repo_id, issue.iid, "No feedback was provided.")
 
     except Exception as e:
         logger.exception("Error handling issue: %s", e)
     finally:
-        # Delete the lock after the task is completed
-        cache.delete(cache_key)
+        if cache_key:
+            # Delete the lock after the task is completed
+            cache.delete(cache_key)
 
 
 @dataclass

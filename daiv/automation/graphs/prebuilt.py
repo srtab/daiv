@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
 from pydantic import BaseModel  # noqa: TCH002
@@ -13,9 +14,7 @@ from automation.graphs.agents import BaseAgent
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
 
-    from langchain_core.runnables import Runnable
     from langchain_core.tools.base import BaseTool
-    from langgraph.graph.state import CompiledStateGraph
 
 
 LIMIT_CONSECUTIVE_TOOL_CALLS = 3
@@ -25,7 +24,7 @@ class StructuredAgentState(AgentState):
     response: BaseModel | None
 
 
-class REACTAgent(BaseAgent):
+class REACTAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to interact with a model and tools in a reactive way.
 
@@ -53,7 +52,7 @@ class REACTAgent(BaseAgent):
             self.state_class = StructuredAgentState
         super().__init__(*args, **kwargs)
 
-    def compile(self) -> CompiledStateGraph | Runnable:
+    def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
         """

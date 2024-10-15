@@ -4,7 +4,7 @@ from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -29,7 +29,7 @@ from .state import OverallState
 logger = logging.getLogger("daiv.agents")
 
 
-class ReviewAddressorAgent(BaseAgent):
+class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to address reviews by providing feedback and asking questions.
     """
@@ -69,7 +69,7 @@ class ReviewAddressorAgent(BaseAgent):
         })
         return config
 
-    def compile(self) -> CompiledStateGraph | Runnable:
+    def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
 

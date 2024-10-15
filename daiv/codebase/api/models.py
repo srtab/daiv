@@ -32,7 +32,7 @@ class Issue(BaseModel):
     description: str | None
     state: str
     assignee_id: int | None
-    action: IssueAction
+    action: IssueAction | None = None
     labels: list[Label]
     type: Literal["Issue", "Task"]
 

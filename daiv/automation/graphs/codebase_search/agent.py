@@ -2,7 +2,6 @@ import logging
 from typing import cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.runnables import Runnable
 from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -19,7 +18,7 @@ MAX_ITERATIONS = 2
 logger = logging.getLogger("daiv.agents")
 
 
-class CodebaseSearchAgent(BaseAgent):
+class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to search for code snippets in the codebase.
     """
@@ -30,7 +29,7 @@ class CodebaseSearchAgent(BaseAgent):
         self.source_repo_id = source_repo_id
         self.source_ref = source_ref
 
-    def compile(self) -> CompiledStateGraph | Runnable:
+    def compile(self) -> CompiledStateGraph:
         workflow = StateGraph(OverallState)
 
         # Add nodes

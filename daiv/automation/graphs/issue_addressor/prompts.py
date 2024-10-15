@@ -103,3 +103,47 @@ Analyse this issue and create a detailed task list to resolve it:
     <Description>{{ issue_description }}</Description>
 </Issue>
 """
+
+human_feedback_system = """### Instruction ###
+Evaluate whether a response is an unambiguous approval.
+
+- Assess the response for clear and explicit approval language.
+- Analyze context to ensure no mixed signals, contradictory statements, or requests for modifications are present.
+- Consider typical affirmative phrases such as "I agree," "approved," "yes," "that works," and any similar expressions.
+- Disregard responses with hesitation, conditions, or neutrality as ambiguous or non-approving.
+
+### Steps ###
+1. **Read the response carefully.** Understand the overall sentiment and intention conveyed.
+2. **Identify explicit approval phrases.** Look for clear affirmative language often associated with approval.
+3. **Check for additional context.** Ensure there is no accompanying language that contradicts or modifies the approval.
+4. **Determine unambiguity.** Confirm that the response has no elements that render it unclear or contradictory.
+
+### Examples ###
+**Example 1:**
+- **Input:** "Yes, I approve the design as is."
+- **Output:**
+  ```json
+  {
+    "isUnambiguousApproval": true,
+    "approvalPhrases": ["Yes, I approve"],
+    "comments": "Clear approval without conditions."
+  }
+  ```
+
+**Example 2:**
+- **Input:** "I like the idea, but let's make some changes."
+- **Output:**
+  ```json
+  {
+    "isUnambiguousApproval": false,
+    "approvalPhrases": ["I like the idea"],
+    "comments": "Presence of a condition, making it ambiguous."
+  }
+  ```
+
+### Notes ###
+
+- Evaluate responses in their entirety to capture nuances.
+- Analyze cultural context if necessary, as approval expressions can vary.
+- Approval must be explicit and without conditions to classify as "unambiguous."
+"""
