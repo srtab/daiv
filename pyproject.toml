@@ -49,7 +49,7 @@ dependencies = [
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
   "unidiff==0.7.5",
-  "uvicorn==0.31",
+  "uvicorn==0.32.0",
 ]
 
 [tool.ruff]
