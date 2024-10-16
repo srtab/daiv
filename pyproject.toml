@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.4",
-  "chromadb==0.5.3",
+  "chromadb==0.5.15",
   "django==5.1.1",
   "django-appconf==1.0.6",
   "django-celery-beat==2.7",
