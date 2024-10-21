@@ -2,11 +2,12 @@ from pydantic import BaseModel, Field
 
 
 class PullRequestDescriberOutput(BaseModel):
-    branch: str = Field(description="The branch name for the pull request. Must starts with 'feat/' or 'fix/'.")
-    title: str = Field(description="Title with a short and concise description of the changes for the pull request.")
-    description: str = Field(
+    branch: str = Field(description="The branch name.")
+    title: str = Field(description="Title with a short and concise description of the changes.")
+    description: str = Field(description=("Description of the functional changes."))
+    summary: list[str] = Field(
         description=(
-            "Concise bulleted description of the pull request. "
+            "Concise bulleted description of the pull request."
             "Markdown format `variables`, `files`, and `directories` like this."
         )
     )

@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
-from langchain.chat_models import init_chat_model
-from langchain.chat_models.base import BaseChatModel
+from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -60,12 +59,19 @@ class BaseAgent(ABC, Generic[T]):
         Returns:
             dict: The keyword arguments
         """
-        return {
+        kwargs = {
             "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
-            "configurable_fields": ("model", "model_provider", "temperature", "max_tokens"),
+            "configurable_fields": ("model", "temperature", "max_tokens"),
+            "model_kwargs": {},
         }
+        if _attempt_infer_model_provider(self.model_name) == "anthropic":
+            kwargs["model_kwargs"]["extra_headers"] = {
+                "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
+            }
+            kwargs["max_tokens"] = "8192"
+        return kwargs
 
     def get_config(self) -> RunnableConfig:
         """
@@ -74,14 +80,7 @@ class BaseAgent(ABC, Generic[T]):
         Returns:
             dict: The configuration
         """
-        return RunnableConfig(run_name=self.run_name, tags=[self.run_name], metadata={})
-
-    def get_max_token_value(self) -> int:
-        """
-        Get the maximum token value for the model.
-        """
-        _, encoding_model = self.model._get_encoding_model()
-        return encoding_model.max_token_value
+        return RunnableConfig(run_name=self.run_name, tags=[self.run_name], metadata={}, configurable={})
 
     def draw_mermaid(self):
         """

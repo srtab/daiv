@@ -1,25 +1,34 @@
 import logging
 from textwrap import dedent
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore
+from langgraph.store.memory import InMemoryStore
 
-from automation.graphs.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_PERFORMANT_MODEL_NAME, BaseAgent
-from automation.graphs.pr_describer import PullRequestDescriberAgent, PullRequestDescriberOutput
+from automation.graphs.agents import (
+    CODING_PERFORMANT_MODEL_NAME,
+    GENERIC_COST_EFFICIENT_MODEL_NAME,
+    GENERIC_PERFORMANT_MODEL_NAME,
+    BaseAgent,
+)
+from automation.graphs.pr_describer import PullRequestDescriberAgent
 from automation.graphs.prebuilt import REACTAgent
 from automation.graphs.prompts import execute_plan_human, execute_plan_system
 from automation.graphs.schemas import AskForClarification, RequestAssessmentResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
-from codebase.base import CodebaseChanges
 from codebase.clients import AllRepoClient
 
 from .prompts import review_analyzer_assessment, review_analyzer_plan, review_analyzer_response
 from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
 from .state import OverallState
+
+if TYPE_CHECKING:
+    from codebase.base import FileChange
 
 logger = logging.getLogger("daiv.agents")
 
@@ -87,7 +96,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_conditional_edges("assessment", self.continue_planning)
         workflow.add_conditional_edges("plan", self.continue_executing)
 
-        return workflow.compile()
+        in_memory_store = InMemoryStore()
+
+        return workflow.compile(store=in_memory_store)
 
     def assessment(self, state: OverallState):
         """
@@ -107,12 +118,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             RequestAssessmentResponse,
             evaluator.invoke(
                 [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
-                config={"configurable": {"model": CODING_PERFORMANT_MODEL_NAME}},
+                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
 
-    def plan(self, state: OverallState):
+    def plan(self, state: OverallState, *, store: BaseStore):
         """
         Plan the steps to follow.
 
@@ -132,6 +143,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             tools=toolkit.get_tools(),
             model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
+            store=store,
         )
         response = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
 
@@ -144,7 +156,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             "file_changes": {},
         }
 
-    def execute_plan(self, state: OverallState):
+    def execute_plan(self, state: OverallState, *, store: BaseStore):
         """
         Execute the plan by making the necessary changes to the codebase.
 
@@ -154,13 +166,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        codebase_changes = CodebaseChanges()
-        toolkit = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
-        )
+        toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(execute_plan_system),
+            SystemMessage(execute_plan_system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
             HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])
         result = prompt.invoke({
@@ -171,13 +180,16 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         })
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=CODING_PERFORMANT_MODEL_NAME
+            run_name="execute_plan_react_agent",
+            tools=toolkit.get_tools(),
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            store=store,
         )
         react_agent.agent.invoke({"messages": result.to_messages()})
 
-        return {"file_changes": codebase_changes.file_changes}
+        return {"file_changes": store}
 
-    def human_feedback(self, state: OverallState):
+    def human_feedback(self, state: OverallState, *, store: BaseStore):
         """
         Request human feedback to address the reviewer's comments.
 
@@ -193,7 +205,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         if not response:
             toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
-            system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_response, "jinja2")
+            system_message_template = SystemMessagePromptTemplate.from_template(
+                review_analyzer_response, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+            )
             system_message = system_message_template.format(diff=state["diff"])
 
             react_agent = REACTAgent(
@@ -201,8 +215,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 tools=toolkit.get_tools(),
                 model_name=CODING_PERFORMANT_MODEL_NAME,
                 with_structured_output=HumanFeedbackResponse,
+                store=store,
             )
-            result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
+            result = react_agent.agent.invoke(
+                {"messages": [system_message] + state["messages"]}, config={"configurable": {"test": True}}
+            )
             response = cast(HumanFeedbackResponse, result["response"]).response
 
         if response:
@@ -212,7 +229,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return {"response": ""}
 
-    def commit_changes(self, state: OverallState):
+    def commit_changes(self, state: OverallState, *, store: BaseStore):
         """
         Commit the changes to the codebase.
 
@@ -223,45 +240,28 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             self.source_repo_id, self.merge_request_id, self.discussion_id
         )
 
-        pr_describer = PullRequestDescriberAgent()
-        changes_description = cast(
-            PullRequestDescriberOutput,
-            pr_describer.agent.invoke([
-                ". ".join(file_change.commit_messages) for file_change in state["file_changes"].values()
-            ]),
-        )
+        if stored_items := store.search(("file_changes", self.source_repo_id, self.source_ref)):
+            file_changes: list[FileChange] = [item.value["data"] for item in stored_items]
 
-        self.repo_client.commit_changes(
-            self.source_repo_id,
-            self.source_ref,
-            changes_description.commit_message,
-            list(state["file_changes"].values()),
-        )
-        self.repo_client.comment_merge_request(
-            self.source_repo_id,
-            self.merge_request_id,
-            dedent(
-                """\
-                I've made the changes: **{changes}**.
+            pr_describer = PullRequestDescriberAgent()
+            changes_description = pr_describer.agent.invoke({"changes": file_changes})
 
-                Please review them and let me know if you need further assistance.
+            self.repo_client.commit_changes(
+                self.source_repo_id, self.source_ref, changes_description.commit_message, file_changes
+            )
+            self.repo_client.comment_merge_request(
+                self.source_repo_id,
+                self.merge_request_id,
+                dedent(
+                    """\
+                    #### Description
+                    {description}
 
-                ### 🤓 Stats for the nerds:
-                Prompt tokens: **{prompt_tokens:,}** \\
-                Completion tokens: **{completion_tokens:,}** \\
-                Total tokens: **{total_tokens:,}** \\
-                Successful requests: **{total_requests:,}** \\
-                Total cost (USD): **${total_cost:.10f}**
-                """
-            ).format(
-                changes=changes_description.title,
-                prompt_tokens=self.usage_handler.prompt_tokens,
-                completion_tokens=self.usage_handler.completion_tokens,
-                total_tokens=self.usage_handler.total_tokens,
-                total_requests=self.usage_handler.successful_requests,
-                total_cost=self.usage_handler.total_cost,
-            ),
-        )
+                    #### Summary of changes
+                    {summary}
+                    """
+                ).format(description=changes_description.description, summary=changes_description.summary),
+            )
 
     def continue_planning(self, state: OverallState) -> Literal["plan", "human_feedback"]:
         """

@@ -35,7 +35,7 @@ dependencies = [
   "langchain-community==0.3.2",
   "langchain-openai==0.2.2",
   "langchain-text-splitters==0.3",
-  "langgraph==0.2.37",
+  "langgraph==0.2.38",
   "langgraph-checkpoint-postgres==2.0.1",
   "langsmith==0.1.135",
   "litellm==1.44.8",

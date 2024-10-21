@@ -4,19 +4,18 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING, cast
 
+from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from automation.graphs.codebase_search import CodebaseSearchAgent
-from automation.graphs.snippet_replacer.agent import SnippetReplacerAgent, SnippetReplacerInput
+from automation.graphs.snippet_replacer.agent import SnippetReplacerAgent
 from automation.graphs.snippet_replacer.schemas import SnippetReplacerOutput
-from automation.utils import find_original_snippet
-from codebase.base import CodebaseChanges, FileChange, FileChangeAction
+from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
 from .schemas import (
-    AppendToRepositoryFileInput,
     CreateNewRepositoryFileInput,
     DeleteRepositoryFileInput,
     ExploreRepositoryPathInput,
@@ -28,7 +27,7 @@ from .schemas import (
 
 if TYPE_CHECKING:
     from langchain.callbacks.manager import CallbackManagerForToolRun
-    from langchain_core.runnables import RunnableConfig
+    from langgraph.store.memory import BaseStore
 
 logger = logging.getLogger("daiv.tools")
 
@@ -45,14 +44,12 @@ APPEND_TO_REPOSITORY_FILE_NAME = "append_to_repository_file"
 class SearchCodeSnippetsTool(BaseTool):
     name: str = SEARCH_CODE_SNIPPETS_NAME
     description: str = textwrap.dedent(
-        f"""\
+        """\
         Search for code snippets in the repository based on a code-focused query.
-
-        Usage Guidelines:
-        - Use when you do not know the exact file path.
-        - If you know the exact file path, use '{RETRIEVE_FILE_CONTENT_NAME}' instead.
-        """
-    )
+        Use when you do not know the exact file path. The returned value will include only partial pieces of code.
+        If you know the exact file path or need full content of the file, use '{retrieve_file_content_name}' instead.
+        """  # noqa: E501
+    ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
 
     source_repo_id: str = Field(description="The repository ID to search in.")
@@ -60,13 +57,7 @@ class SearchCodeSnippetsTool(BaseTool):
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(
-        self,
-        query: str,
-        intent: str,
-        config: RunnableConfig | None = None,
-        run_manager: CallbackManagerForToolRun | None = None,
-    ) -> str:
+    def _run(self, query: str, intent: str, **kwargs) -> str:
         """
         Searches the codebase for a given query.
 
@@ -79,7 +70,10 @@ class SearchCodeSnippetsTool(BaseTool):
         """
         logger.debug("[%s] Searching codebase for '%s'", self.name, query)
 
-        search_results_str = "No search results found."
+        search_results_str = (
+            "The query your provided did not return any results. "
+            "This means that the code/definition you are looking for is not present/defined in the repository."
+        )
 
         search = CodebaseSearchAgent(
             source_repo_id=self.source_repo_id, source_ref=self.source_ref, index=self.api_wrapper
@@ -109,11 +103,9 @@ class BaseRepositoryTool(BaseTool):
     source_repo_id: str = Field(description="The repository ID to search in.")
     source_ref: str = Field(description="The branch or commit to search in.")
 
-    codebase_changes: CodebaseChanges = Field(default_factory=CodebaseChanges)
-
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
-    def _get_file_content(self, file_path: str) -> str | None:
+    def _get_file_content(self, file_path: str, store: BaseStore) -> str | None:
         """
         Gets the content of a file to replace a snippet in.
 
@@ -123,33 +115,28 @@ class BaseRepositoryTool(BaseTool):
         Returns:
             The content of the file.
         """
-        if file_path not in self.codebase_changes.file_changes:
-            return self.api_wrapper.get_repository_file(self.source_repo_id, file_path, self.source_ref)
 
-        return self.codebase_changes.file_changes[file_path].content
+        if stored_item := store.get(("file_changes", self.source_repo_id, self.source_ref), file_path):
+            return stored_item.value["data"].content
+
+        return self.api_wrapper.get_repository_file(self.source_repo_id, file_path, self.source_ref)
 
 
 class ExploreRepositoryPathTool(BaseRepositoryTool):
     name: str = EXPLORE_REPOSITORY_PATH_NAME
     description: str = textwrap.dedent(
         """\
-        Navigate through directories to find files or folders in the repository.
-
-        Usage Guidelines:
-         - Use when you don't know the exact file path and need to explore.
-         - Does not provide file contents; use 'retrieve_file_content' for that purpose.
-        """
-    )
+        Navigate through directories in the repository to find files or folders.
+        Use when you don't know the exact file path and need to explore to find it.
+        Don't use it to find definitions of classes, functions, or methods... For that, use instead '{search_code_snippets_name}'.
+        The returned value will include a list of files and directories found in the provided path.
+        The result of calling this tool does not provide file contents; use '{retrieve_file_content_name}' or '{search_code_snippets_name}' for that purpose.
+        """  # noqa: E501
+    ).format(search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME, retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
 
     args_schema: type[BaseModel] = ExploreRepositoryPathInput
 
-    def _run(
-        self,
-        path: str,
-        intent: str,
-        config: RunnableConfig | None = None,
-        run_manager: CallbackManagerForToolRun | None = None,
-    ) -> str:
+    def _run(self, path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
         """
         Gets the files and directories in a repository.
 
@@ -160,23 +147,33 @@ class ExploreRepositoryPathTool(BaseRepositoryTool):
             The files and directories in the repository.
         """
         logger.debug("[%s] Getting files and directories in '%s' (intent: %s)", self.name, path, intent)
+
+        template = textwrap.dedent(
+            """\
+            Repository files and directories found in `{{ path }}`:
+            {% for item in tree %}
+             - `{{ item }}`; {% endfor %}
+            """
+        )
+        # Add support the include on the tree file changes form the store.
         if tree := self.api_wrapper.get_repository_tree(self.source_repo_id, self.source_ref, path=path):
-            return f"Repository files and directories found in {path}: {", ".join(tree)}"
+            return jinja2_formatter(template, path=path, tree=tree)
         return f"No files/directories found in {path}."
 
 
 class RetrieveFileContentTool(BaseRepositoryTool):
     name: str = RETRIEVE_FILE_CONTENT_NAME
-    description: str = "Retrieve the content of a specified file from a repository."
+    description: str = textwrap.dedent(
+        """\
+        Retrieve the content of a specified file path from a repository. Use this tool to get the full content of a file, and not only a snippet.
+        The returned value will include full implementation, including used/declared imports.
+        """  # noqa: E501
+    )
 
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
     def _run(
-        self,
-        file_path: str,
-        intent: str,
-        config: RunnableConfig | None = None,
-        run_manager: CallbackManagerForToolRun | None = None,
+        self, file_path: str, intent: str, store: BaseStore, run_manager: CallbackManagerForToolRun | None = None
     ) -> str:
         """
         Gets the content of a file from the repository.
@@ -189,7 +186,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Getting file '%s' (intent: %s)", self.name, file_path, intent)
 
-        content = self._get_file_content(file_path)
+        content = self._get_file_content(file_path, store)
 
         if not content:
             return f"error: File '{file_path}' not found."
@@ -206,38 +203,11 @@ class RetrieveFileContentTool(BaseRepositoryTool):
 class ReplaceSnippetInFileTool(BaseRepositoryTool):
     name: str = REPLACE_SNIPPET_IN_FILE_NAME
     description: str = textwrap.dedent(
-        f"""\
-        Replace an exact matching snippet in a file with the provided replacement string.
-
-        Usage Guidelines:
-         - The `original_snippet` must match exactly a sequence of lines in the file, **including all indentation and spacing**.
-         - The `replacement_snippet` must include the necessary indentation and spacing to fit seamlessly into the code.
-         - For multiple replacements, call this tool multiple times.
-         - Do not alter indentation levels unless intentionally modifying code block structures.
-         - Inspect the code beforehand to understand what needs to change.
-
-        ### Examples ###
-        Suppose the original code in the file is:
-        ```python
-        def greet():
-            print("Hello, World!")
-        ```
-
-        `original_snippet` should be:
-        ```python
-            print("Hello, World!")
-        ```
-
-        `replacement_snippet` should be:
-        ```python
-            print("Hello, Universe!")
-        ```
-
-        After using {REPLACE_SNIPPET_IN_FILE_NAME}, the code becomes:
-        ```python
-        def greet():
-            print("Hello, Universe!")
-        ```
+        """\
+        Replace an exact matching snippet in a file with the provided replacement string. It should be used when you need to replace a specific code snippet in a file.
+        For multiple replacements, call this tool multiple times.
+        Do not alter indentation levels unless intentionally modifying code block structures.
+        Inspect the code beforehand to understand what exaclty needs to change.
         """  # noqa: E501
     )
 
@@ -249,6 +219,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         original_snippet: str,
         replacement_snippet: str,
         commit_message: str,
+        store: BaseStore,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         """
@@ -265,27 +236,30 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Replacing snippet in file '%s'", self.name, file_path)
 
-        if (
-            file_path in self.codebase_changes.file_changes
-            and self.codebase_changes.file_changes[file_path].action == FileChangeAction.DELETE
-        ):
+        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+
+        file_change: FileChange = stored_item.value["data"] if stored_item else None
+
+        if file_change and file_change.action == FileChangeAction.DELETE:
             return "error: You previously marked {file_path} to be deleted."
 
-        if not (repo_file_content := self._get_file_content(file_path)):
+        if not (repo_file_content := self._get_file_content(file_path, store)):
             return f"error: File {file_path} not found."
 
         replaced_content = self._replace_content(original_snippet, replacement_snippet, repo_file_content)
 
-        if file_path in self.codebase_changes.file_changes:
-            self.codebase_changes.file_changes[file_path].content = replaced_content
-            self.codebase_changes.file_changes[file_path].commit_messages.append(commit_message)
+        if file_change:
+            file_change.content = replaced_content
+            file_change.commit_messages.append(commit_message)
         else:
-            self.codebase_changes.file_changes[file_path] = FileChange(
+            file_change = FileChange(
                 action=FileChangeAction.UPDATE,
                 file_path=file_path,
                 content=replaced_content,
                 commit_messages=[commit_message],
             )
+
+        store.put(("file_changes", self.source_repo_id, self.source_ref), file_path, {"data": file_change})
 
         return "success: Snippet replaced."
 
@@ -301,50 +275,41 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         Returns:
             The content of the file with the snippet replaced.
         """
-        replaced_content = ""
-
         replacer = SnippetReplacerAgent()
-        data_to_invoke = SnippetReplacerInput(
-            original_snippet=original_snippet, replacement_snippet=replacement_snippet, content=content
-        ).model_dump()
 
-        if replacer.validate_max_token_not_exceeded(data_to_invoke):
-            result = cast(SnippetReplacerOutput, replacer.agent.invoke(data_to_invoke))
-            replaced_content = result.content
-        else:
-            original_snippet_found = find_original_snippet(original_snippet, content, initial_line_threshold=1)
-            if not original_snippet_found:
-                return "error: Original snippet not found."
-
-            replaced_content = content.replace(original_snippet_found, replacement_snippet)
-            if not replaced_content:
-                return "error: Snippet replacement failed."
+        result = cast(
+            SnippetReplacerOutput,
+            replacer.agent.invoke({
+                "original_snippet": original_snippet,
+                "replacement_snippet": replacement_snippet,
+                "content": content,
+            }),
+        )
 
         # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
-        if not replaced_content.endswith("\n"):
-            replaced_content += "\n"
+        if not result.content.endswith("\n"):
+            result.content += "\n"
 
-        return replaced_content
+        return result.content
 
 
 class CreateNewRepositoryFileTool(BaseRepositoryTool):
     name: str = CREATE_NEW_REPOSITORY_FILE_NAME
     description: str = textwrap.dedent(
         """\
-        Create a new file within the repository with the provided content.
-
-        Usage Guidelines:
-        - Use this tool only to create files that do not already exist in the repository.
-        - Do not use this tool to overwrite or modify existing files.
-        - Ensure that the file path does not point to an existing file in the repository.
-        - Necessary directories should already exist in the repository; this tool does not create directories.
-        """
+        Create a new file within the repository with the provided content. Use this tool only to create files that do not already exist in the repository. Do not use this tool to overwrite or modify existing files. Ensure that the file path does not point to an existing file in the repository. Necessary directories should already exist in the repository; this tool does not create directories.
+        """  # noqa: E501
     )
 
     args_schema: type[BaseModel] = CreateNewRepositoryFileInput
 
     def _run(
-        self, file_path: str, content: str, commit_message: str, run_manager: CallbackManagerForToolRun | None = None
+        self,
+        file_path: str,
+        content: str,
+        commit_message: str,
+        store: BaseStore,
+        run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         """
         Creates a new file with the provided content in the repository.
@@ -359,13 +324,22 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Creating new file '%s'", self.name, file_path)
 
-        if file_path in self.codebase_changes.file_changes or self.api_wrapper.repository_file_exists(
-            self.source_repo_id, file_path, self.source_ref
-        ):
+        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+
+        if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
             return f"File already exists. Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
 
-        self.codebase_changes.file_changes[file_path] = FileChange(
-            action=FileChangeAction.CREATE, file_path=file_path, content=content, commit_messages=[commit_message]
+        store.put(
+            ("file_changes", self.source_repo_id, self.source_ref),
+            file_path,
+            {
+                "data": FileChange(
+                    action=FileChangeAction.CREATE,
+                    file_path=file_path,
+                    content=content,
+                    commit_messages=[commit_message],
+                )
+            },
         )
 
         return f"success: Created new file {file_path}."
@@ -375,13 +349,7 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
     name: str = RENAME_REPOSITORY_FILE_NAME
     description: str = textwrap.dedent(
         """\
-        Rename an existing file within the repository to a new specified path.
-
-        Usage Guidelines:
-        - Do not use this tool to create new files or delete existing ones.
-        - Ensure that 'file_path' points to an existing file in the repository.
-        - Ensure that 'new_file_path' does not point to an existing file to prevent overwriting.
-        - Necessary directories for 'new_file_path' should already exist in the repository; this tool does not create directories.
+        Rename an existing file within the repository to a new specified path. Do not use this tool to create new files or delete existing ones. Ensure that 'file_path' points to an existing file in the repository. Ensure that 'new_file_path' does not point to an existing file to prevent overwriting. Necessary directories for 'new_file_path' should already exist in the repository; this tool does not create directories.
         """  # noqa: E501
     )
 
@@ -392,6 +360,7 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         file_path: str,
         new_file_path: str,
         commit_message: str,
+        store: BaseStore,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         """
@@ -407,16 +376,22 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Renaming file '%s' to '%s'", self.name, file_path, new_file_path)
 
-        if new_file_path in self.codebase_changes.file_changes or self.api_wrapper.repository_file_exists(
-            self.source_repo_id, new_file_path, self.source_ref
-        ):
+        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+
+        if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, new_file_path, self.source_ref):
             return f"error: File {new_file_path} already exists."
 
-        self.codebase_changes.file_changes[new_file_path] = FileChange(
-            action=FileChangeAction.MOVE,
-            file_path=new_file_path,
-            previous_path=file_path,
-            commit_messages=[commit_message],
+        store.put(
+            ("file_changes", self.source_repo_id, self.source_ref),
+            new_file_path,
+            {
+                "data": FileChange(
+                    action=FileChangeAction.MOVE,
+                    file_path=new_file_path,
+                    previous_path=file_path,
+                    commit_messages=[commit_message],
+                )
+            },
         )
 
         return f"success: Renamed file {file_path} to {new_file_path}."
@@ -426,18 +401,19 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
     name: str = DELETE_REPOSITORY_FILE_NAME
     description: str = textwrap.dedent(
         """\
-        Delete an existing file from the repository.
-
-        Usage Guidelines:
-        - Do not use this tool to delete directories or non-file entities.
-        - Ensure that 'file_path' points to an existing file in the repository.
-        - Exercise caution to avoid unintended data loss.
-        """
+        Delete an existing file from the repository. Use this tool to delete files that are no longer needed. Do not use this tool to delete directories or non-file entities. Ensure that 'file_path' points to an existing file in the repository. Exercise caution to avoid unintended data loss.
+        """  # noqa: E501
     )
 
     args_schema: type[BaseModel] = DeleteRepositoryFileInput
 
-    def _run(self, file_path: str, commit_message: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(
+        self,
+        file_path: str,
+        commit_message: str,
+        store: BaseStore,
+        run_manager: CallbackManagerForToolRun | None = None,
+    ) -> str:
         """
         Deletes a file in the repository.
 
@@ -450,64 +426,21 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Deleting file '%s'", self.name, file_path)
 
-        if file_path in self.codebase_changes.file_changes:
+        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+
+        if stored_item:
             return f"error: File {file_path} has uncommited changes."
 
         if self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
-            self.codebase_changes.file_changes[file_path] = FileChange(
-                action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
+            store.put(
+                ("file_changes", self.source_repo_id, self.source_ref),
+                file_path,
+                {
+                    "data": FileChange(
+                        action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
+                    )
+                },
             )
             return f"success: Deleted file {file_path}."
 
         return f"error: File {file_path} not found."
-
-
-class AppendToRepositoryFileTool(BaseRepositoryTool):
-    name: str = APPEND_TO_REPOSITORY_FILE_NAME
-    description: str = textwrap.dedent(
-        f"""\
-        Append content to the end of an existing file within the repository.
-
-        Usage Guidelines:
-        - Only use this tool if '{REPLACE_SNIPPET_IN_FILE_NAME}' cannot be used to make the necessary changes.
-        - Do not use this tool to create new files or overwrite existing content.
-        - Ensure that 'file_path' points to an existing file in the repository.
-        - Include any required newlines and indentation in 'content' to maintain proper formatting.
-        """
-    )
-
-    args_schema: type[BaseModel] = AppendToRepositoryFileInput
-
-    def _run(
-        self, file_path: str, content: str, commit_message: str, run_manager: CallbackManagerForToolRun | None = None
-    ) -> str:
-        """
-        Appends content to a file in the repository.
-
-        Args:
-            file_path: The file path to append to.
-            content: The content to append.
-            commit_message: The commit message to use for the appending.
-
-        Returns:
-            A message indicating the success of the appending.
-        """
-        logger.debug("[%s] Appending content to file '%s'", self.name, file_path)
-
-        # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
-        if not content.endswith("\n"):
-            content += "\n"
-
-        if file_path in self.codebase_changes.file_changes:
-            self.codebase_changes.file_changes[file_path].content += content
-            self.codebase_changes.file_changes[file_path].commit_messages.append(commit_message)
-        elif repo_file_content := self._get_file_content(file_path):
-            self.codebase_changes.file_changes[file_path] = FileChange(
-                action=FileChangeAction.UPDATE,
-                file_path=file_path,
-                content=repo_file_content + content,
-                commit_messages=[commit_message],
-            )
-        else:
-            return f"error: File {file_path} not found."
-        return f"success: Appended content to file {file_path}."

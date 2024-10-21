@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
@@ -15,7 +16,10 @@ if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
 
     from langchain_core.tools.base import BaseTool
+    from langgraph.store.base import BaseStore
 
+
+logger = logging.getLogger("daiv.agents")
 
 LIMIT_CONSECUTIVE_TOOL_CALLS = 3
 
@@ -40,10 +44,12 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         tools: Sequence[BaseTool | type[BaseModel]],
         *args,
         with_structured_output: type[BaseModel] | None = None,
+        store: BaseStore | None = None,
         **kwargs,
     ):
         self.tool_classes = tools
         self.with_structured_output = with_structured_output
+        self.store = store
         self.structured_tool_name = None
         self.state_class: type[AgentState] = AgentState
         if self.with_structured_output:
@@ -77,7 +83,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         if self.with_structured_output:
             workflow.add_edge("respond", END)
 
-        return workflow.compile()
+        return workflow.compile(store=self.store)
 
     def call_model(self, state: AgentState):
         """
@@ -101,7 +107,11 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
 
             if state["is_last_step"]:
                 response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
+                logger.warning("[ReAcT] Last step reached. Ending the conversation.")
             elif check_consecutive_tool_calls(state["messages"], tool_name) > LIMIT_CONSECUTIVE_TOOL_CALLS:
+                logger.warning(
+                    "[ReAcT] Limit of consecutive tool calls reached for %s. Trying to use another tool.", tool_name
+                )
                 tool_message = ToolMessage(
                     tool_call_id=response.tool_calls[0]["id"],
                     content=(
@@ -172,4 +182,8 @@ def check_consecutive_tool_calls(messages: list[AnyMessage], tool_name: str) -> 
             consecutive_tool_calls += 1
         else:
             break
+
+    if consecutive_tool_calls > 0:
+        logger.debug("[ReAcT] Consecutive tool calls for %s: %d", tool_name, consecutive_tool_calls)
+
     return consecutive_tool_calls
