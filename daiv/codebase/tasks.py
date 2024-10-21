@@ -1,6 +1,5 @@
 import logging
 from dataclasses import dataclass, field
-from textwrap import dedent
 from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
@@ -9,13 +8,20 @@ from django.core.cache import cache
 from celery import shared_task
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import START
 from unidiff import Hunk, PatchedFile, PatchSet
 
 from automation.graphs.issue_addressor.agent import IssueAddressorAgent
-from automation.graphs.issue_addressor.templates import ISSUE_PLANNING_TEMPLATE, ISSUE_REVIEW_PLAN_TEMPLATE
+from automation.graphs.issue_addressor.templates import (
+    ISSUE_MERGE_REQUEST_TEMPLATE,
+    ISSUE_PLANNING_TEMPLATE,
+    ISSUE_PROCESSED_TEMPLATE,
+    ISSUE_REVIEW_PLAN_TEMPLATE,
+    ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE,
+)
 from automation.graphs.pr_describer.agent import PullRequestDescriberAgent
 from automation.graphs.pr_describer.schemas import PullRequestDescriberOutput
 from automation.graphs.review_addressor.agent import ReviewAddressorAgent
@@ -103,22 +109,23 @@ def address_issue_task(
                 issue_id=issue_iid,
                 checkpointer=checkpointer,
                 usage_handler=usage_handler,
-            ).agent
+            )
+            issue_addressor_agent = issue_addressor.agent
 
-            if should_reset_plan and (history_states := list(issue_addressor.get_state_history(config))):
-                config = history_states[-1].config  # Replay the first state to reset the plan, just like a reset
+            if should_reset_plan and (history_states := list(issue_addressor_agent.get_state_history(config))):
+                config = history_states[-1].config  # Replay the first state to reset a previous defined plan
 
                 for issue_tasks in client.get_issue_tasks(repo_id, issue.id):
                     client.delete_issue(repo_id, issue_tasks.iid)
 
-            current_state = issue_addressor.get_state(config)
+            current_state = issue_addressor_agent.get_state(config)
 
-            if START in current_state.next:
-                result = issue_addressor.invoke(
+            if not current_state.next or START in current_state.next:
+                result = issue_addressor_agent.invoke(
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
 
-                if result["request_for_changes"] and result["plan_tasks"]:
+                if result["plan_tasks"]:
                     # Create the new tasks
                     issue_tasks = [
                         Issue(
@@ -130,29 +137,29 @@ def address_issue_task(
 
                     # Request the reporter to review the plan
                     client.comment_issue(repo_id, issue.iid, ISSUE_REVIEW_PLAN_TEMPLATE)
-
-                elif not result["request_for_changes"]:
-                    client.comment_issue(repo_id, issue.iid, "No tasks were planned.")
+                else:
+                    client.comment_issue(repo_id, issue.iid, ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE)
 
             elif "human_feedback" in current_state.next:
                 if discussions := list(client.get_issue_discussions(repo_id, issue.iid)):
-                    issue_addressor.update_state(
+                    issue_addressor_agent.update_state(
                         config, {"messages": notes_to_messages(discussions[-1].notes, client.current_user.id)}
                     )
 
-                    for chunk in issue_addressor.stream(None, config, stream_mode="updates"):
+                    for chunk in issue_addressor_agent.stream(None, config, stream_mode="updates"):
                         if "human_feedback" in chunk and (response := chunk["human_feedback"].get("response")):
                             client.create_issue_discussion_note(
                                 repo_id, issue.iid, response, discussion_id=discussions[-1].id
                             )
 
-                        if "execute_plan" in chunk and (file_changes := chunk["execute_plan"].get("file_changes")):
+                        if "execute_plan" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
                             pr_describer = PullRequestDescriberAgent()
                             changes_description = cast(
                                 PullRequestDescriberOutput,
-                                pr_describer.agent.invoke([
-                                    ". ".join(file_change.commit_messages) for file_change in file_changes.values()
-                                ]),
+                                pr_describer.agent.invoke({
+                                    "changes": file_changes,
+                                    "extra_info": {"Issue title": issue.title, "Issue description": issue.description},
+                                }),
                             )
 
                             merge_requests = client.get_issue_related_merge_requests(
@@ -166,7 +173,7 @@ def address_issue_task(
                                 repo_id,
                                 changes_description.branch,
                                 changes_description.commit_message,
-                                list(file_changes.values()),
+                                file_changes,
                                 start_branch=project.default_branch,
                                 override_commits=True,
                             )
@@ -176,53 +183,24 @@ def address_issue_task(
                                 target_branch=project.default_branch,
                                 labels=[BOT_LABEL],
                                 title=changes_description.title,
-                                description=dedent(
-                                    """\
-                                    👋 Hi there! This PR was automatically generated based on {source_repo_id}#{issue_id}
-
-                                    > {description}
-
-                                    ### 📣 Instructions for the reviewer which is you, yes **you**:
-                                    - **If these changes were incorrect, please close this PR and comment explaining why.**
-                                    - **If these changes were incomplete, please continue working on this PR then merge it.**
-                                    - **If you are feeling confident in my changes, please merge this PR.**
-
-                                    This will greatly help us improve the DAIV system. Thank you! 🙏
-
-                                    ### 🤓 Stats for the nerds:
-                                    Prompt tokens: **{prompt_tokens:,}** \\
-                                    Completion tokens: **{completion_tokens:,}** \\
-                                    Total tokens: **{total_tokens:,}** \\
-                                    Successful requests: **{total_requests:,}** \\
-                                    Total cost (USD): **${total_cost:.10f}**"""  # noqa: E501
-                                ).format(
+                                description=jinja2_formatter(
+                                    ISSUE_MERGE_REQUEST_TEMPLATE,
                                     description=changes_description.description,
+                                    summary=changes_description.summary,
                                     source_repo_id=repo_id,
                                     issue_id=issue.iid,
-                                    prompt_tokens=usage_handler.prompt_tokens,
-                                    completion_tokens=usage_handler.completion_tokens,
-                                    total_tokens=usage_handler.total_tokens,
-                                    total_requests=usage_handler.successful_requests,
-                                    total_cost=usage_handler.total_cost,
+                                    bot_name=BOT_NAME,
                                 ),
                             )
                             client.comment_issue(
                                 repo_id,
                                 issue.iid,
-                                dedent(
-                                    """\
-                                    This issue has been successfully processed.
-                                    I have created a merge request for you with the requested changes:
-                                    {source_repo_id}!{merge_request_id}.
-
-                                    Please review the changes and follow the instructions in the description of the merge request.
-
-                                    Thank you for using DAIV! 🚀
-                                    """  # noqa: E501
-                                ).format(source_repo_id=repo_id, merge_request_id=merge_request_id),
+                                ISSUE_PROCESSED_TEMPLATE.format(
+                                    source_repo_id=repo_id, merge_request_id=merge_request_id
+                                ),
                             )
             elif "execute_plan" in current_state.next:
-                result = issue_addressor.invoke(None, config)
+                result = issue_addressor_agent.invoke(None, config)
 
     except Exception as e:
         logger.exception("Error handling issue: %s", e)

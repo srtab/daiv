@@ -24,3 +24,55 @@ If everything looks good, please **reply directly to this comment** with your ap
 
 Thank you! 😊
 """  # noqa: E501
+
+
+ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE = """⚠️ **Unable to Define a Plan**
+
+I encountered an issue while creating a plan for this task. To help me assist you better, please make the following adjustments:
+
+- **Refine Description:** Provide more details about the problem.
+- **Add Examples:** Include specific examples or scenarios to clarify the issue.
+- **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
+
+🔄 **Next Steps:**
+
+Once you've updated the issue, I'll attempt to create a plan again. If you need assistance, feel free to reach out!
+
+---
+
+Thank you for your cooperation! 😊
+"""  # noqa: E501
+
+
+ISSUE_PROCESSED_TEMPLATE = """✅ **Process Completed**
+
+This issue has been successfully processed.
+
+I have created a merge request with the requested changes: {source_repo_id}!{merge_request_id}.
+
+🔍 **Next Steps:**
+
+- **Review Changes:** Please review the changes in the merge request.
+- **Follow Instructions:** Follow the instructions provided in the merge request description.
+
+---
+
+Thank you! 😊
+"""
+
+
+ISSUE_MERGE_REQUEST_TEMPLATE = """### Description
+{{ description }}
+
+Closes: {{ source_repo_id }}#{{ issue_id }}
+
+### Summary of Changes
+{% for item in summary %}
+ * {{ item }}{% endfor %}
+
+ ---
+
+#### 💡 Instructions for the reviewer:
+ - Comment on the files or specific lines of the file, and {{ bot_name }} will address it for you.
+ - Edit the original issue ({{ source_repo_id }}#{{ issue_id }}) to get {{ bot_name }} to recreate the MR from scratch.
+"""  # noqa: E501

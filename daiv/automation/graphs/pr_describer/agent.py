@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import Runnable, RunnablePassthrough
+from langchain_core.runnables import Runnable
+from langchain_core.runnables.utils import Input
 
 from automation.graphs.agents import BaseAgent
 
@@ -8,7 +9,7 @@ from .prompts import human, system
 from .schemas import PullRequestDescriberOutput
 
 
-class PullRequestDescriberAgent(BaseAgent[Runnable]):
+class PullRequestDescriberAgent(BaseAgent[Runnable[Input, PullRequestDescriberOutput]]):
     """
     Agent to describe changes in a pull request.
     """
@@ -17,9 +18,5 @@ class PullRequestDescriberAgent(BaseAgent[Runnable]):
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(system),
             HumanMessagePromptTemplate.from_template(human, "jinja2"),
-        ])
-        return (
-            {"changes": RunnablePassthrough()}
-            | prompt
-            | self.model.with_structured_output(PullRequestDescriberOutput, method="json_schema")
-        )
+        ]).partial(extra_info={})
+        return prompt | self.model.with_structured_output(PullRequestDescriberOutput, method="json_schema")

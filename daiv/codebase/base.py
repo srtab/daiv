@@ -78,11 +78,17 @@ class FileChange(BaseModel):
     file_path: str
     content: str | None = None
     previous_path: str | None = None
-    commit_messages: list[str] = []
+    commit_messages: list[str] = Field(default_factory=list)
 
-
-class CodebaseChanges(BaseModel):
-    file_changes: dict[str, FileChange] = Field(default_factory=dict)
+    def to_markdown(self):
+        if self.action == FileChangeAction.CREATE:
+            return f"Created `{self.file_path}`"
+        elif self.action == FileChangeAction.UPDATE:
+            return f"Updated `{self.file_path}`"
+        elif self.action == FileChangeAction.DELETE:
+            return f"Deleted `{self.file_path}`"
+        elif self.action == FileChangeAction.MOVE:
+            return f"Renamed `{self.previous_path}` to `{self.file_path}`"
 
 
 class User(BaseModel):

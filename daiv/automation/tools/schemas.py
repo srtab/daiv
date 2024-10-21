@@ -1,5 +1,7 @@
 import textwrap
+from typing import Annotated, Any
 
+from langgraph.prebuilt.tool_node import InjectedStore
 from pydantic import BaseModel, Field
 
 
@@ -44,15 +46,17 @@ class RetrieveFileContentInput(BaseModel):
 
     file_path: str = Field(description="The path to the file to retrieve (e.g., 'webhooks/tests/test_admin.py').")
     intent: str = Field(description=("A description of why you're obtaining this file"))
+    store: Annotated[Any, InjectedStore()]
 
 
 class CommitableBaseModel(BaseModel):
     commit_message: str = Field(
         description=(
-            "The commit message to use. This will be used to describe the changes. "
-            "Use an imperative tone, such as 'Add', 'Update', 'Remove'."
+            "The commit message to use. This will be used to describe the changes applied. "
+            "Tip: Use action-oriented verbs, such as 'Added', 'Updated', 'Removed', 'Improved', etc..."
         )
     )
+    store: Annotated[Any, InjectedStore()]
 
 
 class ReplaceSnippetInFileInput(CommitableBaseModel):
@@ -63,13 +67,14 @@ class ReplaceSnippetInFileInput(CommitableBaseModel):
     file_path: str = Field(description="The path to the file where the replacement will take place.")
     original_snippet: str = Field(
         description=(
-            "The exact snippet to be replaced, including indentation and spacing.\n"
+            "The exact sequence of line to be replaced, including **all indentation and spacing**.\n"
             "Tip: Copy the snippet directly from the file to ensure an exact match."
         )
     )
     replacement_snippet: str = Field(
         description=(
-            "The new snippet to replace the original, including necessary indentation and spacing.\n"
+            "The new sequence of lines to replace the original, including the necessary indentation and "
+            "spacing to fit seamlessly into the code.\n"
             "Tip: Align the indentation level with the surrounding code for consistency."
         )
     )
@@ -81,7 +86,7 @@ class CreateNewRepositoryFileInput(CommitableBaseModel):
     """
 
     file_path: str = Field(description="The path within the repository where the new file will be created.")
-    content: str = Field(description="The content to insert into the new file.")
+    content: str = Field(description="The content of the new file.")
 
 
 class RenameRepositoryFileInput(CommitableBaseModel):
@@ -89,7 +94,7 @@ class RenameRepositoryFileInput(CommitableBaseModel):
     Rename a file in the repository.
     """
 
-    file_path: str = Field(description="The current path of the file to rename.")
+    file_path: str = Field(description="The path of the file to be renamed within the repository.")
     new_file_path: str = Field(description="The new path and name for the file.")
 
 
@@ -99,12 +104,3 @@ class DeleteRepositoryFileInput(CommitableBaseModel):
     """
 
     file_path: str = Field(description="The path of the file to delete within the repository.")
-
-
-class AppendToRepositoryFileInput(CommitableBaseModel):
-    """
-    Append content to a file in the repository.
-    """
-
-    file_path: str = Field(description="The path of the file to append to within the repository.")
-    content: str = Field(description="The content to append, including necessary newlines and indentation.")

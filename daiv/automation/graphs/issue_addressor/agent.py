@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import logging
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.memory import InMemoryStore
 
 from automation.graphs.agents import (
     CODING_PERFORMANT_MODEL_NAME,
@@ -18,8 +20,7 @@ from automation.graphs.prebuilt import REACTAgent
 from automation.graphs.prompts import execute_plan_human, execute_plan_system
 from automation.graphs.schemas import AskForClarification, DetermineNextActionResponse, RequestAssessmentResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
-from codebase.base import CodebaseChanges
-from codebase.clients import AllRepoClient
+from codebase.base import FileChange
 
 from .prompts import (
     human_feedback_system,
@@ -29,6 +30,12 @@ from .prompts import (
     issue_analyzer_human,
 )
 from .state import OverallState
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+    from langgraph.store.base import BaseStore
+
+    from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
 
@@ -83,7 +90,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_conditional_edges("assessment", self.continue_planning)
         workflow.add_conditional_edges("human_feedback", self.continue_executing)
 
-        return workflow.compile(checkpointer=self.checkpointer, interrupt_before=["human_feedback"])
+        in_memory_store = InMemoryStore()
+
+        return workflow.compile(
+            checkpointer=self.checkpointer, interrupt_before=["human_feedback"], store=in_memory_store
+        )
 
     def assessment(self, state: OverallState):
         """
@@ -127,7 +138,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             return "plan"
         return "human_feedback"
 
-    def plan(self, state: OverallState):
+    def plan(self, state: OverallState, *, store: BaseStore):
         """
         Plan the steps to follow.
 
@@ -152,6 +163,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             tools=toolkit.get_tools(),
             model_name=GENERIC_PERFORMANT_MODEL_NAME,  # PLANING_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
+            store=store,
         )
         result = react_agent.agent.invoke({"messages": messages})
 
@@ -179,7 +191,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return {"response": result.feedback, "human_approved": result.is_unambiguous_approval}
 
-    def execute_plan(self, state: OverallState):
+    def execute_plan(self, state: OverallState, *, store: BaseStore):
         """
         Execute the plan by making the necessary changes to the codebase.
 
@@ -189,23 +201,23 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        codebase_changes = CodebaseChanges()
-        toolkit = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref, codebase_changes
-        )
+        toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(execute_plan_system),
+            SystemMessage(execute_plan_system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
             HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])
         messages = prompt.format_messages(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=toolkit.get_tools(), model_name=CODING_PERFORMANT_MODEL_NAME
+            run_name="execute_plan_react_agent",
+            tools=toolkit.get_tools(),
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"configurable": {"max_tokens": 8192}})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
-        return {"file_changes": codebase_changes.file_changes}
+        return {"file_changes": []}
 
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """
@@ -220,3 +232,13 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         if "human_approved" in state and state["human_approved"]:
             return "execute_plan"
         return "human_feedback"
+
+    def get_files_to_commit(self) -> list[FileChange]:
+        return (
+            []
+            if self.agent.store is None
+            else [
+                cast(FileChange, item.value["data"])
+                for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+            ]
+        )
