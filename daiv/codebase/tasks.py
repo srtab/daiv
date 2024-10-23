@@ -129,7 +129,15 @@ def address_issue_task(
                     # Create the new tasks
                     issue_tasks = [
                         Issue(
-                            title=plan_task, assignee=client.current_user, issue_type=IssueType.TASK, labels=[BOT_LABEL]
+                            title=plan_task.title,
+                            description="{context}\n{subtasks}\n\nPath: `{path}`".format(
+                                context=plan_task.context,
+                                subtasks="\n - [ ] ".join(plan_task.subtasks),
+                                path=plan_task.path,
+                            ),
+                            assignee=client.current_user,
+                            issue_type=IssueType.TASK,
+                            labels=[BOT_LABEL],
                         )
                         for plan_task in result["plan_tasks"]
                     ]

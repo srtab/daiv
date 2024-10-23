@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
-from pydantic import BaseModel  # noqa: TCH002
+from pydantic import BaseModel, ValidationError  # noqa: TCH002
 
-from automation.graphs.agents import BaseAgent
+from automation.graphs.agents import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.agents")
 
-LIMIT_CONSECUTIVE_TOOL_CALLS = 3
+LIMIT_CONSECUTIVE_TOOL_CALLS = 5
 
 
 class StructuredAgentState(AgentState):
@@ -108,20 +108,19 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
             if state["is_last_step"]:
                 response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
                 logger.warning("[ReAcT] Last step reached. Ending the conversation.")
-            elif check_consecutive_tool_calls(state["messages"], tool_name) > LIMIT_CONSECUTIVE_TOOL_CALLS:
-                logger.warning(
-                    "[ReAcT] Limit of consecutive tool calls reached for %s. Trying to use another tool.", tool_name
-                )
+            elif check_consecutive_tool_calls(state["messages"] + [response], tool_name) > LIMIT_CONSECUTIVE_TOOL_CALLS:
+                logger.warning("[ReAcT] Limit of consecutive tool calls reached for %s.", tool_name)
                 tool_message = ToolMessage(
                     tool_call_id=response.tool_calls[0]["id"],
                     content=(
                         f"You reached the limit of consecutive tool calls for {tool_name}. "
-                        "Try to use another tool, if possible."
+                        "Do you need realy need to call the tool so many times? Are you in a loop? "
+                        "Lets think about it. If necessary, try to use another tool, if possible."
                     ),
                 )
-                response = llm_with_tools.invoke(state["messages"] + [tool_message])
+                consecutive_response = llm_with_tools.invoke(state["messages"] + [response, tool_message])
 
-                return {"messages": [tool_message, response]}
+                return {"messages": [response, tool_message, consecutive_response]}
 
         return {"messages": [response]}
 
@@ -139,7 +138,24 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
             raise ValueError("No structured output model provided.")
 
         last_message = cast(AIMessage, state["messages"][-1])
-        return {"response": self.with_structured_output(**last_message.tool_calls[0]["args"])}
+
+        response = None
+
+        try:
+            response = self.with_structured_output(**last_message.tool_calls[0]["args"])
+        except ValidationError:
+            logger.warning("[ReAcT] Error structuring output with tool args. Fallback to llm with_structured_output.")
+
+            llm_with_structured_output = self.model.with_structured_output(self.with_structured_output)
+            response = cast(
+                BaseModel,
+                llm_with_structured_output.invoke(
+                    [HumanMessage(last_message.pretty_repr())],
+                    config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                ),
+            )
+
+        return {"response": response}
 
     def should_continue(self, state: AgentState) -> Literal["respond", "continue", "end"]:
         """
