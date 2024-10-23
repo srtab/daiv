@@ -7,7 +7,7 @@ from django.core.cache import cache
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient
-from codebase.tasks import address_issue_task, handle_mr_feedback, update_index_repository
+from codebase.tasks import address_issue_task, address_review_task, update_index_repository
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +42,15 @@ class IssueCallback(BaseCallback):
         with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
             if await cache.aget(cache_key) is None:
                 await cache.aset(cache_key, "launched", timeout=60 * 10)
-                # handle_mr_feedback.si(
-                address_issue_task(
+                address_issue_task.si(
                     repo_id=self.project.path_with_namespace,
                     ref=self.project.default_branch,
                     issue_iid=self.object_attributes.iid,
                     should_reset_plan=self.should_reset_plan(),
                     cache_key=cache_key,
-                )
-                # ).apply_async()
+                ).apply_async()
             else:
-                logger.info(
+                logger.warning(
                     "Issue %s is already being processed. Skipping the webhook processing.", self.object_attributes.iid
                 )
 
@@ -107,30 +105,39 @@ class NoteCallback(BaseCallback):
 
     async def process_callback(self):
         """
-        Process the webhook by generating the changes and committing them to the source branch.
+        Trigger the task to address the review feedback or issue comment.
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         We need to prevent multiple webhook processing for the same merge request.
         """
         if self.issue:
-            address_issue_task(
-                repo_id=self.project.path_with_namespace, ref=self.project.default_branch, issue_iid=self.issue.iid
-            )
+            cache_key = f"{self.project.path_with_namespace}:{self.issue.iid}"
+            with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
+                if await cache.aget(cache_key) is None:
+                    await cache.aset(cache_key, "launched", timeout=60 * 10)
+                    address_issue_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        ref=self.project.default_branch,
+                        issue_iid=self.issue.iid,
+                    ).apply_async()
+                else:
+                    logger.warning(
+                        "Issue %s is already being processed. Skipping the webhook processing.", self.issue.iid
+                    )
+
         if self.merge_request:
             cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
             with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
                 if await cache.aget(cache_key) is None:
                     await cache.aset(cache_key, "launched", timeout=60 * 10)
-                    # handle_mr_feedback.si(
-                    handle_mr_feedback(
+                    address_review_task.si(
                         repo_id=self.project.path_with_namespace,
                         merge_request_id=self.merge_request.iid,
                         merge_request_source_branch=self.merge_request.source_branch,
                         cache_key=cache_key,
-                    )
-                    # ).apply_async()
+                    ).apply_async()
                 else:
-                    logger.info(
+                    logger.warning(
                         "Merge request %s is already being processed. Skipping the webhook processing.",
                         self.merge_request.iid,
                     )

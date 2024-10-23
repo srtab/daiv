@@ -230,7 +230,7 @@ class DiscussionToAdress:
 
 
 @shared_task
-def handle_mr_feedback(repo_id: str, merge_request_id: int, merge_request_source_branch: str, cache_key: str):
+def address_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str, cache_key: str):
     """
     Handle feedback for a merge request.
     """
