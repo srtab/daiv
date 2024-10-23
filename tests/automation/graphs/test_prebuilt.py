@@ -9,15 +9,11 @@ class CheckConsecutiveToolCallsTest:
         assert check_consecutive_tool_calls(messages, "tool1") == 0
 
     def test_single_tool_call(self):
-        messages = [
-            ToolMessage("content", tool_call_id="1"),
-            AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}]),
-        ]
+        messages = [AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}])]
         assert check_consecutive_tool_calls(messages, "tool1") == 1
 
     def test_multiple_consecutive_tool_calls(self):
         messages = [
-            ToolMessage("content", tool_call_id="1"),
             AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}]),
             ToolMessage("content", tool_call_id="1"),
             AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}]),
@@ -26,10 +22,9 @@ class CheckConsecutiveToolCallsTest:
 
     def test_non_consecutive_tool_calls(self):
         messages = [
-            ToolMessage("content", tool_call_id="1"),
             AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}]),
-            AIMessage("content"),
             ToolMessage("content", tool_call_id="1"),
+            AIMessage("content"),
             AIMessage("content", tool_calls=[{"name": "tool1", "args": {}, "id": "1"}]),
         ]
         assert check_consecutive_tool_calls(messages, "tool1") == 1

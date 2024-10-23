@@ -18,7 +18,7 @@ from automation.graphs.agents import (
 from automation.graphs.issue_addressor.schemas import HumanFeedbackResponse
 from automation.graphs.prebuilt import REACTAgent
 from automation.graphs.prompts import execute_plan_human, execute_plan_system
-from automation.graphs.schemas import AskForClarification, DetermineNextActionResponse, RequestAssessmentResponse
+from automation.graphs.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 
@@ -26,8 +26,8 @@ from .prompts import (
     human_feedback_system,
     issue_addressor_human,
     issue_addressor_system,
-    issue_analyzer_assessment,
-    issue_analyzer_human,
+    issue_assessment_human,
+    issue_assessment_system,
 )
 from .state import OverallState
 
@@ -109,14 +109,14 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(issue_analyzer_assessment),
-            HumanMessagePromptTemplate.from_template(issue_analyzer_human, "jinja2"),
+            SystemMessage(issue_assessment_system),
+            HumanMessagePromptTemplate.from_template(issue_assessment_human, "jinja2"),
         ])
 
-        evaluator = prompt | self.model.with_structured_output(RequestAssessmentResponse, method="json_schema")
+        evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
 
         response = cast(
-            RequestAssessmentResponse,
+            AssesmentClassificationResponse,
             evaluator.invoke(
                 {"issue_title": state["issue_title"], "issue_description": state["issue_description"]},
                 config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
@@ -165,7 +165,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
-        result = react_agent.agent.invoke({"messages": messages})
+        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
         if isinstance(result["response"].action, AskForClarification):
             return {"response": " ".join(result["response"].action.questions)}
@@ -186,7 +186,10 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         human_feedback_evaluator = self.model.with_structured_output(HumanFeedbackResponse, method="json_schema")
         result = cast(
             HumanFeedbackResponse,
-            human_feedback_evaluator.invoke([SystemMessage(human_feedback_system)] + state["messages"]),
+            human_feedback_evaluator.invoke(
+                [SystemMessage(human_feedback_system)] + state["messages"],
+                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+            ),
         )
 
         return {"response": result.feedback, "human_approved": result.is_unambiguous_approval}

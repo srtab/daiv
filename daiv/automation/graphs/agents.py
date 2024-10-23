@@ -7,7 +7,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 
 GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
-CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20240620"
+CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
 PLANING_PERFORMANT_MODEL_NAME = "claude-3-opus-20240229"
 GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
 

@@ -56,7 +56,6 @@ class CommitableBaseModel(BaseModel):
             "Tip: Use action-oriented verbs, such as 'Added', 'Updated', 'Removed', 'Improved', etc..."
         )
     )
-    store: Annotated[Any, InjectedStore()]
 
 
 class ReplaceSnippetInFileInput(CommitableBaseModel):
@@ -78,6 +77,7 @@ class ReplaceSnippetInFileInput(CommitableBaseModel):
             "Tip: Align the indentation level with the surrounding code for consistency."
         )
     )
+    store: Annotated[Any, InjectedStore()]
 
 
 class CreateNewRepositoryFileInput(CommitableBaseModel):
@@ -87,6 +87,7 @@ class CreateNewRepositoryFileInput(CommitableBaseModel):
 
     file_path: str = Field(description="The path within the repository where the new file will be created.")
     content: str = Field(description="The content of the new file.")
+    store: Annotated[Any, InjectedStore()]
 
 
 class RenameRepositoryFileInput(CommitableBaseModel):
@@ -96,6 +97,7 @@ class RenameRepositoryFileInput(CommitableBaseModel):
 
     file_path: str = Field(description="The path of the file to be renamed within the repository.")
     new_file_path: str = Field(description="The new path and name for the file.")
+    store: Annotated[Any, InjectedStore()]
 
 
 class DeleteRepositoryFileInput(CommitableBaseModel):
@@ -104,3 +106,4 @@ class DeleteRepositoryFileInput(CommitableBaseModel):
     """
 
     file_path: str = Field(description="The path of the file to delete within the repository.")
+    store: Annotated[Any, InjectedStore()]

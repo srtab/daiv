@@ -3,7 +3,12 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -19,11 +24,11 @@ from automation.graphs.agents import (
 from automation.graphs.pr_describer import PullRequestDescriberAgent
 from automation.graphs.prebuilt import REACTAgent
 from automation.graphs.prompts import execute_plan_human, execute_plan_system
-from automation.graphs.schemas import AskForClarification, RequestAssessmentResponse
+from automation.graphs.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.clients import AllRepoClient
 
-from .prompts import review_analyzer_assessment, review_analyzer_plan, review_analyzer_response
+from .prompts import review_analyzer_plan, review_assessment_system, review_human_feedback_system
 from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
 from .state import OverallState
 
@@ -113,12 +118,17 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        evaluator = self.model.with_structured_output(RequestAssessmentResponse, method="json_schema")
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessage(review_assessment_system),
+            MessagesPlaceholder("comments"),
+        ])
+
+        evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
+
         response = cast(
-            RequestAssessmentResponse,
+            AssesmentClassificationResponse,
             evaluator.invoke(
-                [SystemMessage(review_analyzer_assessment), state["messages"][-1]],
-                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                {"comments": state["messages"]}, config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}}
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -145,7 +155,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
-        response = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
+        response = react_agent.agent.invoke(
+            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": 50}
+        )
 
         if isinstance(response["response"].action, AskForClarification):
             return {"response": " ".join(response["response"].action.questions)}
@@ -185,7 +197,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             model_name=CODING_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": result.to_messages()})
+        react_agent.agent.invoke({"messages": result.to_messages()}, config={"recursion_limit": 50})
 
         return {"file_changes": store}
 
@@ -206,7 +218,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
             system_message_template = SystemMessagePromptTemplate.from_template(
-                review_analyzer_response, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+                review_human_feedback_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
             )
             system_message = system_message_template.format(diff=state["diff"])
 
@@ -217,9 +229,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 with_structured_output=HumanFeedbackResponse,
                 store=store,
             )
-            result = react_agent.agent.invoke(
-                {"messages": [system_message] + state["messages"]}, config={"configurable": {"test": True}}
-            )
+            result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
             response = cast(HumanFeedbackResponse, result["response"]).response
 
         if response:
