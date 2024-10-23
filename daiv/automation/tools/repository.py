@@ -8,9 +8,9 @@ from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from automation.graphs.codebase_search import CodebaseSearchAgent
-from automation.graphs.snippet_replacer.agent import SnippetReplacerAgent
-from automation.graphs.snippet_replacer.schemas import SnippetReplacerOutput
+from automation.agents.codebase_search import CodebaseSearchAgent
+from automation.agents.snippet_replacer.agent import SnippetReplacerAgent
+from automation.agents.snippet_replacer.schemas import SnippetReplacerOutput
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex

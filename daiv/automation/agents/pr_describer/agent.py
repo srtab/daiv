@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.runnables import Runnable
 from langchain_core.runnables.utils import Input
 
-from automation.graphs.agents import BaseAgent
+from automation.agents import BaseAgent
 
 from .prompts import human, system
 from .schemas import PullRequestDescriberOutput

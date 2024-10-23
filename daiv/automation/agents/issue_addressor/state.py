@@ -1,5 +1,4 @@
-from automation.graphs.state import PlanExecuteState
-from codebase.base import FileChange
+from automation.agents.state import PlanExecuteState
 
 
 class OverallState(PlanExecuteState):
@@ -7,4 +6,3 @@ class OverallState(PlanExecuteState):
     issue_description: str
     request_for_changes: bool
     human_approved: bool
-    file_changes: dict[str, FileChange]

@@ -9,16 +9,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
 
-from automation.graphs.agents import (
+from automation.agents import (
     CODING_PERFORMANT_MODEL_NAME,
     GENERIC_COST_EFFICIENT_MODEL_NAME,
-    GENERIC_PERFORMANT_MODEL_NAME,
+    PLANING_PERFORMANT_MODEL_NAME,
     BaseAgent,
 )
-from automation.graphs.issue_addressor.schemas import HumanFeedbackResponse
-from automation.graphs.prebuilt import REACTAgent
-from automation.graphs.prompts import execute_plan_human, execute_plan_system
-from automation.graphs.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
+from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
+from automation.agents.prebuilt import REACTAgent
+from automation.agents.prompts import execute_plan_human, execute_plan_system
+from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 
@@ -161,7 +161,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=toolkit.get_tools(),
-            model_name=GENERIC_PERFORMANT_MODEL_NAME,  # PLANING_PERFORMANT_MODEL_NAME,
+            model_name=PLANING_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
@@ -219,8 +219,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
-
-        return {"file_changes": []}
 
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """

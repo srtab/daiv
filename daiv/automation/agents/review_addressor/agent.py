@@ -15,16 +15,16 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-from automation.graphs.agents import (
+from automation.agents import (
     CODING_PERFORMANT_MODEL_NAME,
     GENERIC_COST_EFFICIENT_MODEL_NAME,
     GENERIC_PERFORMANT_MODEL_NAME,
     BaseAgent,
 )
-from automation.graphs.pr_describer import PullRequestDescriberAgent
-from automation.graphs.prebuilt import REACTAgent
-from automation.graphs.prompts import execute_plan_human, execute_plan_system
-from automation.graphs.schemas import AskForClarification, AssesmentClassificationResponse
+from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agents.prebuilt import REACTAgent
+from automation.agents.prompts import execute_plan_human, execute_plan_system
+from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.clients import AllRepoClient
 
@@ -165,7 +165,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             "plan_tasks": response["response"].action.tasks,
             "goal": response["response"].action.goal,
             "show_diff_hunk_to_executor": response["response"].action.show_diff_hunk_to_executor,
-            "file_changes": {},
         }
 
     def execute_plan(self, state: OverallState, *, store: BaseStore):
@@ -198,8 +197,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             store=store,
         )
         react_agent.agent.invoke({"messages": result.to_messages()}, config={"recursion_limit": 50})
-
-        return {"file_changes": store}
 
     def human_feedback(self, state: OverallState, *, store: BaseStore):
         """

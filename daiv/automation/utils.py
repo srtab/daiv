@@ -5,7 +5,7 @@ from decimal import Decimal
 from langsmith.client import Client
 from langsmith.utils import get_tracer_project
 
-from automation.agents.models import Usage
+from automation.agents import Usage
 
 
 def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> str | None:

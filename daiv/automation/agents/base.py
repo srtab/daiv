@@ -1,14 +1,24 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from decimal import Decimal
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
-from langgraph.checkpoint.postgres import PostgresSaver
+from pydantic import BaseModel
 
-GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
-CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
+if TYPE_CHECKING:
+    from langgraph.checkpoint.postgres import PostgresSaver
+
+ANTHROPIC_PROVIDER_NAME = "anthropic"
+
 PLANING_PERFORMANT_MODEL_NAME = "claude-3-opus-20240229"
+PLANING_COST_EFFICIENT_MODEL_NAME = "gpt-4o-2024-08-06"
+CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
+CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # TODO: Replace with haiku 3.5 when released
+GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
 GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
 
 
@@ -66,11 +76,12 @@ class BaseAgent(ABC, Generic[T]):
             "configurable_fields": ("model", "temperature", "max_tokens"),
             "model_kwargs": {},
         }
-        if _attempt_infer_model_provider(self.model_name) == "anthropic":
+
+        if _attempt_infer_model_provider(self.model_name) == ANTHROPIC_PROVIDER_NAME:
             kwargs["model_kwargs"]["extra_headers"] = {
                 "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
             }
-            kwargs["max_tokens"] = "8192"
+            kwargs["max_tokens"] = "8192" if self.model_name.startswith("claude-3-5-sonnet") else "4096"
         return kwargs
 
     def get_config(self) -> RunnableConfig:
@@ -90,3 +101,32 @@ class BaseAgent(ABC, Generic[T]):
             str: The Mermaid graph
         """
         return self.agent.get_graph().draw_mermaid()
+
+
+class Usage(BaseModel):
+    completion_tokens: int = 0
+    """The number of tokens used for completion."""
+
+    prompt_tokens: int = 0
+    """The number of tokens used for the prompt."""
+
+    total_tokens: int = 0
+    """The total number of tokens used."""
+
+    prompt_cost: Decimal = Decimal(0.0)
+    """The cost of the prompt tokens."""
+
+    completion_cost: Decimal = Decimal(0.0)
+    """The cost of the completion tokens."""
+
+    total_cost: Decimal = Decimal(0.0)
+    """The total cost of the tokens."""
+
+    def __add__(self, other: Usage):
+        self.completion_tokens += other.completion_tokens
+        self.prompt_tokens += other.prompt_tokens
+        self.total_tokens += other.total_tokens
+        self.prompt_cost += other.prompt_cost
+        self.completion_cost += other.completion_cost
+        self.total_cost += other.total_cost
+        return self

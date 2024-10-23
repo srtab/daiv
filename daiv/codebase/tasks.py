@@ -14,17 +14,17 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import START
 from unidiff import Hunk, PatchedFile, PatchSet
 
-from automation.graphs.issue_addressor.agent import IssueAddressorAgent
-from automation.graphs.issue_addressor.templates import (
+from automation.agents.issue_addressor.agent import IssueAddressorAgent
+from automation.agents.issue_addressor.templates import (
     ISSUE_MERGE_REQUEST_TEMPLATE,
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
     ISSUE_REVIEW_PLAN_TEMPLATE,
     ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE,
 )
-from automation.graphs.pr_describer.agent import PullRequestDescriberAgent
-from automation.graphs.pr_describer.schemas import PullRequestDescriberOutput
-from automation.graphs.review_addressor.agent import ReviewAddressorAgent
+from automation.agents.pr_describer.agent import PullRequestDescriberAgent
+from automation.agents.pr_describer.schemas import PullRequestDescriberOutput
+from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import Discussion, Issue, IssueType, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex

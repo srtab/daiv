@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
-from automation.graphs.prebuilt import check_consecutive_tool_calls
+from automation.agents.prebuilt import check_consecutive_tool_calls
 
 
 class CheckConsecutiveToolCallsTest:
