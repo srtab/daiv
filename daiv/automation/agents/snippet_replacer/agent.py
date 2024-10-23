@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
-from automation.graphs.agents import CODING_PERFORMANT_MODEL_NAME, BaseAgent
+from automation.agents import CODING_COST_EFFICIENT_MODEL_NAME, BaseAgent
 
 from .prompts import human, system
 from .schemas import SnippetReplacerOutput
@@ -26,7 +26,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable]):
     Agent to replace a code snippet in a codebase.
     """
 
-    model_name = CODING_PERFORMANT_MODEL_NAME
+    model_name = CODING_COST_EFFICIENT_MODEL_NAME
 
     def compile(self) -> Runnable:
         """

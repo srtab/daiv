@@ -10,7 +10,7 @@ from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
 from pydantic import BaseModel, ValidationError  # noqa: TCH002
 
-from automation.graphs.agents import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
+from automation.agents import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence

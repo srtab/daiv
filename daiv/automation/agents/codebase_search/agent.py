@@ -6,8 +6,8 @@ from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from automation.graphs.agents import BaseAgent
-from automation.graphs.codebase_search.schemas import GradeDocumentsOutput, ImprovedQueryOutput
+from automation.agents import BaseAgent
+from automation.agents.codebase_search.schemas import GradeDocumentsOutput, ImprovedQueryOutput
 from codebase.indexes import CodebaseIndex
 
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
