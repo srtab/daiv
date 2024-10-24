@@ -15,6 +15,7 @@ from automation.agents import (
     PLANING_PERFORMANT_MODEL_NAME,
     BaseAgent,
 )
+from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
@@ -45,8 +46,19 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
     Agent to address issues created by the reporter.
     """
 
-    def __init__(self, repo_client: AllRepoClient, *, source_repo_id: str, source_ref: str, issue_id: int, **kwargs):
+    def __init__(
+        self,
+        repo_client: AllRepoClient,
+        *,
+        project_id: int,
+        source_repo_id: str,
+        source_ref: str,
+        issue_id: int,
+        **kwargs,
+    ):
         self.repo_client = repo_client
+        # TODO: pass this parameters as part of the config instead of the constructor
+        self.project_id = project_id
         self.source_repo_id = source_repo_id
         self.source_ref = source_ref
         self.issue_id = issue_id
@@ -138,7 +150,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             return "plan"
         return "human_feedback"
 
-    def plan(self, state: OverallState, *, store: BaseStore):
+    def plan(self, state: OverallState, store: BaseStore):
         """
         Plan the steps to follow.
 
@@ -150,10 +162,15 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
+        extracted_images = ImageURLExtractorAgent().agent.invoke(
+            {"markdown_text": state["issue_description"]}, {"configurable": {"project_id": self.project_id}}
+        )
+
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(issue_addressor_system),
-            HumanMessagePromptTemplate.from_template(issue_addressor_human, "jinja2"),
+            HumanMessagePromptTemplate.from_template([issue_addressor_human] + extracted_images, "jinja2"),
         ])
+
         messages = prompt.format_messages(
             issue_title=state["issue_title"], issue_description=state["issue_description"]
         )
@@ -194,7 +211,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return {"response": result.feedback, "human_approved": result.is_unambiguous_approval}
 
-    def execute_plan(self, state: OverallState, *, store: BaseStore):
+    def execute_plan(self, state: OverallState, store: BaseStore):
         """
         Execute the plan by making the necessary changes to the codebase.
 
@@ -235,11 +252,9 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         return "human_feedback"
 
     def get_files_to_commit(self) -> list[FileChange]:
-        return (
-            []
-            if self.agent.store is None
-            else [
-                cast(FileChange, item.value["data"])
-                for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
-            ]
-        )
+        if self.agent.store is None:
+            return []
+        return [
+            cast(FileChange, item.value["data"])
+            for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+        ]

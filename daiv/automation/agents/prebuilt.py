@@ -71,11 +71,9 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.set_entry_point("agent")
 
-        path_map: dict[Hashable, str] = {"continue": "tools"}
+        path_map: dict[Hashable, str] = {"continue": "tools", "end": END}
         if self.with_structured_output:
             path_map["respond"] = "respond"
-        else:
-            path_map["end"] = END
 
         workflow.add_conditional_edges("agent", self.should_continue, path_map)
 
@@ -146,7 +144,9 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         except ValidationError:
             logger.warning("[ReAcT] Error structuring output with tool args. Fallback to llm with_structured_output.")
 
-            llm_with_structured_output = self.model.with_structured_output(self.with_structured_output)
+            llm_with_structured_output = self.model.with_structured_output(
+                self.with_structured_output, method="json_schema"
+            )
             response = cast(
                 BaseModel,
                 llm_with_structured_output.invoke(
