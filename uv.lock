@@ -609,7 +609,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.9.2" },
     { name = "python-decouple", specifier = "==3.8" },
     { name = "python-gitlab", extras = ["graphql"], specifier = "==4.13" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "pyyaml", specifier = "==6.0.2" },
     { name = "redis", specifier = "==5.1.1" },
     { name = "tantivy", specifier = "==0.22" },
     { name = "tree-sitter", specifier = "==0.21.3" },
