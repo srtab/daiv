@@ -43,7 +43,7 @@ dependencies = [
   "pydantic==2.9.2",
   "python-decouple==3.8",
   "python-gitlab[graphql]==4.13",
-  "redis==5.1.1",
+  "redis==5.2.0",
   "tantivy==0.22",
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
