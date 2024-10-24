@@ -1,6 +1,6 @@
 import base64
 import pytest
-from daiv.core.utils import (
+from core.utils import (
     is_valid_url,
     build_uri,
     extract_image_mimetype_openai,
