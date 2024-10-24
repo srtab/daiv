@@ -11,7 +11,7 @@ from core.utils import (
 )
 
 
-class TestIsValidUrl:
+class IsValidUrlTest:
     def test_valid_url_returns_true(self):
         assert is_valid_url("https://example.com/image.jpg") is True
         assert is_valid_url("http://test.org/path/to/resource") is True
@@ -22,7 +22,7 @@ class TestIsValidUrl:
         assert is_valid_url("file:///local/path") is False
 
 
-class TestBuildUri:
+class BuildUriTest:
     def test_append_path_to_base_uri(self):
         assert build_uri("https://api.example.com", "v1/endpoint") == "https://api.example.com/v1/endpoint"
 
@@ -33,7 +33,7 @@ class TestBuildUri:
         assert build_uri("https://api.example.com", "v1/endpoint") == "https://api.example.com/v1/endpoint"
 
 
-class TestExtractImageMimetypeOpenai:
+class ExtractImageMimetypeOpenaiTest:
     def test_supported_image_formats(self):
         assert extract_image_mimetype_openai("image.jpg") == "image/jpeg"
         assert extract_image_mimetype_openai("image.jpeg") == "image/jpeg"
@@ -47,7 +47,7 @@ class TestExtractImageMimetypeOpenai:
         assert extract_image_mimetype_openai("not-an-image.txt") is None
 
 
-class TestUrlToDataUrl:
+class UrlToDataUrlTest:
     def test_successful_conversion(self, mocker):
         mock_response = mocker.Mock()
         mock_response.content = b"fake-image-data"
@@ -69,7 +69,7 @@ class TestUrlToDataUrl:
         assert result is None
 
 
-class TestBatchUrlToDataUrl:
+class BatchUrlToDataUrlTest:
     def test_successful_batch_conversion(self, mocker):
         mock_response = mocker.Mock()
         mock_response.content = b"fake-image-data"
@@ -133,7 +133,7 @@ class TestAsyncUrlToDataUrl:
         assert result is None
 
 
-class TestBatchAsyncUrlToDataUrl:
+class BatchAsyncUrlToDataUrlTest:
     @pytest.mark.asyncio
     async def test_successful_batch_conversion(self, mocker):
         mock_response = mocker.Mock()
