@@ -38,7 +38,7 @@ dependencies = [
   "langgraph==0.2.39",
   "langgraph-checkpoint-postgres==2.0.1",
   "langsmith==0.1.137",
-  "psycopg[pool]==3.2.2",
+  "psycopg[pool]==3.2.3",
   "pydantic==2.9.2",
   "python-decouple==3.8",
   "python-gitlab[graphql]==4.13",
