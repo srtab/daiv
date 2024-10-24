@@ -20,7 +20,7 @@ class Repository(BaseModel):
     name: str
     default_branch: str
     client: ClientType
-    head_sha: str
+    head_sha: str | None = None
     topics: list[str] = Field(default_factory=list)
 
     @classmethod

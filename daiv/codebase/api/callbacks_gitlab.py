@@ -44,7 +44,6 @@ class IssueCallback(BaseCallback):
                 await cache.aset(cache_key, "launched", timeout=60 * 10)
                 address_issue_task.si(
                     repo_id=self.project.path_with_namespace,
-                    ref=self.project.default_branch,
                     issue_iid=self.object_attributes.iid,
                     should_reset_plan=self.should_reset_plan(),
                     cache_key=cache_key,
@@ -116,9 +115,7 @@ class NoteCallback(BaseCallback):
                 if await cache.aget(cache_key) is None:
                     await cache.aset(cache_key, "launched", timeout=60 * 10)
                     address_issue_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        ref=self.project.default_branch,
-                        issue_iid=self.issue.iid,
+                        repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid
                     ).apply_async()
                 else:
                     logger.warning(
