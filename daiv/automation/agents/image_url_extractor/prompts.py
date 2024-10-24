@@ -92,6 +92,6 @@ If no image URLs are found, output an empty list.
 
 human = """Here is the markdown content you need to analyze for image URLs:
 <markdown_text>
-{{ text }}
+{{ markdown_text }}
 </markdown_text>
 """

@@ -98,12 +98,12 @@ def address_issue_task(
             client.comment_issue(
                 repo_id, issue.iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_LABEL)
             )
-
         config = RunnableConfig(configurable={"thread_id": f"{repo_id}#{issue_iid}"})
 
         with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
             issue_addressor = IssueAddressorAgent(
                 client,
+                project_id=project.pk,
                 source_repo_id=repo_id,
                 source_ref=ref,
                 issue_id=issue_iid,
