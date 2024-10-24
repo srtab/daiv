@@ -14,6 +14,7 @@ requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "celery[redis]==5.4",
@@ -142,8 +143,6 @@ module = [
   "decouple.*",
   "django.*",
   "django_extensions.*",
-  "litellm.*",
-  "transformers.*",
   "unidiff.*",
   "redis.*",
 ]
@@ -151,14 +150,14 @@ ignore_missing_imports = true
 
 [tool.uv]
 dev-dependencies = [
-  "coverage==7.6.1",
-  "mypy==1.11.2",
-  "pre-commit==4.0.0",
-  "pyproject-fmt==2.2.4",
+  "coverage==7.6.4",
+  "mypy==1.13.0",
+  "pre-commit==4.0.1",
+  "pyproject-fmt==2.4.3",
   "pyopenssl==24.2.1",
   "pytest-cov==5.0.0",
   "pytest-django==4.9.0",
   "pytest-env==1.1.5",
   "pytest-xdist==3.6.1",
-  "ruff==0.6.9",
+  "ruff==0.7.1",
 ]
