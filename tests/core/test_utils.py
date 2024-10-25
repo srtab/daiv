@@ -1,5 +1,6 @@
 import base64
 import pytest
+import httpx
 from core.utils import (
     is_valid_url,
     build_uri,
