@@ -35,7 +35,7 @@ class BuildUriTest:
         
     def test_handle_multiple_slashes(self):
         """Test handling of multiple consecutive slashes in URI and path."""
-        assert build_uri("https://api.example.com///", "///v1/endpoint") == "https://api.example.com///v1/endpoint"
+        assert build_uri("https://api.example.com///", "///v1/endpoint") == "https://api.example.com/v1/endpoint"
 
 
 class ExtractImageMimetypeOpenaiTest:
