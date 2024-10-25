@@ -26,14 +26,15 @@ def is_valid_url(url: str) -> bool:
 def build_uri(uri: str, path: str):
     """
     Build a URI by appending a path to the given URI.
+    Ensures there is exactly one slash between the URI and path.
     """
     uri_parts = list(urlparse(uri))
-    if uri_parts[2].endswith("/") and path.startswith("/"):
-        uri_parts[2] += path[1:]
-    elif not uri_parts[2].endswith("/") and not path.startswith("/"):
-        uri_parts[2] += f"/{path}"
-    else:
-        uri_parts[2] += path
+    # Strip trailing slashes from the path component
+    uri_parts[2] = uri_parts[2].rstrip('/')
+    # Strip leading slashes from the new path
+    clean_path = path.lstrip('/')
+    # Add a single slash between URI and path
+    uri_parts[2] = f"{uri_parts[2]}/{clean_path}"
     return urlunparse(uri_parts)
 
 
