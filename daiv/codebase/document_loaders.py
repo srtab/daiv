@@ -25,6 +25,7 @@ EXCLUDE_PATTERN = (
     "*yarn.lock",
     "*gemfile.lock",
     "*composer.lock",
+    "*uv.lock",
     "*.svg",
     # folders
     "*vendor/*",

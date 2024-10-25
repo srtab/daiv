@@ -14,7 +14,7 @@ from zipfile import ZipFile
 from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabHttpError, GraphQL
 from gitlab.v4.objects import ProjectHook
 
-from core.config import DAIVConfig
+from core.config import RepositoryConfig
 from core.constants import BOT_NAME
 
 from .base import (
@@ -243,16 +243,6 @@ class GitLabClient(RepoClient):
             )
         ]
 
-    def _create_repository_from_project(self, project) -> Repository:
-        return Repository(
-            pk=cast(int, project.get_id()),
-            slug=project.path_with_namespace,
-            name=project.name,
-            default_branch=project.default_branch,
-            client=self.client_slug,
-            topics=project.topics,
-        )
-
     def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
         """
         Get the content of a file in a repository.
@@ -266,8 +256,7 @@ class GitLabClient(RepoClient):
             The content of the file. If the file is binary or not a text file, it returns None.
         """
         project = self.client.projects.get(repo_id)
-        repository = self._create_repository_from_project(project)
-        _ref = ref or DAIVConfig.from_repo(repository).default_branch
+        _ref = ref or RepositoryConfig.get_config(repo_id).default_branch
         try:
             project_file = project.files.get(file_path=file_path, ref=_ref)
         except GitlabHttpError as e:
@@ -292,8 +281,7 @@ class GitLabClient(RepoClient):
             True if the file exists, otherwise False.
         """
         project = self.client.projects.get(repo_id)
-        repository = self._create_repository_from_project(project)
-        _ref = ref or DAIVConfig.from_repo(repository).default_branch
+        _ref = ref or RepositoryConfig.get_config(repo_id).default_branch
         try:
             project.files.head(file_path=file_path, ref=_ref)
         except GitlabHeadError as e:
@@ -325,8 +313,7 @@ class GitLabClient(RepoClient):
             The list of files or directories in the tree.
         """
         project = self.client.projects.get(repo_id)
-        repository = self._create_repository_from_project(project)
-        _ref = ref or DAIVConfig.from_repo(repository).default_branch
+        _ref = ref or RepositoryConfig.get_config(repo_id).default_branch
         repository_tree = project.repository_tree(recursive=recursive, ref=_ref, path=path, all=True)
         return [file["path"] for file in repository_tree if tree_type is None or file["type"] == tree_type]
 
@@ -563,8 +550,7 @@ class GitLabClient(RepoClient):
             The path to the repository directory.
         """
         project = self.client.projects.get(repo_id)
-        repository = self._create_repository_from_project(project)
-        _sha = sha or DAIVConfig.from_repo(repository).default_branch
+        _sha = sha or RepositoryConfig.get_config(repo_id).default_branch
         safe_sha = _sha.replace("/", "_").replace(" ", "-")
 
         tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{safe_sha}-repo")
@@ -602,8 +588,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=branch is not None)
         if branch is None:
-            repository = self._create_repository_from_project(project)
-            branch = DAIVConfig.from_repo(repository).default_branch
+            branch = RepositoryConfig.get_config(repo_id).default_branch
         return project.branches.get(branch).commit["id"]
 
     def get_commit_changed_files(

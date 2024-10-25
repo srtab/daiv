@@ -1,22 +1,29 @@
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from typing import NotRequired, TypedDict
+
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable
-from langchain_core.runnables.utils import Input
 
 from automation.agents import BaseAgent
+from codebase.base import FileChange
 
 from .prompts import human, system
 from .schemas import PullRequestDescriberOutput
 
 
-class PullRequestDescriberAgent(BaseAgent[Runnable[Input, PullRequestDescriberOutput]]):
+class PullRequestDescriberInput(TypedDict):
+    changes: list[FileChange]
+    extra_details: NotRequired[dict[str, str]]
+    branch_name_convention: NotRequired[str]
+
+
+class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestDescriberOutput]]):
     """
     Agent to describe changes in a pull request.
     """
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(system),
+            SystemMessagePromptTemplate.from_template(system, "jinja2"),
             HumanMessagePromptTemplate.from_template(human, "jinja2"),
-        ]).partial(extra_info={})
+        ]).partial(branch_name_convention=None, extra_details={})
         return prompt | self.model.with_structured_output(PullRequestDescriberOutput, method="json_schema")

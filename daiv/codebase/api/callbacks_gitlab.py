@@ -4,10 +4,13 @@ from typing import Literal
 
 from django.core.cache import cache
 
+from asgiref.sync import sync_to_async
+
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, update_index_repository
+from core.config import RepositoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,8 @@ class IssueCallback(BaseCallback):
 
     def accept_callback(self) -> bool:
         return (
-            self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+            RepositoryConfig.get_config(self.project.path_with_namespace).features.issue_implementation
+            and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if there are changes in the title or description of the issue.
             and (self.changes and "title" in self.changes or "description" in self.changes or "labels" in self.changes)
             # Only accept if the issue is a DAIV issue.
@@ -76,13 +80,17 @@ class NoteCallback(BaseCallback):
     issue: Issue | None = None
     object_attributes: Note
 
+    def __post_init__(self):
+        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
+
     def accept_callback(self) -> bool:
         """
         Accept the webhook if the note is a review feedback for a merge request.
         """
         client = RepoClient.create_instance()
         return bool(
-            self.user.id != client.current_user.id
+            (self._repo_config.features.issue_implementation or self._repo_config.features.code_review_automation)
+            and self.user.id != client.current_user.id
             and not self.object_attributes.system
             and self.object_attributes.action == NoteAction.CREATE
             and (
@@ -109,7 +117,7 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         We need to prevent multiple webhook processing for the same merge request.
         """
-        if self.issue:
+        if self._repo_config.features.issue_implementation and self.issue:
             cache_key = f"{self.project.path_with_namespace}:{self.issue.iid}"
             with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
                 if await cache.aget(cache_key) is None:
@@ -122,7 +130,7 @@ class NoteCallback(BaseCallback):
                         "Issue %s is already being processed. Skipping the webhook processing.", self.issue.iid
                     )
 
-        if self.merge_request:
+        if self._repo_config.features.code_review_automation and self.merge_request:
             cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
             with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
                 if await cache.aget(cache_key) is None:
@@ -161,7 +169,9 @@ class PushCallback(BaseCallback):
         Trigger the update of the codebase index.
         """
         for merge_request in self.related_merge_requests:
-            update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).apply_async()
+            await sync_to_async(
+                update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).delay
+            )()
 
     @cached_property
     def related_merge_requests(self) -> list[MergeRequest]:

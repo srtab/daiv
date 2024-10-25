@@ -28,7 +28,7 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import Discussion, Issue, IssueType, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
-from core.config import DAIVConfig
+from core.config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 
 if TYPE_CHECKING:
@@ -93,19 +93,20 @@ def address_issue_task(
         client = RepoClient.create_instance()
         repository = client.get_repository(repo_id)
         issue = client.get_issue(repo_id, issue_iid)
-        default_branch = ref or DAIVConfig.from_repo(repository).default_branch
+        repo_config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+        default_branch = ref or repo_config.default_branch
 
         # Check if the issue already has a comment from the bot. If it doesn't, we need to add one.
         if not next((note.body for note in issue.notes if note.author.id == client.current_user.id), None):
             client.comment_issue(
                 repo_id, issue_iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_NAME)
             )
-
         config = RunnableConfig(configurable={"thread_id": f"{repo_id}#{issue_iid}"})
 
         with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
             issue_addressor = IssueAddressorAgent(
                 client,
+                project_id=repository.pk,
                 source_repo_id=repo_id,
                 source_ref=default_branch,
                 issue_id=issue_iid,
@@ -127,7 +128,7 @@ def address_issue_task(
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
 
-                if result["plan_tasks"]:
+                if "plan_tasks" in result:
                     # Create the new tasks
                     issue_tasks = [
                         Issue(
@@ -147,6 +148,8 @@ def address_issue_task(
 
                     # Request the reporter to review the plan
                     client.comment_issue(repo_id, issue_iid, ISSUE_REVIEW_PLAN_TEMPLATE)
+                elif "questions" in result:
+                    client.comment_issue(repo_id, issue_iid, "\n".join(result["questions"]))
                 else:
                     client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE)
 
@@ -168,7 +171,11 @@ def address_issue_task(
                                 PullRequestDescriberOutput,
                                 pr_describer.agent.invoke({
                                     "changes": file_changes,
-                                    "extra_info": {"Issue title": issue.title, "Issue description": issue.description},
+                                    "extra_details": {
+                                        "Issue title": issue.title,
+                                        "Issue description": cast(str, issue.description),
+                                    },
+                                    "branch_name_convention": repo_config.branch_name_convention,
                                 }),
                             )
 
@@ -243,9 +250,10 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
 
     try:
         for merge_request_diff in client.get_merge_request_diff(repo_id, merge_request_id):
-            # Each patch set contains a single file diff (no multiple files in a single MR diff)
-            patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
-            merge_request_patchs[patch_set[0].path] = patch_set[0]
+            if merge_request_diff.diff:
+                # Each patch set contains a single file diff (no multiple files in a single MR diff)
+                patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
+                merge_request_patchs[patch_set[0].path] = patch_set[0]
 
         for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
             if discussion.notes[-1].author.id == client.current_user.id:

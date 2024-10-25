@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import functools
 from contextlib import suppress
 from io import StringIO
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
+
 import yaml
 from pydantic import BaseModel, Field, ValidationError
-
-from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
     from codebase.base import Repository
 
 CONFIGURATION_FILE_NAME = ".daiv.yml"
+CONFIGURATION_CACHE_KEY_PREFIX = "repo_config:"
+CONFIGURATION_CACHE_TIMEOUT = 60 * 60 * 1  # 1 hour
 
 
 class Features(BaseModel):
@@ -24,8 +25,7 @@ class Features(BaseModel):
     )
 
 
-class DAIVConfig(BaseModel):
-    # Repository metadata
+class RepositoryConfig(BaseModel):
     default_branch: str | None = Field(
         default=None,
         description=(
@@ -49,15 +49,40 @@ class DAIVConfig(BaseModel):
     features: Features = Field(default_factory=Features, description="Feature flags and toggles for DAIV.")
 
     # Codebase restrictions
-    blocked_paths: list[str] = Field(
-        default_factory=list,
-        description="List of paths that DAIV should ignore when analyzing the codebase.",
-        examples=["tests/", "docs/"],
+    exclude_patterns: tuple[str, ...] = Field(
+        default=(
+            # files
+            "*pipfile.lock",
+            "*package-lock.json",
+            "*yarn.lock",
+            "*gemfile.lock",
+            "*composer.lock",
+            "*uv.lock",
+            "*.svg",
+            # folders
+            "*.git/*",
+            "*.mypy_cache/*",
+            "*.tox/*",
+            "*vendor/*",
+            "*venv/*",
+            "*node_modules/*",
+            "*dist/*",
+        ),
+        description=(
+            "List of path patterns that DAIV should ignore when indexing and analyzing the codebase. "
+            "For more information on the glob syntax, refer to the `pathlib` documentation: "
+            "https://docs.python.org/3/library/pathlib.html#pathlib-pattern-language."
+        ),
     )
-    ignored_file_types: list[str] = Field(
+    extend_exclude_patterns: list[str] = Field(
         default_factory=list,
-        description="List of file types that DAIV should ignore when analyzing the codebase.",
-        examples=[".md", ".txt"],
+        description=(
+            "List of path patterns that DAIV should ignore when indexing and analyzing the codebase, "
+            "in addition to those specified by `exclude_patterns`."
+            "To know more about the patterns you can use, check the documentation: "
+            "https://docs.python.org/3/library/pathlib.html#pathlib-pattern-language."
+        ),
+        examples=["*tests/*", "*requirements.txt"],
     )
 
     # Pull request management
@@ -67,7 +92,7 @@ class DAIVConfig(BaseModel):
         examples=["always start with 'feat/' or 'fix/' followed of short description."],
     )
 
-    # Localization and internationalization
+    # Localization
     primary_language: str = Field(
         default="English",
         description="The primary language that DAIV should use for messages.",
@@ -75,28 +100,47 @@ class DAIVConfig(BaseModel):
     )
 
     @staticmethod
-    @functools.cache
-    def from_repo(repository: Repository | None = None) -> DAIVConfig:
+    def get_config(repo_id: str, repository: Repository | None = None) -> RepositoryConfig:
         """
-        Load the DAIV configuration from the repository.
+        Get the configuration for a repository.
+        If the configuration file is not found, a default configuration is returned.
+        The configuration is cached for a period of time to avoid unnecessary requests to the repository.
 
         Args:
-            repository (Repository, optional): The repository to load the configuration from. Defaults to None.
+            repo_id (str): The repository ID.
 
         Returns:
-            DAIVConfig: The DAIV configuration.
+            RepositoryConfig: The configuration for the repository.
         """
-        repo_client = RepoClient.create_instance()
-        if repository and (
-            config_file := repo_client.get_repository_file(
-                repository.slug, CONFIGURATION_FILE_NAME, ref=repository.default_branch
-            )
-        ):
-            yaml_content = yaml.safe_load(StringIO(config_file))
+        from codebase.clients import RepoClient
 
+        cache_key = f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}"
+
+        if (cached_config := cache.get(cache_key)) is not None:
+            return RepositoryConfig(**cached_config)
+
+        repo_client = RepoClient.create_instance()
+
+        if repository is None:
+            repository = repo_client.get_repository(repo_id)
+
+        if config_file := repo_client.get_repository_file(
+            repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch
+        ):
             with suppress(ValidationError):
-                config = DAIVConfig(**yaml_content)
-                if not config.default_branch:
-                    config.default_branch = repository.default_branch
-                return config
-        return DAIVConfig()
+                config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
+        else:
+            config = RepositoryConfig()
+
+        if not config.default_branch:
+            config.default_branch = repository.default_branch
+
+        cache.set(cache_key, config.model_dump(), CONFIGURATION_CACHE_TIMEOUT)
+        return config
+
+    @staticmethod
+    def invalidate_cache(repo_id: str) -> None:
+        """
+        Invalidate cache for a specific repository.
+        """
+        cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")

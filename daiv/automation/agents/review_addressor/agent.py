@@ -27,6 +27,7 @@ from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.clients import AllRepoClient
+from core.config import RepositoryConfig
 
 from .prompts import review_analyzer_plan, review_assessment_system, review_human_feedback_system
 from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
@@ -58,6 +59,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.source_ref = source_ref
         self.merge_request_id = merge_request_id
         self.discussion_id = discussion_id
+        self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -251,7 +253,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             file_changes: list[FileChange] = [item.value["data"] for item in stored_items]
 
             pr_describer = PullRequestDescriberAgent()
-            changes_description = pr_describer.agent.invoke({"changes": file_changes})
+            changes_description = pr_describer.agent.invoke({
+                "changes": file_changes,
+                "branch_name_convention": self.repo_config.branch_name_convention,
+            })
 
             self.repo_client.commit_changes(
                 self.source_repo_id, self.source_ref, changes_description.commit_message, file_changes
