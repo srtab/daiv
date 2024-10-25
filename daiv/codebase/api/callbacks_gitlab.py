@@ -4,6 +4,8 @@ from typing import Literal
 
 from django.core.cache import cache
 
+from asgiref.sync import sync_to_async
+
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient
@@ -164,7 +166,9 @@ class PushCallback(BaseCallback):
         Trigger the update of the codebase index.
         """
         for merge_request in self.related_merge_requests:
-            update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).apply_async()
+            await sync_to_async(
+                update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).delay
+            )()
 
     @cached_property
     def related_merge_requests(self) -> list[MergeRequest]:
