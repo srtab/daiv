@@ -14,6 +14,8 @@ logger = logging.getLogger("daiv.core")
 
 SUPPORTED_MIMETYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
+mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by default
+
 
 def is_valid_url(url: str) -> bool:
     """
