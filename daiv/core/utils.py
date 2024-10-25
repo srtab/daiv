@@ -30,9 +30,9 @@ def build_uri(uri: str, path: str):
     """
     uri_parts = list(urlparse(uri))
     # Strip trailing slashes from the path component
-    uri_parts[2] = uri_parts[2].rstrip('/')
+    uri_parts[2] = uri_parts[2].rstrip("/")
     # Strip leading slashes from the new path
-    clean_path = path.lstrip('/')
+    clean_path = path.lstrip("/")
     # Add a single slash between URI and path
     uri_parts[2] = f"{uri_parts[2]}/{clean_path}"
     return urlunparse(uri_parts)
