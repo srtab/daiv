@@ -125,7 +125,7 @@ def address_issue_task(
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
 
-                if result["plan_tasks"]:
+                if "plan_tasks" in result:
                     # Create the new tasks
                     issue_tasks = [
                         Issue(
@@ -145,6 +145,8 @@ def address_issue_task(
 
                     # Request the reporter to review the plan
                     client.comment_issue(repo_id, issue.iid, ISSUE_REVIEW_PLAN_TEMPLATE)
+                elif "questions" in result:
+                    client.comment_issue(repo_id, issue.iid, "\n".join(result["questions"]))
                 else:
                     client.comment_issue(repo_id, issue.iid, ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE)
 
@@ -241,9 +243,10 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
 
     try:
         for merge_request_diff in client.get_merge_request_diff(repo_id, merge_request_id):
-            # Each patch set contains a single file diff (no multiple files in a single MR diff)
-            patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
-            merge_request_patchs[patch_set[0].path] = patch_set[0]
+            if merge_request_diff.diff:
+                # Each patch set contains a single file diff (no multiple files in a single MR diff)
+                patch_set = PatchSet.from_string(merge_request_diff.diff, encoding="utf-8")
+                merge_request_patchs[patch_set[0].path] = patch_set[0]
 
         for discussion in client.get_merge_request_discussions(repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE):
             if discussion.notes[-1].author.id == client.current_user.id:
