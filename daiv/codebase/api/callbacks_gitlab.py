@@ -166,8 +166,13 @@ class PushCallback(BaseCallback):
 
     async def process_callback(self):
         """
-        Trigger the update of the codebase index.
+        Process the push webhook to update the codebase index and invalidate the cache for the
+        repository configurations.
         """
+        if self.ref.endswith(self.project.default_branch):
+            # Invalidate the cache for the repository configurations, they could have changed.
+            RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+
         for merge_request in self.related_merge_requests:
             await sync_to_async(
                 update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).delay
@@ -176,7 +181,7 @@ class PushCallback(BaseCallback):
     @cached_property
     def related_merge_requests(self) -> list[MergeRequest]:
         """
-        Get the related merge requests for the push.
+        Get the merge requests related to the push.
         """
         client = RepoClient.create_instance()
         return client.get_commit_related_merge_requests(self.project.path_with_namespace, commit_sha=self.checkout_sha)
