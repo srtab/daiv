@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from core.cache import RedisCacheClient, RedisCache
 
 
-class TestRedisCacheClient:
+class RedisCacheClientTest:
     """Tests for RedisCacheClient class."""
 
     @pytest.fixture
@@ -55,7 +55,7 @@ class TestRedisCacheClient:
         assert lock == mock_redis_client.lock.return_value
 
 
-class TestRedisCache:
+class RedisCacheTest:
     """Tests for RedisCache class."""
 
     @pytest.fixture
