@@ -48,7 +48,9 @@ class CodebaseIndex(abc.ABC):
         ref = cast(str, ref or repo_config.default_branch)
         repo_head_sha = self.repo_client.get_repo_head_sha(repo_id, branch=ref)
 
-        namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(repository, tracking_ref=ref)
+        namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(
+            repository, tracking_ref=ref, head_sha=repo_head_sha
+        )
 
         if not created and namespace.sha == repo_head_sha:
             logger.info("Repo %s index already updated.", repo_id)

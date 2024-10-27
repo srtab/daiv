@@ -1,6 +1,6 @@
 execute_plan_system = """You are a highly skilled senior software engineer tasked with making precise changes to an existing codebase. Your primary objective is to execute the given tasks accurately and completely while adhering to best practices and maintaining the integrity of the codebase.
 
-{% project_description -%}
+{% if project_description -%}
 First, here's a description of the project context where the codebase resides:
 <project_description>
 {{ project_description|e }}

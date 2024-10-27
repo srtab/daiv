@@ -145,6 +145,7 @@ class GenericLanguageLoader(BaseLoader):
         """
         Create a generic document loader using a filesystem blob loader.
         """
-        exclude = exclude or []
-        blob_loader = FileSystemBlobLoader(path=path, glob=glob, limit_to=limit_to, exclude=exclude, suffixes=suffixes)
+        blob_loader = FileSystemBlobLoader(
+            path=path, glob=glob, limit_to=limit_to, exclude=exclude or [], suffixes=suffixes
+        )
         return cls(blob_loader, LanguageParser(), documents_metadata, **kwargs)

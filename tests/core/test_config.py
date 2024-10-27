@@ -1,6 +1,12 @@
 from unittest.mock import Mock, patch
 
-from core.config import CONFIGURATION_CACHE_KEY_PREFIX, CONFIGURATION_CACHE_TIMEOUT, RepositoryConfig
+from core.config import (
+    BRANCH_NAME_CONVENTION_MAX_LENGTH,
+    CONFIGURATION_CACHE_KEY_PREFIX,
+    CONFIGURATION_CACHE_TIMEOUT,
+    REPOSITORY_DESCRIPTION_MAX_LENGTH,
+    RepositoryConfig,
+)
 
 
 class TestRepositoryConfig:
@@ -132,3 +138,22 @@ class TestRepositoryConfig:
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
+
+    def test_truncate_if_too_long(self):
+        long_description = "a" * (REPOSITORY_DESCRIPTION_MAX_LENGTH + 10)
+        truncated_description = RepositoryConfig.truncate_if_too_long(
+            long_description, info=Mock(field_name="repository_description")
+        )
+        assert len(truncated_description) == REPOSITORY_DESCRIPTION_MAX_LENGTH
+
+        long_branch_name = "b" * (BRANCH_NAME_CONVENTION_MAX_LENGTH + 10)
+        truncated_branch_name = RepositoryConfig.truncate_if_too_long(
+            long_branch_name, info=Mock(field_name="branch_name_convention")
+        )
+        assert len(truncated_branch_name) == BRANCH_NAME_CONVENTION_MAX_LENGTH
+
+    def test_combined_exclude_patterns(self):
+        config = RepositoryConfig(extend_exclude_patterns=["*custom_pattern/*"])
+        combined_patterns = config.combined_exclude_patterns
+        assert "*custom_pattern/*" in combined_patterns
+        assert "*.git/*" in combined_patterns

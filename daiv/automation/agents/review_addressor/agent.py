@@ -185,7 +185,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
-                execute_plan_system, additional_kwargs={"cache-control": {"type": "ephemeral"}}
+                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
             ),
             HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])

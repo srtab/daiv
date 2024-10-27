@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from django.core.cache import cache
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, computed_field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -158,7 +158,6 @@ class RepositoryConfig(BaseModel):
         cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @property
-    @computed_field
     def combined_exclude_patterns(self) -> tuple[str, ...]:
         """
         Combines the base exclude patterns with any additional patterns specified.
