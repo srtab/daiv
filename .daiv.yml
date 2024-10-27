@@ -1,2 +1,2 @@
-repository_description: "Django based project using pytest framework for testing. The imports shouldn't include `daiv.` as prefix."
+repository_description: "Django based project using pytest framework for testing. Check `pyproject.toml` to understand the pytest rules. Create classes to organize unittests. The imports shouldn't include `daiv.` as prefix."
 branch_name_convention: "Use 'feat/', 'fix/', or 'chore/' prefixes."
