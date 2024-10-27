@@ -4,7 +4,11 @@ Your goal is to create a pull request metadata that accurately reflects all the 
 
 1. Extract the title: Identify a concise and descriptive title for the pull request based on the information provided.
 
-2. Identify the branch name: Determine the branch name associated with the changes. {% if branch_name_convention %}{{- branch_name_convention|e -}}{% endif %}
+2. Identify the branch name:
+   - Determine the branch name associated with the changes.
+   - No spaces are allowed in branch names.
+   - Use numbers, hyphens (-), underscores (_), lowercase letters from the ASCII standard table, or forward slashes (/).
+   {% if branch_name_convention %}- {{- branch_name_convention|striptags -}}{% endif %}
 
 3. Summarize the changes:
    - Use action-oriented verbs (e.g., "Added", "Updated", "Removed", etc...) to describe the changes.
