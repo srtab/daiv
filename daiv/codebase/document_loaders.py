@@ -18,19 +18,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_PATTERN = (
-    # files
-    "*pipfile.lock",
-    "*package-lock.json",
-    "*yarn.lock",
-    "*gemfile.lock",
-    "*composer.lock",
-    "*uv.lock",
-    "*.svg",
-    # folders
-    "*vendor/*",
-    "*.git/*",
-)
 EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
 
 
@@ -39,7 +26,7 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
     A filesystem blob loader that allows limiting the files to a specific set of paths.
     """
 
-    def __init__(self, limit_to: list[str] | None = None, **kwargs):
+    def __init__(self, limit_to: Iterable[str] | None = None, **kwargs):
         super().__init__(**kwargs)
         self.limit_to = limit_to or []
 
@@ -149,9 +136,9 @@ class GenericLanguageLoader(BaseLoader):
         path: str | Path,
         *,
         glob: str = "**/[!.]*",
-        limit_to: list[str] | None = None,
-        exclude: list[str] | None = None,
-        suffixes: list[str] | None = None,
+        limit_to: Iterable[str] | None = None,
+        exclude: Iterable[str] | None = None,
+        suffixes: Iterable[str] | None = None,
         documents_metadata: dict[str, str] | None = None,
         **kwargs,
     ) -> GenericLanguageLoader:
@@ -159,7 +146,5 @@ class GenericLanguageLoader(BaseLoader):
         Create a generic document loader using a filesystem blob loader.
         """
         exclude = exclude or []
-        blob_loader = FileSystemBlobLoader(
-            path=path, glob=glob, limit_to=limit_to, exclude=exclude + list(EXCLUDE_PATTERN), suffixes=suffixes
-        )
+        blob_loader = FileSystemBlobLoader(path=path, glob=glob, limit_to=limit_to, exclude=exclude, suffixes=suffixes)
         return cls(blob_loader, LanguageParser(), documents_metadata, **kwargs)

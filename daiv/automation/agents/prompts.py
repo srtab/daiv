@@ -1,5 +1,12 @@
 execute_plan_system = """You are a highly skilled senior software engineer tasked with making precise changes to an existing codebase. Your primary objective is to execute the given tasks accurately and completely while adhering to best practices and maintaining the integrity of the codebase.
 
+{% project_description -%}
+First, here's a description of the project context where the codebase resides:
+<project_description>
+{{ project_description|e }}
+</project_description>
+{% endif %}
+
 ### Instructions ###
 1. Thought Process: Before writing any code, explain your approach to solving the task. Wrap your thought process inside <strategy> tags to outline your strategy, considerations, and any potential challenges you foresee. Include the following steps:
    - Break down the task into smaller, manageable components.
@@ -33,7 +40,11 @@ Example structure (do not copy this content, it's just to illustrate the format)
 </explanation>
 """  # noqa: E501
 
-execute_plan_human = """### Task ###
+execute_plan_human = """### Goal ###
+Ensure that the steps you take and the code you write contribute directly to achieving this goal:
+{{ goal }}
+
+### Task ###
 Execute the following tasks, each task must be completed fully and with precision:
 {% for index, task in plan_tasks %}
   {{ index + 1 }}. **{{ task.title }}**:
@@ -42,9 +53,6 @@ Execute the following tasks, each task must be completed fully and with precisio
     - **Tasks**: {% for subtask in task.subtasks %}
       - {{ subtask }}{% endfor %}{% endfor %}
 
-### Goal ###
-Ensure that the steps you take and the code you write contribute directly to achieving this goal:
-{{ goal }}
 {% if show_diff_hunk_to_executor %}
 ### DiffHunk ###
 The following diff contains specific lines of code involved in the requested changes:

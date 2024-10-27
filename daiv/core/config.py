@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from contextlib import suppress
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, computed_field, field_validator
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -18,10 +18,10 @@ CONFIGURATION_CACHE_TIMEOUT = 60 * 60 * 1  # 1 hour
 
 
 class Features(BaseModel):
-    code_review_automation: bool = Field(default=True, description="Enable code review automation features.")
-    issue_implementation: bool = Field(default=True, description="Enable issue implementation features.")
-    pipeline_fixes: bool = Field(
-        default=True, description="Enable pipeline root cause analysis and automated fixes features."
+    auto_address_review_enabled: bool = Field(default=True, description="Enable code review automation features.")
+    auto_address_issues_enabled: bool = Field(default=True, description="Enable issue implementation features.")
+    autofix_pipeline_enabled: bool = Field(
+        default=True, description="Enable autofix of issues detected on the pipelines."
     )
 
 
@@ -34,10 +34,12 @@ class RepositoryConfig(BaseModel):
     )
     repository_description: str = Field(
         default="",
+        max_length=400,
         description=(
             "A brief description of the repository. "
-            "Include details to DAIV understand you repository, "
+            "Include details to DAIV understand your repository, "
             "like code standadrs to follow or main technologies used."
+            "This information will be used to provide better insights and recommendations."
         ),
         examples=[
             "Python based project for data analysis. Follows PEP8 standards.",
@@ -90,14 +92,17 @@ class RepositoryConfig(BaseModel):
         default="always start with 'daiv/' followed by a short description.",
         description="The convention to use when creating branch names.",
         examples=["always start with 'feat/' or 'fix/' followed of short description."],
+        max_length=100,
     )
 
-    # Localization
-    primary_language: str = Field(
-        default="English",
-        description="The primary language that DAIV should use for messages.",
-        examples=["English", "Portuguese (Portugal)"],
-    )
+    @field_validator("repository_description", "branch_name_convention", mode="before")
+    @classmethod
+    def truncate_if_too_long(cls, value: Any, info):
+        if isinstance(value, str):
+            max_length = info.field_info.max_length
+            if max_length and len(value) > max_length:
+                return value[:max_length]
+        return value
 
     @staticmethod
     def get_config(repo_id: str, repository: Repository | None = None) -> RepositoryConfig:
@@ -144,3 +149,12 @@ class RepositoryConfig(BaseModel):
         Invalidate cache for a specific repository.
         """
         cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
+
+    @property
+    @computed_field
+    def combined_exclude_patterns(self) -> tuple[str, ...]:
+        """
+        Combines the base exclude patterns with any additional patterns specified.
+        Returns a tuple of all patterns that should be excluded.
+        """
+        return tuple(set(self.exclude_patterns) | set(self.extend_exclude_patterns))

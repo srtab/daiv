@@ -568,7 +568,7 @@ class GitLabClient(RepoClient):
                     zipfile.extractall(path=tmpdir.name)
                     # The first file in the archive is the repository directory.
                     repo_dirname = zipfile.filelist[0].filename
-        except Exception:
+        except:
             raise
         else:
             yield Path(tmpdir.name).joinpath(repo_dirname)

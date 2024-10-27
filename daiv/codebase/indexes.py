@@ -16,6 +16,7 @@ from codebase.document_loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace
 from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
+from core.config import RepositoryConfig
 
 if TYPE_CHECKING:
     from langchain_core.documents import Document
@@ -43,8 +44,9 @@ class CodebaseIndex(abc.ABC):
         Update the index of a repository.
         """
         repository = self.repo_client.get_repository(repo_id, ref)
+        repo_config = RepositoryConfig.get_config(repo_id, repository)
+        ref = ref or repo_config.default_branch
         namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(repository, tracking_ref=ref)
-        ref = ref or repository.default_branch
 
         if not created and namespace.sha == repository.head_sha:
             logger.info("Repo %s index already updated.", repo_id)
@@ -84,6 +86,7 @@ class CodebaseIndex(abc.ABC):
                 loader = GenericLanguageLoader.from_filesystem(
                     repo_dir,
                     limit_to=loader_limit_paths_to,
+                    exclude=repo_config.combined_exclude_patterns,
                     documents_metadata={"repo_id": namespace.repository_info.external_slug, "ref": ref},
                 )
                 documents = loader.load_and_split()

@@ -28,7 +28,7 @@ class IssueCallback(BaseCallback):
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).features.issue_implementation
+            RepositoryConfig.get_config(self.project.path_with_namespace).features.auto_address_issues_enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if there are changes in the title or description of the issue.
             and (self.changes and "title" in self.changes or "description" in self.changes or "labels" in self.changes)
@@ -89,7 +89,10 @@ class NoteCallback(BaseCallback):
         """
         client = RepoClient.create_instance()
         return bool(
-            (self._repo_config.features.issue_implementation or self._repo_config.features.code_review_automation)
+            (
+                self._repo_config.features.auto_address_issues_enabled
+                or self._repo_config.features.auto_address_review_enabled
+            )
             and self.user.id != client.current_user.id
             and not self.object_attributes.system
             and self.object_attributes.action == NoteAction.CREATE
@@ -117,7 +120,7 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         We need to prevent multiple webhook processing for the same merge request.
         """
-        if self._repo_config.features.issue_implementation and self.issue:
+        if self._repo_config.features.auto_address_issues_enabled and self.issue:
             cache_key = f"{self.project.path_with_namespace}:{self.issue.iid}"
             with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
                 if await cache.aget(cache_key) is None:
@@ -130,7 +133,7 @@ class NoteCallback(BaseCallback):
                         "Issue %s is already being processed. Skipping the webhook processing.", self.issue.iid
                     )
 
-        if self._repo_config.features.code_review_automation and self.merge_request:
+        if self._repo_config.features.auto_address_review_enabled and self.merge_request:
             cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
             with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
                 if await cache.aget(cache_key) is None:

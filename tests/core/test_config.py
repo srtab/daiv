@@ -11,10 +11,13 @@ class TestRepositoryConfig:
         cached_config = {
             "default_branch": "main",
             "repository_description": "Test repository",
-            "features": {"code_review_automation": True, "issue_implementation": True, "pipeline_fixes": True},
+            "features": {
+                "auto_address_review_enabled": True,
+                "auto_address_issues_enabled": True,
+                "autofix_pipeline_enabled": True,
+            },
             "extend_exclude_patterns": ["tests/"],
             "branch_name_convention": "always start with 'daiv/' followed by a short description.",
-            "primary_language": "English",
         }
         mock_cache.get.return_value = cached_config
 
@@ -22,10 +25,9 @@ class TestRepositoryConfig:
 
         assert config.default_branch == "main"
         assert config.repository_description == "Test repository"
-        assert config.features.code_review_automation is True
+        assert config.features.auto_address_review_enabled is True
         assert config.extend_exclude_patterns == ["tests/"]
         assert config.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        assert config.primary_language == "English"
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @patch("daiv.core.config.cache")
@@ -39,13 +41,12 @@ class TestRepositoryConfig:
         default_branch: main
         repository_description: Test repository
         features:
-          code_review_automation: true
-          issue_implementation: true
-          pipeline_fixes: true
+          auto_address_review_enabled: true
+          auto_address_issues_enabled: true
+          autofix_pipeline_enabled: true
         extend_exclude_patterns:
           - tests/
         branch_name_convention: always start with 'daiv/' followed by a short description.
-        primary_language: English
         """
         mock_repo_client.create_instance.return_value = mock_repo_instance
 
@@ -53,10 +54,9 @@ class TestRepositoryConfig:
 
         assert config.default_branch == "main"
         assert config.repository_description == "Test repository"
-        assert config.features.code_review_automation is True
+        assert config.features.auto_address_review_enabled is True
         assert config.extend_exclude_patterns == ["tests/"]
         assert config.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        assert config.primary_language == "English"
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -75,10 +75,9 @@ class TestRepositoryConfig:
 
         assert config.default_branch == "main"
         assert config.repository_description == ""
-        assert config.features.code_review_automation is True
+        assert config.features.auto_address_review_enabled is True
         assert config.extend_exclude_patterns == []
         assert config.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        assert config.primary_language == "English"
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -103,10 +102,9 @@ class TestRepositoryConfig:
 
         assert config.default_branch == "main"
         assert config.repository_description == ""
-        assert config.features.code_review_automation is True
+        assert config.features.auto_address_review_enabled is True
         assert config.extend_exclude_patterns == []
         assert config.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        assert config.primary_language == "English"
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -128,10 +126,9 @@ class TestRepositoryConfig:
 
         assert config.default_branch == "main"
         assert config.repository_description == "Test repository"
-        assert config.features.code_review_automation is True
+        assert config.features.auto_address_review_enabled is True
         assert config.extend_exclude_patterns == []
         assert config.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        assert config.primary_language == "English"
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )

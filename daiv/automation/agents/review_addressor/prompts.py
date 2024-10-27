@@ -104,6 +104,12 @@ review_human_feedback_system = """You are an AI assistant specialized in helping
 
 You have access to tools that allow you to inspect the codebase beyond the provided diff hunk. Use this capability to provide insightful responses to the reviewer's questions.
 
+{% project_description -%}
+First, here's a description of the project context where the code changes are taking place:
+<project_description>
+{{ project_description|e }}
+</project_description>
+{% endif %}
 Here is the diff hunk containing the specific lines of code related to the reviewer's comments:
 <diff_hunk>
 {{ diff }}
@@ -134,6 +140,12 @@ Remember to focus solely on answering the reviewer's questions about the codebas
 
 review_analyzer_plan = """You are an AI agent responsible for creating a detailed, actionable checklist to guide other AI agents in addressing comments left by a reviewer on a pull request. Your task is to analyze the provided diff hunk and reviewer comments to generate a structured, step-by-step checklist that specifies clear, concise, and executable tasks in a software project.
 
+{% project_description -%}
+First, here's a description of the software project context:
+<project_description>
+{{ project_description|e }}
+</project_description>
+{% endif %}
 Here is the diff hunk containing specific lines of code involved in the requested changes:
 <diff_hunk>
 {{ diff }}
