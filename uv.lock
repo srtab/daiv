@@ -599,7 +599,7 @@ requires-dist = [
     { name = "esprima", specifier = "==4.0.1" },
     { name = "get-docker-secret", specifier = "==2" },
     { name = "httpx", specifier = "==0.27.2" },
-    { name = "ipython", specifier = "==8.28" },
+    { name = "ipython", specifier = "==8.29" },
     { name = "jinja2", specifier = "==3.1.4" },
     { name = "langchain", specifier = "==0.3.4" },
     { name = "langchain-anthropic", specifier = "==0.2.3" },
@@ -608,14 +608,14 @@ requires-dist = [
     { name = "langchain-openai", specifier = "==0.2.3" },
     { name = "langchain-text-splitters", specifier = "==0.3" },
     { name = "langgraph", specifier = "==0.2.39" },
-    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.1" },
+    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.2" },
     { name = "langsmith", specifier = "==0.1.137" },
-    { name = "psycopg", extras = ["pool"], specifier = "==3.2.2" },
+    { name = "psycopg", extras = ["pool"], specifier = "==3.2.3" },
     { name = "pydantic", specifier = "==2.9.2" },
     { name = "python-decouple", specifier = "==3.8" },
     { name = "python-gitlab", extras = ["graphql"], specifier = "==4.13" },
     { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "redis", specifier = "==5.1.1" },
+    { name = "redis", specifier = "==5.2" },
     { name = "tantivy", specifier = "==0.22" },
     { name = "tree-sitter", specifier = "==0.21.3" },
     { name = "tree-sitter-languages", specifier = "==1.10.2" },
@@ -1128,7 +1128,7 @@ wheels = [
 
 [[package]]
 name = "ipython"
-version = "8.28.0"
+version = "8.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
@@ -1141,9 +1141,9 @@ dependencies = [
     { name = "stack-data" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/21/48db7d9dd622b9692575004c7c98f85f5629428f58596c59606d36c51b58/ipython-8.28.0.tar.gz", hash = "sha256:0d0d15ca1e01faeb868ef56bc7ee5a0de5bd66885735682e8a322ae289a13d1a", size = 5495762 }
+sdist = { url = "https://files.pythonhosted.org/packages/85/e0/a3f36dde97e12121106807d80485423ae4c5b27ce60d40d4ab0bab18a9db/ipython-8.29.0.tar.gz", hash = "sha256:40b60e15b22591450eef73e40a027cf77bd652e757523eebc5bd7c7c498290eb", size = 5497513 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/3a/5d8680279ada9571de8469220069d27024ee47624af534e537c9ff49a450/ipython-8.28.0-py3-none-any.whl", hash = "sha256:530ef1e7bb693724d3cdc37287c80b07ad9b25986c007a53aa1857272dac3f35", size = 819456 },
+    { url = "https://files.pythonhosted.org/packages/c5/a5/c15ed187f1b3fac445bb42a2dedd8dec1eee1718b35129242049a13a962f/ipython-8.29.0-py3-none-any.whl", hash = "sha256:0188a1bd83267192123ccea7f4a8ed0a78910535dbaa3f37671dca76ebd429c8", size = 819911 },
 ]
 
 [[package]]
@@ -1378,20 +1378,20 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint"
-version = "2.0.0"
+version = "2.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "msgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/eb/09d7a63fa0fd371940f21a2e8894aa7aefc3724971911e1ad1f4456b92a7/langgraph_checkpoint-2.0.0.tar.gz", hash = "sha256:884ea7fd7c06904865e8fdcae01233e469ad4bc22871d5376b76f8eeab33464c", size = 20139 }
+sdist = { url = "https://files.pythonhosted.org/packages/22/49/8596e8f51299fd035515704da305b77965f937cb2175277a7740dde7e492/langgraph_checkpoint-2.0.2.tar.gz", hash = "sha256:c1d033e4e4855f580fa56830327eb86513b64ab5be527245363498e76b19a0b9", size = 20362 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/a0/a649b910f0d221ac7d281d80d5cd0484daf4aff2d0adfaf04de99cc33f43/langgraph_checkpoint-2.0.0-py3-none-any.whl", hash = "sha256:a8d7dbfb86fc381ad9619e15de47eb37451b6051b2ce2749ee25cbb41935ef30", size = 22679 },
+    { url = "https://files.pythonhosted.org/packages/d7/8e/78872f64d4b37dddc5ab06ad214a74dab4d56140b09169ae86881392328c/langgraph_checkpoint-2.0.2-py3-none-any.whl", hash = "sha256:6e5dfd90e1fc71b91ccff75939ada1114e5d7f824df5f24c62d39bed69039ee2", size = 23349 },
 ]
 
 [[package]]
 name = "langgraph-checkpoint-postgres"
-version = "2.0.1"
+version = "2.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
@@ -1399,9 +1399,9 @@ dependencies = [
     { name = "psycopg" },
     { name = "psycopg-pool" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/2a/6683cb338fc9f0cbf1ba45d96e61ccd277453120a3ad6147709bd6798cdc/langgraph_checkpoint_postgres-2.0.1.tar.gz", hash = "sha256:ca2d29a54bab4e4c9707370792dd05a1ba3d7bddd12ef269753bbedeff95b395", size = 13858 }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/28/8b2c5202e398f07a2c1b5fe86b51bc62160d66084557608a21e32a5948ae/langgraph_checkpoint_postgres-2.0.2.tar.gz", hash = "sha256:76f17cdbed00b222edfae62171f22be2505980f64148214d50dcadcd15c6f84a", size = 13869 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/b8/fd38422ab2e7fd564375e012c04e6c3a4cc73d890b40177883bb353bff88/langgraph_checkpoint_postgres-2.0.1-py3-none-any.whl", hash = "sha256:c7ef3d0266ca9adba612d0dd0de14d2b1a5671dd788517d35379d93e3c8ae3a2", size = 19081 },
+    { url = "https://files.pythonhosted.org/packages/f6/91/8453706813c1108abeafe485b972efb34cb6aeb1115dd05a5411b20f4085/langgraph_checkpoint_postgres-2.0.2-py3-none-any.whl", hash = "sha256:b9ca46d680bc21a4f0fd1cd8df72e8da0dd9b1049ed1601a5cf73bf6f8d16bcc", size = 19254 },
 ]
 
 [[package]]
@@ -1996,15 +1996,15 @@ wheels = [
 
 [[package]]
 name = "psycopg"
-version = "3.2.2"
+version = "3.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/70/d1e4c251be6e0752cbc7408f0556f8f922690837309442b9019122295712/psycopg-3.2.2.tar.gz", hash = "sha256:8bad2e497ce22d556dac1464738cb948f8d6bab450d965cf1d8a8effd52412e0", size = 155483 }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/ad/7ce016ae63e231575df0498d2395d15f005f05e32d3a2d439038e1bd0851/psycopg-3.2.3.tar.gz", hash = "sha256:a5764f67c27bec8bfac85764d23c534af2c27b893550377e37ce59c12aac47a2", size = 155550 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/89/e63ec25b80290c4a923cdb5ecd5dbc85e310f93fb84b7f294006c9269d95/psycopg-3.2.2-py3-none-any.whl", hash = "sha256:babf565d459d8f72fb65da5e211dd0b58a52c51e4e1fa9cadecff42d6b7619b2", size = 197852 },
+    { url = "https://files.pythonhosted.org/packages/ce/21/534b8f5bd9734b7a2fcd3a16b1ee82ef6cad81a4796e95ebf4e0c6a24119/psycopg-3.2.3-py3-none-any.whl", hash = "sha256:644d3973fe26908c73d4be746074f6e5224b03c1101d302d9a53bf565ad64907", size = 197934 },
 ]
 
 [package.optional-dependencies]
@@ -2376,11 +2376,11 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "5.1.1"
+version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e0/58/dcf97c3c09d429c3bb830d6075322256da3dba42df25359bd1c82b442d20/redis-5.1.1.tar.gz", hash = "sha256:f6c997521fedbae53387307c5d0bf784d9acc28d9f1d058abeac566ec4dbed72", size = 4607302 }
+sdist = { url = "https://files.pythonhosted.org/packages/53/17/2f4a87ffa4cd93714cf52edfa3ea94589e9de65f71e9f99cbcfa84347a53/redis-5.2.0.tar.gz", hash = "sha256:0b1087665a771b1ff2e003aa5bdd354f15a70c9e25d5a7dbf9c722c16528a7b0", size = 4607878 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/f1/feeeaaaac0f589bcbc12c02da357cf635ee383c9128b77230a1e99118885/redis-5.1.1-py3-none-any.whl", hash = "sha256:f8ea06b7482a668c6475ae202ed8d9bcaa409f6e87fb77ed1043d912afd62e24", size = 261283 },
+    { url = "https://files.pythonhosted.org/packages/12/f5/ffa560ecc4bafbf25f7961c3d6f50d627a90186352e27e7d0ba5b1f6d87d/redis-5.2.0-py3-none-any.whl", hash = "sha256:ae174f2bb3b1bf2b09d54bf3e51fbc1469cf6c10aa03e21141f51969801a7897", size = 261428 },
 ]
 
 [[package]]

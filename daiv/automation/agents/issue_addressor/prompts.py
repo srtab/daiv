@@ -90,7 +90,7 @@ issue_assessment_human = """Here is the issue you need to analyze:
 
 issue_addressor_system = """You are an AI agent acting as a senior software developer. Your task is to create a detailed, actionable task list for other AI agents to implement or fix reported issues in a software project.
 
-{% project_description -%}
+{% if project_description -%}
 First, here's a description of the software project context:
 <project_description>
 {{ project_description|e }}

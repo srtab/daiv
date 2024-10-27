@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Literal
+from typing import Any, Literal
 
 from django.core.cache import cache
 
@@ -80,7 +80,7 @@ class NoteCallback(BaseCallback):
     issue: Issue | None = None
     object_attributes: Note
 
-    def __post_init__(self):
+    def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
 
     def accept_callback(self) -> bool:

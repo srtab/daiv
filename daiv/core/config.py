@@ -16,6 +16,9 @@ CONFIGURATION_FILE_NAME = ".daiv.yml"
 CONFIGURATION_CACHE_KEY_PREFIX = "repo_config:"
 CONFIGURATION_CACHE_TIMEOUT = 60 * 60 * 1  # 1 hour
 
+REPOSITORY_DESCRIPTION_MAX_LENGTH = 400
+BRANCH_NAME_CONVENTION_MAX_LENGTH = 100
+
 
 class Features(BaseModel):
     auto_address_review_enabled: bool = Field(default=True, description="Enable code review automation features.")
@@ -34,7 +37,7 @@ class RepositoryConfig(BaseModel):
     )
     repository_description: str = Field(
         default="",
-        max_length=400,
+        max_length=REPOSITORY_DESCRIPTION_MAX_LENGTH,
         description=(
             "A brief description of the repository. "
             "Include details to DAIV understand your repository, "
@@ -91,17 +94,21 @@ class RepositoryConfig(BaseModel):
     branch_name_convention: str = Field(
         default="always start with 'daiv/' followed by a short description.",
         description="The convention to use when creating branch names.",
-        examples=["always start with 'feat/' or 'fix/' followed of short description."],
-        max_length=100,
+        examples=["Use 'feat/', 'fix/', or 'chore/' prefixes."],
+        max_length=BRANCH_NAME_CONVENTION_MAX_LENGTH,
     )
 
     @field_validator("repository_description", "branch_name_convention", mode="before")
     @classmethod
     def truncate_if_too_long(cls, value: Any, info):
-        if isinstance(value, str):
-            max_length = info.field_info.max_length
-            if max_length and len(value) > max_length:
-                return value[:max_length]
+        max_length = None
+        if info.field_name == "repository_description":
+            max_length = REPOSITORY_DESCRIPTION_MAX_LENGTH
+        elif info.field_name == "branch_name_convention":
+            max_length = BRANCH_NAME_CONVENTION_MAX_LENGTH
+
+        if isinstance(value, str) and len(value) > max_length:
+            return value[:max_length]
         return value
 
     @staticmethod

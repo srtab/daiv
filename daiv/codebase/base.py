@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from codebase.clients import RepoClient
 
 
 class ClientType(StrEnum):
@@ -20,12 +16,7 @@ class Repository(BaseModel):
     name: str
     default_branch: str
     client: ClientType
-    head_sha: str | None = None
     topics: list[str] = Field(default_factory=list)
-
-    @classmethod
-    def load_from_repo(cls, repo_client: RepoClient, repo_id: str):
-        return repo_client.get_repository(repo_id)
 
 
 class RepositoryFile(BaseModel):
@@ -33,15 +24,6 @@ class RepositoryFile(BaseModel):
     file_path: str
     ref: str | None = None
     content: str | None = None
-
-    @classmethod
-    def load_from_repo(cls, repo_client: RepoClient, repo_id: str, file_path: str, ref: str | None = None):
-        return cls(
-            repo_id=repo_id,
-            file_path=file_path,
-            ref=ref,
-            content=repo_client.get_repository_file(repo_id, file_path, ref=ref),
-        )
 
 
 class MergeRequest(BaseModel):
