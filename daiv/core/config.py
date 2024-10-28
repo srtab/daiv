@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import suppress
 from io import StringIO
 from typing import TYPE_CHECKING, Any
 
@@ -8,6 +7,7 @@ from django.core.cache import cache
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from yaml.parser import ParserError
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -139,8 +139,10 @@ class RepositoryConfig(BaseModel):
         if config_file := repo_client.get_repository_file(
             repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch
         ):
-            with suppress(ValidationError):
+            try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
+            except (ValidationError, ParserError):
+                config = RepositoryConfig()
         else:
             config = RepositoryConfig()
 

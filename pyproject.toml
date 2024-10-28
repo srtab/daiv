@@ -122,7 +122,7 @@ lint.isort.split-on-trailing-comma = false
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 pythonpath = "daiv"
 python_files = "test_*.py"
-python_classes = "*Test"
+python_classes = "Test *Test"
 addopts = "--cov --cov-config=.coveragerc"
 
 [tool.pytest_env]
