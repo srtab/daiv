@@ -43,7 +43,7 @@ dependencies = [
   "psycopg[pool]==3.2.3",
   "pydantic==2.9.2",
   "python-decouple==3.8",
-  "python-gitlab[graphql]==4.13",
+  "python-gitlab[graphql]==5.0.0",
   "pyyaml==6.0.2",
   "redis==5.2",
   "tantivy==0.22",
