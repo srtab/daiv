@@ -27,6 +27,7 @@ from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.clients import AllRepoClient
+from core.config import RepositoryConfig
 
 from .prompts import review_analyzer_plan, review_assessment_system, review_human_feedback_system
 from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
@@ -58,6 +59,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.source_ref = source_ref
         self.merge_request_id = merge_request_id
         self.discussion_id = discussion_id
+        self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -146,7 +148,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
-        system_message = system_message_template.format(diff=state["diff"])
+        system_message = system_message_template.format(
+            diff=state["diff"], project_description=self.repo_config.repository_description
+        )
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
@@ -180,15 +184,18 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(execute_plan_system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
+            SystemMessagePromptTemplate.from_template(
+                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+            ),
             HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])
-        result = prompt.invoke({
-            "goal": state["goal"],
-            "plan_tasks": enumerate(state["plan_tasks"]),
-            "diff": state["diff"],
-            "show_diff_hunk_to_executor": state["show_diff_hunk_to_executor"],
-        })
+        messages = prompt.format_messages(
+            goal=state["goal"],
+            plan_tasks=enumerate(state["plan_tasks"]),
+            diff=state["diff"],
+            show_diff_hunk_to_executor=state["show_diff_hunk_to_executor"],
+            project_description=self.repo_config.repository_description,
+        )
 
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
@@ -196,7 +203,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             model_name=CODING_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": result.to_messages()}, config={"recursion_limit": 50})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
     def human_feedback(self, state: OverallState, *, store: BaseStore):
         """
@@ -217,7 +224,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             system_message_template = SystemMessagePromptTemplate.from_template(
                 review_human_feedback_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
             )
-            system_message = system_message_template.format(diff=state["diff"])
+            system_message = system_message_template.format(
+                diff=state["diff"], project_description=self.repo_config.repository_description
+            )
 
             react_agent = REACTAgent(
                 run_name="human_feedback_react_agent",
@@ -251,7 +260,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             file_changes: list[FileChange] = [item.value["data"] for item in stored_items]
 
             pr_describer = PullRequestDescriberAgent()
-            changes_description = pr_describer.agent.invoke({"changes": file_changes})
+            changes_description = pr_describer.agent.invoke({
+                "changes": file_changes,
+                "branch_name_convention": self.repo_config.branch_name_convention,
+            })
 
             self.repo_client.commit_changes(
                 self.source_repo_id, self.source_ref, changes_description.commit_message, file_changes

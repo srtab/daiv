@@ -16,6 +16,7 @@ from codebase.document_loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace
 from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
+from core.config import RepositoryConfig
 
 if TYPE_CHECKING:
     from langchain_core.documents import Document
@@ -42,11 +43,16 @@ class CodebaseIndex(abc.ABC):
         """
         Update the index of a repository.
         """
-        repository = self.repo_client.get_repository(repo_id, ref)
-        namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(repository, tracking_ref=ref)
-        ref = ref or repository.default_branch
+        repository = self.repo_client.get_repository(repo_id)
+        repo_config = RepositoryConfig.get_config(repo_id, repository)
+        ref = cast(str, ref or repo_config.default_branch)
+        repo_head_sha = self.repo_client.get_repo_head_sha(repo_id, branch=ref)
 
-        if not created and namespace.sha == repository.head_sha:
+        namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(
+            repository, tracking_ref=ref, head_sha=repo_head_sha
+        )
+
+        if not created and namespace.sha == repo_head_sha:
             logger.info("Repo %s index already updated.", repo_id)
             return
 
@@ -58,9 +64,9 @@ class CodebaseIndex(abc.ABC):
 
             # For the default branch, the index is fully updated on the first run, otherwise,
             # For other branches, the index is updated only with changed files.
-            if not created and namespace.sha != repository.head_sha:
+            if not created and namespace.sha != repo_head_sha:
                 new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
-                    namespace.repository_info.external_slug, namespace.sha, repository.head_sha
+                    namespace.repository_info.external_slug, namespace.sha, repo_head_sha
                 )
                 logger.info(
                     "Updating repo %s[%s] index with %d new files, %d changed files and %d delete files.",
@@ -84,6 +90,7 @@ class CodebaseIndex(abc.ABC):
                 loader = GenericLanguageLoader.from_filesystem(
                     repo_dir,
                     limit_to=loader_limit_paths_to,
+                    exclude=repo_config.combined_exclude_patterns,
                     documents_metadata={"repo_id": namespace.repository_info.external_slug, "ref": ref},
                 )
                 documents = loader.load_and_split()
@@ -119,12 +126,15 @@ class CodebaseIndex(abc.ABC):
         """
         logger.info("Reseting repo %s[%s] index.", repo_id, ref)
 
+        repo_config = RepositoryConfig.get_config(repo_id)
+        _ref = cast(str, ref or repo_config.default_branch)
+
         self.semantic_search_engine.delete(repo_id)
         if LEXICAL_INDEX_ENABLED:
             self.lexical_search_engine.delete(repo_id)
 
         CodebaseNamespace.objects.filter(
-            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id), tracking_ref=ref
+            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id), tracking_ref=_ref
         ).delete()
 
     def search(self, repo_id: str, ref: str, query: str) -> list[Document]:
@@ -186,7 +196,7 @@ class CodebaseIndex(abc.ABC):
             return documents[0].metadata["source"]
         return None
 
-    def extract_tree(self, repo_id: str, ref: str | None = None) -> set[str]:
+    def extract_tree(self, repo_id: str, ref: str) -> set[str]:
         """
         Extract the tree of a repository.
         """
@@ -198,13 +208,3 @@ class CodebaseIndex(abc.ABC):
                 for filename in filenames:
                     extracted_paths.add(dirpath.joinpath(filename).relative_to(repo_dir).as_posix())
         return extracted_paths
-
-
-if __name__ == "__main__":
-    from codebase.clients import RepoClient
-    from codebase.indexes import CodebaseIndex
-
-    client = RepoClient.create_instance()
-    index = CodebaseIndex(client)
-
-    index.search("dipcode/django-extra-toolkit", "class IBANField")

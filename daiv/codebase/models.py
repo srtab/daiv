@@ -18,7 +18,7 @@ class ClientChoices(models.TextChoices):
 
 class CodebaseNamespaceManager(models.Manager):
     def get_or_create_from_repository(
-        self, repository: Repository, tracking_ref: str | None = None
+        self, repository: Repository, *, tracking_ref: str, head_sha: str
     ) -> tuple[CodebaseNamespace, bool]:
         """
         Get or create a namespace for the given repository.
@@ -28,16 +28,10 @@ class CodebaseNamespaceManager(models.Manager):
         )
         try:
             latest_namespace = self.filter(
-                repository_info=repo_info,
-                tracking_ref=tracking_ref or repository.default_branch,
-                status=CodebaseNamespace.Status.INDEXED,
+                repository_info=repo_info, tracking_ref=tracking_ref, status=CodebaseNamespace.Status.INDEXED
             ).latest()
         except CodebaseNamespace.DoesNotExist:
-            latest_namespace = self.create(
-                repository_info=repo_info,
-                sha=repository.head_sha,
-                tracking_ref=tracking_ref or repository.default_branch,
-            )
+            latest_namespace = self.create(repository_info=repo_info, sha=head_sha, tracking_ref=tracking_ref)
             return latest_namespace, True
         else:
             return latest_namespace, False

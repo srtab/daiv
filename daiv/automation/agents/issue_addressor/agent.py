@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
@@ -22,6 +22,7 @@ from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
+from core.config import RepositoryConfig
 
 from .prompts import (
     human_feedback_system,
@@ -62,6 +63,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.source_repo_id = source_repo_id
         self.source_ref = source_ref
         self.issue_id = issue_id
+        self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -167,12 +169,14 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(issue_addressor_system),
+            SystemMessagePromptTemplate.from_template(issue_addressor_system, "jinja2"),
             HumanMessagePromptTemplate.from_template([issue_addressor_human] + extracted_images, "jinja2"),
         ])
 
         messages = prompt.format_messages(
-            issue_title=state["issue_title"], issue_description=state["issue_description"]
+            issue_title=state["issue_title"],
+            issue_description=state["issue_description"],
+            project_description=self.repo_config.repository_description,
         )
 
         react_agent = REACTAgent(
@@ -224,10 +228,16 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(execute_plan_system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
+            SystemMessagePromptTemplate.from_template(
+                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+            ),
             HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
         ])
-        messages = prompt.format_messages(goal=state["goal"], plan_tasks=enumerate(state["plan_tasks"]))
+        messages = prompt.format_messages(
+            goal=state["goal"],
+            plan_tasks=enumerate(state["plan_tasks"]),
+            project_description=self.repo_config.repository_description,
+        )
 
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",

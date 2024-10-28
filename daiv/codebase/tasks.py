@@ -28,6 +28,7 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import Discussion, Issue, IssueType, Note, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.indexes import CodebaseIndex
+from core.config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 
 if TYPE_CHECKING:
@@ -65,8 +66,8 @@ def update_index_by_topics(topics: list[str], reset: bool = False):
     Update the index of all repositories with the given topics.
     """
     repo_client = RepoClient.create_instance()
-    for project in repo_client.list_repositories(topics=topics, load_all=True):
-        update_index_repository(project.slug, reset)
+    for repository in repo_client.list_repositories(topics=topics, load_all=True):
+        update_index_repository(repository.slug, reset)
 
 
 @shared_task
@@ -83,29 +84,31 @@ def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = 
 
 @shared_task
 def address_issue_task(
-    repo_id: str, ref: str, issue_iid: int, should_reset_plan: bool = False, cache_key: str | None = None
+    repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False, cache_key: str | None = None
 ):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
     """
     try:
         client = RepoClient.create_instance()
-        project = client.get_repository(repo_id)
+        repository = client.get_repository(repo_id)
         issue = client.get_issue(repo_id, issue_iid)
+        repo_config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+        default_branch = ref or repo_config.default_branch
 
         # Check if the issue already has a comment from the bot. If it doesn't, we need to add one.
         if not next((note.body for note in issue.notes if note.author.id == client.current_user.id), None):
             client.comment_issue(
-                repo_id, issue.iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_LABEL)
+                repo_id, issue_iid, ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_NAME)
             )
         config = RunnableConfig(configurable={"thread_id": f"{repo_id}#{issue_iid}"})
 
         with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
             issue_addressor = IssueAddressorAgent(
                 client,
-                project_id=project.pk,
+                project_id=repository.pk,
                 source_repo_id=repo_id,
-                source_ref=ref,
+                source_ref=default_branch,
                 issue_id=issue_iid,
                 checkpointer=checkpointer,
                 usage_handler=usage_handler,
@@ -144,14 +147,14 @@ def address_issue_task(
                     client.create_issue_tasks(repo_id, issue.id, issue_tasks)
 
                     # Request the reporter to review the plan
-                    client.comment_issue(repo_id, issue.iid, ISSUE_REVIEW_PLAN_TEMPLATE)
+                    client.comment_issue(repo_id, issue_iid, ISSUE_REVIEW_PLAN_TEMPLATE)
                 elif "questions" in result:
-                    client.comment_issue(repo_id, issue.iid, "\n".join(result["questions"]))
+                    client.comment_issue(repo_id, issue_iid, "\n".join(result["questions"]))
                 else:
-                    client.comment_issue(repo_id, issue.iid, ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE)
+                    client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE)
 
             elif "human_feedback" in current_state.next:
-                if discussions := list(client.get_issue_discussions(repo_id, issue.iid)):
+                if discussions := list(client.get_issue_discussions(repo_id, issue_iid)):
                     issue_addressor_agent.update_state(
                         config, {"messages": notes_to_messages(discussions[-1].notes, client.current_user.id)}
                     )
@@ -159,7 +162,7 @@ def address_issue_task(
                     for chunk in issue_addressor_agent.stream(None, config, stream_mode="updates"):
                         if "human_feedback" in chunk and (response := chunk["human_feedback"].get("response")):
                             client.create_issue_discussion_note(
-                                repo_id, issue.iid, response, discussion_id=discussions[-1].id
+                                repo_id, issue_iid, response, discussion_id=discussions[-1].id
                             )
 
                         if "execute_plan" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
@@ -168,12 +171,16 @@ def address_issue_task(
                                 PullRequestDescriberOutput,
                                 pr_describer.agent.invoke({
                                     "changes": file_changes,
-                                    "extra_info": {"Issue title": issue.title, "Issue description": issue.description},
+                                    "extra_details": {
+                                        "Issue title": issue.title,
+                                        "Issue description": cast(str, issue.description),
+                                    },
+                                    "branch_name_convention": repo_config.branch_name_convention,
                                 }),
                             )
 
                             merge_requests = client.get_issue_related_merge_requests(
-                                repo_id, issue.iid, label=BOT_LABEL
+                                repo_id, issue_iid, label=BOT_LABEL
                             )
 
                             if merge_requests:
@@ -184,13 +191,13 @@ def address_issue_task(
                                 changes_description.branch,
                                 changes_description.commit_message,
                                 file_changes,
-                                start_branch=project.default_branch,
+                                start_branch=default_branch,
                                 override_commits=True,
                             )
                             merge_request_id = client.update_or_create_merge_request(
                                 repo_id=repo_id,
                                 source_branch=changes_description.branch,
-                                target_branch=project.default_branch,
+                                target_branch=default_branch,
                                 labels=[BOT_LABEL],
                                 title=changes_description.title,
                                 description=jinja2_formatter(
@@ -198,13 +205,13 @@ def address_issue_task(
                                     description=changes_description.description,
                                     summary=changes_description.summary,
                                     source_repo_id=repo_id,
-                                    issue_id=issue.iid,
+                                    issue_id=issue_iid,
                                     bot_name=BOT_NAME,
                                 ),
                             )
                             client.comment_issue(
                                 repo_id,
-                                issue.iid,
+                                issue_iid,
                                 ISSUE_PROCESSED_TEMPLATE.format(
                                     source_repo_id=repo_id, merge_request_id=merge_request_id
                                 ),

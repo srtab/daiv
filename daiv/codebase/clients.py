@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import functools
 import logging
 import tempfile
 from contextlib import AbstractContextManager, contextmanager
@@ -10,8 +11,10 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabHttpError, GraphQL
+from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabOperationError, GraphQL
 from gitlab.v4.objects import ProjectHook
+
+from core.constants import BOT_NAME
 
 from .base import (
     ClientType,
@@ -45,7 +48,7 @@ class RepoClient(abc.ABC):
     client_slug: ClientType
 
     @abc.abstractmethod
-    def get_repository(self, repo_id, ref: str | None = None) -> Repository:
+    def get_repository(self, repo_id) -> Repository:
         pass
 
     @abc.abstractmethod
@@ -55,18 +58,18 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
+    def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         pass
 
     @abc.abstractmethod
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str | None = None) -> bool:
+    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
         pass
 
     @abc.abstractmethod
     def get_repository_tree(
         self,
         repo_id: str,
-        ref: str | None = None,
+        ref: str,
         *,
         path: str = "",
         recursive: bool = False,
@@ -107,11 +110,11 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
+    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
         pass
 
     @abc.abstractmethod
-    def get_repo_head_sha(self, repo_id: str, branch: str | None = None) -> str:
+    def get_repo_head_sha(self, repo_id: str, branch: str) -> str:
         pass
 
     @abc.abstractmethod
@@ -158,6 +161,7 @@ class RepoClient(abc.ABC):
         pass
 
     @staticmethod
+    @functools.cache
     def create_instance() -> AllRepoClient:
         """
         Get the repository client based on the configuration.
@@ -184,7 +188,7 @@ class GitLabClient(RepoClient):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
         self.client_graphql = GraphQL(url=url, token=auth_token, timeout=10)
 
-    def get_repository(self, repo_id: str, ref: str | None = None) -> Repository:
+    def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
 
@@ -202,7 +206,6 @@ class GitLabClient(RepoClient):
             default_branch=project.default_branch,
             client=self.client_slug,
             topics=project.topics,
-            head_sha=self.get_repo_head_sha(repo_id, branch=ref or project.default_branch),
         )
 
     def list_repositories(
@@ -232,14 +235,13 @@ class GitLabClient(RepoClient):
                 default_branch=project.default_branch,
                 client=self.client_slug,
                 topics=project.topics,
-                head_sha=self.get_repo_head_sha(cast(int, project.get_id()), branch=project.default_branch),
             )
             for project in self.client.projects.list(
                 all=load_all, iterator=True, archived=False, simple=True, **optional_kwargs
             )
         ]
 
-    def get_repository_file(self, repo_id: str, file_path: str, ref: str | None = None) -> str | None:
+    def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.
 
@@ -253,8 +255,8 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id)
         try:
-            project_file = project.files.get(file_path=file_path, ref=ref or project.default_branch)
-        except GitlabHttpError as e:
+            project_file = project.files.get(file_path=file_path, ref=ref)
+        except GitlabOperationError as e:
             if e.response_code == 404:
                 return None
             raise e
@@ -263,7 +265,7 @@ class GitLabClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str | None = None) -> bool:
+    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
         """
         Check if a file exists in a repository.
 
@@ -277,7 +279,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id)
         try:
-            project.files.head(file_path=file_path, ref=ref or project.default_branch)
+            project.files.head(file_path=file_path, ref=ref)
         except GitlabHeadError as e:
             if e.response_code == 404:
                 return False
@@ -287,7 +289,7 @@ class GitLabClient(RepoClient):
     def get_repository_tree(
         self,
         repo_id: str,
-        ref: str | None = None,
+        ref: str,
         *,
         path: str = "",
         recursive: bool = False,
@@ -307,9 +309,7 @@ class GitLabClient(RepoClient):
             The list of files or directories in the tree.
         """
         project = self.client.projects.get(repo_id)
-        repository_tree = project.repository_tree(
-            recursive=recursive, ref=ref or project.default_branch, path=path, all=True
-        )
+        repository_tree = project.repository_tree(recursive=recursive, ref=ref, path=path, all=True)
         return [file["path"] for file in repository_tree if tree_type is None or file["type"] == tree_type]
 
     def set_repository_webhooks(
@@ -334,8 +334,8 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         data = {
             "url": url,
-            "name": "DAIV",
-            "description": "WebHooks for DAIV integration.",
+            "name": BOT_NAME,
+            "description": f"WebHooks for {BOT_NAME} integration.",
             "push_events": "push_events" in events,
             "merge_requests_events": "merge_requests_events" in events,
             "issues_events": "issues_events" in events,
@@ -533,7 +533,7 @@ class GitLabClient(RepoClient):
         project.commits.create(commits)
 
     @contextmanager
-    def load_repo(self, repo_id: str, sha: str | None = None) -> AbstractContextManager[Path]:
+    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
         """
         Load a repository to a temporary directory.
 
@@ -545,7 +545,6 @@ class GitLabClient(RepoClient):
             The path to the repository directory.
         """
         project = self.client.projects.get(repo_id)
-        sha = sha or project.default_branch
         safe_sha = sha.replace("/", "_").replace(" ", "-")
 
         tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{safe_sha}-repo")
@@ -563,14 +562,14 @@ class GitLabClient(RepoClient):
                     zipfile.extractall(path=tmpdir.name)
                     # The first file in the archive is the repository directory.
                     repo_dirname = zipfile.filelist[0].filename
-        except Exception:
+        except:
             raise
         else:
             yield Path(tmpdir.name).joinpath(repo_dirname)
         finally:
             tmpdir.cleanup()
 
-    def get_repo_head_sha(self, repo_id: str | int, branch: str | None = None) -> str:
+    def get_repo_head_sha(self, repo_id: str | int, branch: str) -> str:
         """
         Get the head sha of a repository.
 
@@ -582,7 +581,6 @@ class GitLabClient(RepoClient):
             The head sha of the repository.
         """
         project = self.client.projects.get(repo_id, lazy=branch is not None)
-        branch = branch or project.default_branch
         return project.branches.get(branch).commit["id"]
 
     def get_commit_changed_files(

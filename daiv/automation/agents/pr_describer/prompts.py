@@ -4,7 +4,11 @@ Your goal is to create a pull request metadata that accurately reflects all the 
 
 1. Extract the title: Identify a concise and descriptive title for the pull request based on the information provided.
 
-2. Identify the branch name: Determine the branch name associated with the changes.
+2. Identify the branch name:
+   - Determine the branch name associated with the changes.
+   - No spaces are allowed in branch names.
+   - Use numbers, hyphens (-), underscores (_), lowercase letters from the ASCII standard table, or forward slashes (/).
+   {% if branch_name_convention %}- {{- branch_name_convention|striptags -}}{% endif %}
 
 3. Summarize the changes:
    - Use action-oriented verbs (e.g., "Added", "Updated", "Removed", etc...) to describe the changes.
@@ -31,17 +35,26 @@ Remember:
 """  # noqa: E501
 
 human = """Please proceed with your analysis and create the pull request metadata.
-<changes>{% for change in changes %}
+<changes>
+{% for change in changes -%}
 <change>
-<action>{{ change.to_markdown() }}</action>{% if change.commit_messages %}
-<commits>{% for commit in change.commit_messages %}
+<action>{{ change.to_markdown() }}</action>
+{% if change.commit_messages -%}
+<commits>
+{% for commit in change.commit_messages -%}
 <commit_message>{{ commit }}</commit_message>
-</commits>{% endfor %}{% endif %}
-<change>{% endfor %}
+{%- endfor %}
+</commits>
+{%- endif %}
+<change>
+{%- endfor %}
 </changes>
-{% if extra_info %}
+{% if extra_details %}
 Here are some additional details related with the changes:
-<additional_details>{% for key, value in extra_info.items() %}
- - **{{ key }}**: {{ value }}{% endfor %}
-</additional_details>{% endif %}
+<additional_details>
+{% for key, value in extra_details.items() -%}
+ - **{{ key }}**: {{ value }}
+{%- endfor %}
+</additional_details>
+{%- endif %}
 """  # noqa: E501
