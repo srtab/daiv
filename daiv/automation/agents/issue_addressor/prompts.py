@@ -198,7 +198,8 @@ The approval is unambiguous because it:
 {
   "is_unambiguous_approval": true,
   "approval_phrases": ["Yes", "I approve", "as is"],
-  "comments": "The response constitutes an unambiguous approval with multiple confirming elements: an initial 'yes', an explicit 'I approve' statement, and 'as is' indicating acceptance of the current state without modifications. No conditions or hesitations are present."
+  "comments": "The response constitutes an unambiguous approval with multiple confirming elements: an initial 'yes', an explicit 'I approve' statement, and 'as is' indicating acceptance of the current state without modifications. No conditions or hesitations are present.",
+  "feedback": "I will proceed with the current design."
 }
 ```
 </ideal_output>
@@ -237,7 +238,8 @@ This response contains clear ambiguity due to:
 {
   "is_unambiguous_approval": false,
   "approval_phrases": ["I like the idea"],
-  "comments": "While the response contains positive sentiment ('I like the idea'), it immediately introduces conditions ('but let's make some changes'). The presence of conditions and requested modifications makes this a conditional rather than unambiguous approval."
+  "comments": "While the response contains positive sentiment ('I like the idea'), it immediately introduces conditions ('but let's make some changes'). The presence of conditions and requested modifications makes this a conditional rather than unambiguous approval.",
+  "feedback": "I can't proceed until a clear approval of the presented plan. Please do the necessary changes to the plan or issue details, or reply with a clear approval to proceed."
 }
 ```
 </example>
