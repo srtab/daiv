@@ -58,13 +58,13 @@ class RedisCacheTest:
         """Fixture for RedisCache instance."""
         with patch("core.cache.RedisCacheClient") as mock_client_class:
             mock_client_class.return_value = mock_cache_client
-            cache = RedisCache(params=MagicMock())
+            cache = RedisCache(MagicMock(), MagicMock())
             cache._cache = mock_cache_client
             return cache
 
     def test_init_sets_correct_class(self):
         """Test __init__ sets the correct cache client class."""
-        cache = RedisCache(params=MagicMock())
+        cache = RedisCache(MagicMock(), MagicMock())
         assert cache._class == RedisCacheClient
 
     def test_lock_default_params(self, redis_cache, mock_cache_client):
