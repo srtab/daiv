@@ -75,14 +75,22 @@ class IssueAddressorManager:
             )
             issue_addressor_agent = issue_addressor.agent
 
-            if should_reset_plan and (history_states := list(issue_addressor_agent.get_state_history(config))):
+            if should_reset_plan and (
+                history_states := list(issue_addressor_agent.get_state_history(config, filter={"step": -1}))
+            ):
                 config = history_states[-1].config
 
             current_state = issue_addressor_agent.get_state(config)
 
-            # TODO: treat the case when the plan was already accepted and avoid reprocessing the issue
-
-            if not current_state.next or START in current_state.next:
+            # ``current_state.next`` is empty on first run or when the graph is in a final state.
+            # Being that said, we need to check the step metadata to determine if the graph is in a initial nodes.
+            if (
+                not current_state.next
+                and (
+                    current_state.metadata is None
+                    or ((step := current_state.metadata.get("step")) and (step is None or step <= 0))
+                )
+            ) or START in current_state.next:
                 result = issue_addressor_agent.invoke(
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
