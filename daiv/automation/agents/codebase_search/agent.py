@@ -39,8 +39,10 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
 
         # Add edges
         workflow.add_edge(START, "retrieve")
-        workflow.add_conditional_edges("retrieve", self.should_grade_documents)
-        workflow.add_conditional_edges("grade_document", self.should_transform_query)
+        workflow.add_conditional_edges(
+            "retrieve", self.should_grade_documents, ["transform_query", "grade_document", END]
+        )
+        workflow.add_conditional_edges("grade_document", self.should_transform_query, ["transform_query", END])
         workflow.add_edge("transform_query", "retrieve")
 
         return workflow.compile()
@@ -108,8 +110,12 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Check if we should transform the query.
         """
         if not state["documents"]:
-            logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
-            return "transform_query"
+            if state["iterations"] < MAX_ITERATIONS:
+                logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
+                return "transform"
+            else:
+                logger.info("[should_grade_documents] No documents retrieved. Ending the process.")
+                return END
 
         logger.info("[should_grade_documents] Documents retrieved. Moving to grade_documents state.")
         return [

@@ -1,6 +1,5 @@
 import logging
-from textwrap import dedent
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import (
@@ -15,26 +14,19 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents import (
-    CODING_PERFORMANT_MODEL_NAME,
-    GENERIC_COST_EFFICIENT_MODEL_NAME,
-    GENERIC_PERFORMANT_MODEL_NAME,
-    BaseAgent,
-)
-from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
+from automation.agents.base import PLANING_COST_EFFICIENT_MODEL_NAME
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
+from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from core.config import RepositoryConfig
 
-from .prompts import review_analyzer_plan, review_assessment_system, review_human_feedback_system
-from .schemas import DetermineNextActionResponse, HumanFeedbackResponse
+from .prompts import respond_reviewer_system, review_analyzer_plan, review_assessment_system
+from .schemas import DetermineNextActionResponse, RespondReviewerResponse
 from .state import OverallState
-
-if TYPE_CHECKING:
-    from codebase.base import FileChange
 
 logger = logging.getLogger("daiv.agents")
 
@@ -92,20 +84,22 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_node("assessment", self.assessment)
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_plan", self.execute_plan)
+        workflow.add_node("respond_to_reviewer", self.respond_to_reviewer)
         workflow.add_node("human_feedback", self.human_feedback)
-        workflow.add_node("commit_changes", self.commit_changes)
 
         workflow.add_edge(START, "assessment")
-        workflow.add_edge("execute_plan", "commit_changes")
-        workflow.add_edge("human_feedback", END)
-        workflow.add_edge("commit_changes", END)
+        workflow.add_edge("execute_plan", END)
+        workflow.add_edge("human_feedback", "plan")
+        workflow.add_edge("respond_to_reviewer", END)
 
         workflow.add_conditional_edges("assessment", self.continue_planning)
         workflow.add_conditional_edges("plan", self.continue_executing)
 
         in_memory_store = InMemoryStore()
 
-        return workflow.compile(store=in_memory_store)
+        return workflow.compile(
+            checkpointer=self.checkpointer, interrupt_before=["human_feedback"], store=in_memory_store
+        )
 
     def assessment(self, state: OverallState):
         """
@@ -135,12 +129,13 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         return {"request_for_changes": response.request_for_changes}
 
-    def plan(self, state: OverallState, *, store: BaseStore):
+    def plan(self, state: OverallState, store: BaseStore):
         """
         Plan the steps to follow.
 
         Args:
             state (OverallState): The state of the agent.
+            store (BaseStore): The store to save the state of the agent.
 
         Returns:
             dict: The state of the agent to update.
@@ -155,7 +150,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=toolkit.get_tools(),
-            model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=PLANING_COST_EFFICIENT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
@@ -164,19 +159,20 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         if isinstance(response["response"].action, AskForClarification):
-            return {"response": " ".join(response["response"].action.questions)}
+            return {"response": "\n".join(response["response"].action.questions)}
         return {
             "plan_tasks": response["response"].action.tasks,
             "goal": response["response"].action.goal,
             "show_diff_hunk_to_executor": response["response"].action.show_diff_hunk_to_executor,
         }
 
-    def execute_plan(self, state: OverallState, *, store: BaseStore):
+    def execute_plan(self, state: OverallState, store: BaseStore):
         """
         Execute the plan by making the necessary changes to the codebase.
 
         Args:
             state (OverallState): The state of the agent.
+            store (BaseStore): The store to save the state of the agent.
 
         Returns:
             dict: The state of the agent to update.
@@ -205,84 +201,45 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
-    def human_feedback(self, state: OverallState, *, store: BaseStore):
+    def respond_to_reviewer(self, state: OverallState, store: BaseStore):
+        """
+        Respond to reviewer's comments if no changes requested or if planning rises questions.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to save the state of the agent.
+
+        Returns:
+            dict: The state of the agent to update.
+        """
+        toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+
+        system_message_template = SystemMessagePromptTemplate.from_template(
+            respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+        )
+        system_message = system_message_template.format(
+            diff=state["diff"], project_description=self.repo_config.repository_description
+        )
+
+        react_agent = REACTAgent(
+            run_name="respond_reviewer_react_agent",
+            tools=toolkit.get_tools(),
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            with_structured_output=RespondReviewerResponse,
+            store=store,
+        )
+        result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
+        return {"response": cast(RespondReviewerResponse, result["response"]).response}
+
+    def human_feedback(self, state: OverallState):
         """
         Request human feedback to address the reviewer's comments.
 
         Args:
             state (OverallState): The state of the agent.
-
-        Returns:
-            dict: The state of the agent to update.
         """
-        response = state.get("response")
 
-        # this means that none of the previous steps raised a response for the reviewer
-        if not response:
-            toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
-
-            system_message_template = SystemMessagePromptTemplate.from_template(
-                review_human_feedback_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-            )
-            system_message = system_message_template.format(
-                diff=state["diff"], project_description=self.repo_config.repository_description
-            )
-
-            react_agent = REACTAgent(
-                run_name="human_feedback_react_agent",
-                tools=toolkit.get_tools(),
-                model_name=CODING_PERFORMANT_MODEL_NAME,
-                with_structured_output=HumanFeedbackResponse,
-                store=store,
-            )
-            result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
-            response = cast(HumanFeedbackResponse, result["response"]).response
-
-        if response:
-            self.repo_client.create_merge_request_discussion_note(
-                self.source_repo_id, self.merge_request_id, self.discussion_id, response
-            )
-
-        return {"response": ""}
-
-    def commit_changes(self, state: OverallState, *, store: BaseStore):
-        """
-        Commit the changes to the codebase.
-
-        Args:
-            state (OverallState): The state of the agent.
-        """
-        self.repo_client.resolve_merge_request_discussion(
-            self.source_repo_id, self.merge_request_id, self.discussion_id
-        )
-
-        if stored_items := store.search(("file_changes", self.source_repo_id, self.source_ref)):
-            file_changes: list[FileChange] = [item.value["data"] for item in stored_items]
-
-            pr_describer = PullRequestDescriberAgent()
-            changes_description = pr_describer.agent.invoke({
-                "changes": file_changes,
-                "branch_name_convention": self.repo_config.branch_name_convention,
-            })
-
-            self.repo_client.commit_changes(
-                self.source_repo_id, self.source_ref, changes_description.commit_message, file_changes
-            )
-            self.repo_client.comment_merge_request(
-                self.source_repo_id,
-                self.merge_request_id,
-                dedent(
-                    """\
-                    #### Description
-                    {description}
-
-                    #### Summary of changes
-                    {summary}
-                    """
-                ).format(description=changes_description.description, summary=changes_description.summary),
-            )
-
-    def continue_planning(self, state: OverallState) -> Literal["plan", "human_feedback"]:
+    def continue_planning(self, state: OverallState) -> Literal["plan", "respond_to_reviewer"]:
         """
         Check if the agent should continue planning or provide/request human feedback.
 
@@ -294,7 +251,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         if "request_for_changes" in state and state["request_for_changes"]:
             return "plan"
-        return "human_feedback"
+        return "respond_to_reviewer"
 
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """
@@ -309,3 +266,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         if "response" in state and state["response"]:
             return "human_feedback"
         return "execute_plan"
+
+    def get_files_to_commit(self) -> list[FileChange]:
+        if self.agent.store is None:
+            return []
+        return [
+            cast(FileChange, item.value["data"])
+            for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+        ]

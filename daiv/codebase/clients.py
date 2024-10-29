@@ -782,9 +782,7 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def get_issue_discussions(
-        self, repo_id: str, issue_id: int, note_type: NoteType | None = None
-    ) -> Generator[Discussion, None, None]:  # noqa: A002
+    def get_issue_discussions(self, repo_id: str, issue_id: int, note_type: NoteType | None = None) -> list[Discussion]:  # noqa: A002
         """
         Get the discussions from a merge request.
 
@@ -799,11 +797,13 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
 
+        discussions = []
         for discussion in issue.discussions.list(all=True, iterator=True):
             if discussion.individual_note is False and (
                 notes := self._serialize_notes(discussion.attributes["notes"], note_type)
             ):
-                yield Discussion(id=discussion.id, notes=notes)
+                discussions.append(Discussion(id=discussion.id, notes=notes))
+        return discussions
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
