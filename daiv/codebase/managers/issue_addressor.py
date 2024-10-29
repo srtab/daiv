@@ -1,4 +1,3 @@
-from collections.abc import Iterator
 from typing import cast
 
 from django.conf import settings
@@ -8,7 +7,6 @@ from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import START
-from langgraph.types import StateSnapshot
 
 from automation.agents.issue_addressor.agent import IssueAddressorAgent
 from automation.agents.issue_addressor.state import OverallState
@@ -77,10 +75,12 @@ class IssueAddressorManager:
             )
             issue_addressor_agent = issue_addressor.agent
 
-            if should_reset_plan:
-                config = self._reset_plan(issue_addressor_agent.get_state_history(config), config, cast(int, issue.id))
+            if should_reset_plan and (history_states := list(issue_addressor_agent.get_state_history(config))):
+                config = history_states[-1].config
 
             current_state = issue_addressor_agent.get_state(config)
+
+            # TODO: treat the case when the plan was already accepted and avoid reprocessing the issue
 
             if not current_state.next or START in current_state.next:
                 result = issue_addressor_agent.invoke(
@@ -111,22 +111,16 @@ class IssueAddressorManager:
         """
         return any(note.author.id == self.client.current_user.id for note in notes)
 
-    def _reset_plan(self, state_history: Iterator[StateSnapshot], config: RunnableConfig, issue_id: int):
-        """
-        Reset the plan by replaying the first state and cleaning up existing tasks.
-        """
-        if history_states := list(state_history):
-            config = history_states[-1].config
-
-            for issue_tasks in self.client.get_issue_tasks(self.repo_id, issue_id):
-                self.client.delete_issue(self.repo_id, cast(int, issue_tasks.iid))
-        return config
-
     def _handle_initial_result(self, result: OverallState, issue_id: int, issue_iid: int):
         """
         Handle the initial state of issue processing.
         """
         if "plan_tasks" in result:
+            # clean up existing tasks before creating new ones
+            for issue_tasks in self.client.get_issue_tasks(self.repo_id, issue_id):
+                self.client.delete_issue(self.repo_id, cast(int, issue_tasks.iid))
+
+            # create new tasks and comment the issue
             self.client.create_issue_tasks(self.repo_id, issue_id, self._create_issue_tasks(result["plan_tasks"]))
             self.client.comment_issue(self.repo_id, issue_iid, ISSUE_REVIEW_PLAN_TEMPLATE)
         elif "questions" in result:
