@@ -50,7 +50,7 @@ class IssueCallback(BaseCallback):
                     repo_id=self.project.path_with_namespace,
                     issue_iid=self.object_attributes.iid,
                     should_reset_plan=self.should_reset_plan(),
-                    cache_key=cache_key,
+                    lock_cache_key=cache_key,
                 ).apply_async()
             else:
                 logger.warning(
@@ -126,7 +126,7 @@ class NoteCallback(BaseCallback):
                 if await cache.aget(cache_key) is None:
                     await cache.aset(cache_key, "launched", timeout=60 * 10)
                     address_issue_task.si(
-                        repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid
+                        repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid, lock_cache_key=cache_key
                     ).apply_async()
                 else:
                     logger.warning(
@@ -142,7 +142,7 @@ class NoteCallback(BaseCallback):
                         repo_id=self.project.path_with_namespace,
                         merge_request_id=self.merge_request.iid,
                         merge_request_source_branch=self.merge_request.source_branch,
-                        cache_key=cache_key,
+                        lock_cache_key=cache_key,
                     ).apply_async()
                 else:
                     logger.warning(

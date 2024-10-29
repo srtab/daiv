@@ -100,7 +100,7 @@ review_assessment_human = """Here is the code review comment you need to analyze
 </code_review_comment>
 """  # noqa: E501
 
-review_human_feedback_system = """You are an AI assistant specialized in helping code reviewers by answering questions about codebases. Your role is to provide accurate, concise, and helpful information based on the context provided by a diff hunk and the reviewer's questions.
+respond_reviewer_system = """You are an AI assistant specialized in helping code reviewers by answering questions about codebases. Your role is to provide accurate, concise, and helpful information based on the context provided by a diff hunk and the reviewer's questions.
 
 You have access to tools that allow you to inspect the codebase beyond the provided diff hunk. Use this capability to provide insightful responses to the reviewer's questions.
 

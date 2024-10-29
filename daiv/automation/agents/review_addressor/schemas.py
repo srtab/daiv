@@ -6,7 +6,7 @@ from automation.agents.schemas import Plan as BasePlan
 DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 
-class HumanFeedbackResponse(BaseModel):
+class RespondReviewerResponse(BaseModel):
     """
     Provide a final response to the reviewer.
     """

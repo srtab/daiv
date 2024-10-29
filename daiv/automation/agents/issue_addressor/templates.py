@@ -26,7 +26,7 @@ Thank you! 😊
 """  # noqa: E501
 
 
-ISSUE_UNABLE_DEIFNE_PLAN_TEMPLATE = """⚠️ **Unable to Define a Plan**
+ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """⚠️ **Unable to Define a Plan**
 
 I encountered an issue while creating a plan for this task. To help me assist you better, please make the following adjustments:
 
