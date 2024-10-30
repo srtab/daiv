@@ -112,7 +112,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         if not state["documents"]:
             if state["iterations"] < MAX_ITERATIONS:
                 logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
-                return "transform"
+                return "transform_query"
             else:
                 logger.info("[should_grade_documents] No documents retrieved. Ending the process.")
                 return END

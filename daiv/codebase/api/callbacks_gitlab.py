@@ -175,6 +175,9 @@ class PushCallback(BaseCallback):
         if self.ref.endswith(self.project.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+            await sync_to_async(
+                update_index_repository.si(self.project.path_with_namespace, self.project.default_branch).delay
+            )()
 
         for merge_request in self.related_merge_requests:
             await sync_to_async(

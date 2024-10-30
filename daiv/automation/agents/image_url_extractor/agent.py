@@ -1,4 +1,4 @@
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
@@ -24,10 +24,12 @@ def _post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> li
     Returns:
         list[dict]: The processed images ready to be used on prompt templates.
     """
-    if not (project_id := config["configurable"].get("project_id")):
-        raise ValueError("Project ID is required to extract image URLs.")
-
-    return ImageTemplate.from_images(cast(int, project_id), output.images)
+    return ImageTemplate.from_images(
+        output.images,
+        repo_client_slug=config["configurable"].get("repo_client_slug"),
+        project_id=config["configurable"].get("project_id"),
+        only_base64=config["configurable"].get("only_base64", False),
+    )
 
 
 class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[dict]]]):
