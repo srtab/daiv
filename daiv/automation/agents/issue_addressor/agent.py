@@ -165,7 +165,14 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
-            {"markdown_text": state["issue_description"]}, {"configurable": {"project_id": self.project_id}}
+            {"markdown_text": state["issue_description"]},
+            {
+                "configurable": {
+                    "repo_client_slug": self.repo_client.client_slug,
+                    "project_id": self.project_id,
+                    "only_base64": PLANING_PERFORMANT_MODEL_NAME.startswith("claude"),
+                }
+            },
         )
 
         prompt = ChatPromptTemplate.from_messages([

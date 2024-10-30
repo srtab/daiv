@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
+from codebase.base import ClientType
 from codebase.conf import settings
 from core.utils import build_uri, is_valid_url, url_to_data_url
 
@@ -20,28 +21,50 @@ class ImageTemplate(BaseModel):
     image_url: ImageURLTemplate
 
     @staticmethod
-    def from_images(project_id: int, images: list[Image]) -> list[dict]:
+    def from_images(
+        images: list[Image],
+        repo_client_slug: str | None = None,
+        project_id: int | None = None,
+        only_base64: bool = False,
+    ) -> list[dict]:
+        """
+        Create a list of image templates from a list of images.
+
+        Args:
+            project_id (int): The project ID.
+            images (list[Image]): The list of images.
+            only_base64 (bool): Whether to convert the image URL to base64 or not.
+
+        Returns:
+            list[dict]: The list of image templates.
+        """
         image_templates = []
 
         for image in images:
-            image_template = None
+            image_url = None
 
             if is_valid_url(image.url):
-                image_template = ImageTemplate(
-                    type="image", image_url=ImageURLTemplate(url=image.url, path=image.filename)
-                ).model_dump(exclude_none=True)
+                image_url = image.url if not only_base64 else url_to_data_url(image.url)
 
-            elif (parsed_url := urlparse(image.url)) and not parsed_url.netloc and not parsed_url.scheme:
-                image_url = build_uri(f"{settings.CODEBASE_GITLAB_URL}/api/v4/projects/{project_id}/", image.url)
-                if image_data_url := url_to_data_url(
-                    image_url, headers={"PRIVATE-TOKEN": settings.CODEBASE_GITLAB_AUTH_TOKEN}
-                ):
-                    image_template = ImageTemplate(
-                        type="image", image_url=ImageURLTemplate(url=image_data_url, path=image.filename)
+            elif (
+                (parsed_url := urlparse(image.url))
+                and not parsed_url.netloc
+                and not parsed_url.scheme
+                and repo_client_slug == ClientType.GITLAB
+                and project_id
+                and parsed_url.path.startswith("uploads/")
+            ):
+                _repo_image_url = build_uri(f"{settings.CODEBASE_GITLAB_URL}/api/v4/projects/{project_id}/", image.url)
+                image_url = url_to_data_url(
+                    _repo_image_url, headers={"PRIVATE-TOKEN": settings.CODEBASE_GITLAB_AUTH_TOKEN}
+                )
+
+            if image_url:
+                image_templates.append(
+                    ImageTemplate(
+                        type="image", image_url=ImageURLTemplate(url=image_url, path=image.filename)
                     ).model_dump(exclude_none=True)
-
-            if image_template:
-                image_templates.append(image_template)
+                )
 
         return image_templates
 
