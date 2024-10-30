@@ -180,7 +180,8 @@ class ReviewAddressorManager:
 
                 current_state = reviewer_addressor_agent.get_state(config)
 
-                if not current_state.next or START in current_state.next:
+                # ``current_state.next`` is empty on first run or when the graph is in a final state.
+                if (not current_state.next and current_state.created_at is None) or START in current_state.next:
                     result = reviewer_addressor_agent.invoke(
                         {
                             "diff": context.diff,
@@ -198,12 +199,14 @@ class ReviewAddressorManager:
                     )
                     result = reviewer_addressor_agent.invoke(None, config)
 
+                state_after_run = reviewer_addressor_agent.get_state(config)
+
                 if "response" in result:
                     self.client.create_merge_request_discussion_note(
                         self.repo_id, merge_request_id, context.discussion.id, result["response"]
                     )
 
-                if file_changes := reviewer_addressor.get_files_to_commit():
+                if not state_after_run.tasks and (file_changes := reviewer_addressor.get_files_to_commit()):
                     self._commit_changes(
                         merge_request_id=merge_request_id,
                         discussion_id=context.discussion.id,
