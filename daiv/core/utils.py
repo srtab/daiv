@@ -3,9 +3,13 @@ import base64
 import logging
 import mimetypes
 from collections.abc import Iterable
+from functools import wraps
 from urllib.parse import urlparse, urlunparse
 
+from django.core.cache import cache
+
 import httpx
+from redis.exceptions import LockError
 
 logger = logging.getLogger("daiv.core")
 
@@ -137,3 +141,30 @@ async def batch_async_url_to_data_url(urls: Iterable[str], headers: dict[str, st
                 result[url] = response
 
     return result
+
+
+def locked_task(key: str = "", blocking: bool = False):
+    """
+    A decorator to ensure that a task is executed with a distributed lock.
+
+    ```
+        @app.task
+        @locked_task()
+        def my_task(*args, **kwargs):
+            pass
+    ```
+    """
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                with cache.lock(f"{func.__name__}:{key.format(*args, **kwargs)}", blocking=blocking):
+                    func(*args, **kwargs)
+            except LockError:
+                logger.warning("Task: Ignored task, already processing.")
+                return
+
+        return wrapper
+
+    return decorator
