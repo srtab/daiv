@@ -37,6 +37,9 @@ from .conf import settings
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+import requests
+from github import Github
+
 logger = logging.getLogger(__name__)
 
 
@@ -172,7 +175,7 @@ class RepoClient(abc.ABC):
         if settings.CODEBASE_CLIENT == ClientType.GITLAB:
             return GitLabClient(auth_token=settings.CODEBASE_GITLAB_AUTH_TOKEN, url=settings.CODEBASE_GITLAB_URL)
         if settings.CODEBASE_CLIENT == ClientType.GITHUB:
-            raise NotImplementedError("GitHub client is not implemented yet")
+            return GitHubClient(auth_token=settings.CODEBASE_GITHUB_AUTH_TOKEN)
         raise ValueError("Invalid repository client configuration")
 
 
@@ -994,11 +997,578 @@ class GitLabClient(RepoClient):
 class GitHubClient(RepoClient):
     """
     GitHub client to interact with GitHub repositories.
-
-    Note: This class is not implemented yet. It is a placeholder for future development.
     """
 
     client_slug = ClientType.GITHUB
+
+    def __init__(self, auth_token: str):
+        self.client = Github(auth_token)
+
+    def get_repository(self, repo_id: str) -> Repository:
+        """
+        Get a repository.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The repository object.
+        """
+        repo = self.client.get_repo(repo_id)
+        return Repository(
+            pk=repo.id,
+            slug=repo.full_name,
+            name=repo.name,
+            default_branch=repo.default_branch,
+            client=self.client_slug,
+            topics=repo.get_topics(),
+        )
+
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
+    ) -> list[Repository]:
+        """
+        List all repositories.
+
+        Args:
+            search: The search query.
+            topics: The topics to filter the repositories.
+            load_all: Load all repositories.
+
+        Returns:
+            The list of repositories.
+        """
+        repos = self.client.get_user().get_repos()
+        if search:
+            repos = [repo for repo in repos if search.lower() in repo.name.lower()]
+        if topics:
+            repos = [repo for repo in repos if any(topic in repo.get_topics() for topic in topics)]
+        return [
+            Repository(
+                pk=repo.id,
+                slug=repo.full_name,
+                name=repo.name,
+                default_branch=repo.default_branch,
+                client=self.client_slug,
+                topics=repo.get_topics(),
+            )
+            for repo in repos
+        ]
+
+    def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
+        """
+        Get the content of a file in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            file_path: The file path.
+            ref: The branch or tag name.
+
+        Returns:
+            The content of the file. If the file is binary or not a text file, it returns None.
+        """
+        repo = self.client.get_repo(repo_id)
+        try:
+            file_content = repo.get_contents(file_path, ref=ref)
+            return file_content.decoded_content.decode("utf-8")
+        except Exception:
+            return None
+
+    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
+        """
+        Check if a file exists in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            file_path: The file path.
+            ref: The branch or tag name.
+
+        Returns:
+            True if the file exists, otherwise False.
+        """
+        repo = self.client.get_repo(repo_id)
+        try:
+            repo.get_contents(file_path, ref=ref)
+            return True
+        except Exception:
+            return False
+
+    def get_repository_tree(
+        self,
+        repo_id: str,
+        ref: str,
+        *,
+        path: str = "",
+        recursive: bool = False,
+        tree_type: Literal["blob", "tree"] | None = None,
+    ) -> list[str]:
+        """
+        Get the tree of a repository.
+
+        Args:
+            repo_id: The repository ID.
+            ref: The branch or tag name.
+            path: The path to list the tree.
+            recursive: Recursively list the tree.
+            tree_type: The type of the tree to filter. If None, it returns all types.
+
+        Returns:
+            The list of files or directories in the tree.
+        """
+        repo = self.client.get_repo(repo_id)
+        tree = repo.get_git_tree(ref, recursive=recursive).tree
+        return [file.path for file in tree if tree_type is None or file.type == tree_type]
+
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
+        """
+        Get the latest diff of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+
+        Returns:
+            The generator of merge request diffs.
+        """
+        repo = self.client.get_repo(repo_id)
+        pull_request = repo.get_pull(merge_request_id)
+        for file in pull_request.get_files():
+            yield MergeRequestDiff(
+                repo_id=repo_id,
+                merge_request_id=merge_request_id,
+                ref=file.sha,
+                old_path=file.filename,
+                new_path=file.filename,
+                diff=file.patch,
+                new_file=file.status == "added",
+                renamed_file=file.status == "renamed",
+                deleted_file=file.status == "removed",
+            )
+
+    def update_or_create_merge_request(
+        self,
+        repo_id: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        description: str,
+        labels: list[str] | None = None,
+    ) -> int | str | None:
+        """
+        Create a merge request in a repository or update an existing one if it already exists.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+            title: The title of the merge request.
+            description: The description of the merge request.
+            labels: The list of labels.
+
+        Returns:
+            The merge request ID.
+        """
+        repo = self.client.get_repo(repo_id)
+        try:
+            pull_request = repo.create_pull(
+                title=title,
+                body=description,
+                head=source_branch,
+                base=target_branch,
+            )
+            if labels:
+                pull_request.set_labels(*labels)
+            return pull_request.number
+        except Exception as e:
+            if "A pull request already exists" in str(e):
+                pull_requests = repo.get_pulls(head=source_branch, base=target_branch)
+                if pull_requests.totalCount > 0:
+                    pull_request = pull_requests[0]
+                    pull_request.edit(title=title, body=description)
+                    if labels:
+                        pull_request.set_labels(*labels)
+                    return pull_request.number
+            raise e
+
+    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str):
+        """
+        Comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+        """
+        repo = self.client.get_repo(repo_id)
+        pull_request = repo.get_pull(merge_request_id)
+        pull_request.create_issue_comment(body)
+
+    def commit_changes(
+        self,
+        repo_id: str,
+        target_branch: str,
+        commit_message: str,
+        file_changes: list[FileChange],
+        start_branch: str | None = None,
+        override_commits: bool = False,
+    ):
+        """
+        Commit changes to a repository.
+
+        Args:
+            repo_id: The repository ID.
+            ref: The branch or tag name.
+            target_branch: The target branch.
+            commit_message: The commit message.
+            file_changes: The list of file changes.
+        """
+        repo = self.client.get_repo(repo_id)
+        base_ref = repo.get_git_ref(f"heads/{start_branch or target_branch}")
+        base_commit = repo.get_commit(base_ref.object.sha)
+        base_tree = base_commit.commit.tree
+
+        elements = []
+        for file_change in file_changes:
+            if file_change.action == "delete":
+                elements.append(
+                    {
+                        "path": file_change.file_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    }
+                )
+            else:
+                elements.append(
+                    {
+                        "path": file_change.file_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "content": file_change.content,
+                    }
+                )
+
+        new_tree = repo.create_git_tree(elements, base_tree)
+        new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
+        base_ref.edit(new_commit.sha, force=override_commits)
+
+    @contextmanager
+    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
+        """
+        Load a repository to a temporary directory.
+
+        Args:
+            repo_id: The repository ID.
+            sha: The commit sha.
+
+        Yields:
+            The path to the repository directory.
+        """
+        repo = self.client.get_repo(repo_id)
+        archive_url = repo.get_archive_link("zipball", sha)
+        response = requests.get(archive_url, stream=True)
+        response.raise_for_status()
+
+        tmpdir = tempfile.TemporaryDirectory(prefix=f"{repo_id}-{sha}-repo")
+        logger.debug("Loading repository to %s", tmpdir)
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix=f"{repo_id}-{sha}-archive", suffix=".zip"
+            ) as repo_archive:
+                for chunk in response.iter_content(chunk_size=8192):
+                    repo_archive.write(chunk)
+                repo_archive.flush()
+                repo_archive.seek(0)
+
+                with ZipFile(repo_archive.name, "r") as zipfile:
+                    zipfile.extractall(path=tmpdir.name)
+                    # The first file in the archive is the repository directory.
+                    repo_dirname = zipfile.filelist[0].filename
+        except:
+            raise
+        else:
+            yield Path(tmpdir.name).joinpath(repo_dirname)
+        finally:
+            tmpdir.cleanup()
+
+    def get_repo_head_sha(self, repo_id: str | int, branch: str) -> str:
+        """
+        Get the head sha of a repository.
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name.
+
+        Returns:
+            The head sha of the repository.
+        """
+        repo = self.client.get_repo(repo_id)
+        ref = repo.get_git_ref(f"heads/{branch}")
+        return ref.object.sha
+
+    def get_commit_changed_files(
+        self, repo_id: str, from_sha: str, to_sha: str
+    ) -> tuple[list[str], list[str], list[str]]:
+        """
+        Get the changed files between two commits.
+
+        Args:
+            repo_id: The repository ID.
+            from_sha: The from commit sha.
+            to_sha: The to commit sha.
+
+        Returns:
+            The tuple of new files, changed files, and deleted files.
+        """
+        repo = self.client.get_repo(repo_id)
+        comparison = repo.compare(from_sha, to_sha)
+        new_files = [file.filename for file in comparison.files if file.status == "added"]
+        changed_files = [file.filename for file in comparison.files if file.status == "modified"]
+        deleted_files = [file.filename for file in comparison.files if file.status == "removed"]
+        return new_files, changed_files, deleted_files
+
+    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
+        """
+        Get an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+
+        Returns:
+            The issue object.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        return Issue(
+            id=issue.id,
+            iid=issue.number,
+            title=issue.title,
+            description=issue.body,
+            state=issue.state,
+            labels=[label.name for label in issue.labels],
+            assignee=User(
+                id=issue.assignee.id,
+                username=issue.assignee.login,
+                name=issue.assignee.login,
+            )
+            if issue.assignee
+            else None,
+        )
+
+    def comment_issue(self, repo_id: str, issue_id: int, body: str):
+        """
+        Comment on an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            body: The comment body.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        issue.create_comment(body)
+
+    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
+        """
+        Get the notes of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+
+        Returns:
+            The list of issue notes.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        return [
+            Note(
+                id=comment.id,
+                body=comment.body,
+                author=User(
+                    id=comment.user.id,
+                    username=comment.user.login,
+                    name=comment.user.login,
+                ),
+            )
+            for comment in issue.get_comments()
+        ]
+
+    def get_issue_discussions(self, repo_id: str, issue_id: int, note_type: NoteType | None = None) -> list[Discussion]:  # noqa: A002
+        """
+        Get the discussions from an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            note_type: The note type.
+
+        Returns:
+            The list of discussions.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        discussions = []
+        for comment in issue.get_comments():
+            if note_type is None or comment.type == note_type:
+                discussions.append(
+                    Discussion(
+                        id=comment.id,
+                        notes=[
+                            Note(
+                                id=comment.id,
+                                body=comment.body,
+                                author=User(
+                                    id=comment.user.id,
+                                    username=comment.user.login,
+                                    name=comment.user.login,
+                                ),
+                            )
+                        ],
+                    )
+                )
+        return discussions
+
+    def get_issue_related_merge_requests(
+        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
+    ) -> list[MergeRequest]:
+        """
+        Get the related merge requests of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            assignee_id: The assignee ID.
+
+        Returns:
+            The list of merge requests.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        events = issue.get_events()
+        merge_requests = []
+        for event in events:
+            if event.event == "cross-referenced" and event.source and event.source.type == "pull_request":
+                pr = event.source
+                if (assignee_id is None or pr.assignee and pr.assignee.id == assignee_id) and (
+                    label is None or label in [lbl.name for lbl in pr.labels]
+                ):
+                    merge_requests.append(
+                        MergeRequest(
+                            repo_id=repo_id,
+                            merge_request_id=pr.number,
+                            source_branch=pr.head.ref,
+                            target_branch=pr.base.ref,
+                            title=pr.title,
+                            description=pr.body,
+                            labels=[lbl.name for lbl in pr.labels],
+                        )
+                    )
+        return merge_requests
+
+    def create_issue_discussion_note(self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None):
+        """
+        Create a note in a discussion of an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            discussion_id: The discussion ID.
+            body: The note body.
+        """
+        repo = self.client.get_repo(repo_id)
+        issue = repo.get_issue(number=issue_id)
+        issue.create_comment(body)
+
+    def delete_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str):
+        """
+        Delete a discussion in an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            discussion_id: The discussion ID.
+        """
+        repo = self.client.get_repo(repo_id)
+        comment = repo.get_comment(discussion_id)
+        comment.delete()
+
+    @cached_property
+    def current_user(self) -> User:
+        """
+        Get the profile of the current user.
+
+        Returns:
+            The profile of the user.
+        """
+        user = self.client.get_user()
+        return User(id=user.id, username=user.login, name=user.login)
+
+    def get_merge_request_discussions(
+        self, repo_id: str, merge_request_id: int, note_type: NoteType | None = None
+    ) -> list[Discussion]:  # noqa: A002
+        """
+        Get the discussions from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            note_type: The note type.
+
+        Returns:
+            The list of discussions.
+        """
+        repo = self.client.get_repo(repo_id)
+        pull_request = repo.get_pull(merge_request_id)
+        discussions = []
+        for comment in pull_request.get_review_comments():
+            if note_type is None or comment.type == note_type:
+                discussions.append(
+                    Discussion(
+                        id=comment.id,
+                        notes=[
+                            Note(
+                                id=comment.id,
+                                body=comment.body,
+                                author=User(
+                                    id=comment.user.id,
+                                    username=comment.user.login,
+                                    name=comment.user.login,
+                                ),
+                            )
+                        ],
+                    )
+                )
+        return discussions
+
+    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        """
+        Resolve a discussion in a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+        """
+        repo = self.client.get_repo(repo_id)
+        comment = repo.get_comment(discussion_id)
+        comment.edit(body=f"{comment.body}\n\n*Resolved*")
+
+    def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: str, body: str):
+        """
+        Create a note in a discussion of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+            body: The note body.
+        """
+        repo = self.client.get_repo(repo_id)
+        pull_request = repo.get_pull(merge_request_id)
+        pull_request.create_review_comment(body, in_reply_to=discussion_id)
 
 
 AllRepoClient = GitHubClient | GitLabClient

@@ -76,3 +76,38 @@ def address_review_task(
         if lock_cache_key:
             # Delete the lock after the task is completed
             cache.delete(lock_cache_key)
+
+
+@shared_task
+def github_issue_task(
+    repo_id: str,
+    issue_number: int,
+    ref: str | None = None,
+    should_reset_plan: bool = False,
+    lock_cache_key: str | None = None,
+):
+    """
+    Address a GitHub issue by creating a pull request with the changes described in the issue description.
+    """
+    try:
+        IssueAddressorManager.process_issue(repo_id, issue_number, ref, should_reset_plan)
+    except Exception as e:
+        logger.exception("Error addressing GitHub issue '%d': %s", issue_number, e)
+    finally:
+        if lock_cache_key:
+            # Delete the lock after the task is completed
+            cache.delete(lock_cache_key)
+
+
+@shared_task
+def github_review_task(
+    repo_id: str, pull_request_number: int, pull_request_source_branch: str, lock_cache_key: str | None = None
+):
+    try:
+        ReviewAddressorManager.process_review(repo_id, pull_request_number, pull_request_source_branch)
+    except Exception as e:
+        logger.exception("Error addressing review of GitHub pull request '%d': %s", pull_request_number, e)
+    finally:
+        if lock_cache_key:
+            # Delete the lock after the task is completed
+            cache.delete(lock_cache_key)

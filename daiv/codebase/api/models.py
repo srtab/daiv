@@ -160,3 +160,102 @@ class User(BaseModel):
     name: str
     username: str
     email: str
+
+
+class GitHubIssueAction(StrEnum):
+    """
+    GitHub Issue Action
+    """
+
+    OPENED = "opened"
+    EDITED = "edited"
+    DELETED = "deleted"
+
+
+class GitHubIssue(BaseModel):
+    """
+    GitHub Issue
+    """
+
+    id: int
+    number: int
+    title: str
+    body: str | None
+    state: str
+    user: User
+    action: GitHubIssueAction | None = None
+    labels: list[Label]
+
+    def is_daiv(self) -> bool:
+        """
+        Check if the issue is a DAIV issue
+        """
+        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
+
+
+class GitHubPullRequest(BaseModel):
+    """
+    GitHub Pull Request
+    """
+
+    id: int
+    number: int
+    title: str
+    body: str
+    state: str
+    head: dict
+    base: dict
+    user: User
+    labels: list[Label]
+
+    def is_daiv(self) -> bool:
+        """
+        Check if the pull request is a DAIV pull request
+        """
+        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
+
+
+class GitHubNoteableType(StrEnum):
+    """
+    GitHub Noteable Type
+    """
+
+    ISSUE = "Issue"
+    PULL_REQUEST = "PullRequest"
+
+
+class GitHubNoteAction(StrEnum):
+    """
+    GitHub Note Action
+    """
+
+    CREATED = "created"
+    EDITED = "edited"
+    DELETED = "deleted"
+
+
+class GitHubNotePosition(BaseModel):
+    """
+    GitHub Note Position
+    """
+
+    path: str
+    position: int
+    original_position: int
+    commit_id: str
+    original_commit_id: str
+
+
+class GitHubNote(BaseModel):
+    """
+    GitHub Note
+    """
+
+    id: int
+    action: GitHubNoteAction
+    noteable_type: GitHubNoteableType
+    noteable_id: int
+    body: str
+    user: User
+    position: GitHubNotePosition | None = None
+    system: bool
