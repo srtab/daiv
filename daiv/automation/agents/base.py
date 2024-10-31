@@ -2,24 +2,29 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from decimal import Decimal
-from typing import TYPE_CHECKING, Generic, TypeVar
+from enum import Enum
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_openai.chat_models import ChatOpenAI
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres import PostgresSaver
 
-ANTHROPIC_PROVIDER_NAME = "anthropic"
-
-PLANING_PERFORMANT_MODEL_NAME = "claude-3-opus-20240229"
+PLANING_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"  # "claude-3-opus-20240229"
 PLANING_COST_EFFICIENT_MODEL_NAME = "gpt-4o-2024-08-06"
 CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
 CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # TODO: Replace with haiku 3.5 when released
 GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
 GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
+
+
+class ModelProvider(Enum):
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -77,11 +82,11 @@ class BaseAgent(ABC, Generic[T]):
             "model_kwargs": {},
         }
 
-        if _attempt_infer_model_provider(self.model_name) == ANTHROPIC_PROVIDER_NAME:
+        if _attempt_infer_model_provider(self.model_name) == ModelProvider.ANTHROPIC:
             kwargs["model_kwargs"]["extra_headers"] = {
                 "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
             }
-            kwargs["max_tokens"] = "8192" if self.model_name.startswith("claude-3-5-sonnet") else "4096"
+            kwargs["max_tokens"] = str(self.get_max_token_value())
         return kwargs
 
     def get_config(self) -> RunnableConfig:
@@ -101,6 +106,24 @@ class BaseAgent(ABC, Generic[T]):
             str: The Mermaid graph
         """
         return self.agent.get_graph().draw_mermaid()
+
+    def get_max_token_value(self) -> int:
+        """
+        Get the maximum token value for the model.
+
+        Returns:
+            int: The maximum token value
+        """
+        match _attempt_infer_model_provider(self.model_name):
+            case ModelProvider.ANTHROPIC:
+                return 8192 if self.model_name.startswith("claude-3-5-sonnet") else 4096
+
+            case ModelProvider.OPENAI:
+                _, encoding_model = cast(ChatOpenAI, self.model)._get_encoding_model()
+                return encoding_model.max_token_value
+
+            case _:
+                raise ValueError(f"Unknown provider for model {self.model_name}")
 
 
 class Usage(BaseModel):

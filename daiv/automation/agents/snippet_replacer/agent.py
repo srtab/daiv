@@ -2,13 +2,14 @@ from functools import cached_property
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel
 
 from automation.agents import CODING_COST_EFFICIENT_MODEL_NAME, BaseAgent
 
 from .prompts import human, system
 from .schemas import SnippetReplacerOutput
+from .utils import find_original_snippet
 
 
 class SnippetReplacerInput(BaseModel):
@@ -21,7 +22,7 @@ class SnippetReplacerInput(BaseModel):
     content: str = ""
 
 
-class SnippetReplacerAgent(BaseAgent[Runnable]):
+class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetReplacerOutput | str]]):
     """
     Agent to replace a code snippet in a codebase.
     """
@@ -35,7 +36,44 @@ class SnippetReplacerAgent(BaseAgent[Runnable]):
         Returns:
             CompiledStateGraph | Runnable: The compiled agent.
         """
-        return self._prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
+        return self._prompt | RunnableLambda(self._route)
+
+    def _route(self, input_data: SnippetReplacerInput) -> Runnable:
+        if self.validate_max_token_not_exceeded(input_data):
+            return self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
+        return RunnableLambda(self._replace_content_snippet)
+
+    def _replace_content_snippet(self, input_data: SnippetReplacerInput) -> SnippetReplacerOutput | str:
+        original_snippet_found = find_original_snippet(
+            input_data.original_snippet, input_data.content, initial_line_threshold=1
+        )
+        if not original_snippet_found:
+            return "error: Original snippet not found."
+
+        replaced_content = input_data.content.replace(original_snippet_found, input_data.replacement_snippet)
+        if not replaced_content:
+            return "error: Snippet replacement failed."
+
+        return SnippetReplacerOutput(content=replaced_content)
+
+    def validate_max_token_not_exceeded(self, input_data: SnippetReplacerInput) -> bool:  # noqa: A002
+        """
+        Validate that the messages does not exceed the maximum token value of the model.
+
+        Args:
+            input (dict): The input for the agent
+
+        Returns:
+            bool: True if the text does not exceed the maximum token value, False otherwise
+        """
+        prompt = self._prompt
+        filled_messages = prompt.invoke(input_data.model_dump()).to_messages()
+        empty_messages = prompt.invoke(SnippetReplacerInput().model_dump()).to_messages()
+        # get the number of tokens used in the messages
+        used_tokens = self.model.get_num_tokens_from_messages(filled_messages)
+        # try to anticipate the number of tokens needed for the output
+        estimated_needed_tokens = used_tokens - self.model.get_num_tokens_from_messages(empty_messages)
+        return estimated_needed_tokens <= self.get_max_token_value() - used_tokens
 
     @cached_property
     def _prompt(self) -> ChatPromptTemplate:

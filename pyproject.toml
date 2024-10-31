@@ -53,6 +53,9 @@ dependencies = [
   "uvicorn==0.32",
 ]
 
+urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
+urls.Repository = "https://github.com/srtab/daiv"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 120
