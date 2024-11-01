@@ -34,7 +34,7 @@ dependencies = [
   "langchain==0.3.6",
   "langchain-anthropic==0.2.4",
   "langchain-chroma==0.1.4",
-  "langchain-community==0.3.4",
+  "langchain-community==0.3.5",
   "langchain-openai==0.2.5",
   "langchain-text-splitters==0.3.1",
   "langgraph==0.2.43",
