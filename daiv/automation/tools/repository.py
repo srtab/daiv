@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import textwrap
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.tools import BaseTool
@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from automation.agents.codebase_search import CodebaseSearchAgent
 from automation.agents.snippet_replacer.agent import SnippetReplacerAgent
-from automation.agents.snippet_replacer.schemas import SnippetReplacerOutput
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -51,11 +50,14 @@ class SearchCodeSnippetsTool(BaseTool):
         """  # noqa: E501
     ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
+    handle_validation_error: bool = True
 
-    source_repo_id: str = Field(description="The repository ID to search in.")
-    source_ref: str = Field(description="The branch or commit to search in.")
+    source_repo_id: str = Field(..., description="The repository ID to search in.")
+    source_ref: str = Field(..., description="The branch or commit to search in.")
 
-    api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
+    api_wrapper: CodebaseIndex = Field(
+        ..., default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance())
+    )
 
     def _run(self, query: str, intent: str, **kwargs) -> str:
         """
@@ -100,10 +102,12 @@ class BaseRepositoryTool(BaseTool):
     Base class for repository interaction tools.
     """
 
-    source_repo_id: str = Field(description="The repository ID to search in.")
-    source_ref: str = Field(description="The branch or commit to search in.")
+    handle_validation_error: bool = True
 
-    api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
+    source_repo_id: str = Field(..., description="The repository ID to search in.")
+    source_ref: str = Field(..., description="The branch or commit to search in.")
+
+    api_wrapper: RepoClient = Field(..., default_factory=RepoClient.create_instance)
 
     def _get_file_content(self, file_path: str, store: BaseStore) -> str | None:
         """
@@ -246,16 +250,25 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         if not (repo_file_content := self._get_file_content(file_path, store)):
             return f"error: File {file_path} not found."
 
-        replaced_content = self._replace_content(original_snippet, replacement_snippet, repo_file_content)
+        replacer = SnippetReplacerAgent()
+        result = replacer.agent.invoke({
+            "original_snippet": original_snippet,
+            "replacement_snippet": replacement_snippet,
+            "content": repo_file_content,
+        })
+
+        if isinstance(result, str):
+            # It means, and error occurred during the replacement.
+            return result
 
         if file_change:
-            file_change.content = replaced_content
+            file_change.content = result.content
             file_change.commit_messages.append(commit_message)
         else:
             file_change = FileChange(
                 action=FileChangeAction.UPDATE,
                 file_path=file_path,
-                content=replaced_content,
+                content=result.content,
                 commit_messages=[commit_message],
             )
 
@@ -263,41 +276,12 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
 
         return "success: Snippet replaced."
 
-    def _replace_content(self, original_snippet: str, replacement_snippet: str, content: str) -> str:
-        """
-        Replaces a snippet in a file with the provided replacement.
-
-        Args:
-            original_snippet: The original snippet to replace.
-            replacement_snippet: The replacement snippet.
-            content: The content of the file to replace the snippet in.
-
-        Returns:
-            The content of the file with the snippet replaced.
-        """
-        replacer = SnippetReplacerAgent()
-
-        result = cast(
-            SnippetReplacerOutput,
-            replacer.agent.invoke({
-                "original_snippet": original_snippet,
-                "replacement_snippet": replacement_snippet,
-                "content": content,
-            }),
-        )
-
-        # Add a trailing snippet to the new snippet to match the original snippet if there isn't already one.
-        if not result.content.endswith("\n"):
-            result.content += "\n"
-
-        return result.content
-
 
 class CreateNewRepositoryFileTool(BaseRepositoryTool):
     name: str = CREATE_NEW_REPOSITORY_FILE_NAME
     description: str = textwrap.dedent(
         """\
-        Create a new file within the repository with the provided content. Use this tool only to create files that do not already exist in the repository. Do not use this tool to overwrite or modify existing files. Ensure that the file path does not point to an existing file in the repository. Necessary directories should already exist in the repository; this tool does not create directories.
+        Create a new file within the repository with the provided file content. Use this tool only to create files that do not already exist in the repository. Do not use this tool to overwrite or modify existing files. Ensure that the file path does not point to an existing file in the repository. Necessary directories should already exist in the repository; this tool does not create directories.
         """  # noqa: E501
     )
 
@@ -306,7 +290,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
     def _run(
         self,
         file_path: str,
-        content: str,
+        file_content: str,
         commit_message: str,
         store: BaseStore,
         run_manager: CallbackManagerForToolRun | None = None,
@@ -336,7 +320,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
                 "data": FileChange(
                     action=FileChangeAction.CREATE,
                     file_path=file_path,
-                    content=content,
+                    content=file_content,
                     commit_messages=[commit_message],
                 )
             },
