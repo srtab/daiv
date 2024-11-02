@@ -22,6 +22,7 @@ from automation.agents.schemas import AskForClarification, AssesmentClassificati
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
+from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .prompts import respond_reviewer_system, review_analyzer_plan, review_assessment_system
@@ -52,6 +53,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.merge_request_id = merge_request_id
         self.discussion_id = discussion_id
         self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
+        self.codebase_index = CodebaseIndex(self.repo_client)
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -144,7 +146,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(
-            diff=state["diff"], project_description=self.repo_config.repository_description
+            diff=state["diff"],
+            project_description=self.repo_config.repository_description,
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(
@@ -191,6 +195,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             diff=state["diff"],
             show_diff_hunk_to_executor=state["show_diff_hunk_to_executor"],
             project_description=self.repo_config.repository_description,
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(
@@ -218,7 +223,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
         )
         system_message = system_message_template.format(
-            diff=state["diff"], project_description=self.repo_config.repository_description
+            diff=state["diff"],
+            project_description=self.repo_config.repository_description,
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(
