@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -100,25 +100,9 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         llm_with_tools = self.model.bind_tools(self.tool_classes, **tools_kwargs)
         response = llm_with_tools.invoke(state["messages"])
 
-        if isinstance(response, AIMessage) and response.tool_calls:
-            tool_name = response.tool_calls[0]["name"]
-
-            if state["is_last_step"]:
-                response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
-                logger.warning("[ReAcT] Last step reached. Ending the conversation.")
-            elif check_consecutive_tool_calls(state["messages"] + [response], tool_name) > LIMIT_CONSECUTIVE_TOOL_CALLS:
-                logger.warning("[ReAcT] Limit of consecutive tool calls reached for %s.", tool_name)
-                tool_message = ToolMessage(
-                    tool_call_id=response.tool_calls[0]["id"],
-                    content=(
-                        f"You reached the limit of consecutive tool calls for {tool_name}. "
-                        "Do you need realy need to call the tool so many times? Are you in a loop? "
-                        "Lets think about it. If necessary, try to use another tool, if possible."
-                    ),
-                )
-                consecutive_response = llm_with_tools.invoke(state["messages"] + [response, tool_message])
-
-                return {"messages": [response, tool_message, consecutive_response]}
+        if isinstance(response, AIMessage) and response.tool_calls and state["is_last_step"]:
+            response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
+            logger.warning("[ReAcT] Last step reached. Ending the conversation.")
 
         return {"messages": [response]}
 

@@ -16,6 +16,7 @@ from codebase.document_loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace
 from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
+from codebase.utils import analyze_repository
 from core.config import RepositoryConfig
 
 if TYPE_CHECKING:
@@ -196,15 +197,11 @@ class CodebaseIndex(abc.ABC):
             return documents[0].metadata["source"]
         return None
 
-    def extract_tree(self, repo_id: str, ref: str) -> set[str]:
+    def extract_tree(self, repo_id: str, ref: str) -> str:
         """
         Extract the tree of a repository.
         """
-        extracted_paths = set()
+        repo_config = RepositoryConfig.get_config(repo_id)
+
         with self.repo_client.load_repo(repo_id, sha=ref) as repo_dir:
-            for dirpath, dirnames, filenames in repo_dir.walk():
-                for dirname in dirnames:
-                    extracted_paths.add(dirpath.joinpath(dirname).relative_to(repo_dir).as_posix())
-                for filename in filenames:
-                    extracted_paths.add(dirpath.joinpath(filename).relative_to(repo_dir).as_posix())
-        return extracted_paths
+            return analyze_repository(repo_dir, repo_config.combined_exclude_patterns)

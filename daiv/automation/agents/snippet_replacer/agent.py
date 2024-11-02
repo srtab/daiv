@@ -36,7 +36,9 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             CompiledStateGraph | Runnable: The compiled agent.
         """
-        return RunnableLambda(self._route) | RunnableLambda(self._post_process)
+        return RunnableLambda(self._route, name="route_replacer") | RunnableLambda(
+            self._post_process, name="post_process_output"
+        )
 
     def _route(self, input_data: SnippetReplacerInput) -> Runnable:
         if self.validate_max_token_not_exceeded(input_data):

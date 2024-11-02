@@ -16,7 +16,7 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres import PostgresSaver
 
-PLANING_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"  # "claude-3-opus-20240229"
+PLANING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # "claude-3-opus-20240229"
 PLANING_COST_EFFICIENT_MODEL_NAME = "gpt-4o-2024-08-06"
 CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
 CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # TODO: Replace with haiku 3.5 when released

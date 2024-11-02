@@ -22,6 +22,7 @@ from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
+from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .prompts import (
@@ -184,6 +185,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             issue_title=state["issue_title"],
             issue_description=state["issue_description"],
             project_description=self.repo_config.repository_description,
+            repository_structure=CodebaseIndex(self.repo_client).extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(
@@ -244,6 +246,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             goal=state["goal"],
             plan_tasks=enumerate(state["plan_tasks"]),
             project_description=self.repo_config.repository_description,
+            repository_structure=CodebaseIndex(self.repo_client).extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(

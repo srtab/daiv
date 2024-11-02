@@ -197,9 +197,9 @@ class RetrieveFileContentTool(BaseRepositoryTool):
 
         return textwrap.dedent(
             """\
-            <RepositoryFile path="{file_path}">
+            <repository_file path="{file_path}">
             {content}
-            </RepositoryFile>
+            </repository_file>
             """
         ).format(file_path=file_path, content=content)
 

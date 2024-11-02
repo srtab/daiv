@@ -2,7 +2,7 @@ from typing import TypedDict
 
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agents import BaseAgent
 from automation.agents.image_url_extractor.prompts import human, system
@@ -42,4 +42,8 @@ class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[dict]]]):
             SystemMessage(system),
             HumanMessagePromptTemplate.from_template(human, "jinja2"),
         ])
-        return prompt | self.model.with_structured_output(ImageURLExtractorOutput, method="json_schema") | _post_process
+        return (
+            prompt
+            | self.model.with_structured_output(ImageURLExtractorOutput, method="json_schema")
+            | RunnableLambda(_post_process, name="post_process_extracted_images")
+        )
