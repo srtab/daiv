@@ -21,7 +21,7 @@ x-app-defaults: &x_app_default
 
 services:
   db:
-    image: postgres:16.3-alpine
+    image: pgvector/pgvector:pg17
     container_name: daiv-db
     restart: unless-stopped
     environment:

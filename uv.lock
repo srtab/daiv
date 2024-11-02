@@ -601,10 +601,10 @@ requires-dist = [
     { name = "httpx", specifier = "==0.27.2" },
     { name = "ipython", specifier = "==8.29" },
     { name = "jinja2", specifier = "==3.1.4" },
-    { name = "langchain", specifier = "==0.3.6" },
+    { name = "langchain", specifier = "==0.3.7" },
     { name = "langchain-anthropic", specifier = "==0.2.4" },
     { name = "langchain-chroma", specifier = "==0.1.4" },
-    { name = "langchain-community", specifier = "==0.3.4" },
+    { name = "langchain-community", specifier = "==0.3.5" },
     { name = "langchain-openai", specifier = "==0.2.5" },
     { name = "langchain-text-splitters", specifier = "==0.3.1" },
     { name = "langgraph", specifier = "==0.2.43" },
@@ -613,7 +613,7 @@ requires-dist = [
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.3" },
     { name = "pydantic", specifier = "==2.9.2" },
     { name = "python-decouple", specifier = "==3.8" },
-    { name = "python-gitlab", extras = ["graphql"], specifier = "==4.13" },
+    { name = "python-gitlab", extras = ["graphql"], specifier = "==5.0" },
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "redis", specifier = "==5.2" },
     { name = "tantivy", specifier = "==0.22" },
@@ -1247,7 +1247,7 @@ wheels = [
 
 [[package]]
 name = "langchain"
-version = "0.3.6"
+version = "0.3.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1261,9 +1261,9 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/99/62929285e01f217d33d77c4199d321cf7d749fed1435fc995c63ebeba726/langchain-0.3.6.tar.gz", hash = "sha256:0b0e2dc3be7b49eb3ca2aa21341bb204ed74450e34b3041345820454e21bcdc8", size = 416557 }
+sdist = { url = "https://files.pythonhosted.org/packages/82/59/1ce98c59890fbdbf865510fc6821c9f4d2455ca065b11e7aaa8635239b92/langchain-0.3.7.tar.gz", hash = "sha256:2e4f83bf794ba38562f7ba0ede8171d7e28a583c0cec6f8595cfe72147d336b2", size = 416796 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/d9/c66b02e278a20db6d931ee500538f82c18a8f30fae0a9dd7d965dd5a286d/langchain-0.3.6-py3-none-any.whl", hash = "sha256:6e453f6c26dfd8f800ba5eb3ecbd21d283d5b6ccad422179b2933a962c1a6563", size = 1005359 },
+    { url = "https://files.pythonhosted.org/packages/49/09/72630413a7ded27684e33392a0ff52ff1c8ea6749fee641319e75f82072b/langchain-0.3.7-py3-none-any.whl", hash = "sha256:cf4af1d5751dacdc278df3de1ff3cbbd8ca7eb55d39deadccdd7fb3d3ee02ac0", size = 1005562 },
 ]
 
 [[package]]
@@ -1298,7 +1298,7 @@ wheels = [
 
 [[package]]
 name = "langchain-community"
-version = "0.3.4"
+version = "0.3.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1314,9 +1314,9 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/92/ec31751fd73441f8dd3f7f122cba12370a3ab4e7a9c2c10da25b6e6f89aa/langchain_community-0.3.4.tar.gz", hash = "sha256:80c7e6491788449b8a6e7a31444ff8ebb5c32242f67a65aa33d56ad35a7b5b5c", size = 1642979 }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/d8/5313d8614966aa60b395792ef1bc69aef3a666427c5995355a3cf62a075a/langchain_community-0.3.5.tar.gz", hash = "sha256:345febbc972a08c97f09cce6cc07d039aa7d1348fe8efdace85335be6ac9cb7d", size = 1644590 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/4c/28602f96a6b5a2cad9ad474906a6eff0c65550bed844ce6c81478589a089/langchain_community-0.3.4-py3-none-any.whl", hash = "sha256:67a44d3db8ba14a8abae67c8f611e6dc20002446439e761f673c7dffa506fb85", size = 2409875 },
+    { url = "https://files.pythonhosted.org/packages/82/c7/b6d7cb286e93f85b4882088ce530cc7d55a5683c9390d7fc1c0dbde846e2/langchain_community-0.3.5-py3-none-any.whl", hash = "sha256:03736105700960fa0acbd72bff678d1c97c49e38e9f8af3012b712d64e992982", size = 2411583 },
 ]
 
 [[package]]
@@ -2333,15 +2333,15 @@ wheels = [
 
 [[package]]
 name = "python-gitlab"
-version = "4.13.0"
+version = "5.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "requests" },
     { name = "requests-toolbelt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/ea/e2cde926d63526935c1df259177371a195089b631d67a577fe5c39fbc7e1/python_gitlab-4.13.0.tar.gz", hash = "sha256:576bfb0901faca0c6b2d1ff2592e02944a6ec3e086c3129fb43c2a0df56a1c67", size = 484996 }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/a6/65b0fd205f68f5e94f742f8481d8443cd2d5f9f6c9fd9e4f6de3058ea40f/python_gitlab-5.0.0.tar.gz", hash = "sha256:d156b9810d2a5c2916226cecf354956286a9e8133ee707d6584e40f126329956", size = 486119 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6b/5e/5fb4dcae9f5af5463c16952823d446ca449cce920efe8669871f600f0ab9/python_gitlab-4.13.0-py3-none-any.whl", hash = "sha256:8299a054fb571da16e1a8c1868fff01f34ac41ea1410c713a4647b3bbb2aa279", size = 145254 },
+    { url = "https://files.pythonhosted.org/packages/6d/5f/03221dec5cf942b3d12e933a1057ef5b25af63fe139e4a1a66855699909a/python_gitlab-5.0.0-py3-none-any.whl", hash = "sha256:2af86a1655385c2afe13e33e79555d5394f8c7912ade04bb6e916e3d21a8716f", size = 145252 },
 ]
 
 [package.optional-dependencies]
