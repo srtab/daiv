@@ -154,7 +154,7 @@ class RepositoryConfigTest:
         assert len(truncated_branch_name) == BRANCH_NAME_CONVENTION_MAX_LENGTH
 
     def test_combined_exclude_patterns(self):
-        config = RepositoryConfig(extend_exclude_patterns=["*custom_pattern/*"])
+        config = RepositoryConfig(extend_exclude_patterns=["**/custom_pattern/**"])
         combined_patterns = config.combined_exclude_patterns
-        assert "*custom_pattern/*" in combined_patterns
-        assert "*.git/*" in combined_patterns
+        assert "**/custom_pattern/**" in combined_patterns
+        assert "**/.git/**" in combined_patterns
