@@ -57,26 +57,36 @@ class RepositoryConfig(BaseModel):
     exclude_patterns: tuple[str, ...] = Field(
         default=(
             # files
-            "*pipfile.lock",
-            "*package-lock.json",
-            "*yarn.lock",
-            "*gemfile.lock",
-            "*composer.lock",
-            "*uv.lock",
+            "pipfile.lock",
+            "package-lock.json",
+            "yarn.lock",
+            "gemfile.lock",
+            "composer.lock",
+            "uv.lock",
             "*.svg",
+            "*.pyc",
+            "*.log",
+            ".coverage",
             # folders
-            "*.git/*",
-            "*.mypy_cache/*",
-            "*.tox/*",
-            "*vendor/*",
-            "*venv/*",
-            "*node_modules/*",
-            "*dist/*",
+            "**/.git/**",
+            "**/.mypy_cache/**",
+            "**/.tox/**",
+            "**/vendor/**",
+            "**/venv/**",
+            "**/.venv/**",
+            "**/.env/**",
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/__pycache__/**",
+            "**/data/**",
+            "**/.idea/**",
+            "**/.pytest_cache/**",
+            "**/.ruff_cache/**",
         ),
         description=(
             "List of path patterns that DAIV should ignore when indexing and analyzing the codebase. "
-            "For more information on the glob syntax, refer to the `pathlib` documentation: "
-            "https://docs.python.org/3/library/pathlib.html#pathlib-pattern-language."
+            "For more information on the patterns syntax, refer to the `fnmatch` documentation: "
+            "https://docs.python.org/3/library/fnmatch.html"
         ),
     )
     extend_exclude_patterns: list[str] = Field(
@@ -84,10 +94,10 @@ class RepositoryConfig(BaseModel):
         description=(
             "List of path patterns that DAIV should ignore when indexing and analyzing the codebase, "
             "in addition to those specified by `exclude_patterns`."
-            "To know more about the patterns you can use, check the documentation: "
-            "https://docs.python.org/3/library/pathlib.html#pathlib-pattern-language."
+            "For more information on the patterns syntax, refer to the `fnmatch` documentation: "
+            "https://docs.python.org/3/library/fnmatch.html"
         ),
-        examples=["*tests/*", "*requirements.txt"],
+        examples=["**/tests/**", "requirements.txt"],
     )
 
     # Pull request management

@@ -12,7 +12,6 @@ from core.utils import build_uri, is_valid_url, url_to_data_url
 
 class ImageURLTemplate(BaseModel):
     url: str = Field(description="URL of the image.")
-    path: str = Field(description="Path of the image.")
     detail: str | None = Field(description="Detail of the image.", default=None)
 
 
@@ -61,9 +60,7 @@ class ImageTemplate(BaseModel):
 
             if image_url:
                 image_templates.append(
-                    ImageTemplate(
-                        type="image", image_url=ImageURLTemplate(url=image_url, path=image.filename)
-                    ).model_dump(exclude_none=True)
+                    ImageTemplate(type="image", image_url=ImageURLTemplate(url=image_url)).model_dump(exclude_none=True)
                 )
 
         return image_templates

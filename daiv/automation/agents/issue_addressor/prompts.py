@@ -95,7 +95,16 @@ First, here's a description of the software project context:
 <project_description>
 {{ project_description|e }}
 </project_description>
+
 {% endif %}
+{% if repository_structure -%}
+Here's an overview of the project structure of directories and files you'll be working with:
+<project_structure>
+{{ repository_structure }}
+</project_structure>
+
+{% endif %}
+### Instruction ###
 Before creating the checklist, analyze the issue throroughly. Wrap your analysis inside <analysis> tags, including the following steps:
 1. Summarize the issue in your own words.
 2. List the high-level objectives required to resolve the issue.

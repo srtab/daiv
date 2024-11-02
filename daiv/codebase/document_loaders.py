@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import logging
 from contextlib import suppress
 from pathlib import Path
@@ -41,9 +42,9 @@ class FileSystemBlobLoader(LangFileSystemBlobLoader):
 
         paths = self.path.glob(self.glob)
         for path in paths:
-            if self.exclude and any(path.match(glob, case_sensitive=False) for glob in self.exclude):
+            if self.exclude and any(fnmatch.fnmatch(str(path), pattern) for pattern in self.exclude):
                 continue
-            if self.limit_to and not any(path.match(glob, case_sensitive=False) for glob in self.limit_to):
+            if self.limit_to and not any(path.match(pattern, case_sensitive=False) for pattern in self.limit_to):
                 continue
             if path.is_file():
                 if self.suffixes and path.suffix not in self.suffixes:

@@ -11,7 +11,6 @@ from codebase.indexes import CodebaseIndex
 from .repository import (
     CreateNewRepositoryFileTool,
     DeleteRepositoryFileTool,
-    ExploreRepositoryPathTool,
     RenameRepositoryFileTool,
     ReplaceSnippetInFileTool,
     RetrieveFileContentTool,
@@ -49,9 +48,6 @@ class ReadRepositoryToolkit(BaseToolkit):
                     api_wrapper=CodebaseIndex(repo_client=repo_client),
                 ),
                 RetrieveFileContentTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
-                ExploreRepositoryPathTool(
-                    source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client
-                ),
             ]
         )
 
