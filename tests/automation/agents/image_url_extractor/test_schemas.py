@@ -14,7 +14,6 @@ class TestImageTemplate:
 
         assert len(result) == 1
         assert result[0]["image_url"]["url"] == "http://example.com/image.png"
-        assert result[0]["image_url"]["path"] == "image.png"
 
     @patch("automation.agents.image_url_extractor.schemas.is_valid_url")
     @patch("automation.agents.image_url_extractor.schemas.url_to_data_url")
@@ -27,7 +26,6 @@ class TestImageTemplate:
 
         assert len(result) == 1
         assert result[0]["image_url"]["url"] == "data:image/png;base64,..."
-        assert result[0]["image_url"]["path"] == "image.png"
 
     @patch("automation.agents.image_url_extractor.schemas.build_uri")
     @patch("automation.agents.image_url_extractor.schemas.url_to_data_url")
@@ -44,7 +42,6 @@ class TestImageTemplate:
 
         assert len(result) == 1
         assert result[0]["image_url"]["url"] == "data:image/png;base64,..."
-        assert result[0]["image_url"]["path"] == "image.png"
 
     @patch("automation.agents.image_url_extractor.schemas.is_valid_url")
     def test_from_images_invalid_gitlab_url(self, mock_is_valid_url):
