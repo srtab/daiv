@@ -6,6 +6,8 @@ from uuid import uuid4
 from django.db import models
 
 from django_extensions.db.models import TimeStampedModel
+from langchain_core.documents import Document
+from pgvector.django import HnswIndex, VectorField
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -75,3 +77,33 @@ class CodebaseNamespace(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.sha
+
+
+class CodebaseDocument(TimeStampedModel):
+    """
+    This model stores information about a document in a namespace.
+    """
+
+    uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
+    namespace = models.ForeignKey(CodebaseNamespace, on_delete=models.CASCADE, related_name="documents")
+    path = models.CharField(max_length=256)
+    page_content = models.TextField()
+    page_content_vector = VectorField(dimensions=1536)
+    metadata = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [
+            HnswIndex(
+                name="document_hnsw_index",
+                fields=["page_content_vector"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.path
+
+    def as_document(self) -> Document:
+        return Document(page_content=self.page_content, metadata=self.metadata)
