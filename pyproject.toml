@@ -40,6 +40,7 @@ dependencies = [
   "langgraph==0.2.43",
   "langgraph-checkpoint-postgres==2.0.2",
   "langsmith==0.1.139",
+  "pgvector>=0.3.6",
   "psycopg[pool]==3.2.3",
   "pydantic==2.9.2",
   "python-decouple==3.8",
@@ -150,6 +151,7 @@ module = [
   "django_extensions.*",
   "unidiff.*",
   "redis.*",
+  "pgvector.*",
 ]
 ignore_missing_imports = true
 
