@@ -12,7 +12,7 @@ from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, update_index_repository
 from core.config import RepositoryConfig
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.webhooks")
 
 
 class IssueCallback(BaseCallback):

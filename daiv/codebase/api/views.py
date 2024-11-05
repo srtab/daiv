@@ -5,7 +5,7 @@ from ninja import Router
 from .callbacks import UnprocessableEntityResponse
 from .callbacks_gitlab import IssueCallback, NoteCallback, PushCallback
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.webhooks")
 
 router = Router()
 

@@ -8,6 +8,7 @@ from django.utils.text import slugify
 from langchain_core.documents import Document as LangDocument
 from tantivy import Document, Index, SchemaBuilder
 
+from codebase.models import CodebaseNamespace, RepositoryInfo
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import TantityRetriever
 from daiv.settings.components import DATA_DIR
@@ -20,18 +21,20 @@ variable_pattern = re.compile(r"([A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z]|$))")
 @lru_cache
 def tantivy_index(index_name: str, persistent: bool = True) -> Index:
     """
-    Create a Tantivy index with the given index name.
+    Creates and returns a Tantivy search index.
 
     Args:
-        index_name (str): The name of the index.
-        persistent (bool, optional): Whether to create a persistent index. Defaults to True.
+        index_name: Name of the index to create or retrieve
+        persistent: If True, store index on disk; if False, create in-memory index
 
     Returns:
-        Index: The Tantivy index.
+        A configured Tantivy Index instance with text fields for document storage and searching
     """
     schema_builder = SchemaBuilder()
-    schema_builder.add_text_field("page_source", stored=True, index_option="basic")
+    schema_builder.add_text_field("doc_id", stored=True, index_option="basic")
     schema_builder.add_text_field("page_content", stored=True)
+    schema_builder.add_text_field("page_source", stored=True, index_option="basic")
+    schema_builder.add_json_field("page_metadata", stored=True, index_option="basic")
     schema = schema_builder.build()
 
     index_path = TANTIVY_INDEX_PATH / slugify(index_name)
@@ -43,95 +46,115 @@ def tantivy_index(index_name: str, persistent: bool = True) -> Index:
 
 class LexicalSearchEngine(SearchEngine):
     """
-    Lexical search engine based on Tantivy.
+    Tantivy-based lexical search engine implementation.
+
+    Provides document indexing and retrieval capabilities using the Tantivy search engine.
+    Supports both persistent and in-memory indices.
     """
 
     def __init__(self, persistent: bool = True):
-        """
-        Initialize the lexical search engine.
+        """Initializes the lexical search engine.
+
+        Args:
+            persistent: If True, indices are stored on disk; if False, indices are in-memory
         """
         self.persistent = persistent
 
-    def add_documents(self, index_name: str, documents: list[LangDocument]):
+    def add_documents(self, namespace: CodebaseNamespace, documents: list[LangDocument]):
         """
-        Add documents to the index.
+        Adds documents to the search index.
 
         Args:
-            index_name (str): The name of the index.
-            documents (list[LangDocument]): The documents to be added.
+            namespace: CodebaseNamespace containing repository and reference information
+            documents: List of LangDocument objects to index
 
-        Raises:
-            AssertionError: When the index name is not provided.
+        Note:
+            Each document must have an id, source metadata, and page_content.
         """
-        assert index_name is not None, "Index name is required."
-        writer = self._get_index(index_name).writer()
+        writer = self._get_index(f"{namespace.repository_info.external_slug}:{namespace.tracking_ref}").writer()
         for document in documents:
-            writer.add_document(Document(page_source=document.metadata["source"], page_content=document.page_content))
+            if document.metadata.get("content_type") == "simplified_code":
+                continue
+
+            writer.add_document(
+                Document(
+                    page_metadata=document.metadata,
+                    page_source=document.metadata["source"],
+                    page_content=document.page_content,
+                    doc_id=document.id,
+                )
+            )
         writer.commit()
 
-    def delete_documents(self, index_name: str, field_name: str, field_value: str | list[str]):
+    def delete_documents(self, namespace: CodebaseNamespace, source: str | list[str]):
         """
-        Delete documents from the index by a field value.
+        Deletes documents from the index based on their source.
 
         Args:
-            index_name (str): The name of the index.
-            field_name (str): The field name to identify the document.
-            field_value (str): The field value.
+            namespace: CodebaseNamespace containing repository and reference information
+            source: Single source string or list of source strings identifying documents to delete
         """
-        if isinstance(field_value, str):
-            field_value = [field_value]
+        if isinstance(source, str):
+            source = [source]
 
-        writer = self._get_index(index_name).writer()
-        for value in field_value:
-            writer.delete_documents(field_name, value)
+        writer = self._get_index(f"{namespace.repository_info.external_slug}:{namespace.tracking_ref}").writer()
+        for value in source:
+            writer.delete_documents("page_source", value)
         writer.commit()
 
-    def delete(self, index_name: str):
+    def delete(self, namespace: CodebaseNamespace):
         """
-        Delete all documents from the index.
+        Deletes all documents from the namespace's index.
 
         Args:
-            index_name (str): The name of the index.
+            namespace: CodebaseNamespace containing repository and reference information
         """
-        writer = self._get_index(index_name).writer()
+        writer = self._get_index(f"{namespace.repository_info.external_slug}:{namespace.tracking_ref}").writer()
         writer.delete_all_documents()
         writer.commit()
 
-    def as_retriever(self, index_name: str, **kwargs) -> TantityRetriever:
+    def as_retriever(self, namespace: CodebaseNamespace, **kwargs) -> TantityRetriever:
         """
-        Convert the search engine to a retriever.
+        Creates a retriever instance for searching the index.
 
         Args:
-            index_name (str): The name of the index.
-            **kwargs: Additional keyword arguments to pass to the retriever.
+            namespace: CodebaseNamespace containing repository and reference information
+            **kwargs: Additional configuration parameters for the retriever
 
         Returns:
-            TantityRetriever: The lexical retriever.
+            A configured TantityRetriever instance for the specified namespace
         """
-        return TantityRetriever(index=self._get_index(index_name), **kwargs)
+        index = self._get_index(f"{namespace.repository_info.external_slug}:{namespace.tracking_ref}")
+        return TantityRetriever(index=index, **kwargs)
 
     def _get_index(self, index_name: str) -> Index:
         """
-        Get the index object.
+        Retrieves or creates a Tantivy index.
 
         Args:
-            index_name (str): The name of the index.
+            index_name: Name of the index to retrieve or create
 
         Returns:
-            Index: The Tantivy index.
+            A Tantivy Index instance
         """
         return tantivy_index(index_name, self.persistent)
 
 
 if __name__ == "__main__":
+    namespace = CodebaseNamespace(repository_info=RepositoryInfo(external_slug="repo1"), tracking_ref="main")
     search = LexicalSearchEngine(persistent=False)
     search.add_documents(
-        "repo1",
+        namespace,
         [
-            LangDocument(metadata={"source": "source1"}, page_content="Paris is the capital of France."),
-            LangDocument(metadata={"source": "source2"}, page_content="Berlin is the capital of Germany."),
-            LangDocument(metadata={"source": "source3"}, page_content="Madrid is the capital of Spain."),
+            LangDocument(
+                id="1",
+                metadata={"source": "source1", "language": "python"},
+                page_content="Paris is the capital of France.",
+            ),
+            LangDocument(id="2", metadata={"source": "source2"}, page_content="Berlin is the capital of Germany."),
+            LangDocument(id="3", metadata={"source": "source3"}, page_content="Madrid is the capital of Spain."),
         ],
     )
-    results = search.search("repo1", "page_content:What is the capital of France?")
+    retriever = search.as_retriever(namespace)
+    results = retriever.invoke("What is the capital of France?")
     print(results)  # noqa: T201

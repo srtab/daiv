@@ -5,6 +5,7 @@ import logging
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from langchain_core.documents import Document
     from langchain_text_splitters import TextSplitter
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.indexes")
 
 EXTRA_LANGUAGE_EXTENSIONS = {"html": Language.HTML, "md": Language.MARKDOWN}
 
@@ -109,7 +110,8 @@ class GenericLanguageLoader(BaseLoader):
         """
         Split documents into chunks.
         """
-        splitted_documents = []
+        splitted_documents: list[Document] = []
+
         for language, documents in document.items():
             logger.info(
                 "Splitting %d %s documents from repo %s",
@@ -118,7 +120,11 @@ class GenericLanguageLoader(BaseLoader):
                 self.documents_metadata.get("repo_id", "unknown"),
             )
             text_splitter = self._get_text_splitter(language)
-            splitted_documents.extend(text_splitter.split_documents(documents))
+
+            for splitted_doc in text_splitter.split_documents(documents):
+                splitted_doc.id = uuid4().__str__()
+                splitted_documents.append(splitted_doc)
+
         return splitted_documents
 
     def _get_text_splitter(self, language: str | None = None) -> RecursiveCharacterTextSplitter:

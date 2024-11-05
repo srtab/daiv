@@ -37,7 +37,7 @@ from .conf import settings
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.clients")
 
 
 class RepoClient(abc.ABC):

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from codebase.clients import AllRepoClient
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("daiv.agents")
 
 
 @dataclass
