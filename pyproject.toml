@@ -18,7 +18,6 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.4",
-  "chromadb==0.5.15",
   "django==5.1.2",
   "django-appconf==1.0.6",
   "django-celery-beat==2.7",
@@ -33,7 +32,6 @@ dependencies = [
   "jinja2==3.1.4",
   "langchain==0.3.7",
   "langchain-anthropic==0.2.4",
-  "langchain-chroma==0.1.4",
   "langchain-community==0.3.5",
   "langchain-openai==0.2.5",
   "langchain-text-splitters==0.3.1",

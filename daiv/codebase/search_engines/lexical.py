@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import cast
 
 from django.utils.text import slugify
 
 from langchain_core.documents import Document as LangDocument
 from tantivy import Document, Index, SchemaBuilder
 
-from codebase.search_engines.base import ScoredResult, SearchEngine
+from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import TantityRetriever
 from daiv.settings.components import DATA_DIR
 
@@ -110,66 +109,6 @@ class LexicalSearchEngine(SearchEngine):
             TantityRetriever: The lexical retriever.
         """
         return TantityRetriever(index=self._get_index(index_name), **kwargs)
-
-    def search(self, index_name: str, query: str, k: int = 10, **kwargs) -> list[ScoredResult]:
-        """
-        Search the index and return the top-k scored results.
-
-        Args:
-            index_name (str): The name of the index.
-            query (str): The query string.
-            k (int, optional): The number of results to return. Defaults to 10.
-            **kwargs: Additional keyword arguments to pass to tantity search.
-
-        Returns:
-            list[ScoredResult]: The scored results.
-        """
-        index = self._get_index(index_name)
-        index.reload()
-        searcher = index.searcher()
-        parsed_query = index.parse_query(self._tokenize_code(query), ["page_content"])
-        results = []
-        for score, best_doc_address in searcher.search(parsed_query, k, **kwargs).hits:
-            document = searcher.doc(best_doc_address)
-            results.append(
-                ScoredResult(
-                    score=score,
-                    document=LangDocument(
-                        page_content=cast(str, document.get_first("page_content")),
-                        metadata={"source": document.get_first("page_source")},
-                    ),
-                )
-            )
-        return results
-
-    def _tokenize_code(self, code: str) -> str:
-        """
-        Tokenize the code snippet.
-
-        Args:
-            code (str): The code snippet.
-
-        Returns:
-            str: The tokenized code snippet.
-        """
-        matches = re.finditer(r"\b\w{2,}\b", code)
-        tokens = []
-        for m in matches:
-            text = m.group()
-
-            for section in text.split("_"):
-                for part in variable_pattern.findall(section):
-                    if len(part) < 2:
-                        continue
-                    # if more than half of the characters are letters
-                    # and the ratio of unique characters to the number of characters is less than 5
-                    if (
-                        sum(1 for c in part if "a" <= c <= "z" or "A" <= c <= "Z" or "0" <= c <= "9") > len(part) // 2
-                        and len(part) / len(set(part)) < 4
-                    ):
-                        tokens.append(part.lower())
-
-        return " ".join(tokens)
 
     def _get_index(self, index_name: str) -> Index:
         """
