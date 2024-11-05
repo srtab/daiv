@@ -66,6 +66,7 @@ class RepositoryConfig(BaseModel):
             "*.svg",
             "*.pyc",
             "*.log",
+            "*.zip",
             ".coverage",
             # folders
             "**/.git/**",

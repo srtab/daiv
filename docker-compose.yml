@@ -51,20 +51,6 @@ services:
     depends_on:
       - db
 
-  chromadb:
-    image: ghcr.io/chroma-core/chroma:latest
-    restart: unless-stopped
-    container_name: daiv-chromadb
-    environment:
-      - ANONYMIZED_TELEMETRY=False
-      - ALLOW_RESET=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma
-      - IS_PERSISTENT=TRUE
-    volumes:
-      - ./data/chromadb:/chroma/chroma
-    ports:
-      - 8888:8000
-
   redis:
     image: redis:latest
     command: redis-server --save "" --appendonly no

@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                     django_extensions.db.fields.ModificationDateTimeField(auto_now=True, verbose_name="modified"),
                 ),
                 ("uuid", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ("path", models.CharField(max_length=256)),
+                ("source", models.CharField(max_length=256)),
                 ("page_content", models.TextField()),
                 ("page_content_vector", pgvector.django.vector.VectorField(dimensions=1536)),
                 ("metadata", models.JSONField(default=dict)),

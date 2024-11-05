@@ -1,11 +1,10 @@
 import logging
 
 from django.core.cache import cache
+from django.core.management import call_command
 
 from celery import shared_task
 
-from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import ReviewAddressorManager
 
@@ -13,34 +12,16 @@ logger = logging.getLogger("daiv.tasks")
 
 
 @shared_task
-def update_index_by_repo_id(repo_ids: list[str], reset: bool = False):
-    """
-    Update the index of all repositories with the given IDs.
-    """
-    for repo_id in repo_ids:
-        update_index_repository(repo_id, reset)
-
-
-@shared_task
-def update_index_by_topics(topics: list[str], reset: bool = False):
-    """
-    Update the index of all repositories with the given topics.
-    """
-    repo_client = RepoClient.create_instance()
-    for repository in repo_client.list_repositories(topics=topics, load_all=True):
-        update_index_repository(repository.slug, reset)
-
-
-@shared_task
 def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = False):
     """
     Update codebase index of a repository.
+
+    Args:
+        repo_id (str): The repository id.
+        ref (str): The reference.
+        reset (bool): Whether to reset the index before updating.
     """
-    repo_client = RepoClient.create_instance()
-    indexer = CodebaseIndex(repo_client=repo_client)
-    if reset:
-        indexer.delete(repo_id=repo_id, ref=ref)
-    indexer.update(repo_id=repo_id, ref=ref)
+    call_command("update_index", repo_id=repo_id, ref=ref, reset=reset)
 
 
 @shared_task

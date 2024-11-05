@@ -3,9 +3,13 @@ from typing import cast
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
+from pgvector.django import CosineDistance
 from pydantic import Field
 from tantivy import Index
+
+from codebase.models import CodebaseNamespace
 
 variable_pattern = re.compile(r"([A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z]|$))")
 
@@ -72,3 +76,33 @@ class TantityRetriever(BaseRetriever):
                         tokens.append(part.lower())
 
         return " ".join(tokens)
+
+
+class PostgresRetriever(BaseRetriever):
+    """
+    Retriever based on Postgres with PGVector.
+    """
+
+    namespace: CodebaseNamespace
+    embeddings: Embeddings
+    k: int = 10
+    search_kwargs: dict = Field(default_factory=dict)
+
+    def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> list[Document]:
+        """
+        Get the relevant documents for the query.
+
+        Args:
+            query (str): The query.
+            run_manager (CallbackManagerForRetrieverRun): The run manager.
+
+        Returns:
+            list[Document]: The relevant documents.
+        """
+        return (
+            self.namespace.documents.annotate(
+                distance=CosineDistance("page_content_vector", self.embeddings.embed_query(query))
+            )
+            .filter(**self.search_kwargs)
+            .order_by("distance")[: self.k]
+        )

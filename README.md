@@ -27,7 +27,6 @@ DAIV is built using a robust stack of modern technologies:
 - **Django**: The backbone of DAIV, providing a scalable and secure framework for building the application's backend.
 - **OpenAI**: Powers the AI-driven functionalities, enabling DAIV to understand and process natural language inputs, generate code, and interact intelligently with users.
 - **LangChain**: Enhances DAIV's ability to chain together complex AI-driven tasks, allowing for more sophisticated and multi-step automation processes.
-- **ChromaDB**: A vector database that supports DAIV's data retrieval and similarity search capabilities through codebases.
 - **Tantivy**: A high-performance search engine library that DAIV uses to quickly and accurately search through codebases.
 
 ## Getting Started
