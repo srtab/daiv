@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.indexes")
 
-LEXICAL_INDEX_ENABLED = False
+LEXICAL_INDEX_ENABLED = True
 
 
 class CodebaseIndex(abc.ABC):
@@ -76,7 +76,7 @@ class CodebaseIndex(abc.ABC):
         loader_limit_paths_to = []
 
         try:
-            with transaction.atomic:
+            with transaction.atomic():
                 # For the default branch, the index is fully updated on the first run, otherwise,
                 # For other branches, the index is updated only with changed files.
                 if not created and namespace.sha != repo_head_sha:
@@ -145,7 +145,7 @@ class CodebaseIndex(abc.ABC):
 
         self.semantic_search_engine.delete_documents(namespace, source=source_files)
         if LEXICAL_INDEX_ENABLED:
-            self.lexical_search_engine.delete_documents(repo_id, "page_source", source_files)
+            self.lexical_search_engine.delete_documents(namespace, source=source_files)
 
     def delete(self, repo_id: str, ref: str | None = None):
         """
@@ -164,7 +164,7 @@ class CodebaseIndex(abc.ABC):
 
         self.semantic_search_engine.delete(namespace)
         if LEXICAL_INDEX_ENABLED:
-            self.lexical_search_engine.delete(repo_id)
+            self.lexical_search_engine.delete(namespace)
 
         namespace.delete()
 
@@ -186,12 +186,12 @@ class CodebaseIndex(abc.ABC):
             return []
 
         semantic_retriever = self.semantic_search_engine.as_retriever(
-            namespace, k=10, metadata__contains={"content_type": "simplified_code"}
+            namespace, k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
         )
 
         if LEXICAL_INDEX_ENABLED:
             return EnsembleRetriever(
-                retrievers=[semantic_retriever, self.lexical_search_engine.as_retriever(repo_id, k=10)],
+                retrievers=[semantic_retriever, self.lexical_search_engine.as_retriever(namespace, k=10)],
                 weights=[0.6, 0.4],
             ).invoke(query)
         return semantic_retriever.invoke(query)

@@ -99,6 +99,7 @@ class CodebaseDocumentManager(models.Manager):
         document_vectors = embedding.embed_documents([document.page_content for document in documents])
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
+                uuid=document.id,
                 namespace=namespace,
                 source=document.metadata.get("source", ""),
                 page_content=document.page_content,
