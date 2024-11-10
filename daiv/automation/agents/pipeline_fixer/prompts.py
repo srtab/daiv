@@ -52,7 +52,14 @@ pipeline_log_classifier_human = HumanMessagePromptTemplate.from_template(
 )
 
 autofix_apply_human = HumanMessagePromptTemplate.from_template(
-    """Analyze the pipeline job logs and diff and fix the pipeline errors.
+    """Analyze the logs and diff and fix the pipeline errors.
+
+Instructions:
+1. Analyze the pipeline job logs to identify the root cause of the failure
+2. Analyze the diff to identify the changes that were made that could cause the problem
+3. Define a plan to fix the pipeline errors. Use the available tools to help you analyze the codebase
+4. Apply the fix to the pipeline
+
 <job_logs>
 {{ job_logs }}
 </job_logs>
