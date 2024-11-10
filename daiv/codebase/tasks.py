@@ -6,7 +6,9 @@ from django.core.management import call_command
 from celery import shared_task
 
 from codebase.managers.issue_addressor import IssueAddressorManager
+from codebase.managers.pipeline_fixer import PipelineFixerManager
 from codebase.managers.review_addressor import ReviewAddressorManager
+from core.utils import locked_task
 
 logger = logging.getLogger("daiv.tasks")
 
@@ -38,7 +40,7 @@ def address_issue_task(
     try:
         IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
     except Exception as e:
-        logger.exception("Error addressing issue '%d': %s", issue_iid, e)
+        logger.exception("Error addressing issue '%s[%s]:%d': %s", repo_id, ref, issue_iid, e)
     finally:
         if lock_cache_key:
             # Delete the lock after the task is completed
@@ -52,8 +54,26 @@ def address_review_task(
     try:
         ReviewAddressorManager.process_review(repo_id, merge_request_id, merge_request_source_branch)
     except Exception as e:
-        logger.exception("Error addressing review of merge request '%d': %s", merge_request_id, e)
+        logger.exception(
+            "Error addressing review of merge request '%s[%s]:%d': %s",
+            repo_id,
+            merge_request_source_branch,
+            merge_request_id,
+            e,
+        )
     finally:
         if lock_cache_key:
             # Delete the lock after the task is completed
             cache.delete(lock_cache_key)
+
+
+@shared_task
+@locked_task(key="{repo_id}:{ref}:{job_id}")
+def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int):
+    """
+    Try to fix a failed pipeline of a merge request.
+    """
+    try:
+        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id)
+    except Exception as e:
+        logger.exception("Error fixing pipeline job '%s[%s]:%d': %s", repo_id, ref, job_id, e)

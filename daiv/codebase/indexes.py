@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import functools
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -196,6 +197,7 @@ class CodebaseIndex(abc.ABC):
             ).invoke(query)
         return semantic_retriever.invoke(query)
 
+    @functools.lru_cache(maxsize=32)  # noqa: B019
     def extract_tree(self, repo_id: str, ref: str) -> str:
         """
         Extract and return the file tree structure of a repository.
@@ -212,7 +214,7 @@ class CodebaseIndex(abc.ABC):
         with self.repo_client.load_repo(repo_id, sha=ref) as repo_dir:
             return analyze_repository(repo_dir, repo_config.combined_exclude_patterns)
 
-    # TODO: Cache the namespace
+    @functools.lru_cache(maxsize=32)  # noqa: B019
     def _get_codebase_namespace(self, repo_id: str, ref: str | None) -> CodebaseNamespace | None:
         """
         Retrieve the CodebaseNamespace object for a given repository.

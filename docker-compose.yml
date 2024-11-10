@@ -91,3 +91,13 @@ services:
       - "./data/gitlab/config:/etc/gitlab"
       - "./data/gitlab/logs:/var/log/gitlab"
       - "./data/gitlab/data:/var/opt/gitlab"
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: daiv-gitlab-runner
+    restart: unless-stopped
+    volumes:
+      - ./docker/local/gitlab-runner/config.toml:/etc/gitlab-runner/config.toml
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - gitlab

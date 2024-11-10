@@ -148,8 +148,8 @@ def locked_task(key: str = "", blocking: bool = False):
     A decorator to ensure that a task is executed with a distributed lock.
 
     ```
-        @app.task
         @locked_task()
+        @app.task
         def my_task(*args, **kwargs):
             pass
     ```
@@ -158,11 +158,12 @@ def locked_task(key: str = "", blocking: bool = False):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
             try:
-                with cache.lock(f"{func.__name__}:{key.format(*args, **kwargs)}", blocking=blocking):
+                with cache.lock(lock_key, blocking=blocking):
                     func(*args, **kwargs)
             except LockError:
-                logger.warning("Task: Ignored task, already processing.")
+                logger.warning("Ignored task, already processing: %s", lock_key)
                 return
 
         return wrapper
