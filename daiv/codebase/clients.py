@@ -148,7 +148,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_merge_request_discussions(
-        self, repo_id: str, merge_request_id: int, note_type: NoteType | None = None
+        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
     ) -> list[Discussion]:  # noqa: A002
         pass
 
@@ -782,7 +782,9 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def get_issue_discussions(self, repo_id: str, issue_id: int, note_type: NoteType | None = None) -> list[Discussion]:  # noqa: A002
+    def get_issue_discussions(
+        self, repo_id: str, issue_id: int, note_types: list[NoteType] | None = None
+    ) -> list[Discussion]:  # noqa: A002
         """
         Get the discussions from a merge request.
 
@@ -800,7 +802,7 @@ class GitLabClient(RepoClient):
         discussions = []
         for discussion in issue.discussions.list(all=True, iterator=True):
             if discussion.individual_note is False and (
-                notes := self._serialize_notes(discussion.attributes["notes"], note_type)
+                notes := self._serialize_notes(discussion.attributes["notes"], note_types)
             ):
                 discussions.append(Discussion(id=discussion.id, notes=notes))
         return discussions
@@ -883,7 +885,7 @@ class GitLabClient(RepoClient):
         raise ValueError("Couldn't get current user profile")
 
     def get_merge_request_discussions(
-        self, repo_id: str, merge_request_id: int, note_type: NoteType | None = None
+        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
     ) -> list[Discussion]:  # noqa: A002
         """
         Get the discussions from a merge request.
@@ -902,16 +904,16 @@ class GitLabClient(RepoClient):
             Discussion(id=discussion.id, notes=notes)
             for discussion in merge_request.discussions.list(all=True, iterator=True)
             if discussion.individual_note is False
-            and (notes := self._serialize_notes(discussion.attributes["notes"], note_type))
+            and (notes := self._serialize_notes(discussion.attributes["notes"], note_types))
         ]
 
-    def _serialize_notes(self, notes: list[dict], note_type: NoteType | None = None) -> list[Note]:
+    def _serialize_notes(self, notes: list[dict], note_types: list[NoteType] | None = None) -> list[Note]:
         """
         Serialize dictionary of notes to Note objects.
 
         Args:
             notes: The list of notes.
-            note_type: The note type.
+            note_types: The list of note types.
 
         Returns:
             The list of Note objects.
@@ -959,7 +961,7 @@ class GitLabClient(RepoClient):
             if not note["system"]
             and note["resolvable"]
             and not note["resolved"]
-            and (note_type is None or note["type"] == note_type)
+            and (note_types is None or note["type"] in note_types)
         ]
 
     def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
