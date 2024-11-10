@@ -43,14 +43,6 @@ class DiscussionReviewContext:
     diff: str | None = None
 
 
-class DiffProcessor:
-    """Abstract base class for processing diffs."""
-
-    def process_diff(self, diff_content: bytes) -> PatchedFile:
-        patch_set = PatchSet.from_string(diff_content, encoding="utf-8")
-        return patch_set[0] if patch_set else None
-
-
 class NoteProcessor:
     """
     Processes text-based diff notes.
@@ -150,12 +142,13 @@ class ReviewAddressorManager:
     Manages the code review process.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, merge_request_source_branch: str):
+    def __init__(self, client: AllRepoClient, repo_id: str, merge_request_id: int, merge_request_source_branch: str):
         self.client = client
         self.repo_id = repo_id
+        self.merge_request_id = merge_request_id
         self.merge_request_source_branch = merge_request_source_branch
+        self.thread_id = f"{repo_id}!{merge_request_source_branch}#{merge_request_id}"
         self.repo_config = RepositoryConfig.get_config(repo_id=repo_id)
-        self.diff_processor = DiffProcessor()
         self.note_processor = NoteProcessor()
 
     @classmethod
@@ -164,15 +157,13 @@ class ReviewAddressorManager:
         Process code review for merge request.
         """
         client = RepoClient.create_instance()
-        manager = cls(client, repo_id, merge_request_source_branch)
+        manager = cls(client, repo_id, merge_request_id, merge_request_source_branch)
         manager._process_review(merge_request_id)
 
     def _process_review(self, merge_request_id: int):
         merge_request_patches = self._extract_merge_request_diffs(merge_request_id)
         for context in self._process_discussions(merge_request_id, merge_request_patches):
-            config = RunnableConfig(
-                configurable={"thread_id": f"{self.repo_id}!{merge_request_id}#{context.discussion.id}"}
-            )
+            config = RunnableConfig(configurable={"thread_id": f"{self.thread_id}#{context.discussion.id}"})
 
             with (
                 PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer,
@@ -230,11 +221,15 @@ class ReviewAddressorManager:
         Extract patch files from merge request.
         """
         merge_request_patches: dict[str, PatchedFile] = {}
+        patch_set_all = PatchSet([])
 
         for mr_diff in self.client.get_merge_request_diff(self.repo_id, merge_request_id):
             if mr_diff.diff:
                 patch_set = PatchSet.from_string(mr_diff.diff, encoding="utf-8")
                 merge_request_patches[patch_set[0].path] = patch_set[0]
+                patch_set_all.append(patch_set[0])
+
+        merge_request_patches["__all__"] = patch_set_all
 
         return merge_request_patches
 
@@ -247,7 +242,7 @@ class ReviewAddressorManager:
         discussions = []
 
         for discussion in self.client.get_merge_request_discussions(
-            self.repo_id, merge_request_id, note_type=NoteType.DIFF_NOTE
+            self.repo_id, merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
             if discussion.notes[-1].author.id == self.client.current_user.id:
                 logger.debug("Ignoring discussion, DAIV is the current user: %s", discussion.id)
@@ -256,20 +251,24 @@ class ReviewAddressorManager:
             context = DiscussionReviewContext(discussion=discussion)
 
             for note in discussion.notes:
-                if not note.position:
-                    logger.warning("Ignoring note, no position defined: %s", note.id)
-                    continue
+                if note.type == NoteType.DISCUSSION_NOTE:
+                    context.diff = merge_request_patches["__all__"].__str__()
 
-                path = note.position.new_path or note.position.old_path
+                elif note.type == NoteType.DIFF_NOTE:
+                    if not note.position:
+                        logger.warning("Ignoring note, no position defined: %s", note.id)
+                        continue
 
-                if path not in merge_request_patches:
-                    logger.warning("Ignoring note, path not found in patches: %s", note.id)
-                    continue
+                    path = note.position.new_path or note.position.old_path
 
-                if context.patch_file is None:
-                    # This logic assumes that all notes will have the same patch file and
-                    context.patch_file = merge_request_patches[path]
-                    context.diff = self.note_processor.extract_diff(note, context.patch_file)
+                    if path not in merge_request_patches:
+                        logger.warning("Ignoring note, path not found in patches: %s", note.id)
+                        continue
+
+                    if context.patch_file is None:
+                        # This logic assumes that all notes will have the same patch file and
+                        context.patch_file = merge_request_patches[path]
+                        context.diff = self.note_processor.extract_diff(note, context.patch_file)
 
                 context.notes.append(note)
 
@@ -282,10 +281,10 @@ class ReviewAddressorManager:
         Commit changes to the merge request.
         """
         pr_describer = PullRequestDescriberAgent()
-        changes_description = pr_describer.agent.invoke({
-            "changes": file_changes,
-            "branch_name_convention": self.repo_config.branch_name_convention,
-        })
+        changes_description = pr_describer.agent.invoke(
+            {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
+            config=RunnableConfig(configurable={"thread_id": f"{self.thread_id}#{discussion_id}"}),
+        )
 
         self.client.create_merge_request_discussion_note(
             self.repo_id, merge_request_id, discussion_id, changes_description.description
