@@ -160,6 +160,10 @@ class RepoClient(abc.ABC):
     def create_merge_request_discussion_note(self, repo_id: str, merge_request_id: int, discussion_id: str, body: str):
         pass
 
+    @abc.abstractmethod
+    def job_log_trace(self, repo_id: str, job_id: int) -> str:
+        pass
+
     @staticmethod
     @functools.cache
     def create_instance() -> AllRepoClient:
@@ -316,9 +320,7 @@ class GitLabClient(RepoClient):
         self,
         repo_id: str,
         url: str,
-        events: list[
-            Literal["push_events", "merge_requests_events", "issues_events", "pipeline_events", "note_events"]
-        ],
+        events: list[Literal["push_events", "merge_requests_events", "issues_events", "job_events", "note_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
     ):
@@ -393,6 +395,22 @@ class GitLabClient(RepoClient):
             )
             for mr in project.commits.get(commit_sha).merge_requests()
         ]
+
+    def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        """
+        Get a merge request.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        mr = project.mergerequests.get(merge_request_id)
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=cast(int, mr.get_id()),
+            source_branch=mr.source_branch,
+            target_branch=mr.target_branch,
+            title=mr.title,
+            description=mr.description,
+            labels=mr.labels,
+        )
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
         """
@@ -989,6 +1007,21 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         discussion = merge_request.discussions.get(discussion_id, lazy=True)
         discussion.notes.create({"body": body})
+
+    def job_log_trace(self, repo_id: str, job_id: int) -> str:
+        """
+        Get the log trace of a job.
+
+        Args:
+            repo_id: The repository ID.
+            job_id: The job ID.
+
+        Returns:
+            The log trace of the job.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        job = project.jobs.get(job_id, lazy=True)
+        return job.trace().decode("utf-8")
 
 
 class GitHubClient(RepoClient):

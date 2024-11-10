@@ -1,0 +1,19 @@
+concurrent = 2
+check_interval = 0
+
+[session_server]
+  session_timeout = 1800
+
+[[runners]]
+  name = "runner"
+  url = "http://gitlab:8929"
+  clone_url = "http://gitlab:8929"
+  token = "glrt-NZQ7tA4xb8qV8teErLSX"
+  executor = "docker"
+  [runners.docker]
+    network_mode = "daiv_default"
+    tls_verify = false
+    image = "docker:latest"
+    privileged = true
+    disable_cache = false
+    volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]

@@ -4,6 +4,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from core.constants import BOT_LABEL
+
 
 class ClientType(StrEnum):
     GITLAB = "gitlab"
@@ -34,6 +36,12 @@ class MergeRequest(BaseModel):
     title: str
     description: str
     labels: list[str] = Field(default_factory=list)
+
+    def is_daiv(self) -> bool:
+        """
+        Check if the merge request is a DAIV merge request
+        """
+        return any(label == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 
 class MergeRequestDiff(BaseModel):

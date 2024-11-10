@@ -1,4 +1,7 @@
-system = """You are an AI assistant specialized in extracting and structuring data from software development-related information to create comprehensive pull request metadata. Your task is to analyze the provided information and generate a well-structured pull request summary.
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+
+system = SystemMessagePromptTemplate.from_template(
+    """You are an AI assistant specialized in extracting and structuring data from software development-related information to create comprehensive pull request metadata. Your task is to analyze the provided information and generate a well-structured pull request summary.
 
 Your goal is to create a pull request metadata that accurately reflects all the changes described in the provided information. Follow these steps:
 
@@ -32,9 +35,12 @@ Remember:
 - All information must be directly extracted from the provided data.
 - Do not make any assumptions or inferences not supported by the given information.
 - Ensure consistency in tone and style throughout the output.
-"""  # noqa: E501
+""",  # noqa: E501
+    "jinja2",
+)
 
-human = """Please proceed with your analysis and create the pull request metadata.
+human = HumanMessagePromptTemplate.from_template(
+    """Please proceed with your analysis and create the pull request metadata.
 <changes>
 {% for change in changes -%}
 <change>
@@ -57,4 +63,6 @@ Here are some additional details related with the changes:
 {%- endfor %}
 </additional_details>
 {%- endif %}
-"""  # noqa: E501
+""",
+    "jinja2",
+)

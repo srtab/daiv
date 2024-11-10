@@ -1,9 +1,10 @@
 from typing import NotRequired, TypedDict
 
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
+from automation.agents.base import GENERIC_COST_EFFICIENT_MODEL_NAME
 from codebase.base import FileChange
 
 from .prompts import human, system
@@ -21,9 +22,10 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     Agent to describe changes in a pull request.
     """
 
+    model_name = GENERIC_COST_EFFICIENT_MODEL_NAME
+
     def compile(self) -> Runnable:
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system, "jinja2"),
-            HumanMessagePromptTemplate.from_template(human, "jinja2"),
-        ]).partial(branch_name_convention=None, extra_details={})
+        prompt = ChatPromptTemplate.from_messages([system, human]).partial(
+            branch_name_convention=None, extra_details={}
+        )
         return prompt | self.model.with_structured_output(PullRequestDescriberOutput, method="json_schema")

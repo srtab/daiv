@@ -1,7 +1,11 @@
+import logging
+
 from django.core.management.base import BaseCommand
 
 from codebase.clients import RepoClient
 from codebase.conf import settings
+
+logger = logging.getLogger("daiv.webhooks")
 
 
 class Command(BaseCommand):
@@ -17,8 +21,8 @@ class Command(BaseCommand):
             repo_client.set_repository_webhooks(
                 project.slug,
                 f"{options['base_url']}/api/codebase/callbacks/{settings.CODEBASE_CLIENT}/",
-                ["push_events", "issues_events", "note_events"],
+                ["push_events", "issues_events", "note_events", "job_events"],
                 enable_ssl_verification=not options["disable_ssl_verification"],
             )
-            self.stdout.write(self.style.SUCCESS(f"Set webhook for {project.slug}."))
-        self.stdout.write(self.style.SUCCESS("All webhooks set successfully."))
+            logger.info("Set webhook for %s.", project.slug)
+        logger.info("All webhooks set successfully.")

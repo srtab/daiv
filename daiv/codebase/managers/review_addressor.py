@@ -71,7 +71,18 @@ class NoteProcessor:
     def _extract_diff_content(self, note: Note, patch_file: PatchedFile) -> str | None:
         """
         Extract diff content from note.
+
+        Args:
+            note: The note containing position information
+            patch_file: The patch file to extract content from
+
+        Returns:
+            str | None: The extracted diff content or None if extraction fails
         """
+        # Add null safety checks
+        if not note.position or not note.position.line_range:
+            return None
+
         if (
             note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
             or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
