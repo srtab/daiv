@@ -16,4 +16,5 @@ check_interval = 0
     image = "docker:latest"
     privileged = true
     disable_cache = false
+    pull_policy = "if-not-present"
     volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]

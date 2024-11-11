@@ -97,7 +97,6 @@ class NoteCallback(BaseCallback):
                 self._repo_config.features.auto_address_issues_enabled
                 or self._repo_config.features.auto_address_review_enabled
             )
-            and self.user.id != client.current_user.id
             and not self.object_attributes.system
             and self.object_attributes.action == NoteAction.CREATE
             and (
@@ -110,6 +109,7 @@ class NoteCallback(BaseCallback):
                 )
                 or (
                     self.object_attributes.noteable_type == NoteableType.ISSUE
+                    and self.user.id != client.current_user.id
                     and self.issue
                     and self.issue.is_daiv()
                     and self.issue.state == "opened"
@@ -206,6 +206,7 @@ class PipelineJobCallback(BaseCallback):
     project: Project
     ref: str
     build_id: int
+    build_name: str
     build_allow_failure: bool
     build_status: Literal[
         "created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"
@@ -238,6 +239,7 @@ class PipelineJobCallback(BaseCallback):
                 ref=self.merge_request.source_branch,
                 merge_request_id=self.merge_request.merge_request_id,
                 job_id=self.build_id,
+                job_name=self.build_name,
             ).apply_async()
 
     @cached_property

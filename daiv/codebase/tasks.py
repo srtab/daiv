@@ -69,11 +69,11 @@ def address_review_task(
 
 @shared_task
 @locked_task(key="{repo_id}:{ref}:{job_id}")
-def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int):
+def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
     """
     Try to fix a failed pipeline of a merge request.
     """
     try:
-        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id)
+        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id, job_name)
     except Exception as e:
         logger.exception("Error fixing pipeline job '%s[%s]:%d': %s", repo_id, ref, job_id, e)

@@ -23,7 +23,7 @@ class PipelineFixerManager:
         self.repo_config = RepositoryConfig.get_config(repo_id)
 
     @classmethod
-    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int):
+    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -35,9 +35,9 @@ class PipelineFixerManager:
         """
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref, f"{repo_id}#{merge_request_id}:{job_id}")
-        manager._process_job(merge_request_id, job_id)
+        manager._process_job(merge_request_id, job_id, job_name)
 
-    def _process_job(self, merge_request_id: int, job_id: int):
+    def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -45,17 +45,38 @@ class PipelineFixerManager:
             merge_request_id: The merge request ID
             job_id: The job ID to process
         """
-        log_trace = self.client.job_log_trace(self.repo_id, job_id)
+        log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
         pipeline_fixer = PipelineFixerAgent(
             repo_client=self.client, source_repo_id=self.repo_id, source_ref=self.ref, job_id=job_id
         )
-        pipeline_fixer.agent.invoke(
-            {"job_logs": self._clean_logs(log_trace), "diff": self._merge_request_diffs_to_str(diffs)},
+        category = pipeline_fixer.agent.invoke(
+            {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)},
             RunnableConfig(configurable={"thread_id": self.thread_id}),
         )
-        self._commit_changes(file_changes=pipeline_fixer.get_files_to_commit())
+        if category.category == "codebase":
+            self.client.create_merge_request_discussion_note(
+                self.repo_id,
+                merge_request_id,
+                f"""The pipeline is failing due to a codebase related issue and needs to be fixed. Here some details:
+
+<dl>
+    <dt>Job name:</dt>
+    <dd>{job_name}</dd>
+    <dt>Root cause:</dt>
+    <dd>{category.root_cause}</dd>
+</dl>
+
+<details>
+<summary>Expand extracted logs</summary>
+
+```
+{log_trace}
+```
+</details>""",
+            )
+            # self._commit_changes(file_changes=pipeline_fixer.get_files_to_commit())
 
     def _clean_logs(self, log: str):
         """
@@ -83,6 +104,8 @@ class PipelineFixerManager:
         """
         # Replace Windows line endings with Unix line endings
         content = log.replace("\r\n", "\n")
+        # Replace carriage return with newline
+        content = content.replace("\r", "\n")
 
         # Replace section start and end markers
         content = re.sub(r"\x1B\[[0-9;]*[a-zA-Z]section_start:[0-9]*:\s*", r">>> ", content)
@@ -92,23 +115,24 @@ class PipelineFixerManager:
         # Remove ANSI escape codes
         content = re.sub(r"\x1B\[[0-9;]*[a-zA-Z]", "", content)
 
-        # Replace remaining newline characters
-        content = content.replace("\r\n", "\n")
-
         return content
 
     def _extract_last_command_from_gitlab_logs(self, log: str) -> str:
         """
         Extract the output of the last executed command from the log.
+        We assume that the last command is the one that failed.
 
         Args:
             log: Full log containing multiple commands and outputs
 
         Returns:
-            Output of the last executed command
+            Output of the last executed command or an empty string if no command was found
         """
-        if lines := log.split("\n$"):
-            return f"${lines[-1].strip()}"
+        lines = log.split("\n$")
+        if lines and (text := lines[-1].strip()):
+            # Extract only the step_script output to avoid including other steps outputs leading to LLM hallucinations.
+            # Also, add the last line to the command because it's where tipically the exit code is displayed.
+            return f"$ {text.partition('<<< step_script')[0].strip()}\n{text.split('\n')[-1]}"
         return ""
 
     def _merge_request_diffs_to_str(self, diffs: Iterable[MergeRequestDiff]) -> str:
