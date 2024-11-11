@@ -206,15 +206,20 @@ class ReviewAddressorManager:
 
                 if result and "response" in result and result["response"]:
                     self.client.create_merge_request_discussion_note(
-                        self.repo_id, merge_request_id, context.discussion.id, result["response"]
+                        self.repo_id, merge_request_id, result["response"], context.discussion.id
                     )
 
-                if not state_after_run.tasks and (file_changes := reviewer_addressor.get_files_to_commit()):
-                    self._commit_changes(
-                        merge_request_id=merge_request_id,
-                        discussion_id=context.discussion.id,
-                        file_changes=file_changes,
-                    )
+                if not state_after_run.tasks:
+                    if file_changes := reviewer_addressor.get_files_to_commit():
+                        self._commit_changes(
+                            merge_request_id=merge_request_id,
+                            discussion_id=context.discussion.id,
+                            file_changes=file_changes,
+                        )
+                    else:
+                        self.client.resolve_merge_request_discussion(
+                            self.repo_id, merge_request_id, context.discussion.id
+                        )
 
     def _extract_merge_request_diffs(self, merge_request_id: int):
         """
@@ -244,7 +249,18 @@ class ReviewAddressorManager:
         for discussion in self.client.get_merge_request_discussions(
             self.repo_id, merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
-            if discussion.notes[-1].author.id == self.client.current_user.id:
+            if (
+                (last_note := discussion.notes[-1])
+                and (
+                    # When pipeline fixer is enabled and the pipeline is failing,
+                    # the pipeline fixer will create a discussion note to address the issue.
+                    # In this case, we need to bypass the author check, but only if theres only one note,
+                    # otherwise same rules apply.
+                    (last_note.type == NoteType.DISCUSSION_NOTE and len(discussion.notes) > 1)
+                    # For diff notes, we need to always check the author to avoid infinite conversation loops.
+                    or (last_note.type == NoteType.DIFF_NOTE)
+                )
+            ) and last_note.author.id == self.client.current_user.id:
                 logger.debug("Ignoring discussion, DAIV is the current user: %s", discussion.id)
                 continue
 
@@ -287,7 +303,7 @@ class ReviewAddressorManager:
         )
 
         self.client.create_merge_request_discussion_note(
-            self.repo_id, merge_request_id, discussion_id, changes_description.description
+            self.repo_id, merge_request_id, changes_description.description, discussion_id
         )
         self.client.commit_changes(
             self.repo_id, self.merge_request_source_branch, changes_description.commit_message, file_changes

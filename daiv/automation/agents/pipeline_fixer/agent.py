@@ -2,11 +2,9 @@ import logging
 from typing import Literal, cast
 
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END, START, StateGraph
+from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
-from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
 from automation.agents.base import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME
@@ -54,21 +52,26 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         })
         return config
 
-    def compile(self) -> CompiledStateGraph:
-        workflow = StateGraph(OverallState)
+    def compile(self) -> Runnable:
+        prompt = ChatPromptTemplate.from_messages([pipeline_log_classifier_system, pipeline_log_classifier_human])
 
-        workflow.add_node("categorizer", self.categorizer)
-        workflow.add_node("apply_autofix", self.apply_autofix)
-        workflow.add_node("respond", self.respond)
+        return prompt | self.model.with_structured_output(PipelineLogClassifierOutput)
 
-        workflow.add_edge(START, "categorizer")
-        workflow.add_conditional_edges("categorizer", self.should_autofix)
-        workflow.add_edge("apply_autofix", END)
-        workflow.add_edge("respond", END)
+    # def compile(self) -> CompiledStateGraph:
+    #     workflow = StateGraph(OverallState)
 
-        in_memory_store = InMemoryStore()
+    #     workflow.add_node("categorizer", self.categorizer)
+    #     workflow.add_node("apply_autofix", self.apply_autofix)
+    #     workflow.add_node("respond", self.respond)
 
-        return workflow.compile(checkpointer=self.checkpointer, store=in_memory_store)
+    #     workflow.add_edge(START, "categorizer")
+    #     workflow.add_conditional_edges("categorizer", self.should_autofix)
+    #     workflow.add_edge("apply_autofix", END)
+    #     workflow.add_edge("respond", END)
+
+    #     in_memory_store = InMemoryStore()
+
+    #     return workflow.compile(checkpointer=self.checkpointer, store=in_memory_store)
 
     def categorizer(self, state: OverallState):
         """
