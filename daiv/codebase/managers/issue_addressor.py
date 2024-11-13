@@ -58,7 +58,11 @@ class IssueAddressorManager:
             self.client.comment_issue(
                 self.repo_id,
                 cast(int, issue.iid),
-                ISSUE_PLANNING_TEMPLATE.format(assignee=issue.assignee.username, bot_name=BOT_NAME),
+                jinja2_formatter(
+                    ISSUE_PLANNING_TEMPLATE,
+                    assignee=issue.assignee.username if issue.assignee else None,
+                    bot_name=BOT_NAME,
+                ),
             )
 
         config = RunnableConfig(configurable={"thread_id": f"{self.repo_id}#{issue.iid}"})
