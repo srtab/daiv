@@ -655,7 +655,9 @@ class GitLabClient(RepoClient):
             labels=issue.labels,
             assignee=User(
                 id=issue.assignee.get("id"), username=issue.assignee.get("username"), name=issue.assignee.get("name")
-            ),
+            )
+            if issue.assignee
+            else None,
             related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
         )
 
