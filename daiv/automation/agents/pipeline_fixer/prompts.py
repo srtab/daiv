@@ -52,21 +52,36 @@ pipeline_log_classifier_human = HumanMessagePromptTemplate.from_template(
 )
 
 autofix_apply_human = HumanMessagePromptTemplate.from_template(
-    """Analyze the logs and diff and fix the pipeline errors.
+    """Your task is to analyze and fix errors captured from a failing pipeline job. Your goal is to identify the root cause of the failure, apply necessary changes to the codebase, and verify that the fix resolves the issue. Follow these steps carefully:
 
-Instructions:
-1. Analyze the pipeline job logs to identify the root cause of the failure
-2. Analyze the diff to identify the changes that were made that could cause the problem
-3. Define a plan to fix the pipeline errors. Use the available tools to help you analyze the codebase
-4. Apply the fix to the pipeline
-
+1. First, review the provided job logs:
 <job_logs>
 {{ job_logs }}
 </job_logs>
 
+2. Next, review the changes that were applied to the codebase extracted from the merge request diff:
 <diff>
 {{ diff }}
 </diff>
-""",
+
+3. Analyze the error log:
+   - Identify the specific error messages and their locations in the code.
+   - Look for any stack traces or line numbers that point to the source of the error.
+   - Pay attention to any formatting or linting tool diffs that may be present in the error log.
+
+4. Identify the root cause:
+   - Based on the error messages and the codebase, determine the likely cause of the pipeline failure.
+   - Consider whether the issue is related to syntax errors, logical errors, or configuration problems.
+
+5. Apply changes to the codebase according to the instructions provided:
+   - If the error log contains formatting or linting tool diffs, apply these changes first.
+   - Make any additional necessary changes to fix the identified root cause.
+   - Ensure that your changes are minimal and targeted to address the specific issue.
+   - IMPORTANT: Before making any changes, determine if you need to use tools to obtain the latest version of any files that will be modified. Do not assume file content based solely on the diff or job log provided.
+
+6. Verify the fix:
+   - Review your changes and ensure they address the root cause without introducing new issues.
+   - Consider any potential side effects of your changes and mitigate them if necessary.
+""",  # noqa: E501
     "jinja2",
 )

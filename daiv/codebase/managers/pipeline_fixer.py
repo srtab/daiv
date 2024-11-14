@@ -51,32 +51,12 @@ class PipelineFixerManager:
         pipeline_fixer = PipelineFixerAgent(
             repo_client=self.client, source_repo_id=self.repo_id, source_ref=self.ref, job_id=job_id
         )
-        category = pipeline_fixer.agent.invoke(
+        result = pipeline_fixer.agent.invoke(
             {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)},
             RunnableConfig(configurable={"thread_id": self.thread_id}),
         )
-        if category.category == "codebase":
-            self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                merge_request_id,
-                f"""The pipeline is failing due to a codebase related issue and needs to be fixed. Here some details:
-
-<dl>
-    <dt>Job name:</dt>
-    <dd>{job_name}</dd>
-    <dt>Root cause:</dt>
-    <dd>{category.root_cause}</dd>
-</dl>
-
-<details>
-<summary>Expand extracted logs</summary>
-
-```
-{log_trace}
-```
-</details>""",
-            )
-            # self._commit_changes(file_changes=pipeline_fixer.get_files_to_commit())
+        if result["category"] == "codebase":
+            self._commit_changes(file_changes=pipeline_fixer.get_files_to_commit())
 
     def _clean_logs(self, log: str):
         """

@@ -26,6 +26,7 @@ Here's an overview of the codebase structure of directories and files you'll be 
    - Avoid placeholder comments or TODOs; write actual, functional code for every assigned task.
    - Handle any required imports or dependencies in a separate step.
    - Respect and follow existing conventions, patterns, and libraries in the codebase unless instructed otherwise.
+   - Do not leave blank lines with whitespaces.
 3. Tool Usage: If necessary, utilize any predefined tools available to you to complete the tasks. Explain why and how you're using these tools.
 4. Code Validation: After implementing the changes, verify that your code is functional and error-free. Explain how you've ensured this.
 5. Integration Check: Describe how your changes integrate with the existing codebase and confirm that no unintended side effects have been introduced.
@@ -63,6 +64,6 @@ Execute the following tasks, each task must be completed fully and with precisio
 {% if show_diff_hunk_to_executor %}
 ### DiffHunk ###
 The following diff contains specific lines of code involved in the requested changes:
-<DiffHunk>
-{{ diff }}</DiffHunk>{% endif %}
+<diff_hunk>
+{{ diff }}</diff_hunk>{% endif %}
 """  # noqa: E501

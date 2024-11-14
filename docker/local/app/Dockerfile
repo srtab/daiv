@@ -1,4 +1,4 @@
-FROM python:3.12.5-slim-bookworm
+FROM python:3.12.7-slim-bookworm
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -42,15 +42,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PYTHONPATH="/home/app/src/daiv"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PATH="/home/app/.venv/bin:/home/app/.cargo/bin/:$PATH"
+ENV PATH="/home/app/.venv/bin:/home/app/.local/bin/:$PATH"
 ENV UV_PROJECT_ENVIRONMENT="/home/app/.venv"
 
 COPY --chown=app:app pyproject.toml uv.lock ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN uv sync \
-    && echo 'alias compilemessages="django-admin compilemessages"' >> /home/app/.bashrc \
-    && echo 'alias makemessages="django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all"' >> /home/app/.bashrc \
     && chmod +x /home/app/docker/entrypoint \
     && mkdir -p /home/app/data
 

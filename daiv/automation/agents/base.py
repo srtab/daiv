@@ -6,20 +6,19 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
-from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_community.callbacks import OpenAICallbackHandler
-from langchain_core.messages import BaseMessage, get_buffer_string
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_openai.chat_models import ChatOpenAI
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
     from langgraph.checkpoint.postgres import PostgresSaver
 
-PLANING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # "claude-3-opus-20240229"
+PLANING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
 PLANING_COST_EFFICIENT_MODEL_NAME = "gpt-4o-2024-08-06"
 CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
-CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-sonnet-20241022"  # TODO: Replace with haiku 3.5 when released
+CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-haiku-20241022"
 GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-08-06"
 GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
 
@@ -109,20 +108,6 @@ class BaseAgent(ABC, Generic[T]):
         """
         return self.agent.get_graph().draw_mermaid()
 
-    def get_num_tokens(self, text: str) -> int:
-        """
-        Get the number of tokens in a text.
-
-        Args:
-            text (str): The text
-
-        Returns:
-            int: The number of tokens
-        """
-        if _attempt_infer_model_provider(self.model_name) == ModelProvider.ANTHROPIC:
-            return cast(ChatAnthropic, self.model)._client.count_tokens(text)
-        return self.model.get_num_tokens(text)
-
     def get_num_tokens_from_messages(self, messages: list[BaseMessage]) -> int:
         """
         Get the number of tokens from a list of messages.
@@ -133,7 +118,7 @@ class BaseAgent(ABC, Generic[T]):
         Returns:
             int: The number of tokens
         """
-        return sum(self.get_num_tokens(get_buffer_string([m])) for m in messages)
+        return self.model.get_num_tokens_from_messages(messages)
 
     def get_max_token_value(self) -> int:
         """
