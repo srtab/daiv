@@ -76,11 +76,11 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         prompt = self._prompt
         filled_messages = prompt.invoke(input_data).to_messages()
         empty_messages = prompt.invoke({"original_snippet": "", "replacement_snippet": "", "content": ""}).to_messages()
-        # get the number of tokens used in the messages
-        used_tokens = self.get_num_tokens_from_messages(filled_messages)
         # try to anticipate the number of tokens needed for the output
-        estimated_needed_tokens = used_tokens - self.get_num_tokens_from_messages(empty_messages)
-        return estimated_needed_tokens <= self.get_max_token_value() - used_tokens
+        estimated_needed_tokens = self.get_num_tokens_from_messages(
+            filled_messages
+        ) - self.get_num_tokens_from_messages(empty_messages)
+        return estimated_needed_tokens <= self.get_max_token_value()
 
     @cached_property
     def _prompt(self) -> ChatPromptTemplate:

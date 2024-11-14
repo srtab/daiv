@@ -242,13 +242,19 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
 
         stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
 
-        file_change: FileChange = stored_item.value["data"] if stored_item else None
+        file_change: FileChange | None = stored_item.value["data"] if stored_item else None
 
         if file_change and file_change.action == FileChangeAction.DELETE:
             return "error: You previously marked {file_path} to be deleted."
 
         if not (repo_file_content := self._get_file_content(file_path, store)):
             return f"error: File {file_path} not found."
+
+        if original_snippet == replacement_snippet:
+            return (
+                "error: The original snippet and the replacement snippet are the same. "
+                "No changes will be made. Make sure you're not missing any changes."
+            )
 
         replacer = SnippetReplacerAgent()
         result = replacer.agent.invoke({

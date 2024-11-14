@@ -34,3 +34,9 @@ lint-typing:
 
 lock:
 	uv lock
+
+makemessages:
+	uv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all
+
+compilemessages:
+	uv run django-admin compilemessages
