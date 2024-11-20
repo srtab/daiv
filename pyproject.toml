@@ -37,7 +37,7 @@ dependencies = [
   "langchain-text-splitters==0.3.1",
   "langgraph==0.2.45",
   "langgraph-checkpoint-postgres==2.0.2",
-  "langsmith==0.1.139",
+  "langsmith==0.1.144",
   "pgvector>=0.3.6",
   "psycopg[pool]==3.2.3",
   "pydantic==2.9.2",
