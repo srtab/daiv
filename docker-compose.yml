@@ -18,6 +18,7 @@ x-app-defaults: &x_app_default
     - db
     - redis
     - gitlab
+    - sandbox
 
 services:
   db:
@@ -101,3 +102,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - gitlab
+
+  sandbox:
+    build:
+      context: ./../daiv-sandbox
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    container_name: daiv-sandbox
+    command: fastapi dev --reload daiv_sandbox/main.py --host 0.0.0.0 --port 8000
+    env_file:
+      - ./docker/local/sandbox/config.env
+    ports:
+      - "8888:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./../daiv-sandbox/daiv_sandbox:/app/daiv_sandbox

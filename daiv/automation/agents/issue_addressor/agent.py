@@ -197,6 +197,9 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
+        if "response" not in result:
+            return {"response": ""}
+
         if isinstance(result["response"].action, AskForClarification):
             return {"response": " ".join(result["response"].action.questions)}
 

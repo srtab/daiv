@@ -26,6 +26,7 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.utils import notes_to_messages
 from core.config import RepositoryConfig
+from core.tasks import run_sandbox_commands
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
@@ -52,13 +53,15 @@ class NoteProcessor:
         """
         Extract diff content where the note was left.
         """
-        if not note.position or not note.position.line_range:
+        if not note.position:
             return None
 
         if note.position.position_type == NotePositionType.FILE:
             return str(patch_file)
-        elif note.position.position_type == NotePositionType.TEXT:
+        elif note.position.position_type == NotePositionType.TEXT and note.position.line_range:
             return self._extract_diff_content(note, patch_file)
+
+        return None
 
     def _extract_diff_content(self, note: Note, patch_file: PatchedFile) -> str | None:
         """
@@ -200,6 +203,9 @@ class ReviewAddressorManager:
                         {"messages": notes_to_messages(context.notes, self.client.current_user.id), "response": None},
                         as_node="human_feedback",
                     )
+
+                if current_state.tasks:
+                    # This can happen if the agent got an error and we need to retry, or was interrupted.
                     result = reviewer_addressor_agent.invoke(None, config)
 
                 state_after_run = reviewer_addressor_agent.get_state(config)
@@ -309,3 +315,15 @@ class ReviewAddressorManager:
             self.repo_id, self.merge_request_source_branch, changes_description.commit_message, file_changes
         )
         self.client.resolve_merge_request_discussion(self.repo_id, merge_request_id, discussion_id)
+
+        if (
+            self.repo_config.commands.base_image
+            and self.repo_config.commands.install_dependencies
+            and self.repo_config.commands.format_code
+        ):
+            run_sandbox_commands.si(
+                repo_id=self.repo_id,
+                ref=self.merge_request_source_branch,
+                base_image=self.repo_config.commands.base_image,
+                commands=[*self.repo_config.commands.install_dependencies, *self.repo_config.commands.format_code],
+            ).apply_async()

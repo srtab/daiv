@@ -146,7 +146,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(
-            diff=state["diff"],
+            diff=state.get("diff"),
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )

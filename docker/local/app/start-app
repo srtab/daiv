@@ -4,7 +4,7 @@ set -eu pipefail
 
 cd daiv/
 
-uv run django-admin compilemessages --ignore=.venv
-uv run django-admin migrate --noinput
+django-admin compilemessages --ignore=.venv
+django-admin migrate --noinput
 
-exec uv run uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile /home/app/src/data/certs/cert.key --ssl-certfile /home/app/src/data/certs/cert.crt --reload --reload-include 'templates/**/*.html' "daiv.asgi:application"
+exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile /home/app/src/data/certs/cert.key --ssl-certfile /home/app/src/data/certs/cert.crt --reload --reload-include 'templates/**/*.html' "daiv.asgi:application"

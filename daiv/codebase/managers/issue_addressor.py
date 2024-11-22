@@ -24,6 +24,7 @@ from codebase.clients import AllRepoClient, RepoClient
 from codebase.utils import notes_to_messages
 from core.config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
+from core.tasks import run_sandbox_commands
 
 
 class IssueAddressorManager:
@@ -110,6 +111,10 @@ class IssueAddressorManager:
                     if "execute_plan" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
                         self._commit_changes(issue, file_changes)
 
+            if current_state.tasks:
+                # This can happen if the agent got an error and we need to retry, or was interrupted.
+                result = issue_addressor_agent.invoke(None, config)
+
     def _has_bot_notes(self, notes: list[Note]) -> bool:
         """
         Check if the issue already has a comment from the bot.
@@ -154,6 +159,7 @@ class IssueAddressorManager:
         """
         Process file changes and create or update merge request.
         """
+
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke({
             "changes": file_changes,
@@ -176,6 +182,18 @@ class IssueAddressorManager:
             start_branch=self.ref,
             override_commits=True,
         )
+
+        if (
+            self.repo_config.commands.base_image
+            and self.repo_config.commands.install_dependencies
+            and self.repo_config.commands.format_code
+        ):
+            run_sandbox_commands.si(
+                repo_id=self.repo_id,
+                ref=changes_description.branch,
+                base_image=self.repo_config.commands.base_image,
+                commands=[*self.repo_config.commands.install_dependencies, *self.repo_config.commands.format_code],
+            ).apply_async()
 
         merge_request_id = self.client.update_or_create_merge_request(
             repo_id=self.repo_id,

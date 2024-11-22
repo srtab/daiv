@@ -162,10 +162,12 @@ Here's an overview of the project structure of directories and files to help you
 </project_structure>
 
 {% endif %}
+{% if diff -%}
 Here is the diff hunk containing specific lines of code involved in the requested changes:
 <diff_hunk>
 {{ diff }}
 </diff_hunk>
+{% endif %}
 
 Before creating the checklist, wrap your analysis inside <analysis> tags to break down the information and show your thought process. This will help ensure a thorough interpretation of the data and creation of an effective checklist. Include the following steps in your analysis:
 a. Summarize the diff hunk and reviewer comments

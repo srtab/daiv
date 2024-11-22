@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from io import StringIO
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,14 @@ REPOSITORY_DESCRIPTION_MAX_LENGTH = 400
 BRANCH_NAME_CONVENTION_MAX_LENGTH = 100
 
 
+logger = logging.getLogger("daiv.core")
+
+
 class Features(BaseModel):
+    """
+    Feature flags and toggles for DAIV.
+    """
+
     auto_address_review_enabled: bool = Field(default=True, description="Enable code review automation features.")
     auto_address_issues_enabled: bool = Field(default=True, description="Enable issue implementation features.")
     autofix_pipeline_enabled: bool = Field(
@@ -28,7 +36,37 @@ class Features(BaseModel):
     )
 
 
+class Commands(BaseModel):
+    """
+    Commands to be executed in the sandbox.
+    """
+
+    base_image: str | None = Field(
+        default=None,
+        examples=["python:3.12-alpine", "node:18-alpine"],
+        description="The base image to use for the sandbox to execute commands.",
+    )
+    install_dependencies: str | None = Field(
+        default=None,
+        examples=["pip install -r requirements.txt", "npm install", "pip install uv && uv sync --dev"],
+        description=(
+            "Command to be executed to install dependencies. It is only executed if the format command is set to."
+        ),
+    )
+    format_code: str | None = Field(
+        default=None,
+        examples=["ruff check --fix && ruff format", "npm run format"],
+        description=(
+            "Command to be executed to format the code. It is only executed if the install command is set to."
+        ),
+    )
+
+
 class RepositoryConfig(BaseModel):
+    """
+    Configuration for a repository.
+    """
+
     default_branch: str | None = Field(
         default=None,
         description=(
@@ -109,6 +147,15 @@ class RepositoryConfig(BaseModel):
         max_length=BRANCH_NAME_CONVENTION_MAX_LENGTH,
     )
 
+    # Commands to be executed in the sandbox
+    commands: Commands = Field(
+        default_factory=Commands,
+        description=(
+            "Commands to be executed in the sandbox. "
+            "These commands are executed after code changes are applied to minimise pipeline breakage."
+        ),
+    )
+
     @field_validator("repository_description", "branch_name_convention", mode="before")
     @classmethod
     def truncate_if_too_long(cls, value: Any, info):
@@ -140,6 +187,7 @@ class RepositoryConfig(BaseModel):
         cache_key = f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}"
 
         if (cached_config := cache.get(cache_key)) is not None:
+            logger.debug("Loaded cached configuration for repository %s", repo_id)
             return RepositoryConfig(**cached_config)
 
         repo_client = RepoClient.create_instance()
@@ -161,6 +209,7 @@ class RepositoryConfig(BaseModel):
             config.default_branch = repository.default_branch
 
         cache.set(cache_key, config.model_dump(), CONFIGURATION_CACHE_TIMEOUT)
+        logger.info("Cached configuration for repository %s", repo_id)
         return config
 
     @staticmethod
@@ -169,6 +218,7 @@ class RepositoryConfig(BaseModel):
         Invalidate cache for a specific repository.
         """
         cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
+        logger.info("Invalidated cache for repository %s", repo_id)
 
     @property
     def combined_exclude_patterns(self) -> tuple[str, ...]:
