@@ -143,6 +143,7 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
+  "appconf.*",
   "celery.*",
   "decouple.*",
   "django.*",
@@ -167,5 +168,6 @@ dev-dependencies = [
   "pytest-mock==3.14.0",
   "pytest-xdist==3.6.1",
   "ruff==0.7.2",
-  "types-pyyaml>=6.0.12.20240917",
+  "types-pyyaml==6.0.12.20240917",
+  "watchfiles==0.24.0",
 ]

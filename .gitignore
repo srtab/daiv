@@ -161,3 +161,5 @@ cython_debug/
 
 config.secrets.env
 state-snapshots.txt
+
+.ruff_cache/

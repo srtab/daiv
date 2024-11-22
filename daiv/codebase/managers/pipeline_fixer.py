@@ -33,6 +33,7 @@ class PipelineFixerManager:
             merge_request_id: The merge request ID
             job_id: The job ID to process
         """
+        return
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref, f"{repo_id}#{merge_request_id}:{job_id}")
         manager._process_job(merge_request_id, job_id, job_name)
