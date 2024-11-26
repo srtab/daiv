@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from langchain_core.tools.base import BaseTool
 from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
 
+from automation.tools.sandbox import RunSandboxCodeTool
 from codebase.indexes import CodebaseIndex
 
 from .repository import (
@@ -71,3 +72,13 @@ class WriteRepositoryToolkit(ReadRepositoryToolkit):
             DeleteRepositoryFileTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
         ])
         return super_instance
+
+
+class SandboxToolkit(BaseToolkit):
+    """
+    Toolkit for running code in a sandbox environment.
+    """
+
+    @classmethod
+    def create_instance(cls) -> BaseToolkit:
+        return cls(tools=[RunSandboxCodeTool()])

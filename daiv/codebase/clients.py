@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import functools
+import io
 import logging
 import tempfile
 from contextlib import AbstractContextManager, contextmanager
@@ -164,6 +165,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def job_log_trace(self, repo_id: str, job_id: int) -> str:
+        pass
+
+    @abc.abstractmethod
+    def get_repository_archive(self, repo_id: str, commit_sha: str) -> AbstractContextManager[io.BytesIO]:
         pass
 
     @staticmethod
@@ -553,7 +558,7 @@ class GitLabClient(RepoClient):
         project.commits.create(commits)
 
     @contextmanager
-    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
+    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:  # type: ignore
         """
         Load a repository to a temporary directory.
 
@@ -1033,6 +1038,26 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         job = project.jobs.get(job_id, lazy=True)
         return job.trace().decode("utf-8")
+
+    @contextmanager
+    def get_repository_archive(self, repo_id: str, sha: str) -> AbstractContextManager[io.BytesIO]:  # type: ignore
+        """
+        Get the archive of a repository.
+
+        Args:
+            repo_id: The repository ID.
+            sha: The commit sha.
+
+        Yields:
+            The archive of the repository.
+        """
+        tarstream = io.BytesIO()
+        project = self.client.projects.get(repo_id)
+        project.repository_archive(sha=sha, streamed=True, action=tarstream.write)
+
+        tarstream.seek(0)
+        yield tarstream
+        tarstream.close()
 
 
 class GitHubClient(RepoClient):
