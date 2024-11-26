@@ -12,8 +12,12 @@ class Command(BaseCommand):
     help = "Set webhooks for all repositories."
 
     def add_arguments(self, parser):
-        parser.add_argument("--base-url", type=str, help="URL for webhook", required=True)
-        parser.add_argument("--disable-ssl-verification", action="store_true", help="Disable SSL verification")
+        parser.add_argument(
+            "--base-url", type=str, help="Base URL of GitLab instance, i.e. http://gitlab:8929", required=True
+        )
+        parser.add_argument(
+            "--disable-ssl-verification", action="store_true", help="Disable SSL verification for GitLab webhook"
+        )
 
     def handle(self, *args, **options):
         repo_client = RepoClient.create_instance()
