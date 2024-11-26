@@ -1,12 +1,18 @@
 import re
 from collections.abc import Iterable
 
+from langchain_community.callbacks import get_openai_callback
+from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.constants import START
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
+from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from codebase.base import ClientType, FileChange, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
+from core.conf import settings
 from core.config import RepositoryConfig
 
 
@@ -33,12 +39,11 @@ class PipelineFixerManager:
             merge_request_id: The merge request ID
             job_id: The job ID to process
         """
-        return
         client = RepoClient.create_instance()
-        manager = cls(client, repo_id, ref, f"{repo_id}#{merge_request_id}:{job_id}")
-        manager._process_job(merge_request_id, job_id, job_name)
+        manager = cls(client, repo_id, ref, f"{repo_id}#{merge_request_id}:{job_name}")
+        manager._process_job(merge_request_id, job_id)
 
-    def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
+    def _process_job(self, merge_request_id: int, job_id: int):
         """
         Process pipeline fix for a job.
 
@@ -49,15 +54,39 @@ class PipelineFixerManager:
         log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
-        pipeline_fixer = PipelineFixerAgent(
-            repo_client=self.client, source_repo_id=self.repo_id, source_ref=self.ref, job_id=job_id
-        )
-        result = pipeline_fixer.agent.invoke(
-            {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)},
-            RunnableConfig(configurable={"thread_id": self.thread_id}),
-        )
-        if result["category"] == "codebase":
-            self._commit_changes(file_changes=pipeline_fixer.get_files_to_commit())
+        config = RunnableConfig(configurable={"thread_id": self.thread_id})
+
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
+            pipeline_fixer = PipelineFixerAgent(
+                repo_client=self.client,
+                source_repo_id=self.repo_id,
+                source_ref=self.ref,
+                job_id=job_id,
+                checkpointer=checkpointer,
+                usage_handler=usage_handler,
+            )
+            pipeline_fixer_agent = pipeline_fixer.agent
+            current_state = pipeline_fixer_agent.get_state(config)
+
+            # avoid reprocessing the job if it's already been processed
+            if current_state.created_at is None or START in current_state.next:
+                result = pipeline_fixer_agent.invoke(
+                    {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)}, config
+                )
+
+                if file_changes := pipeline_fixer.get_files_to_commit():
+                    self._commit_changes(file_changes=file_changes)
+
+                elif result["category"] == "external-factor" and result["root_cause"] and result["actions"]:
+                    self.client.comment_merge_request(
+                        self.repo_id,
+                        merge_request_id,
+                        jinja2_formatter(
+                            PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE,
+                            root_cause=result["root_cause"],
+                            actions=result["actions"],
+                        ),
+                    )
 
     def _clean_logs(self, log: str):
         """

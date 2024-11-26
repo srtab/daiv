@@ -8,24 +8,37 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
-from automation.agents.base import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME
+from automation.agents.base import (
+    CODING_COST_EFFICIENT_MODEL_NAME,
+    CODING_PERFORMANT_MODEL_NAME,
+    GENERIC_COST_EFFICIENT_MODEL_NAME,
+)
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
-from automation.tools.toolkits import WriteRepositoryToolkit
+from automation.tools.sandbox import RunSandboxCommandsTool
+from automation.tools.toolkits import SandboxToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
-from .prompts import autofix_apply_human, pipeline_log_classifier_human, pipeline_log_classifier_system
-from .schemas import PipelineLogClassifierOutput
+from .prompts import (
+    autofix_apply_human,
+    external_factor_plan_human,
+    external_factor_plan_system,
+    pipeline_log_classifier_human,
+    pipeline_log_classifier_system,
+)
+from .schemas import ExternalFactorPlanOutput, PipelineLogClassifierOutput
 from .state import OverallState
 
 logger = logging.getLogger("daiv.agents")
 
 
 class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
-    """ """
+    """
+    Agent for fixing pipeline failures.
+    """
 
     def __init__(self, *, repo_client: AllRepoClient, source_repo_id: str, source_ref: str, job_id: int, **kwargs):
         self.repo_client = repo_client
@@ -54,15 +67,23 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         return config
 
     def compile(self) -> CompiledStateGraph:
+        """
+        Compile the state graph for the agent.
+
+        Returns:
+            CompiledStateGraph: The compiled state graph.
+        """
         workflow = StateGraph(OverallState)
 
         workflow.add_node("categorizer", self.categorizer)
-        workflow.add_node("apply_autofix", self.apply_autofix)
+        workflow.add_node("apply_unittest_fix", self.apply_unittest_fix)
+        workflow.add_node("apply_lint_fix", self.apply_lint_fix)
         workflow.add_node("respond", self.respond)
 
         workflow.add_edge(START, "categorizer")
-        workflow.add_conditional_edges("categorizer", self.should_autofix)
-        workflow.add_edge("apply_autofix", END)
+        workflow.add_conditional_edges("categorizer", self.determine_next_action)
+        workflow.add_edge("apply_unittest_fix", END)
+        workflow.add_edge("apply_lint_fix", END)
         workflow.add_edge("respond", END)
 
         in_memory_store = InMemoryStore()
@@ -76,10 +97,10 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         This will determine whether the issue is directly related to the codebase or caused by external factors.
 
         Args:
-            state (dict): The state of the agent.
+            state (OverallState): The state of the agent.
 
         Returns:
-            dict: The state of the agent with the category added.
+            OverallState: The state of the agent with the category added.
         """
         prompt = ChatPromptTemplate.from_messages([pipeline_log_classifier_system, pipeline_log_classifier_human])
 
@@ -92,9 +113,13 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                 config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
-        return {"category": response.category}
+        return {
+            "category": response.category,
+            "pipeline_phase": response.pipeline_phase,
+            "root_cause": response.root_cause,
+        }
 
-    def should_autofix(self, state: OverallState) -> Literal["apply_autofix", "respond"]:
+    def determine_next_action(self, state: OverallState) -> Literal["apply_unittest_fix", "apply_lint_fix", "respond"]:
         """
         Determine whether the issue should be fixed automatically or manually.
 
@@ -102,22 +127,28 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             state (OverallState): The state of the agent.
 
         Returns:
-            Literal["apply_autofix", "respond"]: The next step in the workflow.
+            Literal["apply_unittest_fix", "apply_lint_fix", "respond"]: The next step in the workflow.
         """
-        return "apply_autofix" if state["category"] == "codebase" else "respond"
+        if state["category"] == "codebase":
+            if state["pipeline_phase"] == "lint":
+                return "apply_lint_fix"
+            elif state["pipeline_phase"] == "unittest":
+                return "apply_unittest_fix"
+        return "respond"
 
-    def apply_autofix(self, state: OverallState, store: BaseStore):
+    def apply_unittest_fix(self, state: OverallState, store: BaseStore):
         """
-        Apply the autofix.
+        Apply the unittest fix.
 
         Args:
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
 
         Returns:
-            dict: The state of the agent with the autofix applied.
+            OverallState: The state of the agent with the autofix applied.
         """
         toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
@@ -134,17 +165,59 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=CODING_PERFORMANT_MODEL_NAME,
             store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
+    def apply_lint_fix(self, state: OverallState, store: BaseStore):
+        """
+        Apply the lint fix.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+        """
+        run_command_tool = RunSandboxCommandsTool(
+            source_repo_id=self.source_repo_id, source_ref=self.source_ref, api_wrapper=self.repo_client
+        )
+        run_command_tool.invoke({
+            "commands": [self.repo_config.commands.install_dependencies, self.repo_config.commands.format_code],
+            "intent": "Fix linting issues",
+            "store": store,
+        })
+
     def respond(self, state: OverallState):
-        """ """
-        pass
+        """
+        Respond to user with the root cause and a plan to fix the issue.
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            OverallState: The state of the agent with the actions added.
+        """
+        prompt = ChatPromptTemplate.from_messages([external_factor_plan_system, external_factor_plan_human])
+
+        llm = prompt | self.model.with_structured_output(ExternalFactorPlanOutput)
+
+        response = cast(
+            ExternalFactorPlanOutput,
+            llm.invoke(
+                {"root_cause": state["root_cause"]},
+                config={"configurable": {"model": CODING_COST_EFFICIENT_MODEL_NAME}},
+            ),
+        )
+        return {"actions": response.actions}
 
     def get_files_to_commit(self) -> list[FileChange]:
+        """
+        Get the files to commit.
+
+        Returns:
+            list[FileChange]: The files to commit.
+        """
         if self.agent.store is None:
             return []
         return [

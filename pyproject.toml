@@ -30,17 +30,17 @@ dependencies = [
   "httpx==0.27.2",
   "ipython==8.29",
   "jinja2==3.1.4",
-  "langchain==0.3.7",
+  "langchain==0.3.8",
   "langchain-anthropic==0.3",
-  "langchain-community==0.3.7",
-  "langchain-openai==0.2.8",
+  "langchain-community==0.3.8",
+  "langchain-openai==0.2.9",
   "langchain-text-splitters==0.3.2",
-  "langgraph==0.2.48",
-  "langgraph-checkpoint-postgres==2.0.2",
-  "langsmith==0.1.143",
+  "langgraph==0.2.53",
+  "langgraph-checkpoint-postgres==2.0.4",
+  "langsmith==0.1.146",
   "pgvector==0.3.6",
   "psycopg[pool]==3.2.3",
-  "pydantic==2.9.2",
+  "pydantic==2.10.2",
   "python-decouple==3.8",
   "python-gitlab[graphql]==5",
   "pyyaml==6.0.2",
@@ -49,7 +49,7 @@ dependencies = [
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
   "unidiff==0.7.5",
-  "uvicorn==0.32",
+  "uvicorn==0.32.1",
 ]
 
 urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
@@ -156,7 +156,7 @@ ignore_missing_imports = true
 
 [tool.uv]
 dev-dependencies = [
-  "coverage==7.6.4",
+  "coverage==7.6.8",
   "mypy==1.13.0",
   "pre-commit==4.0.1",
   "pyproject-fmt==2.5.0",
@@ -167,7 +167,7 @@ dev-dependencies = [
   "pytest-env==1.1.5",
   "pytest-mock==3.14.0",
   "pytest-xdist==3.6.1",
-  "ruff==0.7.2",
+  "ruff==0.8.0",
   "types-pyyaml==6.0.12.20240917",
-  "watchfiles==0.24.0",
+  "watchfiles==1.0.0",
 ]

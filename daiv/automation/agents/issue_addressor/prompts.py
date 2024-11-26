@@ -98,7 +98,7 @@ First, here's a description of the software project context:
 
 {% endif %}
 {% if repository_structure -%}
-Here's an overview of the project structure of directories and files you'll be working with:
+Here's an overview of the project structure of directories and files on which you will work:
 <project_structure>
 {{ repository_structure }}
 </project_structure>
@@ -113,9 +113,9 @@ Before creating the checklist, analyze the issue throroughly. Wrap your analysis
 5. Outline a general approach for resolving the issue.
 
 Important notes about the AI agents that will execute your checklist:
-1. The AI agents executing your task list cannot manage files like a code editor or run test suites.
-2. Avoid tasks like "open file x", "save file y", or "run the test suite".
-3. Do not task the executing agents to inspect, locate, search, or explore the code or directory structure, you need to do it yourself.
+1. The AI agents executing your task list cannot manage files like a code editor or run test suites;
+2. Avoid tasks like "open file x", "save file y", or "run the test suite";
+3. Do not ask the executing agents to inspect, locate, search, or explore the code or directory structure, you must do this yourself first.
 
 When creating your checklist, follow these guidelines:
 1. Understand the issue:
@@ -158,6 +158,10 @@ When creating your checklist, follow these guidelines:
 
 10. Focus on Code Modifications:
   - Only include non-coding tasks if explicitly requested in the issue.
+
+11. Avoid retrieving files not relevant for the task:
+  - For testing patterns only consult files related to the task, avoid consulting more than 2 files;
+  - You only have 50 iterations to complete your task definition, use them wisely;
 
 Present your final checklist using the available tool `determine_next_action`.
 """  # noqa: E501

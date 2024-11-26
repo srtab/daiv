@@ -20,7 +20,7 @@ from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
-from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
@@ -164,6 +164,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
             {"markdown_text": state["issue_description"]},
@@ -190,7 +191,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=PLANING_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
@@ -238,6 +239,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
@@ -254,7 +256,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=CODING_PERFORMANT_MODEL_NAME,
             store=store,
         )

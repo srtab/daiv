@@ -26,7 +26,6 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.utils import notes_to_messages
 from core.config import RepositoryConfig
-from core.tasks import run_sandbox_commands
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
@@ -315,15 +314,3 @@ class ReviewAddressorManager:
             self.repo_id, self.merge_request_source_branch, changes_description.commit_message, file_changes
         )
         self.client.resolve_merge_request_discussion(self.repo_id, merge_request_id, discussion_id)
-
-        if (
-            self.repo_config.commands.base_image
-            and self.repo_config.commands.install_dependencies
-            and self.repo_config.commands.format_code
-        ):
-            run_sandbox_commands.si(
-                repo_id=self.repo_id,
-                ref=self.merge_request_source_branch,
-                base_image=self.repo_config.commands.base_image,
-                commands=[*self.repo_config.commands.install_dependencies, *self.repo_config.commands.format_code],
-            ).apply_async()

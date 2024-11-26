@@ -19,7 +19,7 @@ from automation.agents.base import PLANING_COST_EFFICIENT_MODEL_NAME
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
-from automation.tools.toolkits import ReadRepositoryToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
@@ -143,6 +143,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(
@@ -153,7 +154,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=PLANING_COST_EFFICIENT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
@@ -182,6 +183,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
@@ -200,7 +202,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=CODING_PERFORMANT_MODEL_NAME,
             store=store,
         )
@@ -218,6 +220,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
         toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        sandbox_toolkit = SandboxToolkit.create_instance()
 
         system_message_template = SystemMessagePromptTemplate.from_template(
             respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
@@ -230,7 +233,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="respond_reviewer_react_agent",
-            tools=toolkit.get_tools(),
+            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
             model_name=CODING_PERFORMANT_MODEL_NAME,
             with_structured_output=RespondReviewerResponse,
             store=store,
