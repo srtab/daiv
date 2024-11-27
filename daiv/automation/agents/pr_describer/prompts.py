@@ -40,7 +40,7 @@ Remember:
 )
 
 human = HumanMessagePromptTemplate.from_template(
-    """Please proceed with your analysis and create the pull request metadata.
+    """Proceed with your analysis and create the pull request metadata.
 <changes>
 {% for change in changes -%}
 <change>
@@ -52,15 +52,15 @@ human = HumanMessagePromptTemplate.from_template(
 {%- endfor %}
 </commits>
 {%- endif %}
-<change>
-{%- endfor %}
+</change>
+{% endfor -%}
 </changes>
 {% if extra_details %}
 Here are some additional details related with the changes:
 <additional_details>
 {% for key, value in extra_details.items() -%}
  - **{{ key }}**: {{ value }}
-{%- endfor %}
+{% endfor %}
 </additional_details>
 {%- endif %}
 """,

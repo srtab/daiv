@@ -24,8 +24,8 @@ from codebase.base import (
     NoteType,
 )
 from codebase.clients import RepoClient
+from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
-from core.config import RepositoryConfig
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
@@ -139,32 +139,31 @@ class NoteProcessor:
         return None
 
 
-class ReviewAddressorManager:
+class ReviewAddressorManager(BaseManager):
     """
     Manages the code review process.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, merge_request_id: int, merge_request_source_branch: str):
-        self.client = client
-        self.repo_id = repo_id
-        self.merge_request_id = merge_request_id
-        self.merge_request_source_branch = merge_request_source_branch
-        self.thread_id = f"{repo_id}!{merge_request_source_branch}#{merge_request_id}"
-        self.repo_config = RepositoryConfig.get_config(repo_id=repo_id)
+    def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None, **kwargs):
+        super().__init__(client, repo_id, ref)
+        self.merge_request_id = kwargs["merge_request_id"]
+        self.thread_id = kwargs["thread_id"]
         self.note_processor = NoteProcessor()
 
     @classmethod
-    def process_review(cls, repo_id: str, merge_request_id: int, merge_request_source_branch: str):
+    def process_review(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
         """
         Process code review for merge request.
         """
         client = RepoClient.create_instance()
-        manager = cls(client, repo_id, merge_request_id, merge_request_source_branch)
-        manager._process_review(merge_request_id)
+        manager = cls(
+            client, repo_id, ref, merge_request_id=merge_request_id, thread_id=f"{repo_id}!{ref}#{merge_request_id}"
+        )
+        manager._process_review()
 
-    def _process_review(self, merge_request_id: int):
-        merge_request_patches = self._extract_merge_request_diffs(merge_request_id)
-        for context in self._process_discussions(merge_request_id, merge_request_patches):
+    def _process_review(self):
+        merge_request_patches = self._extract_merge_request_diffs(self.merge_request_id)
+        for context in self._process_discussions(self.merge_request_id, merge_request_patches):
             config = RunnableConfig(configurable={"thread_id": f"{self.thread_id}#{context.discussion.id}"})
 
             with (
@@ -174,8 +173,8 @@ class ReviewAddressorManager:
                 reviewer_addressor = ReviewAddressorAgent(
                     self.client,
                     source_repo_id=self.repo_id,
-                    source_ref=self.merge_request_source_branch,
-                    merge_request_id=merge_request_id,
+                    source_ref=self.ref,
+                    merge_request_id=self.merge_request_id,
                     discussion_id=context.discussion.id,
                     usage_handler=usage_handler,
                     checkpointer=checkpointer,
@@ -211,19 +210,19 @@ class ReviewAddressorManager:
 
                 if result and "response" in result and result["response"]:
                     self.client.create_merge_request_discussion_note(
-                        self.repo_id, merge_request_id, result["response"], context.discussion.id
+                        self.repo_id, self.merge_request_id, result["response"], context.discussion.id
                     )
 
                 if not state_after_run.tasks:
                     if file_changes := reviewer_addressor.get_files_to_commit():
                         self._commit_changes(
-                            merge_request_id=merge_request_id,
+                            merge_request_id=self.merge_request_id,
                             discussion_id=context.discussion.id,
                             file_changes=file_changes,
                         )
                     else:
                         self.client.resolve_merge_request_discussion(
-                            self.repo_id, merge_request_id, context.discussion.id
+                            self.repo_id, self.merge_request_id, context.discussion.id
                         )
 
     def _extract_merge_request_diffs(self, merge_request_id: int):
@@ -310,7 +309,5 @@ class ReviewAddressorManager:
         self.client.create_merge_request_discussion_note(
             self.repo_id, merge_request_id, changes_description.description, discussion_id
         )
-        self.client.commit_changes(
-            self.repo_id, self.merge_request_source_branch, changes_description.commit_message, file_changes
-        )
+        self.client.commit_changes(self.repo_id, self.ref, changes_description.commit_message, file_changes)
         self.client.resolve_merge_request_discussion(self.repo_id, merge_request_id, discussion_id)

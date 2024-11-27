@@ -52,7 +52,7 @@ def address_review_task(
     repo_id: str, merge_request_id: int, merge_request_source_branch: str, lock_cache_key: str | None = None
 ):
     try:
-        ReviewAddressorManager.process_review(repo_id, merge_request_id, merge_request_source_branch)
+        ReviewAddressorManager.process_review(repo_id, merge_request_id, ref=merge_request_source_branch)
     except Exception as e:
         logger.exception(
             "Error addressing review of merge request '%s[%s]:%d': %s",

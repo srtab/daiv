@@ -12,11 +12,9 @@ class Command(BaseCommand):
     help = "Set webhooks for all repositories."
 
     def add_arguments(self, parser):
+        parser.add_argument("--base-url", type=str, help="Base URL of DAIV webapp, i.e. http://app:8000", required=True)
         parser.add_argument(
-            "--base-url", type=str, help="Base URL of GitLab instance, i.e. http://gitlab:8929", required=True
-        )
-        parser.add_argument(
-            "--disable-ssl-verification", action="store_true", help="Disable SSL verification for GitLab webhook"
+            "--disable-ssl-verification", action="store_true", help="Disable SSL verification for webhook"
         )
 
     def handle(self, *args, **options):

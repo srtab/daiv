@@ -483,7 +483,7 @@ requires-dist = [
     { name = "langchain", specifier = "==0.3.8" },
     { name = "langchain-anthropic", specifier = "==0.3" },
     { name = "langchain-community", specifier = "==0.3.8" },
-    { name = "langchain-openai", specifier = "==0.2.9" },
+    { name = "langchain-openai", specifier = "==0.2.10" },
     { name = "langchain-text-splitters", specifier = "==0.3.2" },
     { name = "langgraph", specifier = "==0.2.53" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.4" },
@@ -1030,16 +1030,16 @@ wheels = [
 
 [[package]]
 name = "langchain-openai"
-version = "0.2.9"
+version = "0.2.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "openai" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d4/83/b2f2f5727d0fd1af4ca308f105dcfcebbbe48dff06210cd47bfa4c506149/langchain_openai-0.2.9.tar.gz", hash = "sha256:38a0f2004f17cdad622d46d4dcfb92d75adbf51909dadc76d0360dd94b0d4f70", size = 43199 }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/46/3ca4e0e6205fcd8ced434918234f3d4560baa346f662b42878627f0c9426/langchain_openai-0.2.10.tar.gz", hash = "sha256:878200a84d80353fc47720631bf591157e56b6a3923e5f7b13c7f61c82999b50", size = 43442 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/f3/b8767fd4f33fb811139292943083f9bef0f8cc4a43edeff2c19b501df75f/langchain_openai-0.2.9-py3-none-any.whl", hash = "sha256:2723015e56879f9e5edfcb175fdbec6c296c1b3bf65caad28579ce9c4d1bd652", size = 50385 },
+    { url = "https://files.pythonhosted.org/packages/c3/36/a5426bf8195af460aefefe9c15bbf091a549cfd9cb243efd167d6a7b3a42/langchain_openai-0.2.10-py3-none-any.whl", hash = "sha256:b06a14d99ab81343f23ced83de21fc1cfcd79c9fb96fdbd9070ad018038c5602", size = 50650 },
 ]
 
 [[package]]
