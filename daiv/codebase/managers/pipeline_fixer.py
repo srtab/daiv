@@ -12,21 +12,18 @@ from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from codebase.base import ClientType, FileChange, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
+from codebase.managers.base import BaseManager
 from core.conf import settings
-from core.config import RepositoryConfig
 
 
-class PipelineFixerManager:
+class PipelineFixerManager(BaseManager):
     """
     Manages the pipeline fix process.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, ref: str, thread_id: str):
-        self.client = client
-        self.repo_id = repo_id
-        self.ref = ref
-        self.thread_id = thread_id
-        self.repo_config = RepositoryConfig.get_config(repo_id)
+    def __init__(self, client: AllRepoClient, repo_id: str, ref: str, **kwargs):
+        super().__init__(client, repo_id, ref)
+        self.thread_id = kwargs["thread_id"]
 
     @classmethod
     def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
@@ -40,7 +37,7 @@ class PipelineFixerManager:
             job_id: The job ID to process
         """
         client = RepoClient.create_instance()
-        manager = cls(client, repo_id, ref, f"{repo_id}#{merge_request_id}:{job_name}")
+        manager = cls(client, repo_id, ref, thread_id=f"{repo_id}#{merge_request_id}:{job_name}")
         manager._process_job(merge_request_id, job_id)
 
     def _process_job(self, merge_request_id: int, job_id: int):

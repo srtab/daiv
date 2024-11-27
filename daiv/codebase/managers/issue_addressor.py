@@ -21,24 +21,19 @@ from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.schemas import Task
 from codebase.base import FileChange, Issue, IssueType, Note
 from codebase.clients import AllRepoClient, RepoClient
+from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
-from core.config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 
 
-class IssueAddressorManager:
+class IssueAddressorManager(BaseManager):
     """
     Manages the issue processing and addressing workflow.
     """
 
     def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None):
-        self.client = client
-        self.repo_id = repo_id
-
+        super().__init__(client, repo_id, ref)
         self.repository = self.client.get_repository(repo_id)
-        self.repo_config = RepositoryConfig.get_config(repo_id=repo_id, repository=self.repository)
-
-        self.ref = cast(str, ref or self.repo_config.default_branch)
 
     @classmethod
     def process_issue(cls, repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
@@ -172,6 +167,8 @@ class IssueAddressorManager:
 
         if merge_requests:
             changes_description.branch = merge_requests[0].source_branch
+        else:
+            changes_description.branch = self._get_unique_branch_name(changes_description.branch)
 
         self.client.commit_changes(
             self.repo_id,

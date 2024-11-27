@@ -12,7 +12,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabHeadError, GitlabOperationError, GraphQL
+from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError, GraphQL
 from gitlab.v4.objects import ProjectHook
 
 from core.constants import BOT_NAME
@@ -296,6 +296,24 @@ class GitLabClient(RepoClient):
                 return False
             raise e
         return True
+
+    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
+        """
+        Check if a branch exists in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name.
+
+        Returns:
+            True if the branch exists, otherwise False.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            project.branches.get(branch)
+            return True
+        except GitlabGetError:
+            return False
 
     def get_repository_tree(
         self,
