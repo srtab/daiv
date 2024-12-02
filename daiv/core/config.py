@@ -48,7 +48,7 @@ class Commands(BaseModel):
     )
     install_dependencies: str | None = Field(
         default=None,
-        examples=["pip install -r requirements.txt", "npm install", "pip install uv && uv sync --dev"],
+        examples=["pip install -r requirements.txt", "npm install", "pip install uv && uv sync --only-group dev"],
         description=(
             "Command to be executed to install dependencies. It is only executed if the format command is set to."
         ),
@@ -60,6 +60,12 @@ class Commands(BaseModel):
             "Command to be executed to format the code. It is only executed if the install command is set to."
         ),
     )
+
+    def enabled(self) -> bool:
+        """
+        Check if the commands are enabled.
+        """
+        return self.base_image is not None and self.install_dependencies is not None and self.format_code is not None
 
 
 class RepositoryConfig(BaseModel):

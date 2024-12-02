@@ -219,8 +219,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
-        sandbox_toolkit = SandboxToolkit.create_instance()
+        tools = ReadRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref
+        ).get_tools()
+        if self.repo_config.commands.enabled():
+            tools += SandboxToolkit.create_instance().get_tools()
 
         system_message_template = SystemMessagePromptTemplate.from_template(
             respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
@@ -233,7 +236,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="respond_reviewer_react_agent",
-            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
+            tools=tools,
             model_name=CODING_PERFORMANT_MODEL_NAME,
             with_structured_output=RespondReviewerResponse,
             store=store,

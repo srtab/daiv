@@ -20,7 +20,7 @@ if DB_ENGINE == "django.db.backends.postgresql":
             default="require",
             cast=Choices(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]),
         ),
-        "pool": True,
+        "pool": {"max_lifetime": config("DB_POOL_MAX_LIFETIME", default=30, cast=int)},
     }
 
 DATABASES = {
@@ -31,7 +31,6 @@ DATABASES = {
         "PASSWORD": get_docker_secret("DB_PASSWORD", safe=False),
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default=5432, cast=int),
-        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=0, cast=int),
         "OPTIONS": DATABASES_OPTIONS,
     }
 }

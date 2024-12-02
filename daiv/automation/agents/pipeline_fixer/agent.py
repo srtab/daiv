@@ -8,15 +8,11 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
-from automation.agents.base import (
-    CODING_COST_EFFICIENT_MODEL_NAME,
-    CODING_PERFORMANT_MODEL_NAME,
-    GENERIC_COST_EFFICIENT_MODEL_NAME,
-)
+from automation.agents.base import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
 from automation.tools.sandbox import RunSandboxCommandsTool
-from automation.tools.toolkits import SandboxToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
@@ -117,6 +113,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             "category": response.category,
             "pipeline_phase": response.pipeline_phase,
             "root_cause": response.root_cause,
+            "iteration": state.get("iteration", 0) + 1,
         }
 
     def determine_next_action(self, state: OverallState) -> Literal["apply_unittest_fix", "apply_lint_fix", "respond"]:
@@ -130,7 +127,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             Literal["apply_unittest_fix", "apply_lint_fix", "respond"]: The next step in the workflow.
         """
         if state["category"] == "codebase":
-            if state["pipeline_phase"] == "lint":
+            if state["pipeline_phase"] == "lint" and self.repo_config.commands.enabled():
                 return "apply_lint_fix"
             elif state["pipeline_phase"] == "unittest":
                 return "apply_unittest_fix"
@@ -147,8 +144,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             OverallState: The state of the agent with the autofix applied.
         """
-        toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
-        sandbox_toolkit = SandboxToolkit.create_instance()
+        tools = WriteRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref
+        ).get_tools()
+        if self.repo_config.commands.enabled():
+            tools += SandboxToolkit.create_instance().get_tools()
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
@@ -164,10 +164,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent",
-            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            store=store,
+            run_name="unittest_fix_react_agent", tools=tools, model_name=CODING_PERFORMANT_MODEL_NAME, store=store
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
@@ -188,7 +185,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             "store": store,
         })
 
-    def respond(self, state: OverallState):
+    def respond(self, state: OverallState, store: BaseStore):
         """
         Respond to user with the root cause and a plan to fix the issue.
 
@@ -198,18 +195,26 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             OverallState: The state of the agent with the actions added.
         """
+        read_toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+
         prompt = ChatPromptTemplate.from_messages([external_factor_plan_system, external_factor_plan_human])
-
-        llm = prompt | self.model.with_structured_output(ExternalFactorPlanOutput)
-
-        response = cast(
-            ExternalFactorPlanOutput,
-            llm.invoke(
-                {"root_cause": state["root_cause"]},
-                config={"configurable": {"model": CODING_COST_EFFICIENT_MODEL_NAME}},
-            ),
+        messages = prompt.format_messages(
+            root_cause=state["root_cause"],
+            repository_description=self.repo_config.repository_description,
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )
-        return {"actions": response.actions}
+
+        react_agent = REACTAgent(
+            run_name="pipeline_fixer_react_agent",
+            tools=read_toolkit.get_tools(),
+            model_name=GENERIC_COST_EFFICIENT_MODEL_NAME,
+            with_structured_output=ExternalFactorPlanOutput,
+            store=store,
+        )
+
+        result = react_agent.agent.invoke({"messages": messages})
+
+        return {"actions": cast(ExternalFactorPlanOutput, result["response"]).actions}
 
     def get_files_to_commit(self) -> list[FileChange]:
         """
