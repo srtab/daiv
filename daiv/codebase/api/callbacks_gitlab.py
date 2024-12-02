@@ -3,8 +3,6 @@ import re
 from functools import cached_property
 from typing import Any, Literal
 
-from django.core.cache import cache
-
 from asgiref.sync import sync_to_async
 
 from codebase.api.callbacks import BaseCallback
@@ -13,6 +11,7 @@ from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
 from core.config import RepositoryConfig
+from core.utils import generate_uuid
 
 PIPELINE_JOB_REF_SUFFIX = "refs/merge-requests/"
 
@@ -46,20 +45,13 @@ class IssueCallback(BaseCallback):
         )
 
     async def process_callback(self):
-        cache_key = f"{self.project.path_with_namespace}:{self.object_attributes.iid}"
-        with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
-            if await cache.aget(cache_key) is None:
-                await cache.aset(cache_key, "launched", timeout=60 * 10)
-                address_issue_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    issue_iid=self.object_attributes.iid,
-                    should_reset_plan=self.should_reset_plan(),
-                    lock_cache_key=cache_key,
-                ).apply_async()
-            else:
-                logger.warning(
-                    "Issue %s is already being processed. Skipping the webhook processing.", self.object_attributes.iid
-                )
+        await sync_to_async(
+            address_issue_task.si(
+                repo_id=self.project.path_with_namespace,
+                issue_iid=self.object_attributes.iid,
+                should_reset_plan=self.should_reset_plan(),
+            ).delay
+        )()
 
     def should_reset_plan(self) -> bool:
         """
@@ -119,40 +111,23 @@ class NoteCallback(BaseCallback):
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback or issue comment.
+        Trigger the task to address the review feedback or issue comment like the plan approval use case.
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
-        We need to prevent multiple webhook processing for the same merge request.
         """
-        if self._repo_config.features.auto_address_issues_enabled and self.issue:
-            cache_key = f"{self.project.path_with_namespace}:{self.issue.iid}"
-            with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
-                if await cache.aget(cache_key) is None:
-                    await cache.aset(cache_key, "launched", timeout=60 * 10)
-                    address_issue_task.si(
-                        repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid, lock_cache_key=cache_key
-                    ).apply_async()
-                else:
-                    logger.warning(
-                        "Issue %s is already being processed. Skipping the webhook processing.", self.issue.iid
-                    )
-
         if self._repo_config.features.auto_address_review_enabled and self.merge_request:
-            cache_key = f"{self.project.path_with_namespace}:{self.merge_request.iid}"
-            with await cache.alock(f"{cache_key}::lock", timeout=300, blocking_timeout=30):
-                if await cache.aget(cache_key) is None:
-                    await cache.aset(cache_key, "launched", timeout=60 * 10)
-                    address_review_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        merge_request_id=self.merge_request.iid,
-                        merge_request_source_branch=self.merge_request.source_branch,
-                        lock_cache_key=cache_key,
-                    ).apply_async()
-                else:
-                    logger.warning(
-                        "Merge request %s is already being processed. Skipping the webhook processing.",
-                        self.merge_request.iid,
-                    )
+            await sync_to_async(
+                address_review_task.si(
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_id=self.merge_request.iid,
+                    merge_request_source_branch=self.merge_request.source_branch,
+                ).delay
+            )()
+
+        if self._repo_config.features.auto_address_issues_enabled and self.issue:
+            await sync_to_async(
+                address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
+            )()
 
 
 class PushCallback(BaseCallback):
@@ -180,12 +155,16 @@ class PushCallback(BaseCallback):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
             await sync_to_async(
-                update_index_repository.si(self.project.path_with_namespace, self.project.default_branch).delay
+                update_index_repository.si(
+                    repo_id=self.project.path_with_namespace, ref=self.project.default_branch
+                ).delay
             )()
 
         for merge_request in self.related_merge_requests:
             await sync_to_async(
-                update_index_repository.si(self.project.path_with_namespace, merge_request.source_branch).delay
+                update_index_repository.si(
+                    repo_id=self.project.path_with_namespace, ref=merge_request.source_branch
+                ).delay
             )()
 
     @cached_property
@@ -204,6 +183,7 @@ class PipelineJobCallback(BaseCallback):
 
     object_kind: Literal["build"]
     project: Project
+    sha: str
     ref: str
     build_id: int
     build_name: str
@@ -226,7 +206,10 @@ class PipelineJobCallback(BaseCallback):
             and self.build_status == "failed"
             # Only fix pipeline jobs that failed due to a script failure.
             and self.build_failure_reason == "script_failure"
-            and bool(self.merge_request)
+            # Only fix pipeline jobs of the latest commit of the merge request.
+            and self.merge_request is not None
+            and self.merge_request.is_daiv()
+            and self.merge_request.sha == self.sha
         )
 
     async def process_callback(self):
@@ -234,18 +217,23 @@ class PipelineJobCallback(BaseCallback):
         Trigger the task to fix the pipeline job.
         """
         if self.merge_request:
-            fix_pipeline_job_task.si(
-                repo_id=self.project.path_with_namespace,
-                ref=self.merge_request.source_branch,
-                merge_request_id=self.merge_request.merge_request_id,
-                job_id=self.build_id,
-                job_name=self.build_name,
-            ).apply_async()
+            await sync_to_async(
+                fix_pipeline_job_task.si(
+                    repo_id=self.project.path_with_namespace,
+                    ref=self.merge_request.source_branch,
+                    merge_request_id=self.merge_request.merge_request_id,
+                    job_id=self.build_id,
+                    job_name=self.build_name,
+                    thread_id=generate_uuid(
+                        f"{self.project.path_with_namespace}{self.merge_request.merge_request_id}{self.build_name}"
+                    ),
+                ).delay
+            )()
 
     @cached_property
     def merge_request(self) -> BaseMergeRequest | None:
         """
-        Get the merge requests related to the job.
+        Get the merge request related to the job.
         """
         # The ref points to the source branch of a merge request.
         match = re.search(rf"{PIPELINE_JOB_REF_SUFFIX}(\d+)(?:/\w+)?$", self.ref)

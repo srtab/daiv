@@ -1,4 +1,4 @@
-PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE = """⚠️ **Pipeline Job Failed**
+PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE = """⚠️ **Pipeline Job `{{ job_name }}` Failed**
 
 Unfortunately, the pipeline job for this Merge Request has failed and requires manual intervention:
 
@@ -6,14 +6,12 @@ Unfortunately, the pipeline job for this Merge Request has failed and requires m
 {{ root_cause }}
 
 ### 🛠️ **Suggested Actions**
-
 {% for action in actions %}
-{{ action.description }}:
+**{{ action.description }}**
 {% for step in action.steps %}
-    1. {{ step }}
-{% endfor %}
-{% endfor %}
+  - [ ] {{ step }}{% endfor %}
 
+{% endfor %}
 ---
 
 Thank you for your attention to this matter! 😊

@@ -163,8 +163,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
-        sandbox_toolkit = SandboxToolkit.create_instance()
+        tools = ReadRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref
+        ).get_tools()
+        if self.repo_config.commands.enabled():
+            tools += SandboxToolkit.create_instance().get_tools()
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
             {"markdown_text": state["issue_description"]},
@@ -191,7 +194,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
-            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
+            tools=tools,
             model_name=PLANING_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
@@ -238,8 +241,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        toolkit = WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
-        sandbox_toolkit = SandboxToolkit.create_instance()
+        tools = WriteRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref
+        ).get_tools()
+        if self.repo_config.commands.enabled():
+            tools += SandboxToolkit.create_instance().get_tools()
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
@@ -255,10 +261,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent",
-            tools=toolkit.get_tools() + sandbox_toolkit.get_tools(),
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            store=store,
+            run_name="execute_plan_react_agent", tools=tools, model_name=CODING_PERFORMANT_MODEL_NAME, store=store
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 

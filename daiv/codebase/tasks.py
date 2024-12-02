@@ -1,6 +1,5 @@
 import logging
 
-from django.core.cache import cache
 from django.core.management import call_command
 
 from celery import shared_task
@@ -14,6 +13,7 @@ logger = logging.getLogger("daiv.tasks")
 
 
 @shared_task
+@locked_task(key="{repo_id}:{ref}")
 def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = False):
     """
     Update codebase index of a repository.
@@ -27,53 +27,60 @@ def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = 
 
 
 @shared_task
-def address_issue_task(
-    repo_id: str,
-    issue_iid: int,
-    ref: str | None = None,
-    should_reset_plan: bool = False,
-    lock_cache_key: str | None = None,
-):
+@locked_task(key="{repo_id}:{issue_iid}")
+def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
+
+    Args:
+        repo_id (str): The repository id.
+        issue_iid (int): The issue id.
+        ref (str): The reference.
+        should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
     try:
         IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
-    except Exception as e:
-        logger.exception("Error addressing issue '%s[%s]:%d': %s", repo_id, ref, issue_iid, e)
-    finally:
-        if lock_cache_key:
-            # Delete the lock after the task is completed
-            cache.delete(lock_cache_key)
+    except Exception:
+        logger.exception("Error addressing issue '%s[%s]:%d'.", repo_id, ref, issue_iid)
 
 
 @shared_task
-def address_review_task(
-    repo_id: str, merge_request_id: int, merge_request_source_branch: str, lock_cache_key: str | None = None
-):
+@locked_task(key="{repo_id}:{merge_request_id}")
+def address_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
+    """
+    Address a review feedback by applying the changes described or answering questions about the codebase.
+
+    Args:
+        repo_id (str): The repository id.
+        merge_request_id (int): The merge request id.
+        merge_request_source_branch (str): The merge request source branch.
+    """
     try:
         ReviewAddressorManager.process_review(repo_id, merge_request_id, ref=merge_request_source_branch)
-    except Exception as e:
+    except Exception:
         logger.exception(
-            "Error addressing review of merge request '%s[%s]:%d': %s",
+            "Error addressing review of merge request '%s[%s]:%d'.",
             repo_id,
             merge_request_source_branch,
             merge_request_id,
-            e,
         )
-    finally:
-        if lock_cache_key:
-            # Delete the lock after the task is completed
-            cache.delete(lock_cache_key)
 
 
 @shared_task
-@locked_task(key="{repo_id}:{ref}:{job_id}")
-def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
+@locked_task(key="{repo_id}:{merge_request_id}:{job_name}")
+def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, thread_id: str):
     """
     Try to fix a failed pipeline of a merge request.
+
+    Args:
+        repo_id (str): The repository id.
+        ref (str): The reference.
+        merge_request_id (int): The merge request id.
+        job_id (int): The job id.
+        job_name (str): The job name.
+        thread_id (str): The thread id.
     """
     try:
-        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id, job_name)
-    except Exception as e:
-        logger.exception("Error fixing pipeline job '%s[%s]:%d': %s", repo_id, ref, job_id, e)
+        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id, job_name, thread_id)
+    except Exception:
+        logger.exception("Error fixing pipeline job '%s[%d]:%d'.", repo_id, merge_request_id, job_id)

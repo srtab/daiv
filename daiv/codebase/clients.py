@@ -148,6 +148,10 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        pass
+
+    @abc.abstractmethod
     def get_merge_request_discussions(
         self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
     ) -> list[Discussion]:  # noqa: A002
@@ -368,6 +372,7 @@ class GitLabClient(RepoClient):
             "issues_events": "issues_events" in events,
             "pipeline_events": "pipeline_events" in events,
             "note_events": "note_events" in events,
+            "job_events": "job_events" in events,
             "enable_ssl_verification": enable_ssl_verification,
         }
         if push_events_branch_filter:
@@ -435,6 +440,7 @@ class GitLabClient(RepoClient):
             title=mr.title,
             description=mr.description,
             labels=mr.labels,
+            sha=mr.sha,
         )
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:

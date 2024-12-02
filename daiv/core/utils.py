@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import logging
 import mimetypes
 from collections.abc import Iterable
@@ -145,14 +146,22 @@ async def batch_async_url_to_data_url(urls: Iterable[str], headers: dict[str, st
 
 def locked_task(key: str = "", blocking: bool = False):
     """
-    A decorator to ensure that a task is executed with a distributed lock.
+    A decorator that ensures a task is executed with a distributed lock to prevent concurrent execution.
 
-    ```
-        @locked_task()
-        @app.task
-        def my_task(*args, **kwargs):
+    Args:
+        key (str): A format string that will be used to generate the lock key. The format string can reference
+                  positional and keyword arguments passed to the decorated function. Default is empty string.
+        blocking (bool): If True, wait for the lock to be released. If False, raise LockError if lock is held.
+                        Default is False.
+
+    Example:
+        @shared_task
+        @locked_task(key="{repo_id}:{issue_iid}")  # Lock key will be: "task_name:repo123:issue456"
+        def process_issue(repo_id: str, issue_iid: int):
             pass
-    ```
+
+    The lock is implemented using Django's cache backend, making it work in a distributed environment.
+    If blocking=False and the lock is held, the task will be skipped with a warning message.
     """
 
     def decorator(func):
@@ -169,3 +178,11 @@ def locked_task(key: str = "", blocking: bool = False):
         return wrapper
 
     return decorator
+
+
+def generate_uuid(input_string: str) -> str:
+    """
+    Generate a deterministic UUID from a string.
+    """
+    input_bytes = str(input_string).encode("utf-8")
+    return hashlib.md5(input_bytes).hexdigest()  # noqa: S324

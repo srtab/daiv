@@ -26,7 +26,7 @@ class PipelineFixerManager(BaseManager):
         self.thread_id = kwargs["thread_id"]
 
     @classmethod
-    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
+    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, thread_id: str):
         """
         Process pipeline fix for a job.
 
@@ -35,12 +35,13 @@ class PipelineFixerManager(BaseManager):
             ref: The source reference
             merge_request_id: The merge request ID
             job_id: The job ID to process
+            thread_id: The thread ID
         """
         client = RepoClient.create_instance()
-        manager = cls(client, repo_id, ref, thread_id=f"{repo_id}#{merge_request_id}:{job_name}")
-        manager._process_job(merge_request_id, job_id)
+        manager = cls(client, repo_id, ref, thread_id=thread_id)
+        manager._process_job(merge_request_id, job_id, job_name)
 
-    def _process_job(self, merge_request_id: int, job_id: int):
+    def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -65,25 +66,34 @@ class PipelineFixerManager(BaseManager):
             pipeline_fixer_agent = pipeline_fixer.agent
             current_state = pipeline_fixer_agent.get_state(config)
 
-            # avoid reprocessing the job if it's already been processed
+            input_data = {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)}
+            result = None
+
             if current_state.created_at is None or START in current_state.next:
-                result = pipeline_fixer_agent.invoke(
-                    {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)}, config
+                result = pipeline_fixer_agent.invoke(input_data, config)
+            elif current_state.values.get("iteration", 0) < 3:
+                # retry the job up to 3 times.
+                # TODO: improve this behavior, for instance by checking if this job failed from a different error than
+                # the previous ones, avoiding to retry the same job again and the limit of 3 retries.
+                input_data["iteration"] = current_state.values.get("iteration", 0)
+
+                pipeline_fixer_agent.update_state(config, input_data, as_node=START)
+                result = pipeline_fixer_agent.invoke(None, config)
+
+            if file_changes := pipeline_fixer.get_files_to_commit():
+                self._commit_changes(file_changes=file_changes)
+
+            elif result and result["root_cause"] and result["actions"]:
+                self.client.comment_merge_request(
+                    self.repo_id,
+                    merge_request_id,
+                    jinja2_formatter(
+                        PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE,
+                        root_cause=result["root_cause"],
+                        actions=result["actions"],
+                        job_name=job_name,
+                    ),
                 )
-
-                if file_changes := pipeline_fixer.get_files_to_commit():
-                    self._commit_changes(file_changes=file_changes)
-
-                elif result["category"] == "external-factor" and result["root_cause"] and result["actions"]:
-                    self.client.comment_merge_request(
-                        self.repo_id,
-                        merge_request_id,
-                        jinja2_formatter(
-                            PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE,
-                            root_cause=result["root_cause"],
-                            actions=result["actions"],
-                        ),
-                    )
 
     def _clean_logs(self, log: str):
         """

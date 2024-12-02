@@ -61,6 +61,12 @@ class Commands(BaseModel):
         ),
     )
 
+    def enabled(self) -> bool:
+        """
+        Check if the commands are enabled.
+        """
+        return self.base_image is not None and self.install_dependencies is not None and self.format_code is not None
+
 
 class RepositoryConfig(BaseModel):
     """
