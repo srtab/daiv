@@ -48,7 +48,7 @@ class Commands(BaseModel):
     )
     install_dependencies: str | None = Field(
         default=None,
-        examples=["pip install -r requirements.txt", "npm install", "pip install uv && uv sync --dev"],
+        examples=["pip install -r requirements.txt", "npm install", "pip install uv && uv sync --only-group dev"],
         description=(
             "Command to be executed to install dependencies. It is only executed if the format command is set to."
         ),

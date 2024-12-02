@@ -30,19 +30,19 @@ dependencies = [
   "httpx==0.27.2",
   "ipython==8.29",
   "jinja2==3.1.4",
-  "langchain==0.3.8",
+  "langchain==0.3.9",
   "langchain-anthropic==0.3",
   "langchain-community==0.3.8",
   "langchain-openai==0.2.10",
   "langchain-text-splitters==0.3.2",
   "langgraph==0.2.53",
   "langgraph-checkpoint-postgres==2.0.4",
-  "langsmith==0.1.146",
+  "langsmith==0.1.147",
   "pgvector==0.3.6",
   "psycopg[pool]==3.2.3",
   "pydantic==2.10.2",
   "python-decouple==3.8",
-  "python-gitlab[graphql]==5",
+  "python-gitlab[graphql]==5.1",
   "pyyaml==6.0.2",
   "redis==5.2",
   "tantivy==0.22",
@@ -54,6 +54,24 @@ dependencies = [
 
 urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
 urls.Repository = "https://github.com/srtab/daiv"
+
+[dependency-groups]
+dev = [
+  "coverage==7.6.8",
+  "mypy==1.13",
+  "pre-commit==4.0.1",
+  "pyopenssl==24.2.1",
+  "pyproject-fmt==2.5",
+  "pytest-asyncio==0.24",
+  "pytest-cov==6",
+  "pytest-django==4.9",
+  "pytest-env==1.1.5",
+  "pytest-mock==3.14",
+  "pytest-xdist==3.6.1",
+  "ruff==0.8",
+  "types-pyyaml==6.0.12.20240917",
+  "watchfiles==1",
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -153,21 +171,3 @@ module = [
   "pgvector.*",
 ]
 ignore_missing_imports = true
-
-[tool.uv]
-dev-dependencies = [
-  "coverage==7.6.8",
-  "mypy==1.13.0",
-  "pre-commit==4.0.1",
-  "pyproject-fmt==2.5.0",
-  "pyopenssl==24.2.1",
-  "pytest-asyncio==0.24.0",
-  "pytest-cov==6.0.0",
-  "pytest-django==4.9.0",
-  "pytest-env==1.1.5",
-  "pytest-mock==3.14.0",
-  "pytest-xdist==3.6.1",
-  "ruff==0.8.0",
-  "types-pyyaml==6.0.12.20240917",
-  "watchfiles==1.0.0",
-]
