@@ -148,7 +148,9 @@ class RunSandboxCodeTool(BaseTool):
         Returns:
             The results of the commands to feed the agent knowledge.
         """
-        logger.debug("[%s] Running code in sandbox: %s (intent: %s)", self.name, python_code, intent)
+        logger.debug(
+            "[%s] Running code in sandbox: %s (intent: %s) => %s", self.name, dependencies, intent, python_code
+        )
 
         response = httpx.post(
             f"{settings.DAIV_SANDBOX_URL}/run/code/",

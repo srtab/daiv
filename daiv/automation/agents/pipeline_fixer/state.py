@@ -11,3 +11,4 @@ class OverallState(PlanExecuteState):
     pipeline_phase: Literal["lint", "unittest", "other"]
     root_cause: str
     actions: list[ActionPlan]
+    iteration: int

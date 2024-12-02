@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import HumanMessagePromptTemplate
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 pipeline_log_classifier_system = SystemMessage("""You are an expert DevOps engineer tasked with analyzing logs from a failed CI/CD job pipeline. Your goal is to determine the root cause of the failure and categorize whether the issue is directly related to the codebase or caused by external factors.
 
@@ -83,19 +83,57 @@ autofix_apply_human = HumanMessagePromptTemplate.from_template(
     "jinja2",
 )
 
-external_factor_plan_system = SystemMessage(
-    """You are tasked with building a simple and actionable plan to address the results of a root cause analysis. The root cause analysis will be provided to you, and your job is to create a clear, step-by-step plan to resolve the identified issues.
+external_factor_plan_system = SystemMessagePromptTemplate.from_template(
+    """You are an experienced software engineer tasked with creating an actionable plan to address issues identified in a root cause analysis extracted from a failed pipeline job. Your goal is to provide a clear, step-by-step plan that effectively resolves the identified issues.
 
-First, carefully review the root cause analysis that will be provided to you.
+{% if project_description -%}
+First, here's a description of the project context:
+<project_description>
+{{ project_description|e }}
+</project_description>
 
-Now, follow these steps to create your action plan:
+{% endif %}
+{% if repository_structure -%}
+Here's an overview of the codebase structure of directories and files you'll be analyzing:
+<repository_structure>
+{{ repository_structure }}
+</repository_structure>
 
-1. Identify the main issues: Carefully read through the root cause analysis and identify the key problems or issues that need to be addressed. List these issues in order of priority.
+{% endif %}
 
-2. Determine actionable steps: For each identified issue, come up with 2-3 specific, actionable steps that can be taken to address the problem. These steps should be clear, concise, and realistic.
+### Instructions ###
+Carefully review the root cause analysis that will be provided to you.
 
-Ensure that your plan is clear, concise, and directly addresses the issues identified in the root cause analysis. Focus on practical solutions that can be implemented within a reasonable timeframe.""",  # noqa: E501
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
+Before creating your action plan, you have access to tools that can help you inspect the codebase and contextualize the root cause analysis. Use these tools as needed to gain a comprehensive understanding of the issues at hand.
+
+Please follow these steps to create your action plan:
+
+1. Analyze the root cause:
+   Wrap your analysis in <root_cause_breakdown> tags and perform the following:
+   a. List the main issues identified in the root cause analysis.
+   b. For each issue, quote the relevant parts of the root cause analysis.
+   c. Prioritize these issues based on their impact and urgency.
+   d. For each issue, use the available tools to inspect relevant parts of the codebase. Note any important findings.
+   e. Brainstorm 2-3 specific, actionable steps to address each issue, considering the code context you've discovered.
+   f. For each proposed solution, consider potential challenges or limitations.
+   g. Estimate the impact and effort required for each proposed solution.
+   h. Summarize the overall approach and justify the prioritization of issues.
+
+2. Create the action plan:
+   Based on your analysis, create a structured action plan. Provide your findings using the available tool.
+
+Remember to:
+- Use clear, concise language in your plan.
+- Focus on practical solutions that can be implemented within a reasonable timeframe.
+- The plan will be executed by software engineer, so use technical language.
+- Use markdown formatting to enhance clarity.
+- Ensure that each step directly addresses the issue it's under.
+- Base your plan on the actual code context you've inspected, not just general best practices.
+
+Begin your response with your root cause breakdown, followed by the structured action plan.""",  # noqa: E501
+    "jinja2",
 )
 
-external_factor_plan_human = HumanMessagePromptTemplate.from_template("Root cause: {{ root_cause }}", "jinja2")
+external_factor_plan_human = HumanMessagePromptTemplate.from_template(
+    "<root_cause>{{ root_cause }}</root_cause>", "jinja2"
+)

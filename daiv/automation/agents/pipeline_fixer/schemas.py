@@ -32,7 +32,7 @@ class PipelineLogClassifierOutput(BaseModel):
         description="A detailed explanation of the primary cause behind the failure. "
         "If related to the 'codebase', describe any code elements potentially contributing to the problem. "
         "For 'external-factor' issues, clarify which external factors may have impacted functionality. "
-        "Use Markdown formatting if necessary for enhanced clarity.",
+        "Use markdown formatting for `variables`, `files`, `directories`, `dependencies`, etc.",
     )
 
 

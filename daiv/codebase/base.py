@@ -36,11 +36,9 @@ class MergeRequest(BaseModel):
     title: str
     description: str
     labels: list[str] = Field(default_factory=list)
+    sha: str | None = None
 
     def is_daiv(self) -> bool:
-        """
-        Check if the merge request is a DAIV merge request
-        """
         return any(label == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 

@@ -24,6 +24,7 @@ from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
 from core.constants import BOT_LABEL, BOT_NAME
+from core.utils import generate_uuid
 
 
 class IssueAddressorManager(BaseManager):
@@ -60,7 +61,7 @@ class IssueAddressorManager(BaseManager):
                 ),
             )
 
-        config = RunnableConfig(configurable={"thread_id": f"{self.repo_id}#{issue.iid}"})
+        config = RunnableConfig(configurable={"thread_id": generate_uuid(f"{self.repo_id}{issue.iid}")})
 
         with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
             issue_addressor = IssueAddressorAgent(

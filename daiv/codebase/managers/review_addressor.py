@@ -26,6 +26,7 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
+from core.utils import generate_uuid
 
 if TYPE_CHECKING:
     from unidiff.patch import Line
@@ -147,7 +148,6 @@ class ReviewAddressorManager(BaseManager):
     def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None, **kwargs):
         super().__init__(client, repo_id, ref)
         self.merge_request_id = kwargs["merge_request_id"]
-        self.thread_id = kwargs["thread_id"]
         self.note_processor = NoteProcessor()
 
     @classmethod
@@ -156,15 +156,15 @@ class ReviewAddressorManager(BaseManager):
         Process code review for merge request.
         """
         client = RepoClient.create_instance()
-        manager = cls(
-            client, repo_id, ref, merge_request_id=merge_request_id, thread_id=f"{repo_id}!{ref}#{merge_request_id}"
-        )
+        manager = cls(client, repo_id, ref, merge_request_id=merge_request_id)
         manager._process_review()
 
     def _process_review(self):
         merge_request_patches = self._extract_merge_request_diffs(self.merge_request_id)
         for context in self._process_discussions(self.merge_request_id, merge_request_patches):
-            config = RunnableConfig(configurable={"thread_id": f"{self.thread_id}#{context.discussion.id}"})
+            thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
+
+            config = RunnableConfig(configurable={"thread_id": thread_id})
 
             with (
                 PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer,
@@ -219,6 +219,7 @@ class ReviewAddressorManager(BaseManager):
                             merge_request_id=self.merge_request_id,
                             discussion_id=context.discussion.id,
                             file_changes=file_changes,
+                            thread_id=thread_id,
                         )
                     else:
                         self.client.resolve_merge_request_discussion(
@@ -296,14 +297,16 @@ class ReviewAddressorManager(BaseManager):
                 discussions.append(context)
         return discussions
 
-    def _commit_changes(self, *, merge_request_id: int, discussion_id: str, file_changes: list[FileChange]):
+    def _commit_changes(
+        self, *, merge_request_id: int, discussion_id: str, file_changes: list[FileChange], thread_id: str
+    ):
         """
         Commit changes to the merge request.
         """
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke(
             {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
-            config=RunnableConfig(configurable={"thread_id": f"{self.thread_id}#{discussion_id}"}),
+            config=RunnableConfig(configurable={"thread_id": thread_id}),
         )
 
         self.client.create_merge_request_discussion_note(
