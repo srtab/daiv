@@ -36,7 +36,7 @@ dependencies = [
   "langchain-openai==0.2.10",
   "langchain-text-splitters==0.3.2",
   "langgraph==0.2.53",
-  "langgraph-checkpoint-postgres==2.0.4",
+  "langgraph-checkpoint-postgres==2.0.6",
   "langsmith==0.1.147",
   "pgvector==0.3.6",
   "psycopg[pool]==3.2.3",
