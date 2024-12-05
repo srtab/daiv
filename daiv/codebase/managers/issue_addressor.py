@@ -186,6 +186,7 @@ class IssueAddressorManager(BaseManager):
             target_branch=self.ref,
             labels=[BOT_LABEL],
             title=changes_description.title,
+            assignee_id=issue.assignee.id if issue.assignee else None,
             description=jinja2_formatter(
                 ISSUE_MERGE_REQUEST_TEMPLATE,
                 description=changes_description.description,

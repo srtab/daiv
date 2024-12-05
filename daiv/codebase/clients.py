@@ -484,6 +484,7 @@ class GitLabClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
+        assignee_id: int | None = None,
     ) -> int | str | None:
         """
         Create a merge request in a repository or update an existing one if it already exists.
@@ -495,6 +496,7 @@ class GitLabClient(RepoClient):
             title: The title of the merge request.
             description: The description of the merge request.
             labels: The list of labels.
+            assignee_id: The assignee ID.
 
         Returns:
             The merge request ID.
@@ -507,6 +509,7 @@ class GitLabClient(RepoClient):
                 "title": title,
                 "description": description,
                 "labels": labels or [],
+                "assignee_id": assignee_id,
             }).get_id()
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -518,6 +521,7 @@ class GitLabClient(RepoClient):
                 merge_request.title = title
                 merge_request.description = description
                 merge_request.labels = labels or []
+                merge_request.assignee_id = assignee_id
                 merge_request.save()
                 return merge_request.get_id()
             raise e
