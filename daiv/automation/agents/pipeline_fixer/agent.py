@@ -12,7 +12,7 @@ from automation.agents.base import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EF
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
 from automation.tools.sandbox import RunSandboxCommandsTool
-from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
@@ -195,7 +195,10 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             OverallState: The state of the agent with the actions added.
         """
-        read_toolkit = ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref)
+        tools = ReadRepositoryToolkit.create_instance(
+            self.repo_client, self.source_repo_id, self.source_ref
+        ).get_tools()
+        tools += WebSearchToolkit.create_instance().get_tools()
 
         prompt = ChatPromptTemplate.from_messages([external_factor_plan_system, external_factor_plan_human])
         messages = prompt.format_messages(
@@ -206,7 +209,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         react_agent = REACTAgent(
             run_name="pipeline_fixer_react_agent",
-            tools=read_toolkit.get_tools(),
+            tools=tools,
             model_name=GENERIC_COST_EFFICIENT_MODEL_NAME,
             with_structured_output=ExternalFactorPlanOutput,
             store=store,
