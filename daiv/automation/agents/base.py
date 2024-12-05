@@ -130,7 +130,7 @@ class BaseAgent(ABC, Generic[T]):
 
         match _attempt_infer_model_provider(self.model_name):
             case ModelProvider.ANTHROPIC:
-                return 8192 if self.model_name.startswith("claude-3-5-sonnet") else 4096
+                return 8192 if self.model_name.startswith(("claude-3-5-sonnet", "claude-3-5-haiku")) else 4096
 
             case ModelProvider.OPENAI:
                 _, encoding_model = cast(ChatOpenAI, self.model)._get_encoding_model()
