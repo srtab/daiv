@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -eu pipefail
+
+django-admin migrate --noinput
+django-admin setup_webhooks --base-url ${DAIV_EXTERNAL_URL:-https://app:8000}
+django-admin update_index
+
+gunicorn \
+    --chdir="/home/daiv/app" \
+    --bind=${GUNICORN_BIND:-0.0.0.0:${GUNICORN_PORT:-8000}} \
+    --timeout=${GUNICORN_TIMEOUT:-30} \
+    --workers=${GUNICORN_WORKERS:-1} \
+    --worker-class="uvicorn.workers.UvicornWorker" \
+    --threads=${GUNICORN_THREADS:-2} \
+    --worker-tmp-dir="/dev/shm" \
+    "daiv.asgi:application"
