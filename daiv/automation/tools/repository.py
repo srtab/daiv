@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.tools import BaseTool
-from langgraph.store.memory import BaseStore
 from pydantic import BaseModel, Field
 
 from automation.agents.codebase_search import CodebaseSearchAgent
@@ -39,7 +38,6 @@ CREATE_NEW_REPOSITORY_FILE_NAME = "create_new_repository_file"
 RENAME_REPOSITORY_FILE_NAME = "rename_repository_file"
 DELETE_REPOSITORY_FILE_NAME = "delete_repository_file"
 APPEND_TO_REPOSITORY_FILE_NAME = "append_to_repository_file"
-WEB_SEARCH_NAME = "web_search"
 
 
 class SearchCodeSnippetsTool(BaseTool):
