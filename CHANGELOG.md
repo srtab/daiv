@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.2] - 2024-12-06
+
+### Fixed
+
+- Fixed the `DAIV_SANDBOX_API_KEY` configuration to be loaded from a Docker secret.
+
 ## [0.1.0-alpha.1] - 2024-12-06
 
 ### Added
@@ -29,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.1...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/srtab/daiv/compare/v0.1.0-alpha...v0.1.0-alpha.1
 [0.1.0-alpha]: https://github.com/srtab/daiv/releases/tag/v0.1.0-alpha
