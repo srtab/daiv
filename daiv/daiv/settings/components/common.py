@@ -1,14 +1,13 @@
 from decouple import Csv, config
 from get_docker_secret import get_docker_secret
 
-from daiv.settings.components import DATA_DIR, PROJECT_DIR, RELEASE
+from daiv.settings.components import DATA_DIR, PROJECT_DIR
 
 DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
 SECRET_KEY = get_docker_secret("DJANGO_SECRET_KEY", safe=False)
 ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="*", cast=Csv())
 SITE_ID = 1
-RELEASE_VERSION = RELEASE
 
 # Application definition
 
@@ -38,7 +37,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "csp.middleware.CSPMiddleware",
 ]
 
 

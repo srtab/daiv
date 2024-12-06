@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrated Sentry for error monitoring.
 - Added `pool_max_lifetime` to `DB_URI` for PostgreSQL connection.
 
+### Fixed
+
+- Removed `CSPMiddleware`. The `django-csp` package was removed from the project and the middleware was left behind.
+
 ### Removed
 
 - Removed `VERSION` and `BRANCH` from settings and from production `Dockerfile`.
