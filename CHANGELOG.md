@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.1] - 2024-12-06
+
 ### Added
 
 - Integrated Sentry for error monitoring.
@@ -27,5 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/srtab/daiv/compare/v0.1.0-alpha...v0.1.0-alpha.1
 [0.1.0-alpha]: https://github.com/srtab/daiv/releases/tag/v0.1.0-alpha
