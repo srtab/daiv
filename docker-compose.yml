@@ -1,7 +1,7 @@
 x-app-defaults: &x_app_default
   build:
     context: ./
-    dockerfile: ./docker/production/app/Dockerfile
+    dockerfile: ./docker/local/app/Dockerfile
   tty: true
   stdin_open: true
   restart: unless-stopped
@@ -63,14 +63,14 @@ services:
   app:
     <<: *x_app_default
     container_name: daiv-app
-    command: sh /home/daiv/start-app
+    command: sh /home/app/docker/start-app
     ports:
       - "8000:8000"
 
   worker:
     <<: *x_app_default
     container_name: daiv-worker
-    command: sh /home/daiv/start-worker
+    command: sh /home/app/docker/start-worker
     environment:
       - C_FORCE_ROOT=true
     ports: []
