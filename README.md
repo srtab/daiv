@@ -1,50 +1,101 @@
-# DAIV
+# DAIV: Developement AI Assistant
 
-DAIV (Developer's AI Assistant and Virtual Engineer) is an AI-driven tool designed to enhance the productivity and efficiency of development teams using GitLab or GitHub (comming soon). By automating critical aspects of the development process, DAIV empowers teams to focus on innovation and high-level problem-solving while leaving routine tasks to intelligent automation.
+DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with GitLab repositories and uses AI agents, semantic code search, and configurable actions to automate common software development tasks such as:
+
+- **Issue Addressing**: Suggesting and implementing solutions directly from issue descriptions.
+- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests.
+- **Pipeline Failures**: Analyzing CI/CD logs and applying known fixes automatically.
+- **Semantic & Lexical Code Search**: Quickly retrieving code snippets, classes, or functions from a large codebase.
+
+DAIV leverages Django for its core framework, Celery for asynchronous tasks, LangChain and related models for AI-driven logic, PGVector and Tantivy for code search indexing, and GitLab’s API/webhooks for continuous integration with your source code workflow.
 
 ## Key Features
 
-### 1. **Automated Code Review Management**
+- **Automated Issue Resolution**: When an issue is created in your repository, DAIV can parse the description, propose a step-by-step plan, and, after human approval, execute code changes and open a merge request.
 
-DAIV streamlines the code review process by automatically addressing feedback left by other developers. If a review note is ambiguous or unclear, DAIV will intelligently ask follow-up questions to clarify the request. Once the necessary information is obtained, DAIV will implement the requested changes and close the discussion, ensuring a seamless code review experience.
+- **Code Review Addressor**: Assists with code review comments by providing context-aware answers or directly applying requested changes. This reduces the overhead of going back and forth on merge requests.
 
-### 2. **Issue-Driven Code Implementation (WIP)**
+- **Pipeline Fixing**: Identifies failing pipeline jobs, analyzes logs, and attempts auto-remediations (e.g., lint fixes, dependency updates) to get the CI/CD pipeline back to green.
 
-DAIV takes issue management to the next level by acting as a virtual software engineer. When a new issue is created, DAIV automatically analyzes the story or task described and attempts to implement the required code. This feature accelerates development timelines and reduces the workload on human developers by handling routine coding tasks autonomously.
+- **Semantic Code Search**: Combines vector embeddings (via PGVector) and lexical search (via Tantivy) to quickly find relevant code snippets within your repository, improving developer efficiency.
 
-### 3. **Automated Pipeline Fixes (comming soon)**
-
-Pipeline failures can be time-consuming and frustrating. DAIV mitigates this by analyzing pipeline errors, identifying the root cause, and implementing fixes autonomously. Whether it's a failing unit test or a broken integration, DAIV will strive to resolve the issue, minimizing downtime and keeping the CI/CD pipeline running smoothly.
-
-## Target Audience
-
-DAIV is designed for development teams of all sizes and industries that utilize GitLab or GitHub for code versioning. Whether you're part of a small startup or a large enterprise, DAIV can help streamline your development process, reduce bottlenecks, and improve overall team productivity.
+- **Configurable Behavior**: A `.daiv.yml` file in your repo’s default branch lets you tailor DAIV’s features (like toggling auto-issue addressing or pipeline autofix).
 
 ## Technology Stack
 
-DAIV is built using a robust stack of modern technologies:
-
-- **Django**: The backbone of DAIV, providing a scalable and secure framework for building the application's backend.
-- **OpenAI**: Powers the AI-driven functionalities, enabling DAIV to understand and process natural language inputs, generate code, and interact intelligently with users.
-- **LangChain**: Enhances DAIV's ability to chain together complex AI-driven tasks, allowing for more sophisticated and multi-step automation processes.
-- **Tantivy**: A high-performance search engine library that DAIV uses to quickly and accurately search through codebases.
+- **Backend Framework**: [Django](https://www.djangoproject.com/) for building robust APIs and managing database models.
+- **Async Tasks**: [Celery](https://docs.celeryproject.org/) + Redis, orchestrating indexing, processing merges, and applying code changes in the background.
+- **AI & LLM Integration**: [LangChain](https://langchain.ai/), integrating various LLM agents for intent understanding, query transformation, and natural language reasoning about code changes.
+- **Search Engines**:
+  - **Semantic**: PGVector (PostgreSQL extension) for embedding-based semantic retrieval.
+  - **Lexical**: Tantivy-based lexical indexing for keyword-driven code search.
+- **Code Interaction**: Tools and managers for fetching files from GitLab, applying code changes via merge requests, and running code in a secure sandbox.
 
 ## Getting Started
 
-_This section is currently a work in progress (WIP). More information on setup, installation, and configuration will be provided soon._
+### Prerequisites
+
+- **Python 3.12+**
+- **Docker & Docker Compose** (recommended for local development)
+
+### Local Development Setup
+
+1. **Clone the repository**:
+
+   ```bash
+   git clone https://github.com/srtab/daiv.git
+   cd daiv
+   ```
+
+2. **Configure Environment**:
+   Copy `docker/local/app/config.secrets.example.env` to `docker/local/app/config.secrets.env` and update it with your GitLab token, OpenAI API Key, Anthropic API Key and LangSmith API Key.
+
+   ```bash
+   cp docker/local/app/config.secrets.example.env docker/local/app/config.secrets.env
+   ```
+
+3. **Install Dependencies**:
+   Use [uv](https://astral.sh/uv/):
+
+   ```bash
+   uv sync
+   ```
+
+4. **Start the Server**:
+
+   ```bash
+   docker-compose up --build
+   ```
+
+   This will start the web app, workers, Redis, PostgreSQL, and GitLab services locally.
+
+## Running Tests
+
+DAIV includes a suite of tests. To run tests with coverage:
+
+```bash
+make test
+```
+
+This runs `pytest` under the hood.
 
 ## Contributing
 
-We welcome contributions from the community to help enhance and expand DAIV's capabilities. Whether you're a developer, designer, or AI enthusiast, there are many ways to get involved:
+We welcome contributions! Whether you want to fix a bug, add a new feature, or improve documentation:
 
-- **Code Contributions**: Help us improve DAIV's functionality, performance, and user experience by contributing code.
-- **Feature Requests**: Share your ideas for new features or enhancements that you'd like to see in DAIV.
-- **Bug Reports**: Report any bugs, issues, or inconsistencies you encounter while using DAIV.
-- **Documentation**: Contribute to our documentation to help users better understand and utilize DAIV.
-- **Feedback**: Provide feedback on your experience with DAIV and suggest ways we can make it even better.
+1. Fork the repository.
+2. Create a new feature branch: `git checkout -b feat/my-feature`.
+3. Commit changes and push to your fork.
+4. Open a pull request explaining your changes.
 
-For more information on how to contribute, please refer to our [Contribution Guidelines](CONTRIBUTING.md).
+Please ensure all code follows project coding standards (lint with `make lint`) and that you add tests or documentation as needed.
 
 ## License
 
-DAIV is licensed under the [Apache-2.0 license](LICENSE).
+This project is licensed under the [Apache 2.0 License](LICENSE).
+
+## Support & Community
+
+For questions or support, open an issue in the GitHub repository. Contributions, suggestions, and feedback are greatly appreciated!
+
+**Happy Coding!**
