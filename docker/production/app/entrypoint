@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-update-ca-certificates
-
 postgres_ready() {
 python << END
 import sys
