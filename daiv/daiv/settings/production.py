@@ -7,4 +7,5 @@ include(
     "components/redis.py",
     "components/logs.py",
     "components/celery.py",
+    "components/sentry.py",
 )

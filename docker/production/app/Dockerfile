@@ -35,9 +35,6 @@ FROM python:3.12.7-slim-bookworm AS python-builder
 
 LABEL maintainer="srtabs@gmail.com"
 
-ARG VERSION
-ARG BRANCH
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
   # Psycopg dependencies
@@ -59,8 +56,6 @@ RUN apt-get update \
 ENV PATH="/home/daiv/.venv/bin:$PATH"
 ENV PYTHONPATH="$PYTHONPATH:/home/daiv/app/"
 ENV PYTHONUNBUFFERED=1
-ENV VERSION=$VERSION
-ENV BRANCH=$BRANCH
 
 # Copy python compiled requirements
 COPY --chown=daiv:daiv --from=app-compiler /.venv /home/daiv/.venv
