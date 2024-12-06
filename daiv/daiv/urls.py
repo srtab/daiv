@@ -1,10 +1,7 @@
 from django.conf import settings
 from django.urls import path
-from django.utils import timezone
 
 from daiv.api import api
-
-last_modified_date = timezone.now()
 
 urlpatterns = [path(route="api/", view=api.urls)]
 

@@ -9,6 +9,8 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 DAIV leverages Django for its core framework, Celery for asynchronous tasks, LangChain and related models for AI-driven logic, PGVector and Tantivy for code search indexing, and GitLab’s API/webhooks for continuous integration with your source code workflow.
 
+> **Note:** DAIV is currently in an **alpha** stage. It is **not recommended for production use** at this time. Features are under active development and may change without warning.
+
 ## Key Features
 
 - **Automated Issue Resolution**: When an issue is created in your repository, DAIV can parse the description, propose a step-by-step plan, and, after human approval, execute code changes and open a merge request.
@@ -29,14 +31,14 @@ DAIV leverages Django for its core framework, Celery for asynchronous tasks, Lan
 - **Search Engines**:
   - **Semantic**: PGVector (PostgreSQL extension) for embedding-based semantic retrieval.
   - **Lexical**: Tantivy-based lexical indexing for keyword-driven code search.
-- **Code Interaction**: Tools and managers for fetching files from GitLab, applying code changes via merge requests, and running code in a secure sandbox.
+- **Code Interaction**: Tools and managers for fetching files from GitLab, applying code changes via merge requests, and running code in a secure [sandbox](https://github.com/srtab/daiv-sandbox/).
 
 ## Getting Started
 
 ### Prerequisites
 
 - **Python 3.12+**
-- **Docker & Docker Compose** (recommended for local development)
+- **Docker & Docker Compose**
 
 ### Local Development Setup
 
@@ -54,12 +56,14 @@ DAIV leverages Django for its core framework, Celery for asynchronous tasks, Lan
    cp docker/local/app/config.secrets.example.env docker/local/app/config.secrets.env
    ```
 
-3. **Install Dependencies**:
+3. **Install Dependencies** (optional):
    Use [uv](https://astral.sh/uv/):
 
    ```bash
    uv sync
    ```
+
+   This will install the project dependencies into a virtual environment. Useful for running tests and linting outside of Docker.
 
 4. **Start the Server**:
 
