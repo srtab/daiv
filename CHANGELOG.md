@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Integrated Sentry for error monitoring.
 - Added `pool_max_lifetime` to `DB_URI` for PostgreSQL connection.
+- Added a health check endpoint at `/-/alive/`.
 
 ### Fixed
 
