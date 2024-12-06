@@ -143,7 +143,7 @@ FILE_UPLOAD_PERMISSIONS = 0o644
 # Email settings
 
 EMAIL_SUBJECT_PREFIX = "[DAIV]"
-SERVER_EMAIL = DEFAULT_FROM_EMAIL = "DAIV <team@dipcode.com>"
+SERVER_EMAIL = DEFAULT_FROM_EMAIL = "DAIV <dev@daiv.dev>"
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = config("DJANGO_EMAIL_HOST", default="localhost")
@@ -152,42 +152,3 @@ EMAIL_HOST_PASSWORD = get_docker_secret("DJANGO_EMAIL_HOST_PASSWORD")
 EMAIL_PORT = config("DJANGO_EMAIL_PORT", default=25, cast=int)
 EMAIL_USE_TLS = config("DJANGO_EMAIL_USE_TLS", default=False, cast=bool)
 EMAIL_TIMEOUT = 15
-
-
-# CSP - https://django-csp.readthedocs.io/en/latest/configuration.html
-
-CSP_DEFAULT_SRC: tuple[str, ...] = ("'none'",)
-CSP_CONNECT_SRC: tuple[str, ...] = ("'self'",)
-CSP_FONT_SRC: tuple[str, ...] = ("'self'", "https://fonts.gstatic.com")
-CSP_FORM_ACTION: tuple[str, ...] = ("'self'",)
-CSP_FRAME_SRC: tuple[str, ...] = ("'self'",)
-CSP_FRAME_ANCESTORS = "'self'"
-CSP_BASE_URI = "'none'"
-CSP_IMG_SRC_PERMISSIVE: tuple[str, ...] = ("*", "data:", "blob:")
-CSP_IMG_SRC: tuple[str, ...] = (
-    "'self'",
-    "data:",
-    "blob:",
-    # Swagger
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
-)
-CSP_SCRIPT_SRC: tuple[str, ...] = (
-    "'self'",
-    "'unsafe-inline'",
-    "'unsafe-eval'",
-    # Recaptcha
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
-    "https://cdn.jsdelivr.net/npm/bootstrap@5/",
-    "https://unpkg.com/htmx.org@1.9.12",
-)
-CSP_STYLE_SRC: tuple[str, ...] = (
-    "'self'",
-    "'unsafe-inline'",
-    "https://fonts.googleapis.com/",
-    "https://cdn.jsdelivr.net/npm/bootstrap@5/",
-    "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/",
-)
-CSP_OBJECT_SRC: tuple[str, ...] = ("'self'",)
-CSP_MANIFEST_SRC: tuple[str, ...] = ("'self'",)
-CSP_MEDIA_SRC: tuple[str, ...] = ("'self'",)
-CSP_INCLUDE_NONCE_IN: tuple[str, ...] = ("script-src",)
