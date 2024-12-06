@@ -252,7 +252,13 @@ class GitLabClient(RepoClient):
                 topics=project.topics,
             )
             for project in self.client.projects.list(
-                all=load_all, iterator=True, archived=False, simple=True, **optional_kwargs
+                all=load_all,
+                iterator=True,
+                archived=False,
+                simple=True,
+                membership=True,
+                min_access_level=40,  # 40 is the access level for the maintainer role
+                **optional_kwargs,
             )
         ]
 
