@@ -18,12 +18,6 @@ Below is a comprehensive list of environment variables that DAIV supports. Many 
 - **`ENVIRONMENT`** (default: none): Arbitrary descriptor of the environment (e.g., `production`, `staging`).
   _Example:_ `ENVIRONMENT="production"`
 
-- **`VERSION`** (default: none): The application version. Primarily informational.
-  _Example:_ `VERSION="0.1.0"`
-
-- **`BRANCH`** (default: none): The application’s git branch name for release identification.
-  _Example:_ `BRANCH="main"`
-
 ---
 
 ## Database Configuration
@@ -47,6 +41,9 @@ DAIV uses PostgreSQL with optional SSL and pgvector:
 
 - **`DB_SSLMODE`** (default: `require` if not set otherwise): SSL mode for PostgreSQL connections. Options: `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`.
   _Example:_ `DB_SSLMODE="prefer"`
+
+- **`DB_POOL_MAX_LIFETIME`** (default: `30`): The maximum lifetime of a connection pool in seconds.
+  _Example:_ `DB_POOL_MAX_LIFETIME=60`
 
 ---
 
