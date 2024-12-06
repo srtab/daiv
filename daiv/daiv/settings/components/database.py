@@ -24,7 +24,7 @@ DATABASES = {
     }
 }
 
-query_params = {"sslmode": DATABASES_OPTIONS["sslmode"], "pool_max_lifetime": DATABASES_OPTIONS["pool"]["max_lifetime"]}
+query_params = {"sslmode": DATABASES_OPTIONS["sslmode"]}
 
 DB_URI = "postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{NAME}?{encoded_query}".format(
     encoded_query=urlencode(query_params), **DATABASES["default"]
