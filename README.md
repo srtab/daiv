@@ -1,4 +1,4 @@
-# DAIV: Developement AI Assistant
+# DAIV: Development AI Assistant
 
 DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with GitLab repositories and uses AI agents, semantic code search, and configurable actions to automate common software development tasks such as:
 
