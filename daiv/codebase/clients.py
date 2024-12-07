@@ -380,9 +380,9 @@ class GitLabClient(RepoClient):
             "note_events": "note_events" in events,
             "job_events": "job_events" in events,
             "enable_ssl_verification": enable_ssl_verification,
+            "push_events_branch_filter": push_events_branch_filter or "",
+            "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
         }
-        if push_events_branch_filter:
-            data["push_events_branch_filter"] = push_events_branch_filter
         if project_hook := self._get_repository_hook_by_name(repo_id, data["name"]):
             for key, value in data.items():
                 setattr(project_hook, key, value)

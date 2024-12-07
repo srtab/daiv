@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `EXPOSE 8000` to the `Dockerfile`.
+
+### Fixed
+
+- Fixed the `Dockerfile` to create the `daiv` user with the correct group and user IDs to avoid permission issues.
+- Fixed the `branch_filter_strategy` to be `all_branches` if `push_events_branch_filter` is not set.
+
 ## [0.1.0-alpha.7] - 2024-12-07
 
 ### Added

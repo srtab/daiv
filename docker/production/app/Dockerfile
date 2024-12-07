@@ -50,8 +50,8 @@ RUN apt-get update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/* \
   # Create aplication specific user
-  && addgroup --system daiv \
-  && adduser --system --ingroup daiv --home /home/daiv daiv
+  && addgroup --system --gid 1001 daiv \
+  && adduser --system --ingroup daiv --uid 1001 --home /home/daiv daiv
 
 ENV PATH="/home/daiv/.venv/bin:$PATH"
 ENV PYTHONPATH="$PYTHONPATH:/home/daiv/app/"
@@ -76,6 +76,8 @@ RUN chmod +x entrypoint start-app start-worker \
 
 HEALTHCHECK --interval=10s --start-period=30s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
+
+EXPOSE 8000
 
 ENTRYPOINT ["/home/daiv/entrypoint"]
 CMD ["/home/daiv/start-app"]
