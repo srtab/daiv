@@ -45,7 +45,7 @@ dependencies = [
   "python-decouple==3.8",
   "python-gitlab[graphql]==5.1",
   "pyyaml==6.0.2",
-  "redis==5.2",
+  "redis==5.2.1",
   "sentry-sdk==2.19.2",
   "tantivy==0.22",
   "tree-sitter==0.21.3",
