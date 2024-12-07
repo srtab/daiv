@@ -51,7 +51,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* /var/cache/* \
   # Create aplication specific user
   && addgroup --system daiv \
-  && adduser --system --ingroup daiv daiv
+  && adduser --system --ingroup daiv --home /home/daiv daiv
 
 ENV PATH="/home/daiv/.venv/bin:$PATH"
 ENV PYTHONPATH="$PYTHONPATH:/home/daiv/app/"
@@ -71,7 +71,8 @@ WORKDIR /home/daiv
 
 RUN chmod +x entrypoint start-app start-worker \
   && python -m compileall app \
-  && django-admin compilemessages --ignore=.venv/**/locale
+  && django-admin compilemessages --ignore=.venv/**/locale \
+  && mkdir -p data/tantivy_index data/media data/static
 
 ENTRYPOINT ["/home/daiv/entrypoint"]
 CMD ["/home/daiv/start-app"]
