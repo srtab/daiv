@@ -6,7 +6,7 @@ from langchain_openai import OpenAIEmbeddings
 
 from codebase.models import CodebaseDocument, CodebaseNamespace
 from codebase.search_engines.base import SearchEngine
-from codebase.search_engines.retrievers import PostgresRetriever
+from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgresRetriever
 
 EMBEDDING_MODEL_NAME = "text-embedding-3-small"
 
@@ -92,15 +92,17 @@ class SemanticSearchEngine(SearchEngine):
         """
         namespace.documents.all().delete()
 
-    def as_retriever(self, namespace: CodebaseNamespace, **kwargs) -> BaseRetriever:
+    def as_retriever(self, namespace: CodebaseNamespace | None = None, **kwargs) -> BaseRetriever:
         """
         Creates a retriever instance for semantic similarity search.
 
         Args:
-            namespace: CodebaseNamespace to search in
+            namespace: CodebaseNamespace to search in or `None` to search in all namespaces
             **kwargs: Additional parameters to configure the retriever
 
         Returns:
             BaseRetriever: Configured retriever instance
         """
-        return PostgresRetriever(namespace=namespace, embeddings=self.embeddings, **kwargs)
+        if namespace is None:
+            return PostgresRetriever(embeddings=self.embeddings, **kwargs)
+        return ScopedPostgresRetriever(namespace=namespace, embeddings=self.embeddings, **kwargs)
