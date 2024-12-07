@@ -74,5 +74,8 @@ RUN chmod +x entrypoint start-app start-worker \
   && django-admin compilemessages --ignore=.venv/**/locale \
   && mkdir -p data/tantivy_index data/media data/static
 
+HEALTHCHECK --interval=10s --start-period=30s \
+  CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
+
 ENTRYPOINT ["/home/daiv/entrypoint"]
 CMD ["/home/daiv/start-app"]

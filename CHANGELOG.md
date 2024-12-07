@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0-alpha.7] - 2024-12-07
 
+### Added
+
+- Added `HEALTHCHECK` to the `Dockerfile`.
+
 ### Fixed
 
 - Fixed the `Dockerfile` to create the `daiv` user with the correct home directory defined.
