@@ -20,7 +20,7 @@ from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
-from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
@@ -166,6 +166,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         tools = ReadRepositoryToolkit.create_instance(
             self.repo_client, self.source_repo_id, self.source_ref
         ).get_tools()
+        tools += WebSearchToolkit.create_instance().get_tools()
         if self.repo_config.commands.enabled():
             tools += SandboxToolkit.create_instance().get_tools()
 

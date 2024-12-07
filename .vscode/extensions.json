@@ -8,7 +8,6 @@
     "mrorz.language-gettext",
     "eamodio.gitlens",
     "charliermarsh.ruff",
-    "tamasfe.even-better-toml",
-    "stylelint.vscode-stylelint"
+    "tamasfe.even-better-toml"
   ]
 }

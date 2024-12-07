@@ -7,6 +7,7 @@ from langchain_core.tools.base import BaseTool
 from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
 
 from automation.tools.sandbox import RunSandboxCodeTool
+from automation.tools.web_search import WebSearchTool
 from codebase.indexes import CodebaseIndex
 
 from .repository import (
@@ -82,3 +83,13 @@ class SandboxToolkit(BaseToolkit):
     @classmethod
     def create_instance(cls) -> BaseToolkit:
         return cls(tools=[RunSandboxCodeTool()])
+
+
+class WebSearchToolkit(BaseToolkit):
+    """
+    Toolkit for performing web searches.
+    """
+
+    @classmethod
+    def create_instance(cls) -> BaseToolkit:
+        return cls(tools=[WebSearchTool()])

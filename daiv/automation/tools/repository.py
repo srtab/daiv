@@ -55,9 +55,7 @@ class SearchCodeSnippetsTool(BaseTool):
     source_repo_id: str = Field(..., description="The repository ID to search in.")
     source_ref: str = Field(..., description="The branch or commit to search in.")
 
-    api_wrapper: CodebaseIndex = Field(
-        ..., default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance())
-    )
+    api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
     def _run(self, query: str, intent: str, **kwargs) -> str:
         """
@@ -107,7 +105,7 @@ class BaseRepositoryTool(BaseTool):
     source_repo_id: str = Field(..., description="The repository ID to search in.")
     source_ref: str = Field(..., description="The branch or commit to search in.")
 
-    api_wrapper: RepoClient = Field(..., default_factory=RepoClient.create_instance)
+    api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
     def _get_file_content(self, file_path: str, store: BaseStore) -> str | None:
         """

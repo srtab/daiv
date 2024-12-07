@@ -159,3 +159,23 @@ class RunCodeInput(BaseModel):
         ),
     )
     intent: str = Field(..., description=("A description of why you're running this code."))
+
+
+class WebSearchInput(BaseModel):
+    """
+    Perform a web search to retrieve up-to-date information.
+    """
+
+    query: str = Field(
+        ...,
+        description=(
+            "The search query to find relevant information from the web. "
+            "The query should be focused and specific to get accurate results."
+        ),
+    )
+    intent: str = Field(
+        ...,
+        description=(
+            "A brief description of why you are performing this web search and how it relates to the user's request."
+        ),
+    )

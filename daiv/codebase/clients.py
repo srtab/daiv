@@ -252,7 +252,13 @@ class GitLabClient(RepoClient):
                 topics=project.topics,
             )
             for project in self.client.projects.list(
-                all=load_all, iterator=True, archived=False, simple=True, **optional_kwargs
+                all=load_all,
+                iterator=True,
+                archived=False,
+                simple=True,
+                membership=True,
+                min_access_level=40,  # 40 is the access level for the maintainer role
+                **optional_kwargs,
             )
         ]
 
@@ -374,9 +380,9 @@ class GitLabClient(RepoClient):
             "note_events": "note_events" in events,
             "job_events": "job_events" in events,
             "enable_ssl_verification": enable_ssl_verification,
+            "push_events_branch_filter": push_events_branch_filter or "",
+            "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
         }
-        if push_events_branch_filter:
-            data["push_events_branch_filter"] = push_events_branch_filter
         if project_hook := self._get_repository_hook_by_name(repo_id, data["name"]):
             for key, value in data.items():
                 setattr(project_hook, key, value)
@@ -484,6 +490,7 @@ class GitLabClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
+        assignee_id: int | None = None,
     ) -> int | str | None:
         """
         Create a merge request in a repository or update an existing one if it already exists.
@@ -495,6 +502,7 @@ class GitLabClient(RepoClient):
             title: The title of the merge request.
             description: The description of the merge request.
             labels: The list of labels.
+            assignee_id: The assignee ID.
 
         Returns:
             The merge request ID.
@@ -507,6 +515,7 @@ class GitLabClient(RepoClient):
                 "title": title,
                 "description": description,
                 "labels": labels or [],
+                "assignee_id": assignee_id,
             }).get_id()
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -518,6 +527,7 @@ class GitLabClient(RepoClient):
                 merge_request.title = title
                 merge_request.description = description
                 merge_request.labels = labels or []
+                merge_request.assignee_id = assignee_id
                 merge_request.save()
                 return merge_request.get_id()
             raise e
