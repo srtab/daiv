@@ -197,6 +197,20 @@ class CodebaseIndex(abc.ABC):
             ).invoke(query)
         return semantic_retriever.invoke(query)
 
+    def search_all(self, query: str) -> list[Document]:
+        """
+        Search all indexes using semantic search.
+
+        Args:
+            query (str): The search query string
+
+        Returns:
+            list[Document]: List of matching documents from the search
+        """
+        return self.semantic_search_engine.as_retriever(
+            k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
+        ).invoke(query)
+
     @functools.lru_cache(maxsize=32)  # noqa: B019
     def extract_tree(self, repo_id: str, ref: str) -> str:
         """
