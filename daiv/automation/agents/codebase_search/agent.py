@@ -23,7 +23,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
     Agent to search for code snippets in the codebase.
     """
 
-    def __init__(self, source_repo_id: str, source_ref: str, index: CodebaseIndex):
+    def __init__(self, index: CodebaseIndex, source_repo_id: str | None = None, source_ref: str | None = None):
         super().__init__()
         self.index = index
         self.source_repo_id = source_repo_id
@@ -54,10 +54,12 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (GraphState): The current state of the graph.
         """
-        return {
-            "documents": self.index.search(self.source_repo_id, self.source_ref, state["query"]),
-            "iterations": state.get("iterations", 0) + 1,
-        }
+        if self.source_repo_id and self.source_ref:
+            documents = self.index.search(self.source_repo_id, self.source_ref, state["query"])
+        else:
+            documents = self.index.search_all(state["query"])
+
+        return {"documents": documents, "iterations": state.get("iterations", 0) + 1}
 
     def grade_document(self, state: GradeDocumentState):
         """

@@ -1,6 +1,8 @@
 import re
 from typing import cast
 
+from django.db.models import QuerySet
+
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -9,7 +11,7 @@ from pgvector.django import CosineDistance
 from pydantic import Field
 from tantivy import Index
 
-from codebase.models import CodebaseNamespace
+from codebase.models import CodebaseDocument, CodebaseNamespace
 
 variable_pattern = re.compile(r"([A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z]|$))")
 
@@ -89,7 +91,6 @@ class PostgresRetriever(BaseRetriever):
     Retriever based on Postgres with PGVector.
     """
 
-    namespace: CodebaseNamespace
     embeddings: Embeddings
     k: int = 10
     search_kwargs: dict = Field(default_factory=dict)
@@ -116,9 +117,28 @@ class PostgresRetriever(BaseRetriever):
                     **document.metadata,
                 },
             )
-            for document in self.namespace.documents.annotate(
-                distance=CosineDistance("page_content_vector", self.embeddings.embed_query(query))
-            )
+            for document in self._get_documents_queryset()
+            .annotate(distance=CosineDistance("page_content_vector", self.embeddings.embed_query(query)))
             .filter(**self.search_kwargs)
             .order_by("distance")[: self.k]
         ]
+
+    def _get_documents_queryset(self) -> QuerySet[CodebaseDocument]:
+        """
+        Get the documents queryset.
+        """
+        return CodebaseDocument.objects.all()
+
+
+class ScopedPostgresRetriever(PostgresRetriever):
+    """
+    Retriever based on Postgres with PGVector with a scoped namespace.
+    """
+
+    namespace: CodebaseNamespace
+
+    def _get_documents_queryset(self) -> QuerySet[CodebaseDocument]:
+        """
+        Get the documents queryset.
+        """
+        return self.namespace.documents.all()

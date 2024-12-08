@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.utils.text import slugify
 
-from langchain_core.documents import Document as LangDocument
 from tantivy import Document, Index, SchemaBuilder
 
-from codebase.models import CodebaseNamespace, RepositoryInfo
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import TantityRetriever
 from daiv.settings.components import DATA_DIR
+
+if TYPE_CHECKING:
+    from langchain_core.documents import Document as LangDocument
+
+    from codebase.models import CodebaseNamespace
 
 TANTIVY_INDEX_PATH = DATA_DIR / "tantivy_index"
 
@@ -138,23 +142,3 @@ class LexicalSearchEngine(SearchEngine):
             A Tantivy Index instance
         """
         return tantivy_index(index_name, self.persistent)
-
-
-if __name__ == "__main__":
-    namespace = CodebaseNamespace(repository_info=RepositoryInfo(external_slug="repo1"), tracking_ref="main")
-    search = LexicalSearchEngine(persistent=False)
-    search.add_documents(
-        namespace,
-        [
-            LangDocument(
-                id="1",
-                metadata={"source": "source1", "language": "python"},
-                page_content="Paris is the capital of France.",
-            ),
-            LangDocument(id="2", metadata={"source": "source2"}, page_content="Berlin is the capital of Germany."),
-            LangDocument(id="3", metadata={"source": "source3"}, page_content="Madrid is the capital of Spain."),
-        ],
-    )
-    retriever = search.as_retriever(namespace)
-    results = retriever.invoke("What is the capital of France?")
-    print(results)  # noqa: T201
