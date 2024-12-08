@@ -52,8 +52,8 @@ class SearchCodeSnippetsTool(BaseTool):
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
     handle_validation_error: bool = True
 
-    source_repo_id: str = Field(..., description="The repository ID to search in.")
-    source_ref: str = Field(..., description="The branch or commit to search in.")
+    source_repo_id: str | None = Field(None, description="The repository ID to search in.")
+    source_ref: str | None = Field(None, description="The branch or commit to search in.")
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
@@ -76,7 +76,7 @@ class SearchCodeSnippetsTool(BaseTool):
         )
 
         search = CodebaseSearchAgent(
-            source_repo_id=self.source_repo_id, source_ref=self.source_ref, index=self.api_wrapper
+            index=self.api_wrapper, source_repo_id=self.source_repo_id, source_ref=self.source_ref
         )
 
         if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
@@ -86,7 +86,7 @@ class SearchCodeSnippetsTool(BaseTool):
 
                 search_results_str += textwrap.dedent(
                     """\
-                    <CodeSnippet path="{file_path}">
+                    <CodeSnippet repository="{repository_id}" path="{file_path}">
                     {content}
                     </CodeSnippet>
                     """
