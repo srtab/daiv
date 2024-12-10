@@ -90,7 +90,11 @@ class SearchCodeSnippetsTool(BaseTool):
                     {content}
                     </CodeSnippet>
                     """
-                ).format(file_path=document.metadata["source"], content=document.page_content)
+                ).format(
+                    repository_id=document.metadata["repo_id"],
+                    file_path=document.metadata["source"],
+                    content=document.page_content,
+                )
 
         return search_results_str
 

@@ -9,14 +9,14 @@ def reduce_documents(existing: list[Document], new: list[Document]) -> list[Docu
     """
     # this is the step where the documents as retrived from the index are added to the state
     if len(existing) == 0 and len(new) > 1:
-        return new
+        return new.copy()
     # the document was identified as relevant, nothing need to be done
     if len(new) == 0:
-        return existing
+        return existing.copy()
     # the document was identified as irrelevant, it should be removed from the list
     if len(existing) and len(new):
-        return [item for item in existing if item not in new]
-    return existing
+        return [item for item in existing.copy() if item not in new]
+    return existing.copy()
 
 
 class OverallState(TypedDict):

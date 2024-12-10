@@ -38,8 +38,8 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
 
         # Add edges
         workflow.add_edge(START, "query_or_respond")
-        workflow.add_conditional_edges("query_or_respond", tools_condition, {END: END, "tools": "tools"})
-        workflow.add_edge("tools", "generate")
+        workflow.add_conditional_edges("query_or_respond", tools_condition, {END: "generate", "tools": "tools"})
+        workflow.add_edge("tools", "query_or_respond")
         workflow.add_edge("generate", END)
 
         return workflow.compile()
@@ -63,14 +63,18 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
             else:
                 break
 
-        docs_content = "\n\n".join(doc.content for doc in recent_tool_messages[::-1])
+        if recent_tool_messages:
+            docs_content = "\n\n".join(doc.content for doc in recent_tool_messages[::-1])
 
-        conversation_messages = [
-            message
-            for message in state["messages"]
-            if message.type in ("human", "system") or (message.type == "ai" and not message.tool_calls)
-        ]
-        prompt = [system.format(context=docs_content)] + conversation_messages
+            conversation_messages = [
+                message
+                for message in state["messages"]
+                if message.type in ("human", "system") or (message.type == "ai" and not message.tool_calls)
+            ]
+            prompt = [system.format(context=docs_content)] + conversation_messages
 
-        response = self.model.invoke(prompt)
+            response = self.model.invoke(prompt)
+        else:
+            response = state["messages"][-1]
+
         return {"messages": [response]}

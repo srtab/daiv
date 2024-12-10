@@ -35,6 +35,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         # Add nodes
         workflow.add_node("retrieve", self.retrieve)
         workflow.add_node("grade_document", self.grade_document)
+        workflow.add_node("post_grade_document", self.post_grade_document)
         workflow.add_node("transform_query", self.transform_query)
 
         # Add edges
@@ -42,7 +43,8 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_conditional_edges(
             "retrieve", self.should_grade_documents, ["transform_query", "grade_document", END]
         )
-        workflow.add_conditional_edges("grade_document", self.should_transform_query, ["transform_query", END])
+        workflow.add_edge("grade_document", "post_grade_document")
+        workflow.add_conditional_edges("post_grade_document", self.should_transform_query, ["transform_query", END])
         workflow.add_edge("transform_query", "retrieve")
 
         return workflow.compile()
@@ -85,6 +87,12 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
             logger.info("[grade_document] Document '%s' is relevant to the query", state["document"].metadata["source"])
             return {"documents": []}
         return {"documents": [state["document"]]}
+
+    def post_grade_document(self, state: OverallState):
+        """
+        Post-process the grade of the document.
+        """
+        return {"documents": []}
 
     def transform_query(self, state: OverallState):
         """
@@ -131,9 +139,12 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         """
         Check if we should transform the query.
         """
-
+        logger.info(
+            "[should_transform_query] %d documents found (iteration: %d)", len(state["documents"]), state["iterations"]
+        )
         if not state["documents"] and state["iterations"] < MAX_ITERATIONS:
             logger.info("[should_transform_query] No relevant documents found. Moving to transform_query state.")
             return "transform_query"
-        logger.info("[should_transform_query] Relevant documents found.")
+        if not state["documents"]:
+            logger.info("[should_transform_query] No relevant documents found. Ending the process.")
         return END
