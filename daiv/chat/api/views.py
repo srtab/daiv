@@ -27,7 +27,8 @@ MODEL_ID = "DAIV"
 async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRequest):
     """
     This endpoint is used to create a chat completion for a given set of messages within the indexed codebase.
-    The main goal is to have an OpenAI compatible API.
+
+    The main goal is to have an OpenAI compatible API to allow seamless integration with existing tools and services.
     """
     messages = [msg.dict() for msg in payload.messages]
 
