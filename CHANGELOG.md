@@ -10,11 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `EXPOSE 8000` to the `Dockerfile`.
+- Added `CodebaseQAAgent` to answer questions about the codebase.
+- Added chat completion API endpoints to allow interact with the codebase through seamless integration with external tools and services.
+
+### Changed
+
+- Renamed `PostgresRetriever` to `ScopedPostgresRetriever` to allow having a non scoped retriever for `CodebaseQAAgent`.
 
 ### Fixed
 
 - Fixed the `Dockerfile` to create the `daiv` user with the correct group and user IDs to avoid permission issues.
 - Fixed the `branch_filter_strategy` to be `all_branches` if `push_events_branch_filter` is not set.
+- Fixed conditional edge after reducer in `CodebaseSearchAgent`, the state where not beign updated as expected, ignoring further iterations.
 
 ## [0.1.0-alpha.7] - 2024-12-07
 

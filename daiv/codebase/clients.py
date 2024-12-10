@@ -48,6 +48,11 @@ class RepoClient(abc.ABC):
 
     client_slug: ClientType
 
+    @property
+    @abc.abstractmethod
+    def codebase_url(self) -> str:
+        pass
+
     @abc.abstractmethod
     def get_repository(self, repo_id) -> Repository:
         pass
@@ -202,6 +207,10 @@ class GitLabClient(RepoClient):
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
         self.client_graphql = GraphQL(url=url, token=auth_token, timeout=10)
+
+    @property
+    def codebase_url(self) -> str:
+        return self.client.url
 
     def get_repository(self, repo_id: str) -> Repository:
         """

@@ -7,7 +7,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from automation.agents import BaseAgent
 from automation.agents.base import CODING_COST_EFFICIENT_MODEL_NAME
 from automation.tools.repository import SearchCodeSnippetsTool
-from automation.tools.web_search import WebSearchTool
 from codebase.indexes import CodebaseIndex
 
 from .prompts import system
@@ -25,7 +24,7 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
 
     def __init__(self, index: CodebaseIndex):
         self.index = index
-        self.tools = [SearchCodeSnippetsTool(api_wrapper=index), WebSearchTool()]
+        self.tools = [SearchCodeSnippetsTool(api_wrapper=index)]
         super().__init__()
 
     def compile(self) -> CompiledStateGraph:
@@ -38,8 +37,8 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
 
         # Add edges
         workflow.add_edge(START, "query_or_respond")
-        workflow.add_conditional_edges("query_or_respond", tools_condition, {END: "generate", "tools": "tools"})
-        workflow.add_edge("tools", "query_or_respond")
+        workflow.add_conditional_edges("query_or_respond", tools_condition, {END: END, "tools": "tools"})
+        workflow.add_edge("tools", "generate")
         workflow.add_edge("generate", END)
 
         return workflow.compile()
@@ -56,22 +55,26 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
         """
         Generate answer.
         """
-        recent_tool_messages = []
+        tool_messages = []
         for message in reversed(state["messages"]):
             if message.type == "tool":
-                recent_tool_messages.append(message)
-            else:
-                break
+                tool_messages.append(message)
 
-        if recent_tool_messages:
-            docs_content = "\n\n".join(doc.content for doc in recent_tool_messages[::-1])
+        if tool_messages:
+            docs_content = "\n\n".join(doc.content for doc in tool_messages[::-1])
 
             conversation_messages = [
                 message
                 for message in state["messages"]
                 if message.type in ("human", "system") or (message.type == "ai" and not message.tool_calls)
             ]
-            prompt = [system.format(context=docs_content)] + conversation_messages
+            prompt = [
+                system.format(
+                    context=docs_content,
+                    codebase_client=self.index.repo_client.client_slug,
+                    codebase_url=self.index.repo_client.codebase_url,
+                )
+            ] + conversation_messages
 
             response = self.model.invoke(prompt)
         else:
