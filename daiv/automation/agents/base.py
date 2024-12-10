@@ -59,14 +59,16 @@ class BaseAgent(ABC, Generic[T]):
     def compile(self) -> T:
         pass
 
-    def get_model(self) -> BaseChatModel:
+    def get_model(self, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
             BaseChatModel: The model instance
         """
-        return init_chat_model(**self.get_model_kwargs())
+        model_kwargs = self.get_model_kwargs()
+        model_kwargs.update(kwargs)
+        return init_chat_model(**model_kwargs)
 
     def get_model_kwargs(self) -> dict:
         """
