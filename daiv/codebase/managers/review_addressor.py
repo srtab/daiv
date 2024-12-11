@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
-from langchain_community.callbacks import get_openai_callback
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import START
@@ -166,17 +165,13 @@ class ReviewAddressorManager(BaseManager):
 
             config = RunnableConfig(configurable={"thread_id": thread_id})
 
-            with (
-                PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer,
-                get_openai_callback() as usage_handler,
-            ):
+            with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
                 reviewer_addressor = ReviewAddressorAgent(
                     self.client,
                     source_repo_id=self.repo_id,
                     source_ref=self.ref,
                     merge_request_id=self.merge_request_id,
                     discussion_id=context.discussion.id,
-                    usage_handler=usage_handler,
                     checkpointer=checkpointer,
                 )
                 reviewer_addressor_agent = reviewer_addressor.agent

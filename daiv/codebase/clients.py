@@ -96,6 +96,7 @@ class RepoClient(abc.ABC):
         title: str,
         description: str,
         labels: list[str] | None = None,
+        assignee_id: int | None = None,
     ) -> int | str | None:
         pass
 

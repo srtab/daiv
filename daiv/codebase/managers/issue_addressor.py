@@ -1,8 +1,8 @@
+import logging
 from typing import cast
 
 from django.conf import settings
 
-from langchain_community.callbacks import get_openai_callback
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -26,6 +26,8 @@ from codebase.utils import notes_to_messages
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
+logger = logging.getLogger("daiv.managers")
+
 
 class IssueAddressorManager(BaseManager):
     """
@@ -43,7 +45,11 @@ class IssueAddressorManager(BaseManager):
         """
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref)
-        manager._process_issue(client.get_issue(repo_id, issue_iid), should_reset_plan)
+        try:
+            manager._process_issue(client.get_issue(repo_id, issue_iid), should_reset_plan)
+        except Exception as e:
+            logger.error("Error processing issue %d: %s", issue_iid, e)
+            client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
 
     def _process_issue(self, issue: Issue, should_reset_plan: bool):
         """
@@ -63,7 +69,7 @@ class IssueAddressorManager(BaseManager):
 
         config = RunnableConfig(configurable={"thread_id": generate_uuid(f"{self.repo_id}{issue.iid}")})
 
-        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             issue_addressor = IssueAddressorAgent(
                 self.client,
                 project_id=self.repository.pk,
@@ -71,7 +77,6 @@ class IssueAddressorManager(BaseManager):
                 source_ref=self.ref,
                 issue_id=cast(int, issue.iid),
                 checkpointer=checkpointer,
-                usage_handler=usage_handler,
             )
             issue_addressor_agent = issue_addressor.agent
 
