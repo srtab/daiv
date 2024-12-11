@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Fixed fallback model name to be used as `model` argument instead of inexistent `model_name` on ReAct agents.
+
 ## [0.1.0-alpha.8] - 2024-12-11
 
 ### Added
