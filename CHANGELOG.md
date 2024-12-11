@@ -9,7 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Changed `IssueAddressorManager` to comment on the issue when an unexpected error occurs.
+
+### Removed
+
 - Removed unused `get_openai_callback` on codebase managers.
+
+### Fixed
+
+- Fixed missing `assignee_id` on `RepoClient.update_or_create_merge_request` abstract method.
 
 ## [0.1.0-alpha.8] - 2024-12-11
 

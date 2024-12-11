@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 
 from django.conf import settings
@@ -25,6 +26,8 @@ from codebase.utils import notes_to_messages
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
+logger = logging.getLogger("daiv.managers")
+
 
 class IssueAddressorManager(BaseManager):
     """
@@ -42,7 +45,11 @@ class IssueAddressorManager(BaseManager):
         """
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref)
-        manager._process_issue(client.get_issue(repo_id, issue_iid), should_reset_plan)
+        try:
+            manager._process_issue(client.get_issue(repo_id, issue_iid), should_reset_plan)
+        except Exception as e:
+            logger.error("Error processing issue %d: %s", issue_iid, e)
+            client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
 
     def _process_issue(self, issue: Issue, should_reset_plan: bool):
         """
