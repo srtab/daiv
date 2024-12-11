@@ -85,7 +85,7 @@ class BaseAgent(ABC, Generic[T]):
             "model_kwargs": {},
         }
 
-        if _attempt_infer_model_provider(self.model_name) == ModelProvider.ANTHROPIC:
+        if self.get_model_provider() == ModelProvider.ANTHROPIC:
             kwargs["model_kwargs"]["extra_headers"] = {
                 "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
             }
@@ -130,7 +130,7 @@ class BaseAgent(ABC, Generic[T]):
             int: The maximum token value
         """
 
-        match _attempt_infer_model_provider(self.model_name):
+        match self.get_model_provider():
             case ModelProvider.ANTHROPIC:
                 return 8192 if self.model_name.startswith(("claude-3-5-sonnet", "claude-3-5-haiku")) else 4096
 
@@ -140,6 +140,15 @@ class BaseAgent(ABC, Generic[T]):
 
             case _:
                 raise ValueError(f"Unknown provider for model {self.model_name}")
+
+    def get_model_provider(self) -> ModelProvider:
+        """
+        Get the model provider.
+
+        Returns:
+            ModelProvider: The model provider
+        """
+        return _attempt_infer_model_provider(self.model_name)
 
 
 class Usage(BaseModel):

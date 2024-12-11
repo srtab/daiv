@@ -15,7 +15,7 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
-from automation.agents.base import PLANING_COST_EFFICIENT_MODEL_NAME
+from automation.agents.base import GENERIC_PERFORMANT_MODEL_NAME, PLANING_PERFORMANT_MODEL_NAME
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
@@ -159,7 +159,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=tools,
-            model_name=PLANING_COST_EFFICIENT_MODEL_NAME,
+            model_name=PLANING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
@@ -167,8 +168,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             {"messages": [system_message] + state["messages"]}, config={"recursion_limit": 50}
         )
 
+        if "response" not in response:
+            return {"response": "I couldn't address the review for you this time. Leave a comment so i can try again."}
+
         if isinstance(response["response"].action, AskForClarification):
             return {"response": "\n".join(response["response"].action.questions)}
+
         return {
             "plan_tasks": response["response"].action.tasks,
             "goal": response["response"].action.goal,
@@ -208,7 +213,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=tools, model_name=CODING_PERFORMANT_MODEL_NAME, store=store
+            run_name="execute_plan_react_agent",
+            tools=tools,
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
@@ -243,6 +252,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             run_name="respond_reviewer_react_agent",
             tools=tools,
             model_name=CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=RespondReviewerResponse,
             store=store,
         )

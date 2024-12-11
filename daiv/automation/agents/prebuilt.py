@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
+from anthropic import InternalServerError as AnthropicInternalServerError
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
+from openai import InternalServerError as OpenAIInternalServerError
 from pydantic import BaseModel, ValidationError  # noqa: TCH002
 
 from automation.agents import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
@@ -45,6 +47,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         *args,
         with_structured_output: type[BaseModel] | None = None,
         store: BaseStore | None = None,
+        fallback_model_name: str | None = None,
         **kwargs,
     ):
         self.tool_classes = tools
@@ -52,6 +55,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         self.store = store
         self.structured_tool_name = None
         self.state_class: type[AgentState] = AgentState
+        self.fallback_model_name = fallback_model_name
         if self.with_structured_output:
             self.tool_classes.append(self.with_structured_output)
             self.structured_tool_name = self.with_structured_output.model_json_schema()["title"]
@@ -98,10 +102,25 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
             tools_kwargs = {"tool_choice": "any"}
 
         llm_with_tools = self.model.bind_tools(self.tool_classes, **tools_kwargs)
-        response = llm_with_tools.invoke(state["messages"])
+
+        try:
+            response = llm_with_tools.invoke(state["messages"])
+        except (AnthropicInternalServerError, OpenAIInternalServerError) as e:
+            if self.fallback_model_name:
+                logger.warning(
+                    "[ReAcT] Exception raised invoking model %s. Falling back to %s.",
+                    self.model_name,
+                    self.fallback_model_name,
+                )
+                llm_with_tools = self.get_model(model_name=self.fallback_model_name).bind_tools(
+                    self.tool_classes, **tools_kwargs
+                )
+                response = llm_with_tools.invoke(state["messages"])
+            else:
+                raise e
 
         if isinstance(response, AIMessage) and response.tool_calls and state["is_last_step"]:
-            response = AIMessage(id=response.id, content="Sorry, need more steps to process this request.")
+            response = AIMessage(id=response.id, content="I've reached the maximum number of steps.")
             logger.warning("[ReAcT] Last step reached. Ending the conversation.")
 
         return {"messages": [response]}

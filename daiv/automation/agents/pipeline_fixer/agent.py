@@ -8,7 +8,11 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
-from automation.agents.base import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME
+from automation.agents.base import (
+    CODING_PERFORMANT_MODEL_NAME,
+    GENERIC_COST_EFFICIENT_MODEL_NAME,
+    GENERIC_PERFORMANT_MODEL_NAME,
+)
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
 from automation.tools.sandbox import RunSandboxCommandsTool
@@ -164,7 +168,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = REACTAgent(
-            run_name="unittest_fix_react_agent", tools=tools, model_name=CODING_PERFORMANT_MODEL_NAME, store=store
+            run_name="unittest_fix_react_agent",
+            tools=tools,
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 
@@ -211,6 +219,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             run_name="pipeline_fixer_react_agent",
             tools=tools,
             model_name=GENERIC_COST_EFFICIENT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=ExternalFactorPlanOutput,
             store=store,
         )
