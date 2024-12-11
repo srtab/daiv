@@ -15,6 +15,7 @@ from automation.agents import (
     PLANING_PERFORMANT_MODEL_NAME,
     BaseAgent,
 )
+from automation.agents.base import GENERIC_PERFORMANT_MODEL_NAME
 from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent
@@ -197,6 +198,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             run_name="plan_react_agent",
             tools=tools,
             model_name=PLANING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
@@ -262,7 +264,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = REACTAgent(
-            run_name="execute_plan_react_agent", tools=tools, model_name=CODING_PERFORMANT_MODEL_NAME, store=store
+            run_name="execute_plan_react_agent",
+            tools=tools,
+            model_name=CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
 

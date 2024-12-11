@@ -7,25 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## [0.1.0-alpha.8] - 2024-12-10
+## [0.1.0-alpha.8] - 2024-12-11
 
 ### Added
 
 - Added `EXPOSE 8000` to the `Dockerfile`.
 - Added `CodebaseQAAgent` to answer questions about the codebase.
 - Added chat completion API endpoints to allow interact with the codebase through seamless integration with external tools and services.
+- Added fallback models to allow more resilient behavior when a model is not available (this happens a lot with Anthropic models).
+- Added `CONN_HEALTH_CHECKS` to the `settings.py` to allow healthchecks to be performed on the database connection.
 
 ### Changed
 
 - Renamed `PostgresRetriever` to `ScopedPostgresRetriever` to allow having a non scoped retriever for `CodebaseQAAgent`.
 - Changed `PLANING_COST_EFFICIENT_MODEL_NAME` to point to `claude-3-5-sonnet-20241022`.
 - Changed `GENERIC_PERFORMANT_MODEL_NAME` to point to `gpt-4o-2024-11-20`, the latest version of `gpt-4o`.
+- Changed prompt for `ReviewAddressorAgent` to try limiting the number of iterations on ReAct agent.
 
 ### Fixed
 
 - Fixed the `Dockerfile` to create the `daiv` user with the correct group and user IDs to avoid permission issues.
 - Fixed the `branch_filter_strategy` to be `all_branches` if `push_events_branch_filter` is not set.
 - Fixed conditional edge after reducer in `CodebaseSearchAgent`, the state where not beign updated as expected, ignoring further iterations.
+- Fixed `KeyError: 'response'` on `ReviewAddressorAgent` when the agent reached the maximum number of recursion.
+- Fixed connection timeout when accessing the database with Django ORM.
 
 ## [0.1.0-alpha.7] - 2024-12-07
 

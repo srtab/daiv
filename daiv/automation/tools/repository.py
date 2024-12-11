@@ -79,7 +79,9 @@ class SearchCodeSnippetsTool(BaseTool):
             index=self.api_wrapper, source_repo_id=self.source_repo_id, source_ref=self.source_ref
         )
 
-        if search_results := search.agent.invoke({"query": query, "query_intent": intent}).get("documents"):
+        if search_results := search.agent.invoke({"query": query, "query_intent": intent, "iterations": 0}).get(
+            "documents"
+        ):
             search_results_str = ""
             for document in search_results:
                 logger.debug("[%s] Found snippet in '%s'", self.name, document.metadata["source"])

@@ -9,7 +9,10 @@ DATABASES_OPTIONS = {
         default="require",
         cast=Choices(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]),
     ),
-    "pool": {"max_lifetime": config("DB_POOL_MAX_LIFETIME", default=30, cast=int)},
+    "pool": {
+        "max_size": config("DB_POOL_MAX_SIZE", default=20, cast=int),
+        "max_lifetime": config("DB_POOL_MAX_LIFETIME", default=300, cast=int),
+    },
 }
 
 DATABASES = {
@@ -20,6 +23,7 @@ DATABASES = {
         "PASSWORD": get_docker_secret("DB_PASSWORD", safe=False),
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default=5432, cast=int),
+        "CONN_HEALTH_CHECKS": True,
         "OPTIONS": DATABASES_OPTIONS,
     }
 }
