@@ -112,7 +112,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
                     self.model_name,
                     self.fallback_model_name,
                 )
-                llm_with_tools = self.get_model(model_name=self.fallback_model_name).bind_tools(
+                llm_with_tools = self.get_model(model=self.fallback_model_name).bind_tools(
                     self.tool_classes, **tools_kwargs
                 )
                 response = llm_with_tools.invoke(state["messages"])
