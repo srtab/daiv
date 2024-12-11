@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `SENTRY_CA_CERTS` configuration to support Sentry communicate through SSL from custom CA.
+
 ### Changed
 
 - Changed `IssueAddressorManager` to comment on the issue when an unexpected error occurs.
