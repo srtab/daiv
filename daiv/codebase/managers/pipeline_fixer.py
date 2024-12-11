@@ -1,7 +1,6 @@
 import re
 from collections.abc import Iterable
 
-from langchain_community.callbacks import get_openai_callback
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -54,14 +53,13 @@ class PipelineFixerManager(BaseManager):
 
         config = RunnableConfig(configurable={"thread_id": self.thread_id})
 
-        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer, get_openai_callback() as usage_handler:
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             pipeline_fixer = PipelineFixerAgent(
                 repo_client=self.client,
                 source_repo_id=self.repo_id,
                 source_ref=self.ref,
                 job_id=job_id,
                 checkpointer=checkpointer,
-                usage_handler=usage_handler,
             )
             pipeline_fixer_agent = pipeline_fixer.agent
             current_state = pipeline_fixer_agent.get_state(config)
