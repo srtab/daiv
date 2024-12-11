@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed unused `get_openai_callback` on codebase managers.
+- Removed unused `monitor_beat_tasks` from Sentry Celery integration.
 
 ### Fixed
 

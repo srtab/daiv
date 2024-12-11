@@ -28,12 +28,7 @@ if SENTRY_DSN:
         profiles_sample_rate=1.0 if SENTRY_ENABLE_TRACING else 0.0,
         server_name=config("NODE_HOSTNAME", default=None),
         ca_certs=SENTRY_CA_CERTS,
-        integrations=[
-            DjangoIntegration(),
-            LoggingIntegration(),
-            RedisIntegration(),
-            CeleryIntegration(monitor_beat_tasks=True),
-        ],
+        integrations=[DjangoIntegration(), LoggingIntegration(), RedisIntegration(), CeleryIntegration()],
     )
 
     if SERVICE_NAME := config("SERVICE_NAME", default=None):
