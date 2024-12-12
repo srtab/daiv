@@ -44,13 +44,13 @@ class TantityRetriever(BaseRetriever):
             document = searcher.doc(best_doc_address)
             results.append(
                 Document(
-                    id=cast(str, document.get_first("doc_id")),
-                    page_content=cast(str, document.get_first("page_content")),
+                    id=cast("str", document.get_first("doc_id")),
+                    page_content=cast("str", document.get_first("page_content")),
                     metadata={
-                        "id": cast(str, document.get_first("doc_id")),
+                        "id": cast("str", document.get_first("doc_id")),
                         "retriever": self.__class__.__name__,
                         "score": _score,
-                        **cast(dict, document.get_first("page_metadata")),
+                        **cast("dict", document.get_first("page_metadata")),
                     },
                 )
             )

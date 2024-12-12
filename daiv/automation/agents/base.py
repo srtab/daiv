@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_openai.chat_models import ChatOpenAI
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
+    from langchain_openai.chat_models import ChatOpenAI
     from langgraph.checkpoint.postgres import PostgresSaver
 
 PLANING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
@@ -135,7 +135,7 @@ class BaseAgent(ABC, Generic[T]):
                 return 8192 if self.model_name.startswith(("claude-3-5-sonnet", "claude-3-5-haiku")) else 4096
 
             case ModelProvider.OPENAI:
-                _, encoding_model = cast(ChatOpenAI, self.model)._get_encoding_model()
+                _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
                 return encoding_model.max_token_value
 
             case _:

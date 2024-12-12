@@ -138,7 +138,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         if not self.with_structured_output:
             raise ValueError("No structured output model provided.")
 
-        last_message = cast(AIMessage, state["messages"][-1])
+        last_message = cast("AIMessage", state["messages"][-1])
 
         response = None
 
@@ -151,7 +151,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
                 self.with_structured_output, method="json_schema"
             )
             response = cast(
-                BaseModel,
+                "BaseModel",
                 llm_with_structured_output.invoke(
                     [HumanMessage(last_message.pretty_repr())],
                     config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
@@ -170,7 +170,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             str: The next step for the agent.
         """
-        last_message = cast(AIMessage, state["messages"][-1])
+        last_message = cast("AIMessage", state["messages"][-1])
 
         if (
             last_message.tool_calls
