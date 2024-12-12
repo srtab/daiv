@@ -13,7 +13,7 @@ class BaseManager:
         self.client = client
         self.repo_id = repo_id
         self.repo_config = RepositoryConfig.get_config(repo_id)
-        self.ref = cast(str, ref or self.repo_config.default_branch)
+        self.ref = cast("str", ref or self.repo_config.default_branch)
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
         """

@@ -81,7 +81,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
                 )
             ),
         ]
-        response = cast(GradeDocumentsOutput, grader_agent.invoke(messages))
+        response = cast("GradeDocumentsOutput", grader_agent.invoke(messages))
 
         if response.binary_score:
             logger.info("[grade_document] Document '%s' is relevant to the query", state["document"].metadata["source"])
@@ -108,7 +108,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
 
         query_rewriter = self.model.with_structured_output(ImprovedQueryOutput, method="json_schema")
         response = cast(
-            ImprovedQueryOutput, query_rewriter.invoke(messages, config={"configurable": {"temperature": 0.7}})
+            "ImprovedQueryOutput", query_rewriter.invoke(messages, config={"configurable": {"temperature": 0.7}})
         )
 
         logger.info("[transform_query] Query '%s' improved to '%s'", state["query"], response.query)

@@ -60,7 +60,7 @@ class CodebaseIndex(abc.ABC):
         """
         repository = self.repo_client.get_repository(repo_id)
         repo_config = RepositoryConfig.get_config(repo_id, repository)
-        ref = cast(str, ref or repo_config.default_branch)
+        ref = cast("str", ref or repo_config.default_branch)
         repo_head_sha = self.repo_client.get_repo_head_sha(repo_id, branch=ref)
 
         namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(
@@ -241,7 +241,7 @@ class CodebaseIndex(abc.ABC):
             CodebaseNamespace | None: The namespace object if found, None otherwise
         """
         repo_config = RepositoryConfig.get_config(repo_id)
-        _ref = cast(str, ref or repo_config.default_branch)
+        _ref = cast("str", ref or repo_config.default_branch)
 
         return CodebaseNamespace.objects.filter(
             Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id), tracking_ref=_ref

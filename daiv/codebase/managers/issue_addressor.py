@@ -59,7 +59,7 @@ class IssueAddressorManager(BaseManager):
         if not self._has_bot_notes(issue.notes):
             self.client.comment_issue(
                 self.repo_id,
-                cast(int, issue.iid),
+                cast("int", issue.iid),
                 jinja2_formatter(
                     ISSUE_PLANNING_TEMPLATE,
                     assignee=issue.assignee.username if issue.assignee else None,
@@ -75,7 +75,7 @@ class IssueAddressorManager(BaseManager):
                 project_id=self.repository.pk,
                 source_repo_id=self.repo_id,
                 source_ref=self.ref,
-                issue_id=cast(int, issue.iid),
+                issue_id=cast("int", issue.iid),
                 checkpointer=checkpointer,
             )
             issue_addressor_agent = issue_addressor.agent
@@ -92,10 +92,10 @@ class IssueAddressorManager(BaseManager):
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
 
-                self._handle_initial_result(result, cast(int, issue.id), cast(int, issue.iid))
+                self._handle_initial_result(result, cast("int", issue.id), cast("int", issue.iid))
 
             elif "human_feedback" in current_state.next and (
-                discussions := self.client.get_issue_discussions(self.repo_id, cast(int, issue.iid))
+                discussions := self.client.get_issue_discussions(self.repo_id, cast("int", issue.iid))
             ):
                 # TODO: Improve discovery of the last discussion awaiting for approval
                 issue_addressor_agent.update_state(
@@ -105,7 +105,7 @@ class IssueAddressorManager(BaseManager):
                 for chunk in issue_addressor_agent.stream(None, config, stream_mode="updates"):
                     if "human_feedback" in chunk and (response := chunk["human_feedback"].get("response")):
                         self.client.create_issue_discussion_note(
-                            self.repo_id, cast(int, issue.iid), response, discussion_id=discussions[-1].id
+                            self.repo_id, cast("int", issue.iid), response, discussion_id=discussions[-1].id
                         )
 
                     if "execute_plan" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
@@ -128,7 +128,7 @@ class IssueAddressorManager(BaseManager):
         if "plan_tasks" in result:
             # clean up existing tasks before creating new ones
             for issue_tasks in self.client.get_issue_tasks(self.repo_id, issue_id):
-                self.client.delete_issue(self.repo_id, cast(int, issue_tasks.iid))
+                self.client.delete_issue(self.repo_id, cast("int", issue_tasks.iid))
 
             # create new tasks and comment the issue
             self.client.create_issue_tasks(self.repo_id, issue_id, self._create_issue_tasks(result["plan_tasks"]))
@@ -163,12 +163,12 @@ class IssueAddressorManager(BaseManager):
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke({
             "changes": file_changes,
-            "extra_details": {"Issue title": issue.title, "Issue description": cast(str, issue.description)},
+            "extra_details": {"Issue title": issue.title, "Issue description": cast("str", issue.description)},
             "branch_name_convention": self.repo_config.branch_name_convention,
         })
 
         merge_requests = self.client.get_issue_related_merge_requests(
-            self.repo_id, cast(int, issue.iid), label=BOT_LABEL
+            self.repo_id, cast("int", issue.iid), label=BOT_LABEL
         )
 
         if merge_requests:
@@ -204,6 +204,6 @@ class IssueAddressorManager(BaseManager):
 
         self.client.comment_issue(
             self.repo_id,
-            cast(int, issue.iid),
+            cast("int", issue.iid),
             ISSUE_PROCESSED_TEMPLATE.format(source_repo_id=self.repo_id, merge_request_id=merge_request_id),
         )

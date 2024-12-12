@@ -107,7 +107,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         evaluator = prompt | self.model.with_structured_output(PipelineLogClassifierOutput)
 
         response = cast(
-            PipelineLogClassifierOutput,
+            "PipelineLogClassifierOutput",
             evaluator.invoke(
                 {"job_logs": state["job_logs"], "diff": state["diff"]},
                 config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
@@ -226,7 +226,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         result = react_agent.agent.invoke({"messages": messages})
 
-        return {"actions": cast(ExternalFactorPlanOutput, result["response"]).actions}
+        return {"actions": cast("ExternalFactorPlanOutput", result["response"]).actions}
 
     def get_files_to_commit(self) -> list[FileChange]:
         """
@@ -238,6 +238,6 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         if self.agent.store is None:
             return []
         return [
-            cast(FileChange, item.value["data"])
+            cast("FileChange", item.value["data"])
             for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
         ]

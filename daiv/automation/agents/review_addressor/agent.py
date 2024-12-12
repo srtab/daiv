@@ -124,7 +124,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
 
         response = cast(
-            AssesmentClassificationResponse,
+            "AssesmentClassificationResponse",
             evaluator.invoke(
                 {"comments": state["messages"]}, config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}}
             ),
@@ -257,7 +257,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             store=store,
         )
         result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
-        return {"response": cast(RespondReviewerResponse, result["response"]).response}
+        return {"response": cast("RespondReviewerResponse", result["response"]).response}
 
     def human_feedback(self, state: OverallState):
         """
@@ -299,6 +299,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         if self.agent.store is None:
             return []
         return [
-            cast(FileChange, item.value["data"])
+            cast("FileChange", item.value["data"])
             for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
         ]

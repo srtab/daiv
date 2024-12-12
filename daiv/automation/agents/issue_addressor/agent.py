@@ -22,7 +22,6 @@ from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
-from codebase.base import FileChange
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
@@ -39,6 +38,7 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
     from langgraph.store.base import BaseStore
 
+    from codebase.base import FileChange
     from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
@@ -132,7 +132,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
 
         response = cast(
-            AssesmentClassificationResponse,
+            "AssesmentClassificationResponse",
             evaluator.invoke(
                 {"issue_title": state["issue_title"], "issue_description": state["issue_description"]},
                 config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
@@ -225,7 +225,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         human_feedback_evaluator = self.model.with_structured_output(HumanFeedbackResponse, method="json_schema")
         result = cast(
-            HumanFeedbackResponse,
+            "HumanFeedbackResponse",
             human_feedback_evaluator.invoke(
                 [SystemMessage(human_feedback_system)] + state["messages"],
                 config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
@@ -290,6 +290,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         if self.agent.store is None:
             return []
         return [
-            cast(FileChange, item.value["data"])
+            cast("FileChange", item.value["data"])
             for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
         ]

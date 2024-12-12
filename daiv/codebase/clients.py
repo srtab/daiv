@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError, GraphQL
-from gitlab.v4.objects import ProjectHook
 
 from core.constants import BOT_NAME
 
@@ -37,6 +36,8 @@ from .conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from gitlab.v4.objects import ProjectHook
 
 logger = logging.getLogger("daiv.clients")
 
@@ -225,7 +226,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id)
         return Repository(
-            pk=cast(int, project.get_id()),
+            pk=cast("int", project.get_id()),
             slug=project.path_with_namespace,
             name=project.name,
             default_branch=project.default_branch,
@@ -254,7 +255,7 @@ class GitLabClient(RepoClient):
             optional_kwargs["topic"] = ",".join(topics)
         return [
             Repository(
-                pk=cast(int, project.get_id()),
+                pk=cast("int", project.get_id()),
                 slug=project.path_with_namespace,
                 name=project.name,
                 default_branch=project.default_branch,
@@ -414,7 +415,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         for hook in project.hooks.list(all=True, iterator=True):
             if hook.name == name:
-                return cast(ProjectHook, hook)
+                return cast("ProjectHook", hook)
         return None
 
     def get_commit_related_merge_requests(self, repo_id: str, commit_sha: str) -> list[MergeRequest]:
@@ -432,7 +433,7 @@ class GitLabClient(RepoClient):
         return [
             MergeRequest(
                 repo_id=repo_id,
-                merge_request_id=cast(int, mr["iid"]),
+                merge_request_id=cast("int", mr["iid"]),
                 source_branch=mr["source_branch"],
                 target_branch=mr["target_branch"],
                 title=mr["title"],
@@ -450,7 +451,7 @@ class GitLabClient(RepoClient):
         mr = project.mergerequests.get(merge_request_id)
         return MergeRequest(
             repo_id=repo_id,
-            merge_request_id=cast(int, mr.get_id()),
+            merge_request_id=cast("int", mr.get_id()),
             source_branch=mr.source_branch,
             target_branch=mr.target_branch,
             title=mr.title,
@@ -580,13 +581,13 @@ class GitLabClient(RepoClient):
         for file_change in file_changes:
             action = {"action": file_change.action, "file_path": file_change.file_path}
             if file_change.action in ["create", "update"]:
-                action["content"] = cast(str, file_change.content)
+                action["content"] = cast("str", file_change.content)
             if file_change.action == "move":
-                action["previous_path"] = cast(str, file_change.previous_path)
+                action["previous_path"] = cast("str", file_change.previous_path)
                 # Move actions that do not specify content preserve the existing file content,
                 # and any other value of content overwrites the file content.
                 if file_change.content:
-                    action["content"] = cast(str, file_change.content)
+                    action["content"] = cast("str", file_change.content)
             actions.append(action)
 
         commits = {
@@ -897,7 +898,7 @@ class GitLabClient(RepoClient):
         return [
             MergeRequest(
                 repo_id=repo_id,
-                merge_request_id=cast(int, mr["iid"]),
+                merge_request_id=cast("int", mr["iid"]),
                 source_branch=mr["source_branch"],
                 target_branch=mr["target_branch"],
                 title=mr["title"],

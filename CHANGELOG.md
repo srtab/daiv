@@ -7,13 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Added
-
-- Added `SENTRY_CA_CERTS` configuration to support Sentry communicate through SSL from custom CA.
+## [0.1.0-alpha.9] - 2024-12-12
 
 ### Changed
 
 - Changed `IssueAddressorManager` to comment on the issue when an unexpected error occurs.
+- Updated dependencies:
+  - `duckduckgo-search` from 6.3.7 to 6.4.1
+  - `langchain` from 0.3.9 to 0.3.11
+  - `langchain-community` from 0.3.9 to 0.3.11
+  - `langchain-openai` from 0.2.10 to 0.2.12
+  - `langgraph` from 0.2.53 to 0.2.59
+  - `langgraph-checkpoint-postgres` from 2.0.7 to 2.0.8
+  - `langsmith` from 0.1.147 to 0.2.2
+  - `redis` from 5.2 to 5.2.1
+  - `pydantic` from 2.10.2 to 2.10.3
+  - `pyopenssl` from 24.2.1 to 24.3.0
+  - `ruff` from 0.8.0 to 0.8.2
+  - `watchfiles` from 1.0.0 to 1.0.3
 
 ### Removed
 
@@ -117,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.8...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...HEAD
+[0.1.0-alpha.9]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
 [0.1.0-alpha.8]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
 [0.1.0-alpha.7]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.6...v0.1.0-alpha.7
 [0.1.0-alpha.6]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.5...v0.1.0-alpha.6
