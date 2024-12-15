@@ -40,7 +40,9 @@ class Issue(BaseModel):
         """
         Check if the issue is a DAIV issue
         """
-        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
+        return any(label.title.lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(
+            BOT_LABEL
+        )
 
 
 class MergeRequest(BaseModel):
@@ -63,7 +65,9 @@ class MergeRequest(BaseModel):
         """
         Check if the merge request is a DAIV merge request
         """
-        return any(label.title == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
+        return any(label.title.lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(
+            BOT_LABEL
+        )
 
 
 class NoteableType(StrEnum):

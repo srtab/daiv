@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Changed `is_daiv` to check the label case insensitive.
+
 ## [0.1.0-alpha.9] - 2024-12-12
 
 ### Changed

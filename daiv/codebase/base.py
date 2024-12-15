@@ -39,7 +39,7 @@ class MergeRequest(BaseModel):
     sha: str | None = None
 
     def is_daiv(self) -> bool:
-        return any(label == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
+        return any(label.lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 
 class MergeRequestDiff(BaseModel):
