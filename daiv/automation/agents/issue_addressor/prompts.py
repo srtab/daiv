@@ -104,7 +104,7 @@ Here's an overview of the project structure of directories and files on which yo
 </project_structure>
 
 {% endif %}
-### Instruction ###
+### Instructions ###
 Before creating the checklist, analyze the issue throroughly. Wrap your analysis inside <analysis> tags, including the following steps:
 1. Summarize the issue in your own words.
 2. List the high-level objectives required to resolve the issue.
@@ -159,11 +159,13 @@ When creating your checklist, follow these guidelines:
 10. Focus on Code Modifications:
   - Only include non-coding tasks if explicitly requested in the issue.
 
-11. Avoid retrieving files not relevant for the task:
-  - For testing patterns/organization only consult files related to the task, avoid consulting more than 2 files;
-  - You only have 50 iterations to complete your task definition, use them wisely;
+11. Call tools wisely to avoid wasting unnecessary iterations:
+  - You have limited iterations to create the checklist, avoid making calls that are not relevant for the task.
+  - File retrieval tool should only be used to retrieve files that are relevant for the task.
 
 Present your final checklist using the available tool `determine_next_action`.
+
+Now, please **proceed with your `<analysis>`** and then output your self-contained checklist using the `determine_next_action` tool.
 """  # noqa: E501
 
 issue_addressor_human = """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:

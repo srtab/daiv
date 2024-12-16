@@ -169,6 +169,7 @@ Here is the diff hunk containing specific lines of code involved in the requeste
 </diff_hunk>
 {% endif %}
 
+### Instructions ###
 Before creating the checklist, wrap your analysis inside <analysis> tags to break down the information and show your thought process. This will help ensure a thorough interpretation of the data and creation of an effective checklist. Include the following steps in your analysis:
 a. Summarize the diff hunk and reviewer comments
 b. Identify key areas of change
@@ -223,11 +224,11 @@ When creating your checklist, follow these guidelines:
 10. Focus on Code Modifications:
   - Only include non-coding tasks if explicitly requested in the issue.
 
-11. Avoid retrieving files not relevant for the task:
-  - For testing patterns/organization only consult files related to the task, avoid consulting more than 2 files;
-  - You only have 50 iterations to complete your task definition, use them wisely;
+11. Call tools wisely to avoid wasting unnecessary iterations:
+  - You have limited iterations to create the checklist, avoid making calls that are not relevant for the task.
+  - File retrieval tool should only be used to retrieve files that are relevant for the task.
 
 Present your final checklist using the available tool `determine_next_action`.
 
-Please proceed with your analysis and creation of the checklist based on the provided diff hunk and reviewer comments.
+Now, please **proceed with your `<analysis>`** and then output your self-contained checklist using the `determine_next_action` tool.
 """  # noqa: E501
