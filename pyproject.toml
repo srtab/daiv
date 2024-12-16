@@ -35,7 +35,7 @@ dependencies = [
   "langchain-anthropic==0.3",
   "langchain-community==0.3.11",
   "langchain-openai==0.2.12",
-  "langchain-text-splitters==0.3.2",
+  "langchain-text-splitters==0.3.3",
   "langgraph==0.2.59",
   "langgraph-checkpoint-postgres==2.0.8",
   "langsmith==0.2.2",
