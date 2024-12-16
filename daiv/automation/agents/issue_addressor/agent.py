@@ -208,7 +208,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             return {"response": ""}
 
         if isinstance(result["response"].action, AskForClarification):
-            return {"response": " ".join(result["response"].action.questions)}
+            return {"questions": result["response"].action.questions}
 
         return {"plan_tasks": result["response"].action.tasks, "goal": result["response"].action.goal}
 

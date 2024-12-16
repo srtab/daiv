@@ -106,6 +106,8 @@ services:
   sandbox:
     build:
       context: ./../daiv-sandbox
+      args:
+        DOCKER_GID: 999
     tty: true
     stdin_open: true
     restart: unless-stopped

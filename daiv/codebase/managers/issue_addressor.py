@@ -14,12 +14,12 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_MERGE_REQUEST_TEMPLATE,
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
+    ISSUE_QUESTIONS_TEMPLATE,
     ISSUE_REVIEW_PLAN_TEMPLATE,
     ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
 )
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from automation.agents.schemas import Task
-from codebase.base import FileChange, Issue, IssueType, Note
+from codebase.base import FileChange, Issue, Note
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
@@ -92,7 +92,7 @@ class IssueAddressorManager(BaseManager):
                     {"issue_title": issue.title, "issue_description": issue.description}, config
                 )
 
-                self._handle_initial_result(result, cast("int", issue.id), cast("int", issue.iid))
+                self._handle_initial_result(result, cast("int", issue.iid))
 
             elif "human_feedback" in current_state.next and (
                 discussions := self.client.get_issue_discussions(self.repo_id, cast("int", issue.iid))
@@ -121,39 +121,20 @@ class IssueAddressorManager(BaseManager):
         """
         return any(note.author.id == self.client.current_user.id for note in notes)
 
-    def _handle_initial_result(self, result: OverallState, issue_id: int, issue_iid: int):
+    def _handle_initial_result(self, result: OverallState, issue_iid: int):
         """
         Handle the initial state of issue processing.
         """
-        if "plan_tasks" in result:
-            # clean up existing tasks before creating new ones
-            for issue_tasks in self.client.get_issue_tasks(self.repo_id, issue_id):
-                self.client.delete_issue(self.repo_id, cast("int", issue_tasks.iid))
-
-            # create new tasks and comment the issue
-            self.client.create_issue_tasks(self.repo_id, issue_id, self._create_issue_tasks(result["plan_tasks"]))
-            self.client.comment_issue(self.repo_id, issue_iid, ISSUE_REVIEW_PLAN_TEMPLATE)
-        elif "questions" in result:
-            self.client.comment_issue(self.repo_id, issue_iid, "\n".join(result["questions"]))
+        if "plan_tasks" in result and result["plan_tasks"]:
+            self.client.comment_issue(
+                self.repo_id, issue_iid, jinja2_formatter(ISSUE_REVIEW_PLAN_TEMPLATE, plan_tasks=result["plan_tasks"])
+            )
+        elif "questions" in result and result["questions"]:
+            self.client.comment_issue(
+                self.repo_id, issue_iid, jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=result["questions"])
+            )
         else:
             self.client.comment_issue(self.repo_id, issue_iid, ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
-
-    def _create_issue_tasks(self, plan_tasks: list[Task]) -> list[Issue]:
-        """
-        Create issue task objects from plan tasks.
-        """
-        return [
-            Issue(
-                title=plan_task.title,
-                description="{context}\n{subtasks}\n\nPath: `{path}`".format(
-                    context=plan_task.context, subtasks="\n - [ ] ".join(plan_task.subtasks), path=plan_task.path
-                ),
-                assignee=self.client.current_user,
-                issue_type=IssueType.TASK,
-                labels=[BOT_LABEL],
-            )
-            for plan_task in plan_tasks
-        ]
 
     def _commit_changes(self, issue: Issue, file_changes: list[FileChange]):
         """

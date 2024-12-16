@@ -8,7 +8,6 @@ import tempfile
 from contextlib import AbstractContextManager, contextmanager
 from functools import cached_property
 from pathlib import Path
-from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
@@ -21,7 +20,6 @@ from .base import (
     Discussion,
     FileChange,
     Issue,
-    IssueType,
     MergeRequest,
     MergeRequestDiff,
     Note,
@@ -710,106 +708,6 @@ class GitLabClient(RepoClient):
             else None,
             related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
         )
-
-    def create_issue_tasks(self, repo_id, parent_issue_id: int, tasks: list[Issue]):
-        """
-        Create a list of tasks for an issue.
-        API documentation: https://docs.gitlab.com/ee/api/issues.html
-
-        Args:
-            repo_id: The repository ID.
-            parent_issue_id: The parent issue ID.
-            tasks: The list of tasks.
-
-        Returns:
-            The issue ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        for task in tasks:
-            issue_task = project.issues.create({
-                "title": task.title,
-                "description": task.description,
-                "assignee_ids": [task.assignee.id] if task.assignee else [],
-                "issue_type": task.issue_type,
-                "labels": task.labels,
-            })
-            # It's not possible to create a task with a parent issue using the API.
-            # We implemented a workaround using the GraphQL API.
-            # For more info: https://gitlab.com/gitlab-org/gitlab/-/issues/207883
-            self.client_graphql.execute(
-                dedent(
-                    """\
-                    mutation {
-                        workItemUpdate(input: { id: "gid://gitlab/WorkItem/%i", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/%i" } }) {
-                            workItem {
-                                id
-                            }
-                            errors
-                        }
-                    }
-                    """  # noqa: E501
-                )
-                % (issue_task.id, parent_issue_id)
-            )
-
-    def get_issue_tasks(self, repo_id: str, parent_issue_id: int) -> list[Issue]:
-        """
-        Get the tasks of an issue.
-
-        Args:
-            repo_id: The repository ID.
-            parent_issue_id: The parent issue ID.
-
-        Returns:
-            The list of issue tasks.
-        """
-        data = self.client_graphql.execute(
-            dedent(
-                """\
-                {
-                    workItem(id: "gid://gitlab/WorkItem/%s") {
-                        title
-                        widgets {
-                        ... on WorkItemWidgetHierarchy {
-                            children(first: 50) {
-                            nodes {
-                                id
-                                iid
-                                title
-                                description
-                            }
-                            }
-                        }
-                        }
-                    }
-                }
-                """
-            )
-            % (parent_issue_id,)
-        )
-        issues = []
-        for widget in data["workItem"]["widgets"]:
-            if "children" in widget:
-                issues = [
-                    Issue(
-                        iid=task["iid"], title=task["title"], description=task["description"], issue_type=IssueType.TASK
-                    )
-                    for task in widget["children"]["nodes"]
-                ]
-                break
-        return issues
-
-    def delete_issue(self, repo_id: str, issue_id: int):
-        """
-        Delete an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-        issue.delete()
 
     def comment_issue(self, repo_id: str, issue_id: int, body: str):
         """

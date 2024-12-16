@@ -1,78 +1,94 @@
-ISSUE_PLANNING_TEMPLATE = """Hello {% if assignee %}{{ assignee }} {% endif %}👋,
+ISSUE_PLANNING_TEMPLATE = """Hello {% if assignee %}@{{ assignee }} {% endif %}👋,
 
 I'm **{{ bot_name }}**, your assistant for refactoring the codebase. Here's the process:
 
-1. 📝 **Planning:** I'll process this issue and create a detailed plan.
-2. 🔍 **Review:** Once ready, I'll share the plan for your review. Feel free to ask questions or suggest changes.
-3. 🚀 **Execution:** After approval, I'll implement the plan and submit a merge request with the updates.
+1. 🎯 **Planning:** I'll process this issue and create a detailed plan.
+2. ✍️ **Review:** Once ready, I'll share the planned tasks for your review. Feel free to refine the title or description of the issue and i will replan the tasks.
+3. 🚀 **Execution:** After approval, I'll implement the shared plan and submit a merge request with the updates.
 
-⚠️ *Note:* This may take some time. I'll notify you once the plan is ready.
-
-Thank you for your patience! 😊
+> ⚠️ ***Note:*** This may **take some time**. I'll notify you once the plan is ready.
 """  # noqa: E501
 
-ISSUE_REVIEW_PLAN_TEMPLATE = """🔍 ***Please take a moment to examine the plan***
+ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the planned tasks:***
+{% for plan_task in plan_tasks %}
+<details>
+<summary>
 
-- **Modify Tasks:** You can add, delete, or adjust tasks as needed. Customized tasks will be considered when executing the plan.
-- **Plan Adjustments:** If the plan doesn't meet your expectations, please refine the issue description and add more details or examples to help me understand the problem better. I will then replan the tasks and delete the existing ones.
+{{ plan_task.title }} - `{{ plan_task.path }}`
 
-⚠ ***Approval is Required***
+</summary>
 
-If everything looks good, please **reply directly to this comment** with your approval, and I'll proceed.
+**{{ plan_task.context }}.**
+{% for subtask in plan_task.subtasks %}
+- [ ] {{ subtask }}{% endfor %}
 
 ---
+</details>
+{% endfor %}
 
-Thank you! 😊
+💡 **Next Steps:**
+
+ - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then replan the tasks.
+ - ✅ If the plan is good, please approve the plan by **replying directly to this discussion** and I'll execute the plan.
 """  # noqa: E501
 
 
-ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """⚠️ **Unable to Define a Plan**
+ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Unable to define a plan***
 
-I encountered an issue while creating a plan for this task. To help me assist you better, please make the following adjustments:
+I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to clarify the following questions:
+
+{% for question in questions %}
+1. {{ question }}{% endfor %}
+
+💡 **Next Steps:**
+
+ - Update the issue description/title and I'll attempt to create a plan again.
+"""  # noqa: E501
+
+
+ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """### ⚠ ***Unable to Define a Plan***
+
+I was unable to define a plan for this issue. To help me assist you better, please make the following adjustments:
 
 - **Refine Description:** Provide more details about the problem.
 - **Add Examples:** Include specific examples or scenarios to clarify the issue.
 - **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
 
-🔄 **Next Steps:**
+💡 **Next Steps:**
 
-Once you've updated the issue, I'll attempt to create a plan again. If you need assistance, feel free to reach out!
-
----
-
-Thank you for your cooperation! 😊
+ - Update the issue description/title and I'll attempt to create a plan again.
 """  # noqa: E501
 
 
-ISSUE_PROCESSED_TEMPLATE = """✅ **Process Completed**
+ISSUE_PROCESSED_TEMPLATE = """### ✅ ***Process Completed***
 
-This issue has been successfully processed.
+I have created a merge request with the requested changes.
 
-I have created a merge request with the requested changes: {source_repo_id}!{merge_request_id}.
-
-🔍 **Next Steps:**
+💡 **Next Steps:**
 
 - **Review Changes:** Please review the changes in the merge request.
 - **Follow Instructions:** Follow the instructions provided in the merge request description.
 
----
-
-Thank you! 😊
+🔗 {source_repo_id}!{merge_request_id}+
 """
 
 
 ISSUE_MERGE_REQUEST_TEMPLATE = """### Description
 {{ description }}
 
-Closes: {{ source_repo_id }}#{{ issue_id }}
+Closes: {{ source_repo_id }}#{{ issue_id }}+
 
 ### Summary of Changes
 {% for item in summary %}
- * {{ item }}{% endfor %}
+ - {{ item }}{% endfor %}
 
- ---
+---
 
 #### 💡 Instructions for the reviewer:
- - Comment on the files or specific lines of the file, and {{ bot_name }} will address it for you.
- - Edit the original issue ({{ source_repo_id }}#{{ issue_id }}) to get {{ bot_name }} to recreate the MR from scratch.
+ - 💬 Comment on the files or specific lines of the file, and {{ bot_name }} will address it for you.
+ - 📝 Edit the original issue ({{ source_repo_id }}#{{ issue_id }}) to get {{ bot_name }} to recreate the MR from scratch.
+
+---
+
+> ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
 """  # noqa: E501

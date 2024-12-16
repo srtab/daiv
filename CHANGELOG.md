@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Changed `is_daiv` to check the label case insensitive.
+- Changed `IssueAddressorManager` to comment on the issue when the agent has questions and couldn't define a plan.
+- Changed `IssueAddressorManager` to present the plan within the discussion thread created when the agent has a plan, instead of creating a sub-tasks on the issue.
+- Improved `issue_addressor` templates to be more user friendly and informative.
+- Improved planning prompts from `IssueAddressorAgent` and `ReviewAddressorAgent` to attempt prevent looping on to many unecessary tool calls.
+
+### Removed
+
+- Removed methods `create_issue_tasks`, `get_issue_tasks` and `delete_issue` to create sub-tasks within a issue on GitLab client. This is no longer needed as the agent now creates a discussion thread to track the plan and execution.
+
+### Fixed
+
+- Fixed Docker group ID of `sandbox` to be compatible with Ubuntu.
 
 ## [0.1.0-alpha.9] - 2024-12-12
 
