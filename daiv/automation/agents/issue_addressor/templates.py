@@ -78,6 +78,8 @@ ISSUE_MERGE_REQUEST_TEMPLATE = """### Description
 
 Closes: {{ source_repo_id }}#{{ issue_id }}+
 
+> ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
+
 ### Summary of Changes
 {% for item in summary %}
  - {{ item }}{% endfor %}
@@ -85,10 +87,9 @@ Closes: {{ source_repo_id }}#{{ issue_id }}+
 ---
 
 #### 💡 Instructions for the reviewer:
- - 💬 Comment on the files or specific lines of the file, and {{ bot_name }} will address it for you.
+ - 💬 {{ bot_name }} will address comments for you in the following ways:
+   - Open a discussion on the merge request overview;
+   - Leave comments on the files;
+   - Leave comments on specific lines of the file.
  - 📝 Edit the original issue ({{ source_repo_id }}#{{ issue_id }}) to get {{ bot_name }} to recreate the MR from scratch.
-
----
-
-> ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
 """  # noqa: E501
