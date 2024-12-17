@@ -68,7 +68,7 @@ class CodebaseIndex(abc.ABC):
         )
 
         if not created and namespace.sha == repo_head_sha:
-            logger.info("Repo %s index already updated.", repo_id)
+            logger.info("Repo %s[%s] index already updated.", repo_id, ref)
             return
 
         namespace.status = CodebaseNamespace.Status.INDEXING
