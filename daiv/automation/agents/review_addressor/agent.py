@@ -19,6 +19,7 @@ from automation.agents.base import GENERIC_PERFORMANT_MODEL_NAME, PLANING_PERFOR
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
+from automation.constants import DEFAULT_RECURSION_LIMIT
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
@@ -165,7 +166,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             store=store,
         )
         response = react_agent.agent.invoke(
-            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": 50}
+            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT}
         )
 
         if "response" not in response:
@@ -219,7 +220,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
     def respond_to_reviewer(self, state: OverallState, store: BaseStore):
         """
