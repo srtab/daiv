@@ -120,7 +120,7 @@ Please follow these steps to create your action plan:
    h. Summarize the overall approach and justify the prioritization of issues.
 
 2. Create the action plan:
-   Based on your analysis, create a structured action plan. Provide your findings using the available tool.
+   Based on your analysis, create a structured actionable plan. The plan should be a list of actions to fix the issue and the steps to fix the issue in an order that makes sense. Provide your findings using the available tool.
 
 Remember to:
 - Use clear, concise language in your plan.
@@ -128,9 +128,9 @@ Remember to:
 - The plan will be executed by software engineer, so use technical language.
 - Use markdown formatting to enhance clarity.
 - Ensure that each step directly addresses the issue it's under.
-- Base your plan on the actual code context you've inspected, not just general best practices.
+- Base your plan on the actual codebase context you've inspected, not just general best practices.
 
-Begin your response with your root cause breakdown, followed by the structured action plan.""",  # noqa: E501
+Begin your response with your root cause breakdown, followed by the structured actionable plan.""",  # noqa: E501
     "jinja2",
 )
 
