@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.10] - 2024-12-17
+
 ### Added
 
 - Added `DEFAULT_RECURSION_LIMIT` to the `automation.constants` module and replaced all hardcoded values with it.
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved planning prompts from `IssueAddressorAgent` and `ReviewAddressorAgent` to attempt prevent looping on to many unecessary tool calls.
 - Changed `PipelineFixerAgent` to use `ErrorLogEvaluatorAgent` to evaluate if can retry fixing the pipeline and avoid looping on the same error.
 - Changed `MAX_RETRY_ITERATIONS` to 10 on `PipelineFixerAgent`.
+- Changed `CodebaseSearchAgent` to ensure the index is updated before retrieving the documents.
 
 ### Removed
 
@@ -152,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.10...HEAD
+[0.1.0-alpha.10]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...v0.1.0-alpha.10
 [0.1.0-alpha.9]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
 [0.1.0-alpha.8]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
 [0.1.0-alpha.7]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.6...v0.1.0-alpha.7

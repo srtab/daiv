@@ -56,6 +56,11 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (GraphState): The current state of the graph.
         """
+        # we need to update the index before retrieving the documents
+        # because the codebase search agent needs to search for the codebase changes
+        # and we need to make sure the index is updated before the agent starts retrieving the documents
+        self.index.update(self.source_repo_id, self.source_ref)
+
         if self.source_repo_id and self.source_ref:
             documents = self.index.search(self.source_repo_id, self.source_ref, state["query"])
         else:
