@@ -21,6 +21,7 @@ from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
+from automation.constants import DEFAULT_RECURSION_LIMIT
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
@@ -202,7 +203,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
-        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
+        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
         if "response" not in result:
             return {"response": ""}
@@ -270,7 +271,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """

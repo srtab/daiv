@@ -15,6 +15,7 @@ from automation.agents.base import (
 )
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
+from automation.constants import DEFAULT_RECURSION_LIMIT
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from codebase.base import FileChange
@@ -174,7 +175,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": 50})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
     def apply_lint_fix(self, state: OverallState, store: BaseStore):
         """
