@@ -42,7 +42,7 @@ class ActionPlan(BaseModel):
     """
 
     description: str = Field(..., description="Briefly describe the issue.")
-    steps: list[str] = Field(..., description="A list of actions to fix the issue.")
+    steps: list[str] = Field(..., description="A list of steps to fix the issue.")
 
 
 class ExternalFactorPlanOutput(BaseModel):

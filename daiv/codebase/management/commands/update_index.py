@@ -46,5 +46,5 @@ class Command(BaseCommand):
 
         for repository in repositories:
             if options["reset"]:
-                indexer.delete(repo_id=repository.slug)
-            indexer.update(repo_id=repository.slug)
+                indexer.delete(repo_id=repository.slug, ref=options["ref"])
+            indexer.update(repo_id=repository.slug, ref=options["ref"])

@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.constants import START
 
+from automation.agents.error_log_evaluator.agent import ErrorLogEvaluatorAgent
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
@@ -13,6 +14,9 @@ from codebase.base import ClientType, FileChange, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
 from core.conf import settings
+from core.constants import BOT_NAME
+
+MAX_RETRY_ITERATIONS = 10
 
 
 class PipelineFixerManager(BaseManager):
@@ -69,10 +73,12 @@ class PipelineFixerManager(BaseManager):
 
             if current_state.created_at is None or START in current_state.next:
                 result = pipeline_fixer_agent.invoke(input_data, config)
-            elif current_state.values.get("iteration", 0) < 3:
-                # retry the job up to 3 times.
-                # TODO: improve this behavior, for instance by checking if this job failed from a different error than
-                # the previous ones, avoiding to retry the same job again and the limit of 3 retries.
+
+            elif self._should_retry_fix(
+                iteration=current_state.values.get("iteration", 0),
+                previous_log_trace=current_state.values.get("log_trace", None),
+                new_log_trace=log_trace,
+            ):
                 input_data["iteration"] = current_state.values.get("iteration", 0)
 
                 pipeline_fixer_agent.update_state(config, input_data, as_node=START)
@@ -90,8 +96,40 @@ class PipelineFixerManager(BaseManager):
                         root_cause=result["root_cause"],
                         actions=result["actions"],
                         job_name=job_name,
+                        bot_name=BOT_NAME,
                     ),
                 )
+
+    def _should_retry_fix(self, *, iteration: int, previous_log_trace: str | None, new_log_trace: str):
+        """
+        Check if the fix should be retried.
+
+        Try to evaluate if the new log trace is the same as the previous one.
+        If it isn't, then the fix should be retried.
+
+        Args:
+            iteration: The iteration
+            previous_log_trace: The previous log trace
+            new_log_trace: The new log trace
+
+        Returns:
+            Whether the fix should be retried
+        """
+        if iteration >= MAX_RETRY_ITERATIONS:
+            return False
+
+        if previous_log_trace is None:
+            return True
+
+        error_log_evaluator = ErrorLogEvaluatorAgent()
+        error_log_evaluator_agent = error_log_evaluator.agent
+
+        result = error_log_evaluator_agent.invoke(
+            {"log_trace_1": previous_log_trace, "log_trace_2": new_log_trace},
+            RunnableConfig(configurable={"thread_id": self.thread_id}),
+        )
+
+        return not result.is_same_error
 
     def _clean_logs(self, log: str):
         """
@@ -165,6 +203,9 @@ class PipelineFixerManager(BaseManager):
     def _commit_changes(self, *, file_changes: list[FileChange]):
         """
         Commit changes to the merge request.
+
+        Args:
+            file_changes: The file changes
         """
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke(

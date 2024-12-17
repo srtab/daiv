@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `DEFAULT_RECURSION_LIMIT` to the `automation.constants` module and replaced all hardcoded values with it.
+- Added `ErrorLogEvaluatorAgent` to evaluate if two error logs are the same error or related.
 
 ### Changed
 
@@ -18,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `IssueAddressorManager` to present the plan within the discussion thread created when the agent has a plan, instead of creating a sub-tasks on the issue.
 - Improved `issue_addressor` templates to be more user friendly and informative.
 - Improved planning prompts from `IssueAddressorAgent` and `ReviewAddressorAgent` to attempt prevent looping on to many unecessary tool calls.
+- Changed `PipelineFixerAgent` to use `ErrorLogEvaluatorAgent` to evaluate if can retry fixing the pipeline and avoid looping on the same error.
+- Changed `MAX_RETRY_ITERATIONS` to 10 on `PipelineFixerAgent`.
 
 ### Removed
 
@@ -26,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed Docker group ID of `sandbox` to be compatible with Ubuntu.
+- Fixed `ref` argument not being used on `update_index` command.
 
 ## [0.1.0-alpha.9] - 2024-12-12
 
