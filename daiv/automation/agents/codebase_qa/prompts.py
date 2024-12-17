@@ -8,7 +8,7 @@ Here is the context from the codebase:
 {context}
 </context>
 
-When refering to the codebase, use the following information:
+When referring to the codebase, use the following information:
 - The codebase hoster is: <codebase_host>{codebase_client}</codebase_host> -> you can use this to refer to the codebase.
 - The codebase is hosted at: <codebase_url>{codebase_url}</codebase_url> -> you can use this information to build a URL to the codebase.
 
