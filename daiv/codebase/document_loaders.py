@@ -114,10 +114,11 @@ class GenericLanguageLoader(BaseLoader):
 
         for language, documents in document.items():
             logger.info(
-                "Splitting %d %s documents from repo %s",
+                "Splitting %d %s documents from repo %s[%s]",
                 len(documents),
                 language or "Text",
                 self.documents_metadata.get("repo_id", "unknown"),
+                self.documents_metadata.get("ref", "unknown"),
             )
             text_splitter = self._get_text_splitter(language)
 
