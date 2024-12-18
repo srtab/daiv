@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.11] - 2024-12-18
+
+### Removed
+
+- Removed `update_index` and `setup_webhooks` commands from the `start-app` script to avoid long startup times.
+- Removed `GUNICORN_THREADS` from the `start-app` script, as it's not used by `gunicorn` with `UvicornWorker`.
+
+### Fixed
+
+- Fixed connections already closed being served by the pool.
+
 ## [0.1.0-alpha.10] - 2024-12-17
 
 ### Added
@@ -155,7 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.10...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.11...HEAD
+[0.1.0-alpha.11]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.10...v0.1.0-alpha.11
 [0.1.0-alpha.10]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...v0.1.0-alpha.10
 [0.1.0-alpha.9]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
 [0.1.0-alpha.8]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.7...v0.1.0-alpha.8
