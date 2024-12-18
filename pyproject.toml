@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "0.1.0-alpha.10"
+version = "0.1.0-alpha.11"
 description = "Developer assistant automating code issues, reviews, and pipeline fixes using AI Agents."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -40,7 +40,7 @@ dependencies = [
   "langgraph-checkpoint-postgres==2.0.8",
   "langsmith==0.2.2",
   "pgvector==0.3.6",
-  "psycopg[pool]==3.2.3",
+  "psycopg==3.2.3",
   "pydantic==2.10.3",
   "python-decouple==3.8",
   "python-gitlab[graphql]==5.1",
