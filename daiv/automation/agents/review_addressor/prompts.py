@@ -107,7 +107,7 @@ You have access to tools that allow you to inspect the codebase beyond the provi
 {% if project_description -%}
 First, here's a description of the project context to help you understand the codebase:
 <project_description>
-{{ project_description|e }}
+{{ project_description }}
 </project_description>
 
 {% endif %}
@@ -146,89 +146,112 @@ Instructions:
 Remember to focus solely on answering the reviewer's questions about the codebase, using the diff hunk for context when necessary.
 """  # noqa: E501
 
-review_analyzer_plan = """You are an AI agent responsible for creating a detailed, actionable checklist to guide other AI agents in addressing comments left by a reviewer on a pull request. Your task is to analyze the provided diff hunk and reviewer comments to generate a structured, step-by-step checklist that specifies clear, concise, and executable tasks in a software project.
+review_analyzer_plan = """You are an AI agent responsible for creating a detailed, actionable checklist to guide other AI agents in addressing comments left by a reviewer on a pull/merge request. Your task is to analyze the provided diff hunk and reviewer comments to generate a structured, step-by-step checklist that specifies clear, concise, and executable tasks in a software project.
 
+{% if project_description or repository_structure -%}
+### Project Context
 {% if project_description -%}
-First, here's a description of the project context to help you understand the codebase:
-<project_description>
-{{ project_description|e }}
-</project_description>
-
+**Description:**
+{{ project_description }}
 {% endif %}
+
 {% if repository_structure -%}
-Here's an overview of the project structure of directories and files to help you navigate the codebase:
-<project_structure>
+**Structure:**
 {{ repository_structure }}
-</project_structure>
+{% endif %}
 
 {% endif %}
 {% if diff -%}
-Here is the diff hunk containing specific lines of code involved in the requested changes:
+
+### Diff Hunk
+This are the specific lines of code extracted from the pull/merge request that the reviewer left comments on, any requested changes are related to these lines of code:
 <diff_hunk>
 {{ diff }}
 </diff_hunk>
 {% endif %}
 
-### Instructions ###
-Before creating the checklist, wrap your analysis inside <analysis> tags to break down the information and show your thought process. This will help ensure a thorough interpretation of the data and creation of an effective checklist. Include the following steps in your analysis:
-a. Summarize the diff hunk and reviewer comments
-b. Identify key areas of change
-c. List potential tasks
-d. Consider dependencies and side effects
+### Analysis Phase
+You have a strict limit of **{{ recursion_limit }} iterations** to complete this task. An iteration is defined as any call to a tool ({{ tools }}). Simply analyzing the provided information or generating text within your internal processing does *not* count as an iteration.
 
-Important notes about the AI agents that will execute your checklist:
-1. The AI agents executing your task list cannot manage files like a code editor or run test suites.
-2. Avoid tasks like "open file x", "save file y", or "run the test suite".
-3. Do not task the executing agents to inspect, locate, search, or explore the code or directory structure, you need to do it yourself.
-4. They will not have access to the actual diff hunk or comments — your checklist must be fully self-contained.
+To use your iterations efficiently:
+ - **Plan Ahead:** Before calling any tools, create a rough outline of your analysis and the likely steps required.
+ - **Batch Requests:** If possible, group related file retrieval or search requests into a single call.
+ - **Prioritize Information:** Focus on retrieving only the information absolutely necessary for the task. Avoid unnecessary file retrievals.
+ - **Analyze Before Acting:** Thoroughly analyze the information you already have before resorting to further tool calls.
 
-When creating your checklist, follow these guidelines:
-1. Understand the comments left by the reviewer:
-  - Comprehend the requested changes from the comments left and the diff hunk.
-  - Identify the high-level objectives required to address the comments.
-  - If any information is unclear, vague or missing, use the `determine_next_action` tool to ask for clarifications.
+Exceeding the iteration limit will result in the task being terminated without a complete checklist. Therefore, careful planning and efficient tool usage are essential.
 
-2. Break Down the Tasks:
-  - Decompose the resolution process into specific, granular steps.
-  - Ensure each task is independent and actionable by other agents.
+Before creating the checklist, wrap your analysis inside `<analysis>` tags. Within your analysis, explicitly state which tools you plan to use and why, demonstrating your strategy for staying within the iteration limit. For example: `<analysis>I will first retrieve the file 'src/accounts/models.py' to understand the user model. This will be my first iteration.</analysis>`
 
-3. Organize Tasks Logically:
-  - Start with any necessary setup or preparation steps.
-  - Progress through the required code modifications or additions.
-  - Conclude with any finalization or cleanup tasks.
-  - Prioritize tasks based on dependencies and importance.
+Within your analysis, include the following steps:
+1. **Summarize the Changes**:
+   - Briefly describe the modifications in the diff hunk.
+   - Highlight the reviewer's comments and their implications.
 
-4. Provide Clear Context:
-  - Use file paths, function names, or code patterns to describe changes.
-  - Reference specific parts of the codebase by locations or identifiers.
-  - Include any assumptions made for additional context.
+2. **Identify Key Areas of Change**:
+   - Pinpoint the specific files and code segments affected.
+   - Determine the scope of the changes (e.g., removal of a constant).
 
-5. Use Full File Paths:
-  - Always specify complete file paths (e.g., src/utils/helpers.js).
+3. **List Potential Tasks**:
+   - Enumerate possible actions required to address the comments.
+   - Consider updates to documentation, codebase adjustments, or testing.
 
-6. Minimize Complexity:
-  - Break tasks into their simplest form.
-  - Avoid duplications or unnecessary steps.
+4. **Assess Dependencies and Side Effects**:
+   - Identify any dependencies that may be impacted by the changes.
+   - Predict potential side effects on other modules or functionalities.
 
-7. Describe Code Locations by Patterns:
-  - Use descriptions of the code or functions involved (e.g., "modify the `login` function in `accounts/views.py`").
-  - Assume access to tools that help locate the necessary code based on these descriptions.
+### Checklist Creation Guidelines
+1. **Understand Reviewer Comments**:
+   - Comprehend the requested changes based on the comments and diff hunk.
+   - Extract high-level objectives to address the feedback.
+   - If any details are unclear, use the `DetermineNextActionResponse` tool to seek clarification.
 
-8. Consider Broader Impacts:
-  - Remain aware of potential side effects on other parts of the codebase, like renaming a function that is used in multiple places, or changing a shared utility function.
-  - If a change might affect other modules or dependencies, include a task to address the refactor.
+2. **Break Down Tasks**:
+   - Decompose the resolution into specific, granular steps.
+   - Ensure each task is independent and actionable by other agents.
 
-9. Handle Edge Cases and Error Scenarios:
-  - Include tasks to address potential edge cases or error situations.
+3. **Organize Tasks Logically**:
+   - Begin with setup or preparation steps.
+   - Proceed with code modifications or additions.
+   - Conclude with finalization or cleanup tasks.
+   - Prioritize tasks based on dependencies and importance.
 
-10. Focus on Code Modifications:
-  - Only include non-coding tasks if explicitly requested in the issue.
+4. **Provide Clear Context**:
+   - Use full file paths and reference specific functions or code patterns.
+   - Include any necessary assumptions for additional context.
+   - Include all necessary data to the agent be able to execute the task as they wont have access to the diff hunk or comments.
 
-11. Call tools wisely to avoid wasting unnecessary iterations:
-  - You have limited iterations to create the checklist, avoid making calls that are not relevant for the task.
-  - File retrieval tool should only be used to retrieve files that are relevant for the task.
+5. **Minimize Complexity**:
+   - Simplify tasks to their most basic form.
+   - Avoid duplication and unnecessary steps.
 
-Present your final checklist using the available tool `determine_next_action`.
+6. **Describe Code Locations by Patterns**:
+   - Reference code or functions involved (e.g., "modify the `BACKEND_NAME` constant in `extra_toolkit/sendfile/nginx.py`").
+   - Assume access to tools that help locate code based on these descriptions.
 
-Now, please **proceed with your `<analysis>`** and then output your self-contained checklist using the `determine_next_action` tool.
+7. **Consider Broader Impacts**:
+   - Be aware of potential side effects on other parts of the codebase.
+   - Include tasks to address refactoring if changes affect multiple modules or dependencies.
+
+8. **Handle Edge Cases and Error Scenarios**:
+   - Incorporate tasks to manage potential edge cases or errors resulting from the changes.
+
+9. **Focus on Code Modifications**:
+   - Include non-coding tasks only if explicitly requested in the issue.
+
+#### **Constraints for Executing AI Agents**
+1. **File Management Limitations**:
+   - Agents cannot manage files like a code editor or run test suites.
+   - Avoid tasks such as "open file x", "save file y", or "run the test suite".
+
+2. **Self-Contained Checklist**:
+   - The checklist must be fully self-contained as agents do not have access to the actual diff hunk or comments.
+
+### **Output Requirements**
+- **Analysis**: Wrap your analysis within `<analysis>` tags.
+- **Checklist**: Present the final checklist using the `DetermineNextActionResponse` tool.
+
+---
+
+**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextActionResponse` tool.**
 """  # noqa: E501

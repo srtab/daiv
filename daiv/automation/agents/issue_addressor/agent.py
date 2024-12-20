@@ -67,6 +67,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.source_ref = source_ref
         self.issue_id = issue_id
         self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
+        self.codebase_index = CodebaseIndex(self.repo_client)
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -192,7 +193,9 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             issue_title=state["issue_title"],
             issue_description=state["issue_description"],
             project_description=self.repo_config.repository_description,
-            repository_structure=CodebaseIndex(self.repo_client).extract_tree(self.source_repo_id, self.source_ref),
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
+            tools=[tool.name for tool in tools],
+            recursion_limit=DEFAULT_RECURSION_LIMIT,
         )
 
         react_agent = REACTAgent(
@@ -261,7 +264,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             goal=state["goal"],
             plan_tasks=enumerate(state["plan_tasks"]),
             project_description=self.repo_config.repository_description,
-            repository_structure=CodebaseIndex(self.repo_client).extract_tree(self.source_repo_id, self.source_ref),
+            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
         )
 
         react_agent = REACTAgent(

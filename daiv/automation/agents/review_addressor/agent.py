@@ -155,6 +155,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             diff=state.get("diff"),
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
+            tools=[tool.name for tool in tools],
+            recursion_limit=DEFAULT_RECURSION_LIMIT,
         )
 
         react_agent = REACTAgent(

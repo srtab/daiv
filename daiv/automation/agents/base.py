@@ -132,7 +132,10 @@ class BaseAgent(ABC, Generic[T]):
 
         match self.get_model_provider():
             case ModelProvider.ANTHROPIC:
-                return 8192 if self.model_name.startswith(("claude-3-5-sonnet", "claude-3-5-haiku")) else 4096
+                # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
+                # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
+                # If needed, we can increase this value using the configurable field.
+                return 2048
 
             case ModelProvider.OPENAI:
                 _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
