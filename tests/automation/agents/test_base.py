@@ -54,7 +54,7 @@ class TestBaseAgent:
             assert kwargs["model"] == "claude-3-5-sonnet-20240229"
             assert kwargs["temperature"] == 0
             assert "anthropic-beta" in kwargs["model_kwargs"]["extra_headers"]
-            assert kwargs["max_tokens"] == "8192"
+            assert kwargs["max_tokens"] == "2048"
 
     def test_get_model_kwargs_openai(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
@@ -72,10 +72,10 @@ class TestBaseAgent:
             mock_provider.return_value = ModelProvider.ANTHROPIC
 
             agent = ConcreteAgent(model_name="claude-3-5-sonnet-20240229")
-            assert agent.get_max_token_value() == 8192
+            assert agent.get_max_token_value() == 2048
 
             agent = ConcreteAgent(model_name="claude-3-opus-20240229")
-            assert agent.get_max_token_value() == 4096
+            assert agent.get_max_token_value() == 2048
 
     def test_get_config(self):
         agent = ConcreteAgent(run_name="TestAgent")
