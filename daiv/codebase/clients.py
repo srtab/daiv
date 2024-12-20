@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError, GraphQL
+from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError
 
 from core.constants import BOT_NAME
 
@@ -206,7 +206,6 @@ class GitLabClient(RepoClient):
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
-        self.client_graphql = GraphQL(url=url, token=auth_token, timeout=10)
 
     @property
     def codebase_url(self) -> str:

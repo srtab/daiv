@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 description = "Developer assistant automating code issues, reviews, and pipeline fixes using AI Agents."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -31,19 +31,19 @@ dependencies = [
   "httpx==0.27.2",
   "ipython==8.30",
   "jinja2==3.1.4",
-  "langchain==0.3.11",
-  "langchain-anthropic==0.3",
-  "langchain-community==0.3.11",
-  "langchain-openai==0.2.12",
-  "langchain-text-splitters==0.3.2",
-  "langgraph==0.2.59",
+  "langchain==0.3.13",
+  "langchain-anthropic==0.3.1",
+  "langchain-community==0.3.13",
+  "langchain-openai==0.2.14",
+  "langchain-text-splitters==0.3.4",
+  "langgraph==0.2.60",
   "langgraph-checkpoint-postgres==2.0.8",
-  "langsmith==0.2.2",
+  "langsmith==0.2.4",
   "pgvector==0.3.6",
   "psycopg==3.2.3",
-  "pydantic==2.10.3",
+  "pydantic==2.10.4",
   "python-decouple==3.8",
-  "python-gitlab[graphql]==5.1",
+  "python-gitlab==5.2",
   "pyyaml==6.0.2",
   "redis==5.2.1",
   "sentry-sdk==2.19.2",
@@ -51,7 +51,7 @@ dependencies = [
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
   "unidiff==0.7.5",
-  "uvicorn==0.32.1",
+  "uvicorn==0.34",
 ]
 
 urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
@@ -64,13 +64,13 @@ dev = [
   "pre-commit==4.0.1",
   "pyopenssl==24.3",
   "pyproject-fmt==2.5",
-  "pytest-asyncio==0.24",
+  "pytest-asyncio==0.25",
   "pytest-cov==6",
   "pytest-django==4.9",
   "pytest-env==1.1.5",
   "pytest-mock==3.14",
   "pytest-xdist==3.6.1",
-  "ruff==0.8.2",
+  "ruff==0.8.4",
   "types-pyyaml==6.0.12.20240917",
   "watchfiles==1.0.3",
 ]

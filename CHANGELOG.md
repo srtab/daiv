@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.12] - 2024-12-20
+
 ### Fixed
 
 - Fixed `CodebaseSearchAgent` to avoid calling index update when no repo or ref is provided.
@@ -16,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed default `max_tokens=2048` for all `Anthropic` models to deacrese the changes of rate limiting. Only `SnippetReplacerAgent` left using a higher value.
 - Improved prompts for `ReviewAddressorAgent` and `IssueAddressorManager` to avoid excessive tool calls and optimize the agent behavior.
 - Changed `tool_choice` to `auto` on `REACTAgent` to improve reasoning capabilities of the agents.
+- Updated dependencies:
+  - `langchain` from 0.3.11 to 0.3.13
+  - `langchain-anthropic` from 0.3 to 0.3.1
+  - `langchain-community` from 0.3.11 to 0.3.13
+  - `langchain-openai` from 0.2.12 to 0.2.14
+  - `langchain-text-splitters` from 0.3.2 to 0.3.4
+  - `langgraph` from 0.2.59 to 0.2.60
+  - `langsmith` from 0.2.2 to 0.2.4
+  - `pydantic` from 2.10.3 to 2.10.4
+  - `pytest-asyncio` from 0.24 to 0.25
+  - `python-gitlab` from 5.1 to 5.2
+  - `uvicorn` from 0.32.1 to 0.34.0
+  - `ruff` from 0.8.2 to 0.8.4
 
 ### Removed
 
@@ -181,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.11...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.12...HEAD
+[0.1.0-alpha.12]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.11...v0.1.0-alpha.12
 [0.1.0-alpha.11]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.10...v0.1.0-alpha.11
 [0.1.0-alpha.10]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...v0.1.0-alpha.10
 [0.1.0-alpha.9]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.8...v0.1.0-alpha.9
