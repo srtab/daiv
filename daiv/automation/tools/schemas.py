@@ -27,20 +27,6 @@ class SearchCodeSnippetsInput(BaseModel):
     intent: str = Field(..., description=("A brief description of why you are searching for this code."))
 
 
-class ExploreRepositoryPathInput(BaseModel):
-    """
-    Obtain the tree of the repository from a given path.
-    """
-
-    path: str = Field(
-        ...,
-        description=(
-            "The path inside the repository to navigate. An empty string '' represents the root of the repository."
-        ),
-    )
-    intent: str = Field(..., description=("A description of why you're navigating to this path."))
-
-
 class RetrieveFileContentInput(BaseModel):
     """
     Get the content of a file from the repository.

@@ -90,82 +90,94 @@ issue_assessment_human = """Here is the issue you need to analyze:
 
 issue_addressor_system = """You are an AI agent acting as a senior software developer. Your task is to create a detailed, actionable task list for other AI agents to implement or fix reported issues in a software project.
 
+{% if project_description or repository_structure -%}
+### Project Context
 {% if project_description -%}
-First, here's a description of the software project context:
-<project_description>
-{{ project_description|e }}
-</project_description>
-
+**Description:**
+{{ project_description }}
 {% endif %}
+
 {% if repository_structure -%}
-Here's an overview of the project structure of directories and files on which you will work:
-<project_structure>
+**Structure:**
 {{ repository_structure }}
-</project_structure>
+{% endif %}
 
 {% endif %}
-### Instructions ###
-Before creating the checklist, analyze the issue throroughly. Wrap your analysis inside <analysis> tags, including the following steps:
+
+### Analysis Phase
+You have a strict limit of **{{ recursion_limit }} iterations** to complete this task. An iteration is defined as any call to a tool ({{ tools }}). Simply analyzing the provided information or generating text within your internal processing does *not* count as an iteration.
+
+To use your iterations efficiently:
+ - **Plan Ahead:** Before calling any tools, create a rough outline of your analysis and the likely steps required.
+ - **Batch Requests:** If possible, group related file retrieval or search requests into a single call.
+ - **Prioritize Information:** Focus on retrieving only the information absolutely necessary for the task. Avoid unnecessary file retrievals.
+ - **Analyze Before Acting:** Thoroughly analyze the information you already have before resorting to further tool calls.
+
+Exceeding the iteration limit will result in the task being terminated without a complete checklist. Therefore, careful planning and efficient tool usage are essential.
+
+Before creating the checklist, wrap your analysis inside `<analysis>` tags. Within your analysis, explicitly state which tools you plan to use and why, demonstrating your strategy for staying within the iteration limit. For example: `<analysis>I will first retrieve the file 'src/accounts/models.py' to understand the user model. This will be my first iteration.</analysis>`
+
+Within your analysis, include the following steps:
 1. Summarize the issue in your own words.
 2. List the high-level objectives required to resolve the issue.
 3. Identify key components or modules that might be affected.
 4. Consider potential challenges or roadblocks.
 5. Outline a general approach for resolving the issue.
 
-Important notes about the AI agents that will execute your checklist:
-1. The AI agents executing your task list cannot manage files like a code editor or run test suites;
-2. Avoid tasks like "open file x", "save file y", or "run the test suite";
-3. Do not ask the executing agents to inspect, locate, search, or explore the code or directory structure, you must do this yourself first.
-
-When creating your checklist, follow these guidelines:
+### Checklist Creation Guidelines
 1. Understand the issue:
-  - Comprehend the problem or feature request from the title and description.
-  - Identify the high-level objectives required to resolve the issue.
-  - If any information is unclear, vague or missing, use the `determine_next_action` tool to ask for clarifications.
+    - Comprehend the problem or feature request from the title and description.
+    - Identify the high-level objectives required to resolve the issue.
+    - If any information is unclear, vague or missing, use the `DetermineNextActionResponse` tool to ask for clarifications.
 
-2. Break Down the Tasks:
-  - Decompose the resolution process into specific, granular steps.
-  - Ensure each task is independent and actionable by other agents.
+2. **Break Down Tasks**:
+   - Decompose the resolution into specific, granular steps.
+   - Ensure each task is independent and actionable by other agents.
 
-3. Organize Tasks Logically:
-  - Start with any necessary setup or preparation steps.
-  - Progress through the required code modifications or additions.
-  - Conclude with any finalization or cleanup tasks.
-  - Prioritize tasks based on dependencies and importance.
+3. **Organize Tasks Logically**:
+   - Begin with setup or preparation steps.
+   - Proceed with code modifications or additions.
+   - Conclude with finalization or cleanup tasks.
+   - Prioritize tasks based on dependencies and importance.
 
-4. Provide Clear Context:
-  - Use file paths, function names, or code patterns to describe changes.
-  - Reference specific parts of the codebase by locations or identifiers.
-  - Include any assumptions made for additional context.
+4. **Provide Clear Context**:
+   - Use full file paths and reference specific functions or code patterns.
+   - Include any necessary assumptions for additional context.
+   - Include all necessary data to the agent be able to execute the task as they wont have access to the diff hunk or comments.
 
-5. Use Full File Paths:
-  - Always specify complete file paths (e.g., src/utils/helpers.js).
+5. **Minimize Complexity**:
+   - Simplify tasks to their most basic form.
+   - Avoid duplication and unnecessary steps.
 
-6. Minimize Complexity:
-  - Break tasks into their simplest form.
-  - Avoid duplications or unnecessary steps.
+6. **Describe Code Locations by Patterns**:
+   - Reference code or functions involved (e.g., "modify the `BACKEND_NAME` constant in `extra_toolkit/sendfile/nginx.py`").
+   - Assume access to tools that help locate code based on these descriptions.
 
-7. Describe Code Locations by Patterns:
-  - Use descriptions of the code or functions involved (e.g., "modify the `login` function in `accounts/views.py`").
-  - Assume access to tools that help locate the necessary code based on these descriptions.
+7. **Consider Broader Impacts**:
+   - Be aware of potential side effects on other parts of the codebase.
+   - Include tasks to address refactoring if changes affect multiple modules or dependencies.
 
-8. Consider Broader Impacts:
-  - Remain aware of potential side effects on other parts of the codebase, like renaming a function that is used in multiple places, or changing a shared utility function.
-  - If a change might affect other modules or dependencies, include a task to address the refactor.
+8. **Handle Edge Cases and Error Scenarios**:
+   - Incorporate tasks to manage potential edge cases or errors resulting from the changes.
 
-9. Handle Edge Cases and Error Scenarios:
-  - Include tasks to address potential edge cases or error situations.
+9. **Focus on Code Modifications**:
+   - Include non-coding tasks only if explicitly requested in the issue.
 
-10. Focus on Code Modifications:
-  - Only include non-coding tasks if explicitly requested in the issue.
+#### **Constraints for Executing AI Agents**
+1. **File Management Limitations**:
+   - Agents cannot manage files like a code editor or run test suites.
+   - Avoid tasks such as "open file x", "save file y", or "run the test suite".
 
-11. Call tools wisely to avoid wasting unnecessary iterations:
-  - You have limited iterations to create the checklist, avoid making calls that are not relevant for the task.
-  - File retrieval tool should only be used to retrieve files that are relevant for the task.
+2. **Self-Contained Checklist**:
+   - The checklist must be fully self-contained as agents do not have access to the actual title and description of the issue.
 
-Present your final checklist using the available tool `determine_next_action`.
+### **Output Requirements**
+- **Analysis**: Wrap your analysis within `<analysis>` tags.
+- **Checklist**: Present the final checklist using the `DetermineNextActionResponse` tool.
 
-Now, please **proceed with your `<analysis>`** and then output your self-contained checklist using the `determine_next_action` tool.
+---
+
+**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextActionResponse` tool.**
 """  # noqa: E501
 
 issue_addressor_human = """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:

@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Literal, cast
 
 from anthropic import InternalServerError as AnthropicInternalServerError
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -22,8 +22,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agents")
-
-LIMIT_CONSECUTIVE_TOOL_CALLS = 5
 
 
 class StructuredAgentState(AgentState):
@@ -99,7 +97,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         """
         tools_kwargs = {}
         if self.with_structured_output:
-            tools_kwargs = {"tool_choice": "any"}
+            tools_kwargs = {"tool_choice": "auto"}
 
         llm_with_tools = self.model.bind_tools(self.tool_classes, **tools_kwargs)
 
@@ -181,28 +179,3 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         elif not last_message.tool_calls:
             return "end"
         return "continue"
-
-
-def check_consecutive_tool_calls(messages: list[AnyMessage], tool_name: str) -> int:
-    """
-    Calculate the total number of consecutive messages with tool_calls for the same tool.
-
-    Args:
-        messages (list[AnyMessage]): The list of messages.
-        tool_name (str): The name of the tool.
-
-    Returns:
-        int: The total number of consecutive messages with tool_calls for the same tool.
-    """
-    consecutive_tool_calls = 0
-    for i in range(len(messages) - 1, -1, -2):
-        message = messages[i]
-        if isinstance(message, AIMessage) and message.tool_calls and message.tool_calls[0]["name"] == tool_name:
-            consecutive_tool_calls += 1
-        else:
-            break
-
-    if consecutive_tool_calls > 0:
-        logger.debug("[ReAcT] Consecutive tool calls for %s: %d", tool_name, consecutive_tool_calls)
-
-    return consecutive_tool_calls

@@ -96,3 +96,12 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             SystemMessage(system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
             HumanMessagePromptTemplate.from_template(human),
         ])
+
+    def get_max_token_value(self) -> int:
+        """
+        Get the maximum token value for the model to increase the chances of modal usage on replacement.
+
+        Returns:
+            int: The maximum token value
+        """
+        return 8192

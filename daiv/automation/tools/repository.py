@@ -4,7 +4,6 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING
 
-from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -17,7 +16,6 @@ from codebase.indexes import CodebaseIndex
 from .schemas import (
     CreateNewRepositoryFileInput,
     DeleteRepositoryFileInput,
-    ExploreRepositoryPathInput,
     RenameRepositoryFileInput,
     ReplaceSnippetInFileInput,
     RetrieveFileContentInput,
@@ -128,45 +126,6 @@ class BaseRepositoryTool(BaseTool):
             return stored_item.value["data"].content
 
         return self.api_wrapper.get_repository_file(self.source_repo_id, file_path, self.source_ref)
-
-
-class ExploreRepositoryPathTool(BaseRepositoryTool):
-    name: str = EXPLORE_REPOSITORY_PATH_NAME
-    description: str = textwrap.dedent(
-        """\
-        Navigate through directories in the repository to find files or folders.
-        Use when you don't know the exact file path and need to explore to find it.
-        Don't use it to find definitions of classes, functions, or methods... For that, use instead '{search_code_snippets_name}'.
-        The returned value will include a list of files and directories found in the provided path.
-        The result of calling this tool does not provide file contents; use '{retrieve_file_content_name}' or '{search_code_snippets_name}' for that purpose.
-        """  # noqa: E501
-    ).format(search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME, retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
-
-    args_schema: type[BaseModel] = ExploreRepositoryPathInput
-
-    def _run(self, path: str, intent: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
-        """
-        Gets the files and directories in a repository.
-
-        Args:
-            path: The path to search in.
-
-        Returns:
-            The files and directories in the repository.
-        """
-        logger.debug("[%s] Getting files and directories in '%s' (intent: %s)", self.name, path, intent)
-
-        template = textwrap.dedent(
-            """\
-            Repository files and directories found in `{{ path }}`:
-            {% for item in tree %}
-             - `{{ item }}`; {% endfor %}
-            """
-        )
-        # Add support the include on the tree file changes form the store.
-        if tree := self.api_wrapper.get_repository_tree(self.source_repo_id, self.source_ref, path=path):
-            return jinja2_formatter(template, path=path, tree=tree)
-        return f"No files/directories found in {path}."
 
 
 class RetrieveFileContentTool(BaseRepositoryTool):

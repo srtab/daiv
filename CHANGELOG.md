@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Fixed `CodebaseSearchAgent` to avoid calling index update when no repo or ref is provided.
+
+### Changed
+
+- Changed default `max_tokens=2048` for all `Anthropic` models to deacrese the changes of rate limiting. Only `SnippetReplacerAgent` left using a higher value.
+- Improved prompts for `ReviewAddressorAgent` and `IssueAddressorManager` to avoid excessive tool calls and optimize the agent behavior.
+- Changed `tool_choice` to `auto` on `REACTAgent` to improve reasoning capabilities of the agents.
+
+### Removed
+
+- Removed `check_consecutive_tool_calls` from `REACTAgent` as it's no longer used.
+- Removed `ExploreRepositoryPathTool` as it's no longer used.
+
 ## [0.1.0-alpha.11] - 2024-12-18
 
 ### Removed

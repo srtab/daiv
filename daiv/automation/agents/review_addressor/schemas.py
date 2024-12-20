@@ -3,8 +3,6 @@ from pydantic import BaseModel, Field
 from automation.agents.schemas import AskForClarification
 from automation.agents.schemas import Plan as BasePlan
 
-DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
-
 
 class RespondReviewerResponse(BaseModel):
     """
