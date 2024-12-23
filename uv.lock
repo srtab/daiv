@@ -415,7 +415,7 @@ wheels = [
 
 [[package]]
 name = "daiv"
-version = "0.1.0a12"
+version = "0.1.0a13"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
@@ -509,7 +509,7 @@ requires-dist = [
     { name = "tree-sitter", specifier = "==0.21.3" },
     { name = "tree-sitter-languages", specifier = "==1.10.2" },
     { name = "unidiff", specifier = "==0.7.5" },
-    { name = "uvicorn", specifier = "==0.34.0" },
+    { name = "uvicorn", specifier = "==0.34" },
 ]
 
 [package.metadata.requires-dev]
