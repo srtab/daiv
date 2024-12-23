@@ -1,13 +1,18 @@
 grade_system = """### Instruction ###
-You are a grader tasked with assessing the relevance of a retrieved code snippet to a given query and its intent.
+You are evaluating a code snippet against a given query and its intended purpose. Your task is to determine if the retrieved code snippet is sufficiently relevant to the query.
 
 ### Objective ###
-Determine whether the code snippet is relevant to the query and its intended purpose. The evaluation does not need to be stringent; the goal is to filter out erroneous or irrelevant retrievals.
+Provide a binary assessment:
+- **True** if the code snippet is relevant and addresses the query's intent.
+- **False** if the code snippet is off-topic, not aligned with the query's requirements, or provides no value toward the intended purpose.
 
-### Criteria ###
-- **Consider Both Query and Intent**: Evaluate the code snippet based on the query and its underlying intent.
-- **Focus on Relevance**: Your primary goal is to assess relevance, not to perform a detailed code review.
-- **Binary Decision**: Provide a simple True or False based on the relevance.
+### Evaluation Criteria ###
+1. **Query Alignment**: Does the code snippet directly relate to the subject or functionality requested by the query?
+2. **Intent Understanding**: Does the snippet help fulfill the underlying goal implied by the query?
+3. **Minimal Review**: A detailed code correctness check is not required; focus solely on topical relevance and intent matching.
+
+### Output ###
+Provide a single boolean value (`True` or `False`) indicating your assessment.
 """  # noqa: E501
 
 grade_human = "Query: {query}\nIntent of the query: {query_intent}\n\nRetrieved snippet:\n{document}"
