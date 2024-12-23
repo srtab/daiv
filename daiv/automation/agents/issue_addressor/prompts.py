@@ -103,7 +103,6 @@ issue_addressor_system = """You are an AI agent acting as a senior software deve
 {% endif %}
 
 {% endif %}
-
 ### Analysis Phase
 You have a strict limit of **{{ recursion_limit }} iterations** to complete this task. An iteration is defined as any call to a tool ({{ tools }}). Simply analyzing the provided information or generating text within your internal processing does *not* count as an iteration.
 
