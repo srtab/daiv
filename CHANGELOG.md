@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.13] - 2024-12-23
+
 ### Changed
 
 - Improved prompts for `CodebaseQAAgent` to improve the quality of the answers.
@@ -206,7 +208,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.12...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.13...HEAD
+[0.1.0-alpha.13]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.12...v0.1.0-alpha.13
 [0.1.0-alpha.12]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.11...v0.1.0-alpha.12
 [0.1.0-alpha.11]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.10...v0.1.0-alpha.11
 [0.1.0-alpha.10]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.9...v0.1.0-alpha.10
