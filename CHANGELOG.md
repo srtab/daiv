@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Improved prompts for `CodebaseQAAgent` to improve the quality of the answers.
+- Improved prompts for `CodebaseSearchAgent` to improve the effectiveness of the search.
+- Improved prompts of plan execution to focus the agent more on the execution of the plan and less on planning.
+
+### Fixed
+
+- Fixed `SnippetReplacerAgent` prompt to minimize placeholders like "The rest of the code here".
+
 ## [0.1.0-alpha.12] - 2024-12-20
 
 ### Fixed
