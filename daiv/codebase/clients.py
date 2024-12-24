@@ -189,9 +189,9 @@ class RepoClient(abc.ABC):
         Returns:
             The repository client instance.
         """
-        if settings.CODEBASE_CLIENT == ClientType.GITLAB:
-            return GitLabClient(auth_token=settings.CODEBASE_GITLAB_AUTH_TOKEN, url=settings.CODEBASE_GITLAB_URL)
-        if settings.CODEBASE_CLIENT == ClientType.GITHUB:
+        if settings.CLIENT == ClientType.GITLAB:
+            return GitLabClient(auth_token=settings.GITLAB_AUTH_TOKEN, url=str(settings.GITLAB_URL))
+        if settings.CLIENT == ClientType.GITHUB:
             raise NotImplementedError("GitHub client is not implemented yet")
         raise ValueError("Invalid repository client configuration")
 

@@ -2,4 +2,4 @@
 
 set -eu pipefail
 
-exec celery -A daiv worker -l INFO -c 1 --beat --scheduler django
+celery -A daiv worker -l INFO -c 1

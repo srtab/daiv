@@ -13,7 +13,7 @@ SITE_ID = 1
 
 LOCAL_APPS = ["accounts", "codebase", "core"]
 
-THIRD_PARTY_APPS = ["django_celery_beat", "django_extensions"]
+THIRD_PARTY_APPS = ["django_extensions"]
 
 DJANGO_APPS = [
     "django.contrib.auth",

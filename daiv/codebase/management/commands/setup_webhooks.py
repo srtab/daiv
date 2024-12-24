@@ -22,7 +22,7 @@ class Command(BaseCommand):
         for project in repo_client.list_repositories(load_all=True):
             repo_client.set_repository_webhooks(
                 project.slug,
-                f"{options['base_url']}/api/codebase/callbacks/{settings.CODEBASE_CLIENT}/",
+                f"{options['base_url']}/api/codebase/callbacks/{settings.CLIENT}/",
                 ["push_events", "issues_events", "note_events", "job_events"],
                 enable_ssl_verification=not options["disable_ssl_verification"],
             )

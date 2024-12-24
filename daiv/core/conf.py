@@ -1,20 +1,13 @@
-from django.conf import settings  # NOQA
-from decouple import config
-from get_docker_secret import get_docker_secret
-
-from appconf import AppConf
+from pydantic import Field, HttpUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class CoreAppConf(AppConf):
-    """
-    Core configurations.
-    https://django-appconf.readthedocs.io/en/latest/
-    """
+class CoreSettings(BaseSettings):
+    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="DAIV_")
 
-    SANDBOX_URL = config("DAIV_SANDBOX_URL", default="http://sandbox:8000")
-    SANDBOX_TIMEOUT = 600.0  # 10 minutes (in seconds)
-    SANDBOX_API_KEY = get_docker_secret("DAIV_SANDBOX_API_KEY")
+    SANDBOX_URL: HttpUrl = Field(default="http://sandbox:8000", description="URL of the sandbox service")
+    SANDBOX_TIMEOUT: float = Field(default=600, description="Timeout for sandbox requests in seconds")
+    SANDBOX_API_KEY: str = Field(default="", description="API key for sandbox requests")
 
-    class Meta:
-        proxy = True
-        prefix = "DAIV"
+
+settings = CoreSettings()  # type: ignore
