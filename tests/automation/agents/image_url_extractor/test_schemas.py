@@ -35,10 +35,11 @@ class TestImageTemplate:
         mock_build_uri.return_value = "http://gitlab.com/api/v4/projects/1/image.png"
         mock_url_to_data_url.return_value = "data:image/png;base64,..."
         images = [Image(url="uploads/image.png", filename="image.png")]
-        settings.CODEBASE_GITLAB_URL = "http://gitlab.com"
-        settings.CODEBASE_GITLAB_AUTH_TOKEN = "token123"  # noqa: S105
+        with patch("automation.agents.image_url_extractor.schemas.settings", autospec=True) as mock_settings:
+            mock_settings.GITLAB_URL = "http://gitlab.com"
+            mock_settings.GITLAB_AUTH_TOKEN = "token123"  # noqa: S105
 
-        result = ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB, project_id=1)
+            result = ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB, project_id=1)
 
         assert len(result) == 1
         assert result[0]["image_url"]["url"] == "data:image/png;base64,..."

@@ -1,21 +1,17 @@
-from django.conf import settings  # NOQA
-from decouple import config
-from get_docker_secret import get_docker_secret
+from typing import Literal
 
-from appconf import AppConf
+from pydantic import Field, HttpUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class CodebaseAppConf(AppConf):
-    """
-    Codebase pecific configurations.
-    https://django-appconf.readthedocs.io/en/latest/
-    """
+class CodebaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_")
 
-    CLIENT = config("CODEBASE_CLIENT", default="gitlab")
+    CLIENT: Literal["gitlab"] = Field(default="gitlab", description="Client to use for codebase operations")
 
-    GITLAB_URL = config("GITLAB_URL", default=None)
-    GITLAB_AUTH_TOKEN = get_docker_secret("GITLAB_AUTH_TOKEN")
+    # GitLab
+    GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")
+    GITLAB_AUTH_TOKEN: str | None = Field(default=None, description="Authentication token for GitLab")
 
-    class Meta:
-        proxy = True
-        prefix = "CODEBASE"
+
+settings = CodebaseSettings()  # type: ignore
