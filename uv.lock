@@ -406,7 +406,7 @@ wheels = [
 
 [[package]]
 name = "daiv"
-version = "0.1.0a13"
+version = "0.1.0a14"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
@@ -488,7 +488,7 @@ requires-dist = [
     { name = "pgvector", specifier = "==0.3.6" },
     { name = "psycopg", specifier = "==3.2.3" },
     { name = "pydantic", specifier = "==2.10.4" },
-    { name = "pydantic-settings", specifier = "==2.7.0" },
+    { name = "pydantic-settings", specifier = "==2.7" },
     { name = "python-decouple", specifier = "==3.8" },
     { name = "python-gitlab", specifier = "==5.2" },
     { name = "pyyaml", specifier = "==6.0.2" },
