@@ -53,7 +53,7 @@ class ImageTemplate(BaseModel):
                 and project_id
                 and parsed_url.path.startswith("uploads/")
             ):
-                _repo_image_url = build_uri(f"{settings.GITLAB_URL}/api/v4/projects/{project_id}/", image.url)
+                _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
                 image_url = url_to_data_url(_repo_image_url, headers={"PRIVATE-TOKEN": settings.GITLAB_AUTH_TOKEN})
 
             if image_url:

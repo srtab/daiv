@@ -72,7 +72,7 @@ class RunSandboxCommandsTool(BaseTool):
             workdir = first_level_folders.pop()
 
             response = httpx.post(
-                f"{settings.DAIV_SANDBOX_URL}/run/commands/",
+                f"{settings.SANDBOX_URL}run/commands/",
                 json={
                     "run_id": str(uuid.uuid4()),
                     "base_image": RepositoryConfig.get_config(self.source_repo_id).commands.base_image,
@@ -80,8 +80,8 @@ class RunSandboxCommandsTool(BaseTool):
                     "workdir": workdir,
                     "archive": base64.b64encode(tarstream.getvalue()).decode(),
                 },
-                headers={"X-API-KEY": settings.DAIV_SANDBOX_API_KEY},
-                timeout=settings.DAIV_SANDBOX_TIMEOUT,
+                headers={"X-API-KEY": settings.SANDBOX_API_KEY},
+                timeout=settings.SANDBOX_TIMEOUT,
             )
 
         response.raise_for_status()
@@ -153,10 +153,10 @@ class RunSandboxCodeTool(BaseTool):
         )
 
         response = httpx.post(
-            f"{settings.DAIV_SANDBOX_URL}/run/code/",
+            f"{settings.SANDBOX_URL}run/code/",
             json={"run_id": str(uuid.uuid4()), "code": python_code, "dependencies": dependencies, "language": "python"},
-            headers={"X-API-KEY": settings.DAIV_SANDBOX_API_KEY},
-            timeout=settings.DAIV_SANDBOX_TIMEOUT,
+            headers={"X-API-KEY": settings.SANDBOX_API_KEY},
+            timeout=settings.SANDBOX_TIMEOUT,
         )
 
         response.raise_for_status()
