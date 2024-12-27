@@ -1,6 +1,8 @@
 import re
 from collections.abc import Iterable
 
+from django.conf import settings
+
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -13,7 +15,6 @@ from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from codebase.base import ClientType, FileChange, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
-from core.conf import settings
 from core.constants import BOT_NAME
 
 MAX_RETRY_ITERATIONS = 10

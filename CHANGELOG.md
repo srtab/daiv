@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `SNIPPET_REPLACER_STRATEGY` and `SNIPPET_REPLACER_MODEL` to `SnippetReplacerAgent` to allow configuring the strategy and the model to be used.
+
+### Changed
+
+- Migrated from `django-appconf` to `pydantic-settings` for configuration management.
+
+### Fixed
+
+- Fixed path to `sandbox` docker service volume for local development.
+
+### Chore
+
+- Removed `django_celery_beat` from the project, as it's not used.
+- Updated dependencies:
+  - `duckduckgo-search` from 6.3.7 to 7.0.3.
+
 ## [0.1.0-alpha.13] - 2024-12-23
 
 ### Changed
