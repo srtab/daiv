@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from venv import logger
 
 from django.conf import settings
 
@@ -14,10 +15,9 @@ from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from codebase.base import ClientType, FileChange, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
+from codebase.conf import settings as core_settings
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
-
-MAX_RETRY_ITERATIONS = 10
 
 
 class PipelineFixerManager(BaseManager):
@@ -79,6 +79,7 @@ class PipelineFixerManager(BaseManager):
                 iteration=current_state.values.get("iteration", 0),
                 previous_log_trace=current_state.values.get("log_trace", None),
                 new_log_trace=log_trace,
+                job_name=job_name,
             ):
                 input_data["iteration"] = current_state.values.get("iteration", 0)
 
@@ -88,7 +89,7 @@ class PipelineFixerManager(BaseManager):
             if file_changes := pipeline_fixer.get_files_to_commit():
                 self._commit_changes(file_changes=file_changes)
 
-            elif result and result["root_cause"] and result["actions"]:
+            elif result and result["root_cause"] and result.get("actions"):
                 self.client.comment_merge_request(
                     self.repo_id,
                     merge_request_id,
@@ -101,7 +102,7 @@ class PipelineFixerManager(BaseManager):
                     ),
                 )
 
-    def _should_retry_fix(self, *, iteration: int, previous_log_trace: str | None, new_log_trace: str):
+    def _should_retry_fix(self, *, iteration: int, previous_log_trace: str | None, new_log_trace: str, job_name: str):
         """
         Check if the fix should be retried.
 
@@ -112,11 +113,15 @@ class PipelineFixerManager(BaseManager):
             iteration: The iteration
             previous_log_trace: The previous log trace
             new_log_trace: The new log trace
+            job_name: The job name
 
         Returns:
             Whether the fix should be retried
         """
-        if iteration >= MAX_RETRY_ITERATIONS:
+        if iteration >= core_settings.PIPELINE_FIXER_MAX_RETRY:
+            logger.warning(
+                "Max retry iterations reached for pipeline fix on %s[%s] for job %s", self.repo_id, self.ref, job_name
+            )
             return False
 
         if previous_log_trace is None:
@@ -130,7 +135,16 @@ class PipelineFixerManager(BaseManager):
             RunnableConfig(configurable={"thread_id": self.thread_id}),
         )
 
-        return not result.is_same_error
+        if result.is_same_error:
+            logger.warning(
+                "Not applying pipeline fix on %s[%s] for job %s because it's the same error as the previous one",
+                self.repo_id,
+                self.ref,
+                job_name,
+            )
+            return False
+
+        return True
 
     def _clean_logs(self, log: str):
         """
