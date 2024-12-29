@@ -4,7 +4,8 @@ import pytest
 
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient
-from codebase.managers.pipeline_fixer import MAX_RETRY_ITERATIONS, PipelineFixerManager
+from codebase.conf import settings
+from codebase.managers.pipeline_fixer import PipelineFixerManager
 
 
 @pytest.fixture
@@ -14,11 +15,16 @@ def pipeline_fixer() -> PipelineFixerManager:
     return PipelineFixerManager(client, repo_id="test-repo", ref="main", thread_id="test-thread")
 
 
-@pytest.mark.parametrize("iteration,expected", [(MAX_RETRY_ITERATIONS, False), (MAX_RETRY_ITERATIONS + 1, False)])
+@pytest.mark.parametrize(
+    "iteration,expected", [(settings.PIPELINE_FIXER_MAX_RETRY, False), (settings.PIPELINE_FIXER_MAX_RETRY + 1, False)]
+)
 def test_should_retry_fix_max_iterations(pipeline_fixer: PipelineFixerManager, iteration, expected):
     """Test that _should_retry_fix returns False when max iterations are reached."""
     result = pipeline_fixer._should_retry_fix(
-        iteration=iteration, previous_log_trace="error: test failed", new_log_trace="error: test failed again"
+        iteration=iteration,
+        previous_log_trace="error: test failed",
+        new_log_trace="error: test failed again",
+        job_name="test-job",
     )
     assert result == expected
 
@@ -32,7 +38,7 @@ def test_should_retry_fix_same_error(mock_error_evaluator, pipeline_fixer: Pipel
     mock_error_evaluator.return_value.agent = mock_agent
 
     result = pipeline_fixer._should_retry_fix(
-        iteration=1, previous_log_trace="error: test failed", new_log_trace="error: test failed"
+        iteration=1, previous_log_trace="error: test failed", new_log_trace="error: test failed", job_name="test-job"
     )
 
     assert result is False
@@ -48,7 +54,10 @@ def test_should_retry_fix_different_error(mock_error_evaluator, pipeline_fixer: 
     mock_error_evaluator.return_value.agent = mock_agent
 
     result = pipeline_fixer._should_retry_fix(
-        iteration=1, previous_log_trace="error: test failed", new_log_trace="error: different failure"
+        iteration=1,
+        previous_log_trace="error: test failed",
+        new_log_trace="error: different failure",
+        job_name="test-job",
     )
 
     assert result is True
