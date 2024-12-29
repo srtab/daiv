@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `PIPELINE_FIXER_MAX_RETRY` to the `codebase.conf` module to allow configuring the maximum number of retry iterations for the pipeline fixer.
+
+### Changed
+
+- Improved logging on `PipelineFixerAgent` to clarify why a pipeline fix is not being applied.
+
+### Fixed
+
+- Fixed access to optional parameter `actions` on `result` after `PipelineFixerAgent` has been invoked.
+
 ## [0.1.0-alpha.14] - 2024-12-27
 
 ### Added
