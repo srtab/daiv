@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed access to optional parameter `actions` on `result` after `PipelineFixerAgent` has been invoked.
 
+### Chore
+
+- Updated dependencies:
+  - `duckduckgo-search` from 7.0.2 to 7.1.1
+  - `ipython` from 8.30 to 8.31
+  - `jinja2` from 3.1.4 to 3.1.5
+  - `langgraph-checkpoint-postgres` from 2.0.8 to 2.0.9
+  - `langsmith` from 0.2.4 to 0.2.6
+  - `python-gitlab` from 5.2 to 5.3
+  - `coverage` from 7.6.9 to 7.6.10
+  - `mypy` from 1.13 to 1.14
+  - `types-pyyaml` from 6.0.12.20240917 to 6.0.12.20241221
+
 ## [0.1.0-alpha.14] - 2024-12-27
 
 ### Added
