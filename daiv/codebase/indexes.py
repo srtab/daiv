@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 from django.db import transaction
 from django.db.models import Q
 
+from gitlab import GitlabGetError
 from langchain.retrievers import EnsembleRetriever
 
 from codebase.document_loaders import GenericLanguageLoader
@@ -61,7 +62,16 @@ class CodebaseIndex(abc.ABC):
         repository = self.repo_client.get_repository(repo_id)
         repo_config = RepositoryConfig.get_config(repo_id, repository)
         ref = cast("str", ref or repo_config.default_branch)
-        repo_head_sha = self.repo_client.get_repo_head_sha(repo_id, branch=ref)
+
+        try:
+            repo_head_sha = self.repo_client.get_repo_head_sha(repo_id, branch=ref)
+        except GitlabGetError as e:
+            # If the branch is not found, it means that the branch has been deleted in the meantime,
+            # so we skip the index update.
+            if e.response_code == 404:
+                logger.warning("Branch '%s' for repo '%s' not found, skipping index update.", ref, repo_id)
+                return
+            raise
 
         namespace, created = CodebaseNamespace.objects.get_or_create_from_repository(
             repository, tracking_ref=ref, head_sha=repo_head_sha
