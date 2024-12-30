@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improved `ReviewAddressorManager` to commit the file changes after all discussions are resolved, avoiding multiple pipelines being created between discussions resolution.
 
+### Fixed
+
+- Fixed index updates to branches that don't exist anymore, like when a branch is marked to delete after a merge request is merged: #153.
+
 ## [0.1.0-alpha.15] - 2024-12-30
 
 ### Added
