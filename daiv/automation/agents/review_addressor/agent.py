@@ -46,6 +46,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         source_ref: str,
         merge_request_id: int,
         discussion_id: str,
+        file_changes: list[FileChange] | None = None,
         **kwargs,
     ):
         self.repo_client = repo_client
@@ -55,6 +56,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         self.discussion_id = discussion_id
         self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
         self.codebase_index = CodebaseIndex(self.repo_client)
+        self.file_changes = file_changes or []
         super().__init__(**kwargs)
 
     def get_config(self) -> RunnableConfig:
@@ -99,6 +101,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_conditional_edges("plan", self.continue_executing)
 
         in_memory_store = InMemoryStore()
+
+        for file_change in self.file_changes:
+            in_memory_store.put(
+                ("file_changes", self.source_repo_id, self.source_ref), file_change.file_path, {"data": file_change}
+            )
 
         return workflow.compile(
             checkpointer=self.checkpointer, interrupt_before=["human_feedback"], store=in_memory_store
