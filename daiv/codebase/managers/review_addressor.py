@@ -159,6 +159,16 @@ class ReviewAddressorManager(BaseManager):
         manager._process_review()
 
     def _process_review(self):
+        """
+        Process code review discussions for merge request.
+
+        If the discussion is resolved, it will save the file changes to be committed later.
+        Each iteration of dicussions resolution will be processed with the changes from the previous iterations,
+        ensuring that the file changes are processed correctly.
+        """
+        file_changes: list[FileChange] = []
+        processed_discussions: list[str] = []
+
         merge_request_patches = self._extract_merge_request_diffs(self.merge_request_id)
         for context in self._process_discussions(self.merge_request_id, merge_request_patches):
             thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
@@ -173,6 +183,7 @@ class ReviewAddressorManager(BaseManager):
                     merge_request_id=self.merge_request_id,
                     discussion_id=context.discussion.id,
                     checkpointer=checkpointer,
+                    file_changes=file_changes,
                 )
                 reviewer_addressor_agent = reviewer_addressor.agent
 
@@ -210,16 +221,24 @@ class ReviewAddressorManager(BaseManager):
 
                 if not state_after_run.tasks:
                     if file_changes := reviewer_addressor.get_files_to_commit():
-                        self._commit_changes(
-                            merge_request_id=self.merge_request_id,
-                            discussion_id=context.discussion.id,
-                            file_changes=file_changes,
-                            thread_id=thread_id,
-                        )
-                    else:
-                        self.client.resolve_merge_request_discussion(
-                            self.repo_id, self.merge_request_id, context.discussion.id
-                        )
+                        file_changes.extend(file_changes)
+
+                    processed_discussions.append(context.discussion.id)
+                    self.client.resolve_merge_request_discussion(
+                        self.repo_id, self.merge_request_id, context.discussion.id
+                    )
+
+        if file_changes:
+            self._commit_changes(
+                merge_request_id=self.merge_request_id,
+                discussion_id=context.discussion.id,
+                file_changes=file_changes,
+                thread_id=thread_id,
+            )
+
+        if processed_discussions:
+            for discussion_id in processed_discussions:
+                self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, discussion_id)
 
     def _extract_merge_request_diffs(self, merge_request_id: int):
         """
@@ -308,4 +327,3 @@ class ReviewAddressorManager(BaseManager):
             self.repo_id, merge_request_id, changes_description.description, discussion_id
         )
         self.client.commit_changes(self.repo_id, self.ref, changes_description.commit_message, file_changes)
-        self.client.resolve_merge_request_discussion(self.repo_id, merge_request_id, discussion_id)
