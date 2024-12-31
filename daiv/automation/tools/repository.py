@@ -242,7 +242,11 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
                 commit_messages=[commit_message],
             )
 
-        store.put(file_changes_namespace(self.source_repo_id, self.source_ref), file_path, {"data": file_change})
+        store.put(
+            file_changes_namespace(self.source_repo_id, self.source_ref),
+            file_path,
+            {"data": file_change, "action": file_change.action},
+        )
 
         return "success: Snippet replaced."
 
@@ -292,7 +296,8 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
                     file_path=file_path,
                     content=file_content,
                     commit_messages=[commit_message],
-                )
+                ),
+                "action": FileChangeAction.CREATE,
             },
         )
 
@@ -344,7 +349,8 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
                     file_path=new_file_path,
                     previous_path=file_path,
                     commit_messages=[commit_message],
-                )
+                ),
+                "action": FileChangeAction.MOVE,
             },
         )
 
@@ -392,7 +398,8 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
                 {
                     "data": FileChange(
                         action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
-                    )
+                    ),
+                    "action": FileChangeAction.DELETE,
                 },
             )
             return f"success: Deleted file {file_path}."

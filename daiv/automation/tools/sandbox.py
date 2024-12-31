@@ -106,17 +106,31 @@ class RunSandboxCommandsTool(BaseTool):
             with io.BytesIO(resp.archive) as archive, tarfile.open(fileobj=archive) as tar:
                 for member in tar.getmembers():
                     if member.isfile() and (extracted_file := tar.extractfile(member)):
-                        store.put(
-                            file_changes_namespace(self.source_repo_id, self.source_ref),
-                            member.name,
-                            {
-                                "data": FileChange(
-                                    file_path=member.name,
-                                    action=FileChangeAction.UPDATE,
-                                    content=extracted_file.read().decode(),
-                                )
-                            },
-                        )
+                        if existent_file_change := store.get(
+                            file_changes_namespace(self.source_repo_id, self.source_ref), member.name
+                        ):
+                            # Update the file content extracted from store.
+                            data: FileChange = existent_file_change.value["data"]
+                            data.content = extracted_file.read().decode()
+                            store.put(
+                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                member.name,
+                                {"data": data, "action": existent_file_change.value["action"]},
+                            )
+                        else:
+                            # Add the new file to the store.
+                            store.put(
+                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                member.name,
+                                {
+                                    "data": FileChange(
+                                        file_path=member.name,
+                                        action=FileChangeAction.UPDATE,
+                                        content=extracted_file.read().decode(),
+                                    ),
+                                    "action": FileChangeAction.UPDATE,
+                                },
+                            )
 
         return jinja2_formatter(
             textwrap.dedent(
@@ -177,20 +191,31 @@ class RunSandboxCommandsTool(BaseTool):
                         member.name.removeprefix(f"{workdir}/"),
                     ):
                         if file_change.value["data"].action == FileChangeAction.DELETE:
+                            logger.debug("[%s] Skipping deleted file in tar archive: %s", self.name, member.name)
                             continue
 
-                        updated_member = tarfile.TarInfo(name=member.name)
+                        if file_change.value["action"] == FileChangeAction.MOVE:
+                            logger.debug("[%s] Renaming file in tar archive: %s", self.name, member.name)
+                            updated_member = tarfile.TarInfo(name=f"{workdir}/{file_change.value['data'].file_path}")
+                        else:
+                            logger.debug("[%s] Updating file in tar archive: %s", self.name, member.name)
+                            updated_member = tarfile.TarInfo(name=member.name)
+
                         updated_member.size = len(file_change.value["data"].content)
                         new_tar.addfile(updated_member, io.BytesIO(file_change.value["data"].content.encode("utf-8")))
                     else:
                         new_tar.addfile(member, source_tar.extractfile(member))
 
+            # Add the new files to the tar archive as they are not in the original tar archive.
             for item in store.search(
                 file_changes_namespace(self.source_repo_id, self.source_ref),
                 filter={"action": FileChangeAction.CREATE},
                 limit=100,
             ):
-                new_member = tarfile.TarInfo(name=item.value["data"].file_path)
+                member_name = f"{workdir}/{item.value['data'].file_path}"
+                logger.debug("[%s] Adding file to tar archive: %s", self.name, member_name)
+
+                new_member = tarfile.TarInfo(name=member_name)
                 new_member.size = len(item.value["data"].content)
                 new_tar.addfile(new_member, io.BytesIO(item.value["data"].content.encode("utf-8")))
 

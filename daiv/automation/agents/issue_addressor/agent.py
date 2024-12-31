@@ -106,7 +106,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.add_edge(START, "assessment")
         workflow.add_edge("plan", "human_feedback")
-        workflow.add_edge("execute_plan", "apply_lint_fix")
+        workflow.add_conditional_edges(
+            "execute_plan",
+            self.determine_if_lint_fix_should_be_applied,
+            {"apply_lint_fix": "apply_lint_fix", "end": END},
+        )
         workflow.add_edge("apply_lint_fix", END)
 
         workflow.add_conditional_edges("assessment", self.continue_planning)
@@ -280,6 +284,26 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
+    def determine_if_lint_fix_should_be_applied(
+        self, state: OverallState, store: BaseStore
+    ) -> Literal["apply_lint_fix", "end"]:
+        """
+        Determine whether the lint fix should be applied after the plan has been executed.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+
+        Returns:
+            Literal["apply_lint_fix", "end"]: The next step in the workflow.
+        """
+        return (
+            "apply_lint_fix"
+            if self.repo_config.commands.enabled()
+            and store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1)
+            else "end"
+        )
+
     def apply_lint_fix(self, state: OverallState, store: BaseStore):
         """
         Apply lint fix to the file changes made by the agent.
@@ -288,10 +312,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
         """
-        if not store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1):
-            # If there's no file changes, we don't need to run the sandbox to fix linting issues.
-            return
-
         run_command_tool = RunSandboxCommandsTool(
             source_repo_id=self.source_repo_id, source_ref=self.source_ref, api_wrapper=self.repo_client
         )

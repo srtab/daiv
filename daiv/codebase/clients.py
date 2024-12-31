@@ -205,7 +205,9 @@ class GitLabClient(RepoClient):
     client_slug = ClientType.GITLAB
 
     def __init__(self, auth_token: str, url: str | None = None):
-        self.client = Gitlab(url=url, private_token=auth_token, timeout=10, keep_base_url=True)
+        self.client = Gitlab(
+            url=url, private_token=auth_token, timeout=10, keep_base_url=True, retry_transient_errors=True
+        )
 
     @property
     def codebase_url(self) -> str:

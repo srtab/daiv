@@ -84,7 +84,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.add_edge(START, "categorizer")
         workflow.add_conditional_edges("categorizer", self.determine_next_action)
-        workflow.add_edge("apply_unittest_fix", "apply_lint_fix")
+        workflow.add_conditional_edges(
+            "apply_unittest_fix",
+            self.determine_if_lint_fix_should_be_applied,
+            {"apply_lint_fix": "apply_lint_fix", "end": END},
+        )
         workflow.add_edge("apply_lint_fix", END)
         workflow.add_edge("respond", END)
 
@@ -177,6 +181,25 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             store=store,
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
+
+    def determine_if_lint_fix_should_be_applied(
+        self, state: OverallState, store: BaseStore
+    ) -> Literal["apply_lint_fix", "end"]:
+        """
+        Determine whether the lint fix should be applied after the unittest fix.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+
+        Returns:
+            Literal["apply_lint_fix", "end"]: The next step in the workflow.
+        """
+        if self.repo_config.commands.enabled() and store.search(
+            file_changes_namespace(self.source_repo_id, self.source_ref), limit=1
+        ):
+            return "apply_lint_fix"
+        return "end"
 
     def apply_lint_fix(self, state: OverallState, store: BaseStore):
         """
