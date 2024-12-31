@@ -18,6 +18,7 @@ from automation.agents.prompts import execute_plan_system
 from automation.constants import DEFAULT_RECURSION_LIMIT
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.utils import file_changes_namespace
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
@@ -83,7 +84,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.add_edge(START, "categorizer")
         workflow.add_conditional_edges("categorizer", self.determine_next_action)
-        workflow.add_edge("apply_unittest_fix", END)
+        workflow.add_edge("apply_unittest_fix", "apply_lint_fix")
         workflow.add_edge("apply_lint_fix", END)
         workflow.add_edge("respond", END)
 
@@ -240,5 +241,5 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             return []
         return [
             cast("FileChange", item.value["data"])
-            for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+            for item in self.agent.store.search(file_changes_namespace(self.source_repo_id, self.source_ref))
         ]

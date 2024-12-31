@@ -38,10 +38,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    try:
-        IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
-    except Exception:
-        logger.exception("Error addressing issue '%s[%s]:%d'.", repo_id, ref, issue_iid)
+    IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
 
 
 @shared_task

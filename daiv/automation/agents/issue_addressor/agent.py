@@ -22,7 +22,9 @@ from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
 from automation.constants import DEFAULT_RECURSION_LIMIT
+from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.utils import file_changes_namespace
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
@@ -100,10 +102,12 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_plan", self.execute_plan)
         workflow.add_node("human_feedback", self.human_feedback)
+        workflow.add_node("apply_lint_fix", self.apply_lint_fix)
 
         workflow.add_edge(START, "assessment")
         workflow.add_edge("plan", "human_feedback")
-        workflow.add_edge("execute_plan", END)
+        workflow.add_edge("execute_plan", "apply_lint_fix")
+        workflow.add_edge("apply_lint_fix", END)
 
         workflow.add_conditional_edges("assessment", self.continue_planning)
         workflow.add_conditional_edges("human_feedback", self.continue_executing)
@@ -276,6 +280,27 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
+    def apply_lint_fix(self, state: OverallState, store: BaseStore):
+        """
+        Apply lint fix to the file changes made by the agent.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+        """
+        if not store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1):
+            # If there's no file changes, we don't need to run the sandbox to fix linting issues.
+            return
+
+        run_command_tool = RunSandboxCommandsTool(
+            source_repo_id=self.source_repo_id, source_ref=self.source_ref, api_wrapper=self.repo_client
+        )
+        run_command_tool.invoke({
+            "commands": [self.repo_config.commands.install_dependencies, self.repo_config.commands.format_code],
+            "intent": "Fix linting issues",
+            "store": store,
+        })
+
     def continue_executing(self, state: OverallState) -> Literal["execute_plan", "human_feedback"]:
         """
         Check if the agent should continue executing the plan or request human feedback
@@ -295,5 +320,5 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             return []
         return [
             cast("FileChange", item.value["data"])
-            for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+            for item in self.agent.store.search(file_changes_namespace(self.source_repo_id, self.source_ref))
         ]
