@@ -167,7 +167,7 @@ class ReviewAddressorManager(BaseManager):
         ensuring that the file changes are processed correctly.
         """
         file_changes: list[FileChange] = []
-        processed_discussions: list[str] = []
+        resolved_discussions: list[str] = []
 
         merge_request_patches = self._extract_merge_request_diffs(self.merge_request_id)
         for context in self._process_discussions(self.merge_request_id, merge_request_patches):
@@ -223,13 +223,16 @@ class ReviewAddressorManager(BaseManager):
                     if file_changes := reviewer_addressor.get_files_to_commit():
                         file_changes.extend(file_changes)
 
-                    processed_discussions.append(context.discussion.id)
+                    if "response" not in result:
+                        # If the response is not in the result, it means the discussion was resolved,
+                        # no further action is needed.
+                        resolved_discussions.append(context.discussion.id)
 
         if file_changes:
             self._commit_changes(file_changes=file_changes, thread_id=thread_id)
 
-        if processed_discussions:
-            for discussion_id in processed_discussions:
+        if resolved_discussions:
+            for discussion_id in resolved_discussions:
                 self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, discussion_id)
 
     def _extract_merge_request_diffs(self, merge_request_id: int):
