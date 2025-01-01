@@ -109,6 +109,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         in_memory_store = InMemoryStore()
 
+        # Pre-populate the store with file changes uncommitted yet.
         for file_change in self.file_changes:
             in_memory_store.put(
                 file_changes_namespace(self.source_repo_id, self.source_ref),
