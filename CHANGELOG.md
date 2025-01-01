@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Included new step `apply_lint_fix` on `IssueAddressorAgent`, `ReviewAddressorAgent` and `PipelineFixerAgent` to apply lint fixes to the codebase after plan execution. This will improve antecipation of lint errors and avoid pipeline failures.
+- `RunSandboxCommandsTool` now supports running commands on codebase with uncommitted changes.
+
 ### Changed
 
 - Improved `ReviewAddressorManager` to commit the file changes after all discussions are resolved, avoiding multiple pipelines being created between discussions resolution.
+- Streamlined file changes namespace to avoid code repetition.
+- GitLab client now `retry_transient_errors=True` to be more resilient to transient errors.
 
 ### Fixed
 

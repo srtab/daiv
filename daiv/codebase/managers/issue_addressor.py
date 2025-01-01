@@ -48,7 +48,7 @@ class IssueAddressorManager(BaseManager):
         try:
             manager._process_issue(client.get_issue(repo_id, issue_iid), should_reset_plan)
         except Exception as e:
-            logger.error("Error processing issue %d: %s", issue_iid, e)
+            logger.exception("Error processing issue %d: %s", issue_iid, e)
             client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
 
     def _process_issue(self, issue: Issue, should_reset_plan: bool):
@@ -108,7 +108,7 @@ class IssueAddressorManager(BaseManager):
                             self.repo_id, cast("int", issue.iid), response, discussion_id=discussions[-1].id
                         )
 
-                    if "execute_plan" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
+                    if "apply_lint_fix" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
                         self._commit_changes(issue, file_changes)
 
             elif current_state.tasks:

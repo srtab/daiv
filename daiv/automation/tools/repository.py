@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from automation.agents.codebase_search import CodebaseSearchAgent
 from automation.agents.snippet_replacer.agent import SnippetReplacerAgent
+from automation.utils import file_changes_namespace
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -122,7 +123,7 @@ class BaseRepositoryTool(BaseTool):
             The content of the file.
         """
 
-        if stored_item := store.get(("file_changes", self.source_repo_id, self.source_ref), file_path):
+        if stored_item := store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path):
             return stored_item.value["data"].content
 
         return self.api_wrapper.get_repository_file(self.source_repo_id, file_path, self.source_ref)
@@ -203,7 +204,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Replacing snippet in file '%s'", self.name, file_path)
 
-        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
 
         file_change: FileChange | None = stored_item.value["data"] if stored_item else None
 
@@ -241,7 +242,11 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
                 commit_messages=[commit_message],
             )
 
-        store.put(("file_changes", self.source_repo_id, self.source_ref), file_path, {"data": file_change})
+        store.put(
+            file_changes_namespace(self.source_repo_id, self.source_ref),
+            file_path,
+            {"data": file_change, "action": file_change.action},
+        )
 
         return "success: Snippet replaced."
 
@@ -277,13 +282,13 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Creating new file '%s'", self.name, file_path)
 
-        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
 
         if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
             return f"File already exists. Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
 
         store.put(
-            ("file_changes", self.source_repo_id, self.source_ref),
+            file_changes_namespace(self.source_repo_id, self.source_ref),
             file_path,
             {
                 "data": FileChange(
@@ -291,7 +296,8 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
                     file_path=file_path,
                     content=file_content,
                     commit_messages=[commit_message],
-                )
+                ),
+                "action": FileChangeAction.CREATE,
             },
         )
 
@@ -329,13 +335,13 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Renaming file '%s' to '%s'", self.name, file_path, new_file_path)
 
-        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
 
         if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, new_file_path, self.source_ref):
             return f"error: File {new_file_path} already exists."
 
         store.put(
-            ("file_changes", self.source_repo_id, self.source_ref),
+            file_changes_namespace(self.source_repo_id, self.source_ref),
             new_file_path,
             {
                 "data": FileChange(
@@ -343,7 +349,8 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
                     file_path=new_file_path,
                     previous_path=file_path,
                     commit_messages=[commit_message],
-                )
+                ),
+                "action": FileChangeAction.MOVE,
             },
         )
 
@@ -379,19 +386,20 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Deleting file '%s'", self.name, file_path)
 
-        stored_item = store.get(("file_changes", self.source_repo_id, self.source_ref), file_path)
+        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
 
         if stored_item:
             return f"error: File {file_path} has uncommited changes."
 
         if self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
             store.put(
-                ("file_changes", self.source_repo_id, self.source_ref),
+                file_changes_namespace(self.source_repo_id, self.source_ref),
                 file_path,
                 {
                     "data": FileChange(
                         action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
-                    )
+                    ),
+                    "action": FileChangeAction.DELETE,
                 },
             )
             return f"success: Deleted file {file_path}."

@@ -13,6 +13,7 @@ from langchain.tools import BaseTool
 from langchain_core.prompts.string import jinja2_formatter
 from pydantic import BaseModel, Field
 
+from automation.utils import file_changes_namespace
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from core.conf import settings
@@ -61,15 +62,16 @@ class RunSandboxCommandsTool(BaseTool):
             self.api_wrapper.get_repository_archive(self.source_repo_id, self.source_ref) as tarstream,
             tarfile.open(fileobj=tarstream, mode="r:*") as tar,
         ):
-            # GitLab returns a tar archive with the root folder name, so we need to
-            # extract the first level folder name to use it as the base workdir.
-            first_level_folders = {member.name.split("/")[0] for member in tar.getmembers() if member.isdir()}
-            if len(first_level_folders) != 1:
-                raise ValueError(
-                    "Unexpected number of first level folders in the archive. "
-                    f"Expected 1, got {len(first_level_folders)}: {first_level_folders}"
-                )
-            workdir = first_level_folders.pop()
+            workdir = self._extract_workdir(tar)
+
+            if store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1):
+                # If there's already file changes stored, we need to update the tar archive with them.
+                logger.debug("[%s] Updating tar archive with file changes", self.name)
+                tar_archive = self._copy_tar_with_file_changes(tar, store, workdir)
+            else:
+                # If there's no file changes stored, we can use the original tar archive.
+                logger.debug("[%s] Using original tar archive", self.name)
+                tar_archive = base64.b64encode(tarstream.getvalue()).decode()
 
             response = httpx.post(
                 f"{settings.SANDBOX_URL}run/commands/",
@@ -78,30 +80,58 @@ class RunSandboxCommandsTool(BaseTool):
                     "base_image": RepositoryConfig.get_config(self.source_repo_id).commands.base_image,
                     "commands": commands,
                     "workdir": workdir,
-                    "archive": base64.b64encode(tarstream.getvalue()).decode(),
+                    "archive": tar_archive,
                 },
                 headers={"X-API-KEY": settings.SANDBOX_API_KEY},
                 timeout=settings.SANDBOX_TIMEOUT,
             )
 
         response.raise_for_status()
+        return self._treat_response(response, store)
+
+    def _treat_response(self, response: httpx.Response, store: BaseStore) -> str:
+        """
+        Treat the response from the sandbox.
+
+        Args:
+            response: The response from the sandbox.
+            store: The store to save the file changes to.
+
+        Returns:
+            The results of the commands to feed the agent knowledge.
+        """
         resp = RunCommandResponse(**response.json())
 
         if resp.archive:
             with io.BytesIO(resp.archive) as archive, tarfile.open(fileobj=archive) as tar:
                 for member in tar.getmembers():
                     if member.isfile() and (extracted_file := tar.extractfile(member)):
-                        store.put(
-                            ("file_changes", self.source_repo_id, self.source_ref),
-                            member.name,
-                            {
-                                "data": FileChange(
-                                    file_path=member.name,
-                                    action=FileChangeAction.UPDATE,
-                                    content=extracted_file.read().decode(),
-                                )
-                            },
-                        )
+                        if existent_file_change := store.get(
+                            file_changes_namespace(self.source_repo_id, self.source_ref), member.name
+                        ):
+                            # Update the file content extracted from store.
+                            data: FileChange = existent_file_change.value["data"]
+                            data.content = extracted_file.read().decode()
+                            store.put(
+                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                member.name,
+                                {"data": data, "action": existent_file_change.value["action"]},
+                            )
+                        else:
+                            # Add the new file to the store.
+                            store.put(
+                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                member.name,
+                                {
+                                    "data": FileChange(
+                                        file_path=member.name,
+                                        action=FileChangeAction.UPDATE,
+                                        content=extracted_file.read().decode(),
+                                    ),
+                                    "action": FileChangeAction.UPDATE,
+                                },
+                            )
+
         return jinja2_formatter(
             textwrap.dedent(
                 """\
@@ -115,6 +145,83 @@ class RunSandboxCommandsTool(BaseTool):
             ),
             results=resp.results,
         )
+
+    def _extract_workdir(self, source_tar: tarfile.TarFile) -> str:
+        """
+        Extract the workdir from the tar archive.
+
+        Args:
+            source_tar: The tar archive to extract the workdir from.
+
+        Returns:
+            The workdir.
+        """
+        # GitLab returns a tar archive with the root folder name, so we need to
+        # extract the first level folder name to use it as the base workdir.
+        first_level_folders = {member.name.split("/")[0] for member in source_tar.getmembers() if member.isdir()}
+
+        if len(first_level_folders) != 1:
+            raise ValueError(
+                "Unexpected number of first level folders in the archive. "
+                f"Expected 1, got {len(first_level_folders)}: {first_level_folders}"
+            )
+        return first_level_folders.pop()
+
+    def _copy_tar_with_file_changes(self, source_tar: tarfile.TarFile, store: BaseStore, workdir: str) -> str:
+        """
+        Copy the tar archive and update it to reflect the registered file changes.
+
+        Args:
+            source_tar: The tar archive to copy and update.
+            store: The store to get the file changes from.
+            workdir: The workdir to use in the sandbox.
+
+        Returns:
+            The updated tar archive.
+        """
+        updated_tar_buffer = io.BytesIO()
+
+        with tarfile.open(fileobj=updated_tar_buffer, mode="w:gz") as new_tar:
+            for member in source_tar.getmembers():
+                if member.isdir():
+                    new_tar.addfile(member)
+                elif member.isfile():
+                    if file_change := store.get(
+                        file_changes_namespace(self.source_repo_id, self.source_ref),
+                        member.name.removeprefix(f"{workdir}/"),
+                    ):
+                        if file_change.value["data"].action == FileChangeAction.DELETE:
+                            logger.debug("[%s] Skipping deleted file in tar archive: %s", self.name, member.name)
+                            continue
+
+                        if file_change.value["action"] == FileChangeAction.MOVE:
+                            logger.debug("[%s] Renaming file in tar archive: %s", self.name, member.name)
+                            updated_member = tarfile.TarInfo(name=f"{workdir}/{file_change.value['data'].file_path}")
+                        else:
+                            logger.debug("[%s] Updating file in tar archive: %s", self.name, member.name)
+                            updated_member = tarfile.TarInfo(name=member.name)
+
+                        updated_member.size = len(file_change.value["data"].content)
+                        new_tar.addfile(updated_member, io.BytesIO(file_change.value["data"].content.encode("utf-8")))
+                    else:
+                        new_tar.addfile(member, source_tar.extractfile(member))
+
+            # Add the new files to the tar archive as they are not in the original tar archive.
+            for item in store.search(
+                file_changes_namespace(self.source_repo_id, self.source_ref),
+                filter={"action": FileChangeAction.CREATE},
+                limit=100,
+            ):
+                member_name = f"{workdir}/{item.value['data'].file_path}"
+                logger.debug("[%s] Adding file to tar archive: %s", self.name, member_name)
+
+                new_member = tarfile.TarInfo(name=member_name)
+                new_member.size = len(item.value["data"].content)
+                new_tar.addfile(new_member, io.BytesIO(item.value["data"].content.encode("utf-8")))
+
+        updated_tar_buffer.seek(0)
+
+        return base64.b64encode(updated_tar_buffer.getvalue()).decode()
 
 
 class RunSandboxCodeTool(BaseTool):

@@ -20,7 +20,9 @@ from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
 from automation.constants import DEFAULT_RECURSION_LIMIT
+from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.utils import file_changes_namespace
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
@@ -89,22 +91,30 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_node("assessment", self.assessment)
         workflow.add_node("plan", self.plan)
         workflow.add_node("execute_plan", self.execute_plan)
+        workflow.add_node("apply_lint_fix", self.apply_lint_fix)
         workflow.add_node("respond_to_reviewer", self.respond_to_reviewer)
         workflow.add_node("human_feedback", self.human_feedback)
 
         workflow.add_edge(START, "assessment")
-        workflow.add_edge("execute_plan", END)
-        workflow.add_edge("human_feedback", "plan")
-        workflow.add_edge("respond_to_reviewer", END)
-
         workflow.add_conditional_edges("assessment", self.continue_planning)
+        workflow.add_edge("human_feedback", "plan")
         workflow.add_conditional_edges("plan", self.continue_executing)
+        workflow.add_conditional_edges(
+            "execute_plan",
+            self.determine_if_lint_fix_should_be_applied,
+            {"apply_lint_fix": "apply_lint_fix", "end": END},
+        )
+        workflow.add_edge("apply_lint_fix", END)
+        workflow.add_edge("respond_to_reviewer", END)
 
         in_memory_store = InMemoryStore()
 
+        # Pre-populate the store with file changes uncommitted yet.
         for file_change in self.file_changes:
             in_memory_store.put(
-                ("file_changes", self.source_repo_id, self.source_ref), file_change.file_path, {"data": file_change}
+                file_changes_namespace(self.source_repo_id, self.source_ref),
+                file_change.file_path,
+                {"data": file_change, "action": file_change.action},
             )
 
         return workflow.compile(
@@ -231,6 +241,43 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
         react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
 
+    def determine_if_lint_fix_should_be_applied(
+        self, state: OverallState, store: BaseStore
+    ) -> Literal["apply_lint_fix", "end"]:
+        """
+        Determine whether the lint fix should be applied after the plan has been executed.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+
+        Returns:
+            Literal["apply_lint_fix", "end"]: The next step in the workflow.
+        """
+        return (
+            "apply_lint_fix"
+            if self.repo_config.commands.enabled()
+            and store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1)
+            else "end"
+        )
+
+    def apply_lint_fix(self, state: OverallState, store: BaseStore):
+        """
+        Apply lint fix to the file changes made by the agent.
+
+        Args:
+            state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
+        """
+        run_command_tool = RunSandboxCommandsTool(
+            source_repo_id=self.source_repo_id, source_ref=self.source_ref, api_wrapper=self.repo_client
+        )
+        run_command_tool.invoke({
+            "commands": [self.repo_config.commands.install_dependencies, self.repo_config.commands.format_code],
+            "intent": "Fix linting issues",
+            "store": store,
+        })
+
     def respond_to_reviewer(self, state: OverallState, store: BaseStore):
         """
         Respond to reviewer's comments if no changes requested or if planning rises questions.
@@ -310,5 +357,5 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             return []
         return [
             cast("FileChange", item.value["data"])
-            for item in self.agent.store.search(("file_changes", self.source_repo_id, self.source_ref))
+            for item in self.agent.store.search(file_changes_namespace(self.source_repo_id, self.source_ref))
         ]
