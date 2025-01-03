@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.16] - 2025-01-03
+
 ### Added
 
 - Included new step `apply_lint_fix` on `IssueAddressorAgent`, `ReviewAddressorAgent` and `PipelineFixerAgent` to apply lint fixes to the codebase after plan execution. This will improve antecipation of lint errors and avoid pipeline failures.
@@ -272,7 +274,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.15...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.16...HEAD
+[0.1.0-alpha.16]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.15...v0.1.0-alpha.16
 [0.1.0-alpha.15]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.14...v0.1.0-alpha.15
 [0.1.0-alpha.14]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.13...v0.1.0-alpha.14
 [0.1.0-alpha.13]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.12...v0.1.0-alpha.13
