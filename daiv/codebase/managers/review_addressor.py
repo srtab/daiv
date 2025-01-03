@@ -223,9 +223,9 @@ class ReviewAddressorManager(BaseManager):
                     if file_changes := reviewer_addressor.get_files_to_commit():
                         file_changes.extend(file_changes)
 
-                    if "response" not in result:
-                        # If the response is not in the result, it means the discussion was resolved,
-                        # no further action is needed.
+                    if "response" not in result or not result["response"]:
+                        # If the response is not in the result or is empty, it means the discussion was resolved,
+                        # no further action would be needed.
                         resolved_discussions.append(context.discussion.id)
 
         if file_changes:
@@ -256,7 +256,7 @@ class ReviewAddressorManager(BaseManager):
         self, merge_request_id: int, merge_request_patches: dict[str, PatchedFile]
     ) -> list[DiscussionReviewContext]:
         """
-        Process discussions from merge request.
+        Extract discussions data from merge request to be processed later.
         """
         discussions = []
 

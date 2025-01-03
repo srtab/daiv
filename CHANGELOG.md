@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved `ReviewAddressorManager` to commit the file changes after all discussions are resolved, avoiding multiple pipelines being created between discussions resolution.
 - Streamlined file changes namespace to avoid code repetition.
 - GitLab client now `retry_transient_errors=True` to be more resilient to transient errors.
+- Improved assessment of request for changes on `ReviewAddressorAgent` to allow the agent to reason before responding.
 
 ### Fixed
 

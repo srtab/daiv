@@ -2,6 +2,7 @@ import logging
 from typing import Literal, cast
 
 from langchain_core.messages import SystemMessage
+from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import (
     ChatPromptTemplate,
     HumanMessagePromptTemplate,
@@ -14,8 +15,12 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents import CODING_PERFORMANT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
-from automation.agents.base import GENERIC_PERFORMANT_MODEL_NAME, PLANING_PERFORMANT_MODEL_NAME
+from automation.agents import CODING_PERFORMANT_MODEL_NAME, BaseAgent
+from automation.agents.base import (
+    CODING_COST_EFFICIENT_MODEL_NAME,
+    GENERIC_PERFORMANT_MODEL_NAME,
+    PLANING_PERFORMANT_MODEL_NAME,
+)
 from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
@@ -139,12 +144,19 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             MessagesPlaceholder("comments"),
         ])
 
-        evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
+        evaluator = (
+            prompt
+            # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
+            # a tool call without reasoning, which is crucial here to make the right decision.
+            # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
+            | self.model.bind_tools([AssesmentClassificationResponse], tool_choice="auto")
+            | PydanticToolsParser(tools=[AssesmentClassificationResponse], first_tool_only=True)
+        )
 
         response = cast(
             "AssesmentClassificationResponse",
             evaluator.invoke(
-                {"comments": state["messages"]}, config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}}
+                {"comments": state["messages"]}, config={"configurable": {"model": CODING_COST_EFFICIENT_MODEL_NAME}}
             ),
         )
         return {"request_for_changes": response.request_for_changes}
