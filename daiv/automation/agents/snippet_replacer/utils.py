@@ -2,7 +2,7 @@ import difflib
 import re
 
 
-def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> str | None:
+def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> list[str]:
     """
     This function finds the original snippet of code in a file given a snippet and the file contents.
 
@@ -19,17 +19,18 @@ def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initi
                                         with a line in the file.
 
     Returns:
-        tuple[str, int, int] | None: A tuple containing the original snippet from the file, start index, and end index,
-                                     or None if the snippet could not be found.
+        list[str]: A list of original snippets from the file.
     """
     if snippet.strip() == "":
-        return None
+        return []
 
     snippet_lines = [line for line in snippet.split("\n") if line.strip()]
     file_lines = file_contents.split("\n")
 
     # Find the first non-empty line in the snippet
     first_snippet_line = next((line for line in snippet_lines if line.strip()), "")
+
+    all_matches = []
 
     # Search for a matching initial line in the file
     for start_index, file_line in enumerate(file_lines):
@@ -55,9 +56,9 @@ def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initi
 
             if snippet_index == len(snippet_lines):
                 # All lines in the snippet have been matched
-                return "\n".join(file_lines[start_index:file_index])
+                all_matches.append("\n".join(file_lines[start_index:file_index]))
 
-    return None
+    return all_matches
 
 
 def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
@@ -67,13 +68,13 @@ def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
     difflib.SequenceMatcher uses the Ratcliff/Obershelp algorithm: it computes the doubled number of matching
     characters divided by the total number of characters in the two strings.
 
-    Parameters:
-    text1 (str): The first piece of text.
-    text2 (str): The second piece of text.
-    ignore_whitespace (bool): If True, ignores whitespace when comparing the two pieces of text.
+    Args:
+        text1 (str): The first piece of text.
+        text2 (str): The second piece of text.
+        ignore_whitespace (bool): If True, ignores whitespace when comparing the two pieces of text.
 
     Returns:
-    float: The similarity ratio between the two pieces of text.
+        float: The similarity ratio between the two pieces of text.
     """
     if ignore_whitespace:
         text1 = re.sub(r"\s+", "", text1)

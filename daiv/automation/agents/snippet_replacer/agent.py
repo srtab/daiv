@@ -54,7 +54,10 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         if not original_snippet_found:
             return "error: Original snippet not found."
 
-        replaced_content = input_data["content"].replace(original_snippet_found, input_data["replacement_snippet"])
+        if len(original_snippet_found) > 1:
+            return "error: Multiple original snippets found. Please provide a more specific original snippet."
+
+        replaced_content = input_data["content"].replace(original_snippet_found[0], input_data["replacement_snippet"])
         if not replaced_content:
             return "error: Snippet replacement failed."
 

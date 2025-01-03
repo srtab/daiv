@@ -71,15 +71,14 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_repository_tree(
+    def set_repository_webhooks(
         self,
         repo_id: str,
-        ref: str,
-        *,
-        path: str = "",
-        recursive: bool = False,
-        tree_type: Literal["blob", "tree"] | None = None,
-    ) -> list[str]:
+        url: str,
+        events: list[Literal["push_events", "merge_requests_events", "issues_events", "job_events", "note_events"]],
+        push_events_branch_filter: str | None = None,
+        enable_ssl_verification: bool = True,
+    ) -> bool:
         pass
 
     @abc.abstractmethod
@@ -335,32 +334,6 @@ class GitLabClient(RepoClient):
         except GitlabGetError:
             return False
 
-    def get_repository_tree(
-        self,
-        repo_id: str,
-        ref: str,
-        *,
-        path: str = "",
-        recursive: bool = False,
-        tree_type: Literal["blob", "tree"] | None = None,
-    ) -> list[str]:
-        """
-        Get the tree of a repository.
-
-        Args:
-            repo_id: The repository ID.
-            ref: The branch or tag name.
-            path: The path to list the tree.
-            recursive: Recursively list the tree.
-            tree_type: The type of the tree to filter. If None, it returns all types.
-
-        Returns:
-            The list of files or directories in the tree.
-        """
-        project = self.client.projects.get(repo_id)
-        repository_tree = project.repository_tree(recursive=recursive, ref=ref, path=path, all=True)
-        return [file["path"] for file in repository_tree if tree_type is None or file["type"] == tree_type]
-
     def set_repository_webhooks(
         self,
         repo_id: str,
@@ -368,7 +341,7 @@ class GitLabClient(RepoClient):
         events: list[Literal["push_events", "merge_requests_events", "issues_events", "job_events", "note_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
-    ):
+    ) -> bool:
         """
         Set webhooks for a repository.
         If the webhook already exists, it updates the existing one. Otherwise, it creates a new one.
@@ -377,6 +350,9 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             url: The webhook URL.
             events: The list of events to trigger the webhook.
+
+        Returns:
+            True if the webhook was created, otherwise False.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         data = {
@@ -397,8 +373,10 @@ class GitLabClient(RepoClient):
             for key, value in data.items():
                 setattr(project_hook, key, value)
             project_hook.save()
-        else:
-            project.hooks.create(data)
+            return False
+
+        project.hooks.create(data)
+        return True
 
     def _get_repository_hook_by_name(self, repo_id: str, name: str) -> ProjectHook | None:
         """

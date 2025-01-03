@@ -176,6 +176,10 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         For multiple replacements, call this tool multiple times.
         Do not alter indentation levels unless intentionally modifying code block structures.
         Inspect the code beforehand to understand what exaclty needs to change.
+
+        IMPORTANT:
+        - Provide at least 3 lines before and 3 lines after the snippet you want to replace.
+        - Include unique identifiers such as variable names or function calls that appear only once in the entire file.
         """  # noqa: E501
     )
 
