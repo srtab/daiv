@@ -99,7 +99,9 @@ class IssueAddressorManager(BaseManager):
             ):
                 # TODO: Improve discovery of the last discussion awaiting for approval
                 issue_addressor_agent.update_state(
-                    config, {"messages": notes_to_messages(discussions[-1].notes, self.client.current_user.id)}
+                    config,
+                    # Skip first note because it's the bot note
+                    {"messages": notes_to_messages(discussions[-1].notes[1:], self.client.current_user.id)},
                 )
 
                 for chunk in issue_addressor_agent.stream(None, config, stream_mode="updates"):

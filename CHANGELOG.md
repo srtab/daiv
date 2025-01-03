@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed index updates to branches that don't exist anymore, like when a branch is marked to delete after a merge request is merged: #153.
 - `SnippetReplacerAgent` was replacing multiple snippets when only one was expected. Now it will return an error if multiple snippets are found to instruct the llm to provide a more specific original snippet.
 - `PipelineFixerAgent` was trying to fix multiple jobs from the same stage at the same time, causing multiple fixes being applied simultaneously to the same files which could lead to conflicts or a job being fixed with outdated code. Now it will fix one job at a time. #164
+- Human feedback now is sent without the first note which is the bot note to the issue addressor agent.
 
 ### Removed
 
