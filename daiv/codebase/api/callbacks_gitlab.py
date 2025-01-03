@@ -1,17 +1,26 @@
 import logging
-import re
 from functools import cached_property
 from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
 
 from codebase.api.callbacks import BaseCallback
-from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from codebase.api.models import (
+    Issue,
+    IssueAction,
+    MergeRequest,
+    Note,
+    NoteableType,
+    NoteAction,
+    Pipeline,
+    PipelineBuild,
+    Project,
+    User,
+)
 from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
 from core.config import RepositoryConfig
-from core.utils import generate_uuid
 
 PIPELINE_JOB_REF_SUFFIX = "refs/merge-requests/"
 
@@ -176,68 +185,73 @@ class PushCallback(BaseCallback):
         return client.get_commit_related_merge_requests(self.project.path_with_namespace, commit_sha=self.checkout_sha)
 
 
-class PipelineJobCallback(BaseCallback):
+class PipelineStatusCallback(BaseCallback):
     """
-    Gitlab Pipeline Job Webhook
+    Gitlab Pipeline Status Webhook
     """
 
-    object_kind: Literal["build"]
+    object_kind: Literal["pipeline"]
     project: Project
-    sha: str
-    ref: str
-    build_id: int
-    build_name: str
-    build_allow_failure: bool
-    build_status: Literal[
-        "created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"
-    ]
-    build_failure_reason: str
+    merge_request: MergeRequest | None = None
+    object_attributes: Pipeline
+    builds: list[PipelineBuild]
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the pipeline job failed due to a script failure and there are related merge requests.
+        Accept callback if the pipeline failed and has a failed build to fix.
         """
         return (
-            not self.build_allow_failure
-            and self._repo_config.features.autofix_pipeline_enabled
-            and self.build_status == "failed"
-            # Only fix pipeline jobs that failed due to a script failure.
-            and self.build_failure_reason == "script_failure"
-            # Only fix pipeline jobs of the latest commit of the merge request.
-            and self.merge_request is not None
-            and self.merge_request.is_daiv()
-            and self.merge_request.sha == self.sha
+            self._repo_config.features.autofix_pipeline_enabled
+            and self.object_attributes.status == "failed"
+            and self._first_failed_build is not None
+            and self._merge_request is not None
+            and self._merge_request.is_daiv()
         )
 
     async def process_callback(self):
         """
-        Trigger the task to fix the pipeline job.
+        Trigger the task to fix the pipeline failed build.
+
+        Only one build is fixed at a time to avoid two or more fixes being applied simultaneously to the same files,
+        which could lead to conflicts or a job being fixed with outdated code.
         """
-        if self.merge_request:
+        if self.merge_request is not None and self._first_failed_build is not None:
             await sync_to_async(
                 fix_pipeline_job_task.si(
                     repo_id=self.project.path_with_namespace,
                     ref=self.merge_request.source_branch,
-                    merge_request_id=self.merge_request.merge_request_id,
-                    job_id=self.build_id,
-                    job_name=self.build_name,
-                    thread_id=generate_uuid(
-                        f"{self.project.path_with_namespace}{self.merge_request.merge_request_id}{self.build_name}"
-                    ),
+                    merge_request_id=self.merge_request.iid,
+                    job_id=self._first_failed_build.id,
+                    job_name=self._first_failed_build.name,
                 ).delay
             )()
 
     @cached_property
-    def merge_request(self) -> BaseMergeRequest | None:
+    def _merge_request(self) -> BaseMergeRequest | None:
         """
-        Get the merge request related to the job.
+        Get the merge request related to the pipeline to obtain associated labels and infer if is a DAIV MR.
         """
-        # The ref points to the source branch of a merge request.
-        match = re.search(rf"{PIPELINE_JOB_REF_SUFFIX}(\d+)(?:/\w+)?$", self.ref)
-        if match:
-            client = RepoClient.create_instance()
-            return client.get_merge_request(self.project.path_with_namespace, int(match.group(1)))
+        client = RepoClient.create_instance()
+        if self.merge_request is not None:
+            return client.get_merge_request(self.project.path_with_namespace, self.merge_request.iid)
         return None
+
+    @cached_property
+    def _first_failed_build(self) -> PipelineBuild | None:
+        """
+        Get the first failed build of the pipeline.
+        """
+        return next(
+            (
+                build
+                for build in self.builds
+                if build.status == "failed"
+                and not build.manual
+                and not build.allow_failure
+                and build.failure_reason == "script_failure"
+            ),
+            None,
+        )

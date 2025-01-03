@@ -21,10 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitLab client now `retry_transient_errors=True` to be more resilient to transient errors.
 - Improved assessment of request for changes on `ReviewAddressorAgent` to allow the agent to reason before responding.
 - Improved response prompt for `ReviewAddressorAgent` to avoid answering like "I'll update the code to replace", as the agent is not able to update the code but only answer questions.
+- Configuration of webhooks now takes a default `EXTERNAL_URL` for `--base-url` to avoid having to pass it on every call, and now configures `pipeline_events` instead of `job_events`. **You must run command `setup_webhooks` to update the webhooks on your GitLab projects.**
+- Turn `PullRequestDescriberAgent` more resilient to errors by defining fallbacks to use a model from other provider.
 
 ### Fixed
 
 - Fixed index updates to branches that don't exist anymore, like when a branch is marked to delete after a merge request is merged: #153.
+- `SnippetReplacerAgent` was replacing multiple snippets when only one was expected. Now it will return an error if multiple snippets are found to instruct the llm to provide a more specific original snippet.
+- `PipelineFixerAgent` was trying to fix multiple jobs from the same stage at the same time, causing multiple fixes being applied simultaneously to the same files which could lead to conflicts or a job being fixed with outdated code. Now it will fix one job at a time. #164
+
+### Removed
+
+- `get_repository_tree` was removed from the `RepoClient` as it's no longer used.
 
 ## [0.1.0-alpha.15] - 2024-12-30
 

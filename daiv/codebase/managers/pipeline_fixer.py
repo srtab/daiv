@@ -18,6 +18,7 @@ from codebase.clients import AllRepoClient, RepoClient
 from codebase.conf import settings as core_settings
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
+from core.utils import generate_uuid
 
 
 class PipelineFixerManager(BaseManager):
@@ -30,7 +31,7 @@ class PipelineFixerManager(BaseManager):
         self.thread_id = kwargs["thread_id"]
 
     @classmethod
-    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, thread_id: str):
+    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -39,9 +40,14 @@ class PipelineFixerManager(BaseManager):
             ref: The source reference
             merge_request_id: The merge request ID
             job_id: The job ID to process
-            thread_id: The thread ID
+            job_name: The job name
         """
         client = RepoClient.create_instance()
+
+        # Create a unique thread ID to give the agent different threads (memory) by job name, so that we can consult
+        # previous log traces and avoid applying the same fix to the same job name multiple times.
+        thread_id = generate_uuid(f"{repo_id}{merge_request_id}{job_name}")
+
         manager = cls(client, repo_id, ref, thread_id=thread_id)
         manager._process_job(merge_request_id, job_id, job_name)
 
@@ -52,6 +58,7 @@ class PipelineFixerManager(BaseManager):
         Args:
             merge_request_id: The merge request ID
             job_id: The job ID to process
+            job_name: The job name
         """
         log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)

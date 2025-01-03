@@ -1,6 +1,7 @@
 from enum import StrEnum
 from typing import Literal
 
+from ninja import Field
 from pydantic import BaseModel
 
 from core.constants import BOT_LABEL
@@ -53,13 +54,13 @@ class MergeRequest(BaseModel):
     id: int
     iid: int
     title: str
-    description: str
+    description: str | None = None
     state: str
-    work_in_progress: bool
+    work_in_progress: bool | None = None
     source_branch: str
     target_branch: str
-    assignee_id: int | None
-    labels: list[Label]
+    assignee_id: int | None = None
+    labels: list[Label] = Field(default_factory=list)
 
     def is_daiv(self) -> bool:
         """
@@ -164,3 +165,40 @@ class User(BaseModel):
     name: str
     username: str
     email: str
+
+
+class PipelineBuild(BaseModel):
+    """
+    Gitlab Pipeline Build
+    """
+
+    id: int
+    status: Literal["created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"]
+    name: str
+    stage: str
+    allow_failure: bool
+    failure_reason: str | None = None
+    manual: bool
+
+
+class Pipeline(BaseModel):
+    """
+    Gitlab Pipeline
+    """
+
+    id: int
+    ref: str
+    sha: str
+    status: Literal[
+        "created",
+        "waiting_for_resource",
+        "preparing",
+        "pending",
+        "running",
+        "failed",
+        "success",
+        "canceled",
+        "skipped",
+        "manual",
+        "scheduled",
+    ]
