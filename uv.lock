@@ -402,7 +402,7 @@ wheels = [
 
 [[package]]
 name = "daiv"
-version = "0.1.0a15"
+version = "0.1.0a16"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
