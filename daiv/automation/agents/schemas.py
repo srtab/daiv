@@ -5,7 +5,8 @@ DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 class AssesmentClassificationResponse(BaseModel):
     """
-    Respond to the human feedback with an assessment of the requested changes.
+    Use this tool to respond to the result of the assessment by classifying whether a feedback is a request for
+    direct changes to the codebase, and provide the rationale behind that classification.
     """
 
     # this is commented to avoid the error: https://github.com/langchain-ai/langchain/issues/27260#issue-2579527949
