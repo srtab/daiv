@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Streamlined file changes namespace to avoid code repetition.
 - GitLab client now `retry_transient_errors=True` to be more resilient to transient errors.
 - Improved assessment of request for changes on `ReviewAddressorAgent` to allow the agent to reason before responding.
+- Improved response prompt for `ReviewAddressorAgent` to avoid answering like "I'll update the code to replace", as the agent is not able to update the code but only answer questions.
 
 ### Fixed
 
