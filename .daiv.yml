@@ -1,2 +1,7 @@
 repository_description: "Django based project using pytest framework for testing. Check `pyproject.toml` to understand the pytest rules. Create classes to organize unittests. The imports shouldn't include `daiv.` as prefix."
 branch_name_convention: "Use 'feat/', 'fix/', or 'chore/' prefixes."
+
+commands:
+  base_image: "ghcr.io/astral-sh/uv"
+  install_dependencies: "uv sync"
+  format_code: "uv run ruff check . --fix; uv run ruff format .; uv run pyproject-fmt pyproject.toml"

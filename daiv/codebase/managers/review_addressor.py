@@ -169,8 +169,8 @@ class ReviewAddressorManager(BaseManager):
         file_changes: list[FileChange] = []
         resolved_discussions: list[str] = []
 
-        merge_request_patches = self._extract_merge_request_diffs(self.merge_request_id)
-        for context in self._process_discussions(self.merge_request_id, merge_request_patches):
+        merge_request_patches = self._extract_merge_request_diffs()
+        for context in self._process_discussions(merge_request_patches):
             thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
 
             config = RunnableConfig(configurable={"thread_id": thread_id})
@@ -235,14 +235,14 @@ class ReviewAddressorManager(BaseManager):
             for discussion_id in resolved_discussions:
                 self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, discussion_id)
 
-    def _extract_merge_request_diffs(self, merge_request_id: int):
+    def _extract_merge_request_diffs(self):
         """
         Extract patch files from merge request.
         """
         merge_request_patches: dict[str, PatchedFile] = {}
         patch_set_all = PatchSet([])
 
-        for mr_diff in self.client.get_merge_request_diff(self.repo_id, merge_request_id):
+        for mr_diff in self.client.get_merge_request_diff(self.repo_id, self.merge_request_id):
             if mr_diff.diff:
                 patch_set = PatchSet.from_string(mr_diff.diff, encoding="utf-8")
                 merge_request_patches[patch_set[0].path] = patch_set[0]
@@ -252,29 +252,16 @@ class ReviewAddressorManager(BaseManager):
 
         return merge_request_patches
 
-    def _process_discussions(
-        self, merge_request_id: int, merge_request_patches: dict[str, PatchedFile]
-    ) -> list[DiscussionReviewContext]:
+    def _process_discussions(self, merge_request_patches: dict[str, PatchedFile]) -> list[DiscussionReviewContext]:
         """
         Extract discussions data from merge request to be processed later.
         """
         discussions = []
 
         for discussion in self.client.get_merge_request_discussions(
-            self.repo_id, merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
+            self.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
-            if (
-                (last_note := discussion.notes[-1])
-                and (
-                    # When pipeline fixer is enabled and the pipeline is failing,
-                    # the pipeline fixer will create a discussion note to address the issue.
-                    # In this case, we need to bypass the author check, but only if theres only one note,
-                    # otherwise same rules apply.
-                    (last_note.type == NoteType.DISCUSSION_NOTE and len(discussion.notes) > 1)
-                    # For diff notes, we need to always check the author to avoid infinite conversation loops.
-                    or (last_note.type == NoteType.DIFF_NOTE)
-                )
-            ) and last_note.author.id == self.client.current_user.id:
+            if (last_note := discussion.notes[-1]) and last_note.author.id == self.client.current_user.id:
                 logger.debug("Ignoring discussion, DAIV is the current user: %s", discussion.id)
                 continue
 

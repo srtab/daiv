@@ -37,6 +37,8 @@ class BaseManager:
             suffix_count += 1
 
         if suffix_count == max_attempts:
-            raise ValueError(f"Failed to get a unique branch name for {original_branch_name}")
+            raise ValueError(
+                f"Failed to get a unique branch name for {original_branch_name}, max attempts reached {max_attempts}."
+            )
 
         return branch_name
