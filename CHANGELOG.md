@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `daiv` command to run commands on the codebase.
+
+### Changed
+
+- Raise more context on error message when `_get_unique_branch_name` reaches the maximum number of attempts.
+
+### Fixed
+
+- Changes not being commited when `IssueAddressorAgent` finished the execution.
+
+### Chore
+
+- Updated dependencies:
+  - `duckduckgo-search` from 7.1.1 to 7.2.0
+  - `langchain` from 0.3.13 to 0.3.14
+  - `langchain-community` from 0.3.13 to 0.3.14
+  - `langgraph` from 0.2.60 to 0.2.61
+  - `langsmith` from 0.2.6 to 0.2.10
+  - `pydantic-settings` from 2.7 to 2.7.1
+  - `mypy` from 1.14 to 1.14.1
+  - `pytest-asyncio` from 0.25 to 0.25.1
+  - `ruff` from 0.8.4 to 0.8.6
+  - `types-pyyaml` from 6.0.12.20241221 to 6.0.12.20241230
+
 ## [0.1.0-alpha.16] - 2025-01-03
 
 ### Added

@@ -110,8 +110,8 @@ class IssueAddressorManager(BaseManager):
                             self.repo_id, cast("int", issue.iid), response, discussion_id=discussions[-1].id
                         )
 
-                    if "apply_lint_fix" in chunk and (file_changes := issue_addressor.get_files_to_commit()):
-                        self._commit_changes(issue, file_changes)
+                if file_changes := issue_addressor.get_files_to_commit():
+                    self._commit_changes(issue, file_changes)
 
             elif current_state.tasks:
                 # This can happen if the agent got an error and we need to retry, or was interrupted.
