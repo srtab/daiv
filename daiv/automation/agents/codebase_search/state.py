@@ -1,6 +1,7 @@
-from typing import Annotated, TypedDict
+from typing import Annotated
 
 from langchain_core.documents import Document
+from typing_extensions import TypedDict
 
 
 def reduce_documents(existing: list[Document], new: list[Document]) -> list[Document]:
