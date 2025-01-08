@@ -84,7 +84,7 @@ class PipelineFixerManager(BaseManager):
 
             elif self._should_retry_fix(
                 iteration=current_state.values.get("iteration", 0),
-                previous_log_trace=current_state.values.get("log_trace", None),
+                previous_log_trace=current_state.values.get("job_logs", None),
                 new_log_trace=log_trace,
                 job_name=job_name,
             ):

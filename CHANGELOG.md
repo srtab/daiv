@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Changes not being commited when `IssueAddressorAgent` finished the execution.
 - Improved `PipelineFixerAgent` prompt and output schema to force the agent to call the tool to provide the tasks, sometimes the agent was not calling the tool and just returning the tasks as messages.
+- `PipelineFixerAgent` was not checking if the error log was the same as the previous one before retrying the fix.
 
 ### Removed
 
