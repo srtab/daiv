@@ -42,6 +42,12 @@ class IssueAddressorManager(BaseManager):
     def process_issue(cls, repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
         """
         Process an issue by creating a merge request with the changes described in the issue description.
+
+        Args:
+            repo_id: The repository ID.
+            issue_iid: The issue ID.
+            ref: The reference branch.
+            should_reset_plan: Whether to reset the plan.
         """
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref)
@@ -54,6 +60,10 @@ class IssueAddressorManager(BaseManager):
     def _process_issue(self, issue: Issue, should_reset_plan: bool):
         """
         Process the issue by addressing it with the appropriate actions.
+
+        Args:
+            issue: The issue to process.
+            should_reset_plan: Whether to reset the plan.
         """
         # Initialize issue if no bot comment exists
         if not self._has_bot_notes(issue.notes):
@@ -110,22 +120,33 @@ class IssueAddressorManager(BaseManager):
                             self.repo_id, cast("int", issue.iid), response, discussion_id=discussions[-1].id
                         )
 
-                if file_changes := issue_addressor.get_files_to_commit():
-                    self._commit_changes(issue, file_changes)
-
             elif current_state.tasks:
                 # This can happen if the agent got an error and we need to retry, or was interrupted.
                 result = issue_addressor_agent.invoke(None, config)
 
+            # when changes where made by the agent, commit them
+            if file_changes := issue_addressor.get_files_to_commit():
+                self._commit_changes(issue, file_changes)
+
     def _has_bot_notes(self, notes: list[Note]) -> bool:
         """
         Check if the issue already has a comment from the bot.
+
+        Args:
+            notes: The notes to check.
+
+        Returns:
+            True if the issue has a comment from the bot, otherwise False.
         """
         return any(note.author.id == self.client.current_user.id for note in notes)
 
     def _handle_initial_result(self, result: OverallState, issue_iid: int):
         """
         Handle the initial state of issue processing.
+
+        Args:
+            result: The result of the issue processing.
+            issue_iid: The issue ID.
         """
         if "plan_tasks" in result and result["plan_tasks"]:
             self.client.comment_issue(
@@ -141,8 +162,11 @@ class IssueAddressorManager(BaseManager):
     def _commit_changes(self, issue: Issue, file_changes: list[FileChange]):
         """
         Process file changes and create or update merge request.
-        """
 
+        Args:
+            issue: The issue to process.
+            file_changes: The file changes to commit.
+        """
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke({
             "changes": file_changes,

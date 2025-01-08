@@ -138,11 +138,15 @@ class RetrieveFileContentTool(BaseRepositoryTool):
         """  # noqa: E501
     )
 
+    return_not_found_message: bool = Field(
+        default=True, description="Whether to return a message if the file is not found. Otherwise, return None."
+    )
+
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
     def _run(
         self, file_path: str, intent: str, store: BaseStore, run_manager: CallbackManagerForToolRun | None = None
-    ) -> str:
+    ) -> str | None:
         """
         Gets the content of a file from the repository.
 
@@ -157,7 +161,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
         content = self._get_file_content(file_path, store)
 
         if not content:
-            return f"error: File '{file_path}' not found."
+            return f"error: File '{file_path}' not found." if self.return_not_found_message else None
 
         return textwrap.dedent(
             """\

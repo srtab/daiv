@@ -8,14 +8,9 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
-from automation.agents.base import (
-    CODING_PERFORMANT_MODEL_NAME,
-    GENERIC_COST_EFFICIENT_MODEL_NAME,
-    GENERIC_PERFORMANT_MODEL_NAME,
-)
-from automation.agents.prebuilt import REACTAgent
+from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
 from automation.agents.prompts import execute_plan_system
-from automation.constants import DEFAULT_RECURSION_LIMIT
+from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
@@ -31,7 +26,7 @@ from .prompts import (
     pipeline_log_classifier_human,
     pipeline_log_classifier_system,
 )
-from .schemas import ExternalFactorPlanOutput, PipelineLogClassifierOutput
+from .schemas import ActionPlanOutput, PipelineLogClassifierOutput
 from .state import OverallState
 
 logger = logging.getLogger("daiv.agents")
@@ -116,7 +111,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             "PipelineLogClassifierOutput",
             evaluator.invoke(
                 {"job_logs": state["job_logs"], "diff": state["diff"]},
-                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
             ),
         )
         return {
@@ -154,18 +149,26 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             OverallState: The state of the agent with the autofix applied.
         """
-        tools = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(
-                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-            ),
-            autofix_apply_human,
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+                ),
+                autofix_apply_human,
+            ]
+            + prepare_repository_files_as_messages(
+                self.repo_client,
+                self.source_repo_id,
+                self.source_ref,
+                [task.path for task in state["plan_tasks"]],
+                store,
+            )
+        )
         messages = prompt.format_messages(
             job_logs=state["job_logs"],
             diff=state["diff"],
@@ -176,11 +179,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="unittest_fix_react_agent",
             tools=tools,
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.coding_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore
@@ -228,30 +231,31 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             OverallState: The state of the agent with the actions added.
         """
-        tools = ReadRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        tools += WebSearchToolkit.create_instance().get_tools()
+        tools = (
+            ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + WebSearchToolkit.create_instance().get_tools()
+        )
 
         prompt = ChatPromptTemplate.from_messages([external_factor_plan_system, external_factor_plan_human])
         messages = prompt.format_messages(
             root_cause=state["root_cause"],
             repository_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
+            action_plan_output_tool="ActionPlanOutput",
         )
 
         react_agent = REACTAgent(
             run_name="pipeline_fixer_react_agent",
             tools=tools,
-            model_name=GENERIC_COST_EFFICIENT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
-            with_structured_output=ExternalFactorPlanOutput,
+            model_name=settings.coding_cost_efficient_model_name,
+            fallback_model_name=settings.generic_cost_efficient_model_name,
+            with_structured_output=ActionPlanOutput,
             store=store,
         )
 
         result = react_agent.agent.invoke({"messages": messages})
 
-        return {"actions": cast("ExternalFactorPlanOutput", result["response"]).actions}
+        return {"actions": cast("ActionPlanOutput", result["response"]).actions}
 
     def get_files_to_commit(self) -> list[FileChange]:
         """

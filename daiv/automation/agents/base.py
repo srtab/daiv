@@ -10,17 +10,12 @@ from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import BaseModel
 
+from automation.conf import settings
+
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langchain_openai.chat_models import ChatOpenAI
     from langgraph.checkpoint.postgres import PostgresSaver
-
-PLANING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
-PLANING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-sonnet-20241022"
-CODING_PERFORMANT_MODEL_NAME = "claude-3-5-sonnet-20241022"
-CODING_COST_EFFICIENT_MODEL_NAME = "claude-3-5-haiku-20241022"
-GENERIC_PERFORMANT_MODEL_NAME = "gpt-4o-2024-11-20"
-GENERIC_COST_EFFICIENT_MODEL_NAME = "gpt-4o-mini-2024-07-18"
 
 
 class ModelProvider(StrEnum):
@@ -38,7 +33,7 @@ class BaseAgent(ABC, Generic[T]):
 
     agent: T
 
-    model_name: str = GENERIC_COST_EFFICIENT_MODEL_NAME
+    model_name: str = settings.generic_cost_efficient_model_name
 
     def __init__(
         self,

@@ -9,19 +9,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents import (
-    CODING_PERFORMANT_MODEL_NAME,
-    GENERIC_COST_EFFICIENT_MODEL_NAME,
-    PLANING_PERFORMANT_MODEL_NAME,
-    BaseAgent,
-)
-from automation.agents.base import GENERIC_PERFORMANT_MODEL_NAME
+from automation.agents import BaseAgent
 from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
-from automation.agents.prebuilt import REACTAgent
+from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse, DetermineNextActionResponse
-from automation.constants import DEFAULT_RECURSION_LIMIT
+from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
@@ -145,7 +139,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             "AssesmentClassificationResponse",
             evaluator.invoke(
                 {"issue_title": state["issue_title"], "issue_description": state["issue_description"]},
-                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -174,12 +168,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        tools = ReadRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        tools += WebSearchToolkit.create_instance().get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + WebSearchToolkit.create_instance().get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
             {"markdown_text": state["issue_description"]},
@@ -187,7 +180,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
                 "configurable": {
                     "repo_client_slug": self.repo_client.client_slug,
                     "project_id": self.project_id,
-                    "only_base64": PLANING_PERFORMANT_MODEL_NAME.startswith("claude"),
+                    "only_base64": settings.planing_performant_model_name.startswith("claude"),
                 }
             },
         )
@@ -203,18 +196,18 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
             tools=[tool.name for tool in tools],
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
+            recursion_limit=settings.recursion_limit,
         )
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=tools,
-            model_name=PLANING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.planing_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
-        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
+        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
 
         if "response" not in result:
             return {"response": ""}
@@ -240,7 +233,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             "HumanFeedbackResponse",
             human_feedback_evaluator.invoke(
                 [SystemMessage(human_feedback_system)] + state["messages"],
-                config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
             ),
         )
 
@@ -256,18 +249,27 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        tools = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(
-                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-            ),
-            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+                ),
+                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
+            ]
+            + prepare_repository_files_as_messages(
+                self.repo_client,
+                self.source_repo_id,
+                self.source_ref,
+                [task.path for task in state["plan_tasks"]],
+                store,
+            )
+        )
+
         messages = prompt.format_messages(
             goal=state["goal"],
             plan_tasks=enumerate(state["plan_tasks"]),
@@ -278,11 +280,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
             tools=tools,
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.coding_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore

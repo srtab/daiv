@@ -5,7 +5,7 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
 from automation.agents import BaseAgent
-from automation.agents.base import GENERIC_COST_EFFICIENT_MODEL_NAME
+from automation.conf import settings
 
 from .prompts import human, system
 
@@ -25,7 +25,7 @@ class ErrorLogEvaluatorAgent(BaseAgent[Runnable[ErrorLogEvaluatorInput, ErrorLog
     Agent to evaluate if two error logs are the same error or related.
     """
 
-    model_name = GENERIC_COST_EFFICIENT_MODEL_NAME
+    model_name = settings.generic_cost_efficient_model_name
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human])

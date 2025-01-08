@@ -14,8 +14,6 @@ if TYPE_CHECKING:
 
     from codebase.base import Repository
 
-EMBEDDING_MODEL_NAME = "text-embedding-3-small"
-
 
 class ClientChoices(models.TextChoices):
     GITLAB = "gitlab", "GitLab"

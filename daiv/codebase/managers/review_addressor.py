@@ -223,7 +223,7 @@ class ReviewAddressorManager(BaseManager):
                     if file_changes := reviewer_addressor.get_files_to_commit():
                         file_changes.extend(file_changes)
 
-                    if "response" not in result or not result["response"]:
+                    if result and ("response" not in result or not result["response"]):
                         # If the response is not in the result or is empty, it means the discussion was resolved,
                         # no further action would be needed.
                         resolved_discussions.append(context.discussion.id)
