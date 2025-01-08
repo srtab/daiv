@@ -4,7 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
-from automation.agents.base import CODING_COST_EFFICIENT_MODEL_NAME, GENERIC_COST_EFFICIENT_MODEL_NAME
+from automation.conf import settings
 from codebase.base import FileChange
 
 from .prompts import human, system
@@ -22,7 +22,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     Agent to describe changes in a pull request.
     """
 
-    model_name = GENERIC_COST_EFFICIENT_MODEL_NAME
+    model_name = settings.generic_cost_efficient_model_name
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
@@ -31,5 +31,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         return prompt | self.model.with_structured_output(
             PullRequestDescriberOutput, method="json_schema"
         ).with_fallbacks([
-            self.get_model(model=CODING_COST_EFFICIENT_MODEL_NAME).with_structured_output(PullRequestDescriberOutput)
+            self.get_model(model=settings.coding_cost_efficient_model_name).with_structured_output(
+                PullRequestDescriberOutput
+            )
         ])

@@ -8,6 +8,8 @@ from duckduckgo_search import DDGS
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel  # noqa: TC002
 
+from automation.conf import settings
+
 from .schemas import WebSearchInput
 
 if TYPE_CHECKING:
@@ -51,7 +53,7 @@ class WebSearchTool(BaseTool):
         logger.debug("[%s] Performing web search for '%s' (intent: %s)", self.name, query, intent)
 
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
+            results = list(ddgs.text(query, max_results=settings.web_search_max_results))
 
         if not results:
             return "No relevant results found for the given query."

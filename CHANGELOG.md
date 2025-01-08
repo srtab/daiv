@@ -9,15 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added `daiv` command to run commands on the codebase.
+- Added `commands` configuration to `.daiv.yml` to allow fix linting issues.
+- Declared `AutomationSettings` on `automation` app to centralize all settings related to the automation.
+- Turned web search tool max results to be configurable through `AutomationSettings`.
+- Preload repository files before plan execution to reduce execution time, reducing the number of call turns with the LLM.
 
 ### Changed
 
 - Raise more context on error message when `_get_unique_branch_name` reaches the maximum number of attempts.
+- Add sandbox toolkit even when no commands are declared, as the tools don't depend on it.
 
 ### Fixed
 
 - Changes not being commited when `IssueAddressorAgent` finished the execution.
+- Improved `PipelineFixerAgent` prompt and output schema to force the agent to call the tool to provide the tasks, sometimes the agent was not calling the tool and just returning the tasks as messages.
+
+### Removed
+
+- Constant `DEFAULT_RECURSION_LIMIT` removed in favor of `recursion_limit` on `AutomationSettings`.
+- Migrated `CODING_COST_EFFICIENT_MODEL_NAME`, `CODING_PERFORMANT_MODEL_NAME`, `GENERIC_COST_EFFICIENT_MODEL_NAME`, `GENERIC_PERFORMANT_MODEL_NAME`, `PLANING_COST_EFFICIENT_MODEL_NAME`, `PLANING_PERFORMANT_MODEL_NAME` in favor of `coding_cost_efficient_model_name`, `coding_performant_model_name`, `generic_cost_efficient_model_name`, `generic_performant_model_name`, `planing_cost_efficient_model_name`, `planing_performant_model_name` on `AutomationSettings`, respectively.
+- Constant `EMBEDDING_MODEL_NAME` from `codebase/models.py` as it's no longer used.
 
 ### Chore
 

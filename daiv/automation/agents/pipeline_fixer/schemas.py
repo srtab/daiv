@@ -45,9 +45,10 @@ class ActionPlan(BaseModel):
     steps: list[str] = Field(..., description="A list of steps to fix the issue.")
 
 
-class ExternalFactorPlanOutput(BaseModel):
+class ActionPlanOutput(BaseModel):
     """
-    Plan to fix an issue based on the root cause.
+    Provide the plan to fix an issue based on the root cause with this tool.
+    Only use this tool to provide the plan at the end of the response.
     """
 
     actions: list[ActionPlan] = Field(..., description="A list of actions to fix the issue.")

@@ -15,16 +15,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents import CODING_PERFORMANT_MODEL_NAME, BaseAgent
-from automation.agents.base import (
-    CODING_COST_EFFICIENT_MODEL_NAME,
-    GENERIC_PERFORMANT_MODEL_NAME,
-    PLANING_PERFORMANT_MODEL_NAME,
-)
-from automation.agents.prebuilt import REACTAgent
+from automation.agents import BaseAgent
+from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
 from automation.agents.prompts import execute_plan_human, execute_plan_system
 from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
-from automation.constants import DEFAULT_RECURSION_LIMIT
+from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
@@ -156,7 +151,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         response = cast(
             "AssesmentClassificationResponse",
             evaluator.invoke(
-                {"comments": state["messages"]}, config={"configurable": {"model": CODING_COST_EFFICIENT_MODEL_NAME}}
+                {"comments": state["messages"]},
+                config={"configurable": {"model": settings.coding_cost_efficient_model_name}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -172,12 +168,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        tools = ReadRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        tools += WebSearchToolkit.create_instance().get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + WebSearchToolkit.create_instance().get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
         system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
         system_message = system_message_template.format(
@@ -185,19 +180,19 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
             tools=[tool.name for tool in tools],
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
+            recursion_limit=settings.recursion_limit,
         )
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=tools,
-            model_name=PLANING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.planing_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
         response = react_agent.agent.invoke(
-            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT}
+            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": settings.recursion_limit}
         )
 
         if "response" not in response:
@@ -223,18 +218,26 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        tools = WriteRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(
-                execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-            ),
-            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
+                ),
+                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
+            ]
+            + prepare_repository_files_as_messages(
+                self.repo_client,
+                self.source_repo_id,
+                self.source_ref,
+                [task.path for task in state["plan_tasks"]],
+                store,
+            )
+        )
         messages = prompt.format_messages(
             goal=state["goal"],
             plan_tasks=enumerate(state["plan_tasks"]),
@@ -247,11 +250,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
             tools=tools,
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.coding_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": DEFAULT_RECURSION_LIMIT})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore
@@ -301,12 +304,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        tools = ReadRepositoryToolkit.create_instance(
-            self.repo_client, self.source_repo_id, self.source_ref
-        ).get_tools()
-        tools += WebSearchToolkit.create_instance().get_tools()
-        if self.repo_config.commands.enabled():
-            tools += SandboxToolkit.create_instance().get_tools()
+        tools = (
+            ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
+            + WebSearchToolkit.create_instance().get_tools()
+            + SandboxToolkit.create_instance().get_tools()
+        )
 
         system_message_template = SystemMessagePromptTemplate.from_template(
             respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
@@ -320,8 +322,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="respond_reviewer_react_agent",
             tools=tools,
-            model_name=CODING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=GENERIC_PERFORMANT_MODEL_NAME,
+            model_name=settings.coding_performant_model_name,
+            fallback_model_name=settings.generic_performant_model_name,
             with_structured_output=RespondReviewerResponse,
             store=store,
         )

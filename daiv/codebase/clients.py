@@ -71,6 +71,10 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
+        pass
+
+    @abc.abstractmethod
     def set_repository_webhooks(
         self,
         repo_id: str,

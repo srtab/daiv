@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import textwrap
+import uuid
 from typing import TYPE_CHECKING, Literal, cast
 
 from anthropic import InternalServerError as AnthropicInternalServerError
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -12,13 +14,18 @@ from langgraph.prebuilt.tool_node import ToolNode
 from openai import InternalServerError as OpenAIInternalServerError
 from pydantic import BaseModel, ValidationError  # noqa: TCH002
 
-from automation.agents import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent
+from automation.agents import BaseAgent
+from automation.conf import settings
+from automation.tools.repository import RETRIEVE_FILE_CONTENT_NAME, RetrieveFileContentTool
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
 
+    from langchain_core.prompts.chat import MessageLikeRepresentation
     from langchain_core.tools.base import BaseTool
     from langgraph.store.base import BaseStore
+
+    from codebase.clients import AllRepoClient
 
 
 logger = logging.getLogger("daiv.agents")
@@ -152,7 +159,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
                 "BaseModel",
                 llm_with_structured_output.invoke(
                     [HumanMessage(last_message.pretty_repr())],
-                    config={"configurable": {"model": GENERIC_COST_EFFICIENT_MODEL_NAME}},
+                    config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
                 ),
             )
 
@@ -179,3 +186,61 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         elif not last_message.tool_calls:
             return "end"
         return "continue"
+
+
+def prepare_repository_files_as_messages(
+    repo_client: AllRepoClient, repo_id: str, ref: str, paths: list[str], store: BaseStore
+) -> list[MessageLikeRepresentation]:
+    """
+    Prepare repository files as messages to preload them in agents to reduce their execution time.
+
+    This is useful for agents that use plan and execute reasoning.
+
+    Args:
+        repo_client (AllRepoClient): The repository client.
+        repo_id (str): The ID of the repository.
+        ref (str): The reference of the repository.
+        paths (list[str]): The paths of the files to preload.
+        store (BaseStore): The used store for file changes.
+
+    Returns:
+        list[AIMessage | ToolMessage]: The messages to preload in agents.
+    """
+    retrieve_file_content_tool = RetrieveFileContentTool(
+        source_repo_id=repo_id, source_ref=ref, api_wrapper=repo_client, return_not_found_message=False
+    )
+
+    tool_calls = []
+    tool_call_messages = []
+
+    for path in paths:
+        if repository_file_content := retrieve_file_content_tool.invoke({
+            "file_path": path,
+            "intent": "Check current implementation",
+            "store": store,
+        }):
+            tool_call_id = str(uuid.uuid4())
+            tool_calls.append(
+                ToolCall(
+                    id=tool_call_id,
+                    name=RETRIEVE_FILE_CONTENT_NAME,
+                    args={"file_path": path, "intent": "Check current implementation"},
+                )
+            )
+            tool_call_messages.append(ToolMessage(content=repository_file_content, tool_call_id=tool_call_id))
+
+    return [
+        AIMessage(
+            content=textwrap.dedent(
+                """\
+                I'll help you execute these tasks precisely. Let's go through them step by step.
+
+                <explanation>
+                First, I'll examine the existing files to understand the current implementation and ensure our changes align with the codebase patterns. Let me retrieve the relevant files.
+                </explanation>
+                """  # noqa: E501
+            ),
+            tool_calls=tool_calls,
+        ),
+        *tool_call_messages,
+    ]

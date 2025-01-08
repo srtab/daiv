@@ -5,7 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from automation.agents import BaseAgent
-from automation.agents.base import CODING_COST_EFFICIENT_MODEL_NAME
+from automation.conf import settings
 from automation.tools.repository import SearchCodeSnippetsTool
 from codebase.indexes import CodebaseIndex
 
@@ -20,7 +20,7 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
     Agent to answer questions about the codebase.
     """
 
-    model_name = CODING_COST_EFFICIENT_MODEL_NAME
+    model_name = settings.generic_cost_efficient_model_name
 
     def __init__(self, index: CodebaseIndex):
         self.index = index

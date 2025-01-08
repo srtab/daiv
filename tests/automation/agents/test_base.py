@@ -6,7 +6,8 @@ from langchain.chat_models.base import BaseChatModel
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 
-from automation.agents.base import GENERIC_COST_EFFICIENT_MODEL_NAME, BaseAgent, ModelProvider, Usage
+from automation.agents.base import BaseAgent, ModelProvider, Usage
+from automation.conf import settings
 
 
 class ConcreteAgent(BaseAgent):
@@ -25,7 +26,7 @@ class TestBaseAgent:
         agent = ConcreteAgent()
 
         assert agent.run_name == "ConcreteAgent"
-        assert agent.model_name == GENERIC_COST_EFFICIENT_MODEL_NAME
+        assert agent.model_name == settings.generic_cost_efficient_model_name
         assert isinstance(agent.usage_handler, OpenAICallbackHandler)
         assert agent.checkpointer is None
         assert agent.model == mock_init_chat_model.return_value
