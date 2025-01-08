@@ -27,7 +27,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
     Agent to replace a code snippet in a codebase.
     """
 
-    model_name = settings.snippet_replacer_model_name
+    model_name = settings.SNIPPET_REPLACER_MODEL_NAME
 
     def compile(self) -> Runnable:
         """
@@ -51,7 +51,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             Runnable: The appropriate method
         """
-        if settings.snippet_replacer_strategy == "llm" and self.validate_max_token_not_exceeded(input_data):
+        if settings.SNIPPET_REPLACER_STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
             return self._prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
         return RunnableLambda(self._replace_content_snippet)
 

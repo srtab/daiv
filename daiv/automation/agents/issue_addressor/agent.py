@@ -136,7 +136,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             "AssesmentClassificationResponse",
             evaluator.invoke(
                 {"issue_title": state["issue_title"], "issue_description": state["issue_description"]},
-                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
+                config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -178,7 +178,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
                     "repo_client_slug": self.repo_client.client_slug,
                     "project_id": self.project_id,
                     # Anthropic models require base64 images to be sent as data URLs
-                    "only_base64": IssueAddressorAgent.get_model_provider(settings.planing_performant_model_name)
+                    "only_base64": IssueAddressorAgent.get_model_provider(settings.PLANING_PERFORMANT_MODEL_NAME)
                     == ModelProvider.ANTHROPIC,
                 }
             },
@@ -192,18 +192,18 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
             tools=[tool.name for tool in tools],
-            recursion_limit=settings.recursion_limit,
+            recursion_limit=settings.RECURSION_LIMIT,
         )
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=tools,
-            model_name=settings.planing_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.PLANING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
-        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
+        result = react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
 
         if "response" not in result:
             return {"response": ""}
@@ -229,7 +229,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             "HumanFeedbackResponse",
             human_feedback_evaluator.invoke(
                 [human_feedback_system] + state["messages"],
-                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
+                config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
 
@@ -271,11 +271,11 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
             tools=tools,
-            model_name=settings.coding_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore

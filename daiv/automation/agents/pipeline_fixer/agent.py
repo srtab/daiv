@@ -111,7 +111,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             "PipelineLogClassifierOutput",
             evaluator.invoke(
                 {"job_logs": state["job_logs"], "diff": state["diff"]},
-                config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
+                config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
         return {
@@ -165,11 +165,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="unittest_fix_react_agent",
             tools=tools,
-            model_name=settings.coding_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore
@@ -233,8 +233,8 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="pipeline_fixer_react_agent",
             tools=tools,
-            model_name=settings.coding_cost_efficient_model_name,
-            fallback_model_name=settings.generic_cost_efficient_model_name,
+            model_name=settings.CODING_COST_EFFICIENT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_COST_EFFICIENT_MODEL_NAME,
             with_structured_output=ActionPlanOutput,
             store=store,
         )

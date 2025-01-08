@@ -118,7 +118,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Check if we should transform the query.
         """
         if not state["documents"]:
-            if state["iterations"] < settings.codebase_search_max_transformations:
+            if state["iterations"] < settings.CODEBASE_SEARCH_MAX_TRANSFORMATIONS:
                 logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
                 return "transform_query"
             else:
@@ -140,7 +140,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         logger.info(
             "[should_transform_query] %d documents found (iteration: %d)", len(state["documents"]), state["iterations"]
         )
-        if not state["documents"] and state["iterations"] < settings.codebase_search_max_transformations:
+        if not state["documents"] and state["iterations"] < settings.CODEBASE_SEARCH_MAX_TRANSFORMATIONS:
             logger.info("[should_transform_query] No relevant documents found. Moving to transform_query state.")
             return "transform_query"
         if not state["documents"]:

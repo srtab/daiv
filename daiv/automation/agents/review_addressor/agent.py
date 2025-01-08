@@ -143,7 +143,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             "AssesmentClassificationResponse",
             evaluator.invoke(
                 {"comments": state["messages"]},
-                config={"configurable": {"model": settings.coding_cost_efficient_model_name}},
+                config={"configurable": {"model": settings.CODING_COST_EFFICIENT_MODEL_NAME}},
             ),
         )
         return {"request_for_changes": response.request_for_changes}
@@ -170,19 +170,19 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
             tools=[tool.name for tool in tools],
-            recursion_limit=settings.recursion_limit,
+            recursion_limit=settings.RECURSION_LIMIT,
         )
 
         react_agent = REACTAgent(
             run_name="plan_react_agent",
             tools=tools,
-            model_name=settings.planing_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.PLANING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=DetermineNextActionResponse,
             store=store,
         )
         response = react_agent.agent.invoke(
-            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": settings.recursion_limit}
+            {"messages": [system_message] + state["messages"]}, config={"recursion_limit": settings.RECURSION_LIMIT}
         )
 
         if "response" not in response:
@@ -235,11 +235,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="execute_plan_react_agent",
             tools=tools,
-            model_name=settings.coding_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             store=store,
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.recursion_limit})
+        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
 
     def determine_if_lint_fix_should_be_applied(
         self, state: OverallState, store: BaseStore
@@ -304,8 +304,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         react_agent = REACTAgent(
             run_name="respond_reviewer_react_agent",
             tools=tools,
-            model_name=settings.coding_performant_model_name,
-            fallback_model_name=settings.generic_performant_model_name,
+            model_name=settings.CODING_PERFORMANT_MODEL_NAME,
+            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
             with_structured_output=RespondReviewerResponse,
             store=store,
         )

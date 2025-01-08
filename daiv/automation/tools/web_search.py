@@ -53,7 +53,7 @@ class WebSearchTool(BaseTool):
         logger.debug("[%s] Performing web search for '%s' (intent: %s)", self.name, query, intent)
 
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=settings.web_search_max_results))
+            results = list(ddgs.text(query, max_results=settings.WEB_SEARCH_MAX_RESULTS))
 
         if not results:
             return "No relevant results found for the given query."
