@@ -25,7 +25,7 @@ class ErrorLogEvaluatorAgent(BaseAgent[Runnable[ErrorLogEvaluatorInput, ErrorLog
     Agent to evaluate if two error logs are the same error or related.
     """
 
-    model_name = settings.generic_cost_efficient_model_name
+    model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human])

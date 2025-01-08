@@ -33,7 +33,7 @@ class BaseAgent(ABC, Generic[T]):
 
     agent: T
 
-    model_name: str = settings.generic_cost_efficient_model_name
+    model_name: str = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
 
     def __init__(
         self,

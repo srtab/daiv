@@ -159,7 +159,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
                 "BaseModel",
                 llm_with_structured_output.invoke(
                     [HumanMessage(last_message.pretty_repr())],
-                    config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
+                    config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
                 ),
             )
 

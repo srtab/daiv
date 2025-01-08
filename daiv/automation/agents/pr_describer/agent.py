@@ -22,7 +22,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     Agent to describe changes in a pull request.
     """
 
-    model_name = settings.generic_cost_efficient_model_name
+    model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
@@ -31,7 +31,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         return prompt | self.model.with_structured_output(
             PullRequestDescriberOutput, method="json_schema"
         ).with_fallbacks([
-            self.get_model(model=settings.coding_cost_efficient_model_name).with_structured_output(
+            self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).with_structured_output(
                 PullRequestDescriberOutput
             )
         ])

@@ -26,7 +26,7 @@ class TestBaseAgent:
         agent = ConcreteAgent()
 
         assert agent.run_name == "ConcreteAgent"
-        assert agent.model_name == settings.generic_cost_efficient_model_name
+        assert agent.model_name == settings.GENERIC_COST_EFFICIENT_MODEL_NAME
         assert isinstance(agent.usage_handler, OpenAICallbackHandler)
         assert agent.checkpointer is None
         assert agent.model == mock_init_chat_model.return_value
