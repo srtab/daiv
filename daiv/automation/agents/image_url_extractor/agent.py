@@ -1,7 +1,6 @@
 from typing import TypedDict
 
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agents import BaseAgent
@@ -38,10 +37,7 @@ class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[dict]]]):
     """
 
     def compile(self) -> Runnable:
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(system),
-            HumanMessagePromptTemplate.from_template(human, "jinja2"),
-        ])
+        prompt = ChatPromptTemplate.from_messages([system, human])
         return (
             prompt
             | self.model.with_structured_output(ImageURLExtractorOutput, method="json_schema")

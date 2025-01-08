@@ -220,8 +220,8 @@ class ReviewAddressorManager(BaseManager):
                     )
 
                 if not state_after_run.tasks:
-                    if file_changes := reviewer_addressor.get_files_to_commit():
-                        file_changes.extend(file_changes)
+                    if files_to_commit := reviewer_addressor.get_files_to_commit():
+                        file_changes.extend(files_to_commit)
 
                     if result and ("response" not in result or not result["response"]):
                         # If the response is not in the result or is empty, it means the discussion was resolved,

@@ -8,7 +8,7 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
-from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
+from automation.agents.prebuilt import REACTAgent
 from automation.agents.prompts import execute_plan_system
 from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
@@ -154,16 +154,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             + SandboxToolkit.create_instance().get_tools()
         )
 
-        prompt = ChatPromptTemplate.from_messages(
-            [execute_plan_system, autofix_apply_human]
-            + prepare_repository_files_as_messages(
-                self.repo_client,
-                self.source_repo_id,
-                self.source_ref,
-                [task.path for task in state["plan_tasks"]],
-                store,
-            )
-        )
+        prompt = ChatPromptTemplate.from_messages([execute_plan_system, autofix_apply_human])
         messages = prompt.format_messages(
             job_logs=state["job_logs"],
             diff=state["diff"],

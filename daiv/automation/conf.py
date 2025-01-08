@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,8 +25,20 @@ class AutomationSettings(BaseSettings):
         default="gpt-4o-mini-2024-07-18", description="Model name to be used for generic tasks with cost efficiency."
     )
 
-    # Tools settings
+    # Snippet replacer settings
+    snippet_replacer_model_name: str = Field(
+        default=coding_cost_efficient_model_name, description="Model name to be used for snippet replacer."
+    )
+    snippet_replacer_strategy: Literal["llm", "find_and_replace"] = Field(
+        default="find_and_replace",
+        description="Strategy to use for snippet replacement. 'llm' uses a LLM to replace the snippet."
+        " 'find_and_replace' uses a find and replace strategy to replace the snippet.",
+    )
+
+    # Web search settings
     web_search_max_results: int = Field(default=5, description="Maximum number of results to return from web search")
+
+    # Codebase search settings
     codebase_search_max_transformations: int = Field(
         default=2, description="Maximum number of transformations to apply to the query."
     )

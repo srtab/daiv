@@ -213,7 +213,7 @@ def prepare_repository_files_as_messages(
     tool_calls = []
     tool_call_messages = []
 
-    for path in paths:
+    for path in set(paths):
         if repository_file_content := retrieve_file_content_tool.invoke({
             "file_path": path,
             "intent": "Check current implementation",

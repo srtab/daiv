@@ -5,8 +5,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from automation.agents import BaseAgent
+from automation.conf import settings
 
-from .conf import settings
 from .prompts import human, system
 from .schemas import SnippetReplacerOutput
 from .utils import find_original_snippet
@@ -27,7 +27,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
     Agent to replace a code snippet in a codebase.
     """
 
-    model_name = settings.MODEL
+    model_name = settings.snippet_replacer_model_name
 
     def compile(self) -> Runnable:
         """
@@ -51,7 +51,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             Runnable: The appropriate method
         """
-        if settings.STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
+        if settings.snippet_replacer_strategy == "llm" and self.validate_max_token_not_exceeded(input_data):
             return self._prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
         return RunnableLambda(self._replace_content_snippet)
 

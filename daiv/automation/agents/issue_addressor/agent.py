@@ -184,7 +184,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             },
         )
 
-        prompt = ChatPromptTemplate.from_messages([issue_addressor_system, issue_addressor_human, extracted_images])
+        prompt = ChatPromptTemplate.from_messages([issue_addressor_system, issue_addressor_human, *extracted_images])
 
         messages = prompt.format_messages(
             issue_title=state["issue_title"],
