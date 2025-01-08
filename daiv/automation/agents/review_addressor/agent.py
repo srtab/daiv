@@ -1,14 +1,8 @@
 import logging
 from typing import Literal, cast
 
-from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-    HumanMessagePromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-)
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -134,10 +128,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(review_assessment_system),
-            MessagesPlaceholder("comments"),
-        ])
+        prompt = ChatPromptTemplate.from_messages([review_assessment_system, MessagesPlaceholder("comments")])
 
         evaluator = (
             prompt
@@ -174,8 +165,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             + SandboxToolkit.create_instance().get_tools()
         )
 
-        system_message_template = SystemMessagePromptTemplate.from_template(review_analyzer_plan, "jinja2")
-        system_message = system_message_template.format(
+        system_message = review_analyzer_plan.format(
             diff=state.get("diff"),
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
@@ -224,12 +214,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         prompt = ChatPromptTemplate.from_messages(
-            [
-                SystemMessagePromptTemplate.from_template(
-                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-                ),
-                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
-            ]
+            [execute_plan_system, execute_plan_human]
             + prepare_repository_files_as_messages(
                 self.repo_client,
                 self.source_repo_id,
@@ -310,10 +295,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             + SandboxToolkit.create_instance().get_tools()
         )
 
-        system_message_template = SystemMessagePromptTemplate.from_template(
-            respond_reviewer_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-        )
-        system_message = system_message_template.format(
+        system_message = respond_reviewer_system.format(
             diff=state["diff"],
             project_description=self.repo_config.repository_description,
             repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),

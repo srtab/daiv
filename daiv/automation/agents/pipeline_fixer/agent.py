@@ -1,7 +1,7 @@
 import logging
 from typing import Literal, cast
 
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
 from langgraph.store.base import BaseStore
@@ -155,12 +155,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         )
 
         prompt = ChatPromptTemplate.from_messages(
-            [
-                SystemMessagePromptTemplate.from_template(
-                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-                ),
-                autofix_apply_human,
-            ]
+            [execute_plan_system, autofix_apply_human]
             + prepare_repository_files_as_messages(
                 self.repo_client,
                 self.source_repo_id,

@@ -1,8 +1,7 @@
 from functools import cached_property
 from typing import TypedDict
 
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from automation.agents import BaseAgent
@@ -43,11 +42,29 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         ).with_fallbacks([RunnableLambda(self._replace_content_snippet)])
 
     def _route(self, input_data: SnippetReplacerInput) -> Runnable:
+        """
+        Route the input data to the appropriate method.
+
+        Args:
+            input_data (SnippetReplacerInput): The input data
+
+        Returns:
+            Runnable: The appropriate method
+        """
         if settings.STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
             return self._prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
         return RunnableLambda(self._replace_content_snippet)
 
     def _replace_content_snippet(self, input_data: SnippetReplacerInput) -> SnippetReplacerOutput | str:
+        """
+        Replace the content snippet in the content.
+
+        Args:
+            input_data (SnippetReplacerInput): The input data
+
+        Returns:
+            SnippetReplacerOutput | str: The output
+        """
         original_snippet_found = find_original_snippet(
             input_data["original_snippet"], input_data["content"], initial_line_threshold=1
         )
@@ -64,6 +81,15 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         return SnippetReplacerOutput(content=replaced_content)
 
     def _post_process(self, output: SnippetReplacerOutput | str) -> SnippetReplacerOutput | str:
+        """
+        Post-process the output to ensure it ends with a newline character.
+
+        Args:
+            output (SnippetReplacerOutput | str): The output to post-process
+
+        Returns:
+            SnippetReplacerOutput | str: The post-processed output
+        """
         if isinstance(output, SnippetReplacerOutput) and not output.content.endswith("\n"):
             output.content += "\n"
         return output
@@ -95,11 +121,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             ChatPromptTemplate: The prompt.
         """
-        return ChatPromptTemplate.from_messages([
-            # cache-control: ephemeral can only be used with anthropic models
-            SystemMessage(system, additional_kwargs={"cache-control": {"type": "ephemeral"}}),
-            HumanMessagePromptTemplate.from_template(human),
-        ])
+        return ChatPromptTemplate.from_messages([system, human])
 
     def get_max_token_value(self) -> int:
         """
