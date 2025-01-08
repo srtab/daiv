@@ -24,8 +24,10 @@ class AutomationSettings(BaseSettings):
     )
 
     # Tools settings
-    # Tools settings
     web_search_max_results: int = Field(default=5, description="Maximum number of results to return from web search")
+    codebase_search_max_transformations: int = Field(
+        default=2, description="Maximum number of transformations to apply to the query."
+    )
 
 
 settings = AutomationSettings()  # type: ignore

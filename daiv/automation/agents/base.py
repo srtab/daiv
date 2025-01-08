@@ -80,7 +80,7 @@ class BaseAgent(ABC, Generic[T]):
             "model_kwargs": {},
         }
 
-        if self.get_model_provider() == ModelProvider.ANTHROPIC:
+        if BaseAgent.get_model_provider(self.model_name) == ModelProvider.ANTHROPIC:
             kwargs["model_kwargs"]["extra_headers"] = {
                 "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
             }
@@ -125,7 +125,7 @@ class BaseAgent(ABC, Generic[T]):
             int: The maximum token value
         """
 
-        match self.get_model_provider():
+        match BaseAgent.get_model_provider(self.model_name):
             case ModelProvider.ANTHROPIC:
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
@@ -139,14 +139,18 @@ class BaseAgent(ABC, Generic[T]):
             case _:
                 raise ValueError(f"Unknown provider for model {self.model_name}")
 
-    def get_model_provider(self) -> ModelProvider:
+    @staticmethod
+    def get_model_provider(model_name: str) -> ModelProvider:
         """
         Get the model provider.
+
+        Args:
+            model_name (str): The model name
 
         Returns:
             ModelProvider: The model provider
         """
-        return _attempt_infer_model_provider(self.model_name)
+        return _attempt_infer_model_provider(model_name)
 
 
 class Usage(BaseModel):

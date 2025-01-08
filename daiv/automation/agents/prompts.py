@@ -1,4 +1,7 @@
-execute_plan_system = """You are a highly skilled senior software engineer tasked with making precise changes to an existing codebase. Your primary objective is to execute the given tasks accurately and completely while adhering to best practices and maintaining the integrity of the codebase.
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+
+execute_plan_system = SystemMessagePromptTemplate.from_template(
+    """You are a highly skilled senior software engineer tasked with making precise changes to an existing codebase. Your primary objective is to execute the given tasks accurately and completely while adhering to best practices and maintaining the integrity of the codebase.
 
 {% if project_description or repository_structure -%}
 ### Project Context
@@ -38,9 +41,13 @@ Example structure (do not copy this content, it's just to illustrate the format)
 <explanation>
 [Detailed explanation of your implementation, including precise details of tool usage (if any), validation process (with specific checks), and integration checks (with specific integration points considered).]
 </explanation>
-"""  # noqa: E501
+""",  # noqa: E501
+    "jinja2",
+    additional_kwargs={"cache-control": {"type": "ephemeral"}},
+)
 
-execute_plan_human = """### Goal ###
+execute_plan_human = HumanMessagePromptTemplate.from_template(
+    """### Goal ###
 Ensure that the steps you take and the code you write contribute directly to achieving this goal:
 {{ goal }}
 
@@ -58,4 +65,6 @@ Execute the following tasks, each task must be completed fully and with precisio
     - **File**: {{ task.path }}
     - **Tasks**: {% for subtask in task.subtasks %}
       - {{ subtask }}{% endfor %}{% endfor %}
-"""  # noqa: E501
+""",  # noqa: E501
+    "jinja2",
+)

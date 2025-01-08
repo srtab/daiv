@@ -1,19 +1,17 @@
 import logging
 from typing import cast
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.constants import Send
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from automation.agents import BaseAgent
 from automation.agents.codebase_search.schemas import GradeDocumentsOutput, ImprovedQueryOutput
+from automation.conf import settings
 from codebase.indexes import CodebaseIndex
 
 from .prompts import grade_human, grade_system, re_write_human, re_write_system
 from .state import GradeDocumentState, OverallState
-
-MAX_ITERATIONS = 2
 
 logger = logging.getLogger("daiv.agents")
 
@@ -76,15 +74,12 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (GraphState): The current state of the graph.
         """
-
         grader_agent = self.model.with_structured_output(GradeDocumentsOutput, method="json_schema")
 
         messages = [
-            SystemMessage(grade_system),
-            HumanMessage(
-                grade_human.format(
-                    query=state["query"], query_intent=state["query_intent"], document=state["document"].page_content
-                )
+            grade_system,
+            grade_human.format(
+                query=state["query"], query_intent=state["query_intent"], document=state["document"].page_content
             ),
         ]
         response = cast("GradeDocumentsOutput", grader_agent.invoke(messages))
@@ -107,10 +102,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (GraphState): The current state of the graph.
         """
-        messages = [
-            SystemMessage(re_write_system),
-            HumanMessage(re_write_human.format(query=state["query"], query_intent=state["query_intent"])),
-        ]
+        messages = [re_write_system, re_write_human.format(query=state["query"], query_intent=state["query_intent"])]
 
         query_rewriter = self.model.with_structured_output(ImprovedQueryOutput, method="json_schema")
         response = cast(
@@ -126,7 +118,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         Check if we should transform the query.
         """
         if not state["documents"]:
-            if state["iterations"] < MAX_ITERATIONS:
+            if state["iterations"] < settings.codebase_search_max_transformations:
                 logger.info("[should_grade_documents] No documents retrieved. Moving to transform_query state.")
                 return "transform_query"
             else:
@@ -148,7 +140,7 @@ class CodebaseSearchAgent(BaseAgent[CompiledStateGraph]):
         logger.info(
             "[should_transform_query] %d documents found (iteration: %d)", len(state["documents"]), state["iterations"]
         )
-        if not state["documents"] and state["iterations"] < MAX_ITERATIONS:
+        if not state["documents"] and state["iterations"] < settings.codebase_search_max_transformations:
             logger.info("[should_transform_query] No relevant documents found. Moving to transform_query state.")
             return "transform_query"
         if not state["documents"]:

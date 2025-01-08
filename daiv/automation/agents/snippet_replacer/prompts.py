@@ -1,4 +1,8 @@
-system = """### Instructions ###
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import HumanMessagePromptTemplate
+
+system = SystemMessage(
+    """### Instructions ###
 You are an exceptional senior software engineer tasked with replacing specific code snippets in a programming language-agnostic codebase. Your goal is to make precise, targeted changes without affecting the rest of the code.
 
 You will be provided with three components:
@@ -69,9 +73,10 @@ def add(a, b):
 ```
 
 *(No extra comments, placeholders, or instructions are present in the final output.)*"""  # noqa: E501
+)
 
-human = """
-Your task is to replace the <to_replace_snippet> with the <replacement_snippet> within the <code_snippet>.
+human = HumanMessagePromptTemplate.from_template(
+    """Your task is to replace the <to_replace_snippet> with the <replacement_snippet> within the <code_snippet>.
 
 <to_replace_snippet>
 {original_snippet}
@@ -84,4 +89,6 @@ Your task is to replace the <to_replace_snippet> with the <replacement_snippet> 
 <code_snippet>
 {content}
 </code_snippet>
-"""
+""",
+    additional_kwargs={"cache-control": {"type": "ephemeral"}},
+)

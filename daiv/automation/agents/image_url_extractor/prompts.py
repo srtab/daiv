@@ -1,4 +1,7 @@
-system = """### Examples ###
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import HumanMessagePromptTemplate
+
+system = SystemMessage("""### Examples ###
 <examples>
 <example>
 <markdown_text>
@@ -88,10 +91,13 @@ This will help ensure a thorough interpretation of the markdown text.
 
 Your final output should be a list of URLs, optionally including filenames when available.
 If no image URLs are found, output an empty list.
-"""  # noqa: E501
+""")  # noqa: E501
 
-human = """Here is the markdown content you need to analyze for image URLs:
+human = HumanMessagePromptTemplate.from_template(
+    """Here is the markdown content you need to analyze for image URLs:
 <markdown_text>
 {{ markdown_text }}
 </markdown_text>
-"""
+""",
+    "jinja2",
+)

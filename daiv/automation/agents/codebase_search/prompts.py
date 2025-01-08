@@ -1,4 +1,7 @@
-grade_system = """### Instruction ###
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import HumanMessagePromptTemplate
+
+grade_system = SystemMessage("""### Instruction ###
 You are evaluating a code snippet against a given query and its intended purpose. Your task is to determine if the retrieved code snippet is sufficiently relevant to the query.
 
 ### Objective ###
@@ -13,12 +16,13 @@ Provide a binary assessment:
 
 ### Output ###
 Provide a single boolean value (`True` or `False`) indicating your assessment.
-"""  # noqa: E501
+""")  # noqa: E501
 
-grade_human = "Query: {query}\nIntent of the query: {query_intent}\n\nRetrieved snippet:\n{document}"
+grade_human = HumanMessagePromptTemplate.from_template(
+    "Query: {query}\nIntent of the query: {query_intent}\n\nRetrieved snippet:\n{document}"
+)
 
-
-re_write_system = """### Instruction ###
+re_write_system = SystemMessage("""### Instruction ###
 You are a search query rewriter specializing in enhancing code search queries to improve their relevance and precision.
 
 ### Objective ###
@@ -40,6 +44,8 @@ Rewrite provided code search queries by incorporating more code-related keywords
 
 - Query: `sort a list of integers`
   Improved Query: `algorithm to sort integer list`
-"""  # noqa: E501
+""")  # noqa: E501
 
-re_write_human = "Initial query: {query}\nIntent of the query: {query_intent}\nFormulate an improved query."
+re_write_human = HumanMessagePromptTemplate.from_template(
+    "Initial query: {query}\nIntent of the query: {query_intent}\nFormulate an improved query."
+)

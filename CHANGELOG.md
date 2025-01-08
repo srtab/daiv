@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Raise more context on error message when `_get_unique_branch_name` reaches the maximum number of attempts.
 - Add sandbox toolkit even when no commands are declared, as the tools don't depend on it.
+- Migrated instantiation of messages from agents to prompts.
+- Defined `get_model_provider` as a class method on `BaseAgent` to allow using it directly without instantiating the agent.
 
 ### Fixed
 

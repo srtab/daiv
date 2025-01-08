@@ -1,4 +1,7 @@
-issue_assessment_system = """### Examples ###
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+
+issue_assessment_system = SystemMessage("""### Examples ###
 <examples>
 <example>
 <issue>
@@ -79,16 +82,20 @@ Remember:
 - Classify as 'true' only if the issue clearly and directly requests codebase changes with specific instructions or actions.
 - Classify as 'false' if the issue is vague, purely informational, or doesn't provide clear direction for code modifications.
 - When in doubt, lean towards classifying as 'false' to avoid potential misinterpretation.
-"""  # noqa: E501
+""")  # noqa: E501
 
-issue_assessment_human = """Here is the issue you need to analyze:
+issue_assessment_human = HumanMessagePromptTemplate.from_template(
+    """Here is the issue you need to analyze:
 <issue>
 <title>{{ issue_title }}</title>
 <description>{{ issue_description }}</description>
 </issue>
-"""  # noqa: E501
+""",  # noqa: E501
+    "jinja2",
+)
 
-issue_addressor_system = """You are an AI agent acting as a senior software developer. Your task is to create a detailed, actionable task list for other AI agents to implement or fix reported issues in a software project.
+issue_addressor_system = SystemMessagePromptTemplate.from_template(
+    """You are an AI agent acting as a senior software developer. Your task is to create a detailed, actionable task list for other AI agents to implement or fix reported issues in a software project.
 
 {% if project_description or repository_structure -%}
 ### Project Context
@@ -176,18 +183,21 @@ Within your analysis, include the following steps:
 
 ---
 
-**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextActionResponse` tool.**
-"""  # noqa: E501
+**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextActionResponse` tool.**""",  # noqa: E501
+    "jinja2",
+)
 
-issue_addressor_human = """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:
+issue_addressor_human = HumanMessagePromptTemplate.from_template(
+    """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:
 
 <issue>
 <title>{{ issue_title }}</title>
 <description>{{ issue_description }}</description>
-</issue>
-"""  # noqa: E501
+</issue>""",  # noqa: E501
+    "jinja2",
+)
 
-human_feedback_system = """### Examples ###
+human_feedback_system = SystemMessage("""### Examples ###
 <examples>
 <example>
 <message>
@@ -292,5 +302,4 @@ Remember:
 - Approval must be explicit and without conditions to classify as "unambiguous."
 - Responses with hesitation, conditions, or neutrality should be classified as ambiguous or non-approving.
 
-Please begin your analysis now.
-"""  # noqa: E501
+Please begin your analysis now.""")  # noqa: E501

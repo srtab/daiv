@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
+from automation.agents.base import ModelProvider
 from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.issue_addressor.schemas import HumanFeedbackResponse
 from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
@@ -128,10 +128,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(issue_assessment_system),
-            HumanMessagePromptTemplate.from_template(issue_assessment_human, "jinja2"),
-        ])
+        prompt = ChatPromptTemplate.from_messages([issue_assessment_system, issue_assessment_human])
 
         evaluator = prompt | self.model.with_structured_output(AssesmentClassificationResponse)
 
@@ -180,15 +177,14 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
                 "configurable": {
                     "repo_client_slug": self.repo_client.client_slug,
                     "project_id": self.project_id,
-                    "only_base64": settings.planing_performant_model_name.startswith("claude"),
+                    # Anthropic models require base64 images to be sent as data URLs
+                    "only_base64": IssueAddressorAgent.get_model_provider(settings.planing_performant_model_name)
+                    == ModelProvider.ANTHROPIC,
                 }
             },
         )
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(issue_addressor_system, "jinja2"),
-            HumanMessagePromptTemplate.from_template([issue_addressor_human] + extracted_images, "jinja2"),
-        ])
+        prompt = ChatPromptTemplate.from_messages([issue_addressor_system, issue_addressor_human, extracted_images])
 
         messages = prompt.format_messages(
             issue_title=state["issue_title"],
@@ -232,7 +228,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         result = cast(
             "HumanFeedbackResponse",
             human_feedback_evaluator.invoke(
-                [SystemMessage(human_feedback_system)] + state["messages"],
+                [human_feedback_system] + state["messages"],
                 config={"configurable": {"model": settings.generic_cost_efficient_model_name}},
             ),
         )
@@ -255,12 +251,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         prompt = ChatPromptTemplate.from_messages(
-            [
-                SystemMessagePromptTemplate.from_template(
-                    execute_plan_system, "jinja2", additional_kwargs={"cache-control": {"type": "ephemeral"}}
-                ),
-                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
-            ]
+            [execute_plan_system, execute_plan_human]
             + prepare_repository_files_as_messages(
                 self.repo_client,
                 self.source_repo_id,
