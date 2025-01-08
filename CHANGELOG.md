@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Constant `DEFAULT_RECURSION_LIMIT` removed in favor of `recursion_limit` on `AutomationSettings`.
-- Migrated `CODING_COST_EFFICIENT_MODEL_NAME`, `CODING_PERFORMANT_MODEL_NAME`, `GENERIC_COST_EFFICIENT_MODEL_NAME`, `GENERIC_PERFORMANT_MODEL_NAME`, `PLANING_COST_EFFICIENT_MODEL_NAME`, `PLANING_PERFORMANT_MODEL_NAME` in favor of `coding_cost_efficient_model_name`, `coding_performant_model_name`, `generic_cost_efficient_model_name`, `generic_performant_model_name`, `planing_cost_efficient_model_name`, `planing_performant_model_name` on `AutomationSettings`, respectively.
+- Migrated `CODING_COST_EFFICIENT_MODEL_NAME`, `CODING_PERFORMANT_MODEL_NAME`, `GENERIC_COST_EFFICIENT_MODEL_NAME`, `GENERIC_PERFORMANT_MODEL_NAME`, `PLANING_COST_EFFICIENT_MODEL_NAME`, `PLANING_PERFORMANT_MODEL_NAME` to `AutomationSettings` to turn them into configurable settings.
 - Constant `EMBEDDING_MODEL_NAME` from `codebase/models.py` as it's no longer used.
 
 ### Chore
