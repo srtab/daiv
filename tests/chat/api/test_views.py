@@ -1,43 +1,55 @@
-from django.http import Http404
-from django.test import RequestFactory
-
 import pytest
-from chat.api.views import MODEL_ID, get_model, get_models
+from ninja.testing import TestClient
 
+from accounts.models import APIKey, User
+from chat.api.security import API_KEY_HEADER
+from chat.api.views import MODEL_ID
 from core.constants import BOT_NAME
+from daiv.api import api
 
 
 @pytest.fixture
-def request_factory():
-    return RequestFactory()
+def client():
+    user = User.objects.create_user(username="testuser", email="test@example.com", password="testpass123")  # noqa: S106
+    api_key = APIKey.objects.create_key(user=user, name="Test Key")[1]
+    return TestClient(api, headers={API_KEY_HEADER: api_key})
 
 
-def test_get_models(request_factory):
-    request = request_factory.get("/api/v1/models")
-    response = get_models(request)
-
-    assert response.object == "list"
-    assert len(response.data) == 1
-
-    model = response.data[0]
-    assert model.id == MODEL_ID
-    assert model.object == "model"
-    assert model.owned_by == BOT_NAME
-    assert model.created is None
+@pytest.fixture
+def client_unauthenticated():
+    return TestClient(api)
 
 
-def test_get_model_valid_id(request_factory):
-    request = request_factory.get(f"/api/v1/models/{MODEL_ID}")
-    response = get_model(request, MODEL_ID)
-
-    assert response.id == MODEL_ID
-    assert response.object == "model"
-    assert response.owned_by == BOT_NAME
-    assert response.created is None
+@pytest.mark.django_db
+def test_get_models_unauthenticated(client_unauthenticated: TestClient):
+    response = client_unauthenticated.get("/chat/models")
+    assert response.status_code == 401
 
 
-def test_get_model_invalid_id(request_factory):
-    request = request_factory.get("/api/v1/models/invalid_model")
+@pytest.mark.django_db
+def test_get_models(client: TestClient):
+    response = client.get("/chat/models")
+    assert response.status_code == 200
+    assert response.json() == {
+        "object": "list",
+        "data": [{"id": MODEL_ID, "object": "model", "created": None, "owned_by": BOT_NAME}],
+    }
 
-    with pytest.raises(Http404):
-        get_model(request, "invalid_model")
+
+@pytest.mark.django_db
+def test_get_model_detail_unauthenticated(client_unauthenticated: TestClient):
+    response = client_unauthenticated.get(f"/chat/models/{MODEL_ID}")
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_get_model_detail_valid_id(client: TestClient):
+    response = client.get(f"/chat/models/{MODEL_ID}")
+    assert response.status_code == 200
+    assert response.json() == {"id": MODEL_ID, "object": "model", "created": None, "owned_by": BOT_NAME}
+
+
+@pytest.mark.django_db
+def test_get_model_detail_invalid_id(client: TestClient):
+    response = client.get("/chat/models/invalid_model")
+    assert response.status_code == 404

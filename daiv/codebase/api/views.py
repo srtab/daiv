@@ -7,7 +7,7 @@ from .callbacks_gitlab import IssueCallback, NoteCallback, PipelineStatusCallbac
 
 logger = logging.getLogger("daiv.webhooks")
 
-router = Router()
+router = Router(tags=["codebase"])
 
 
 @router.post("/callbacks/gitlab/", response={204: None, 423: UnprocessableEntityResponse})
