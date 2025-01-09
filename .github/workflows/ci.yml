@@ -38,6 +38,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
 
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: dbuser
+          POSTGRES_PASSWORD: dbpass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Install libomp-dev
         run: sudo apt-get install -y libomp-dev
