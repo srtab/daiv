@@ -125,6 +125,7 @@ lint.ignore = [ "N812", "S101" ]
 lint.isort.known-first-party = [
   "accounts",
   "automation",
+  "chat",
   "codebase",
   "core",
 ]
@@ -145,10 +146,12 @@ pythonpath = "daiv"
 python_files = "test_*.py"
 python_classes = "Test *Test"
 addopts = "--cov --cov-config=.coveragerc"
+asyncio_mode = "auto"
 
 [tool.pytest_env]
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 DJANGO_SECRET_KEY = "not-so-secret"
+NINJA_SKIP_REGISTRY = true
 DB_HOST = "db"
 DB_NAME = "db"
 DB_USER = "dbuser"
@@ -164,6 +167,7 @@ check_untyped_defs = true
 module = [
   "appconf.*",
   "celery.*",
+  "chat.*",
   "decouple.*",
   "django.*",
   "django_extensions.*",

@@ -14,16 +14,18 @@ from chat.api.schemas import (
     ModelListSchema,
     ModelSchema,
 )
+from chat.api.security import APIKeyAuth
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.constants import BOT_NAME
 
-router = Router()
-
 MODEL_ID = "DAIV"
 
 
-@router.post("/chat/completions", response=ChatCompletionResponse | dict)
+router = Router(auth=APIKeyAuth(), tags=["chat"])
+
+
+@router.post("/completions", response=ChatCompletionResponse | dict)
 async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRequest):
     """
     This endpoint is used to create a chat completion for a given set of messages within the indexed codebase.

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Turned web search tool max results to be configurable through `AutomationSettings`.
 - Preload repository files before plan execution to reduce execution time, reducing the number of call turns with the LLM.
 - Integrated Tavily as an alternative web search tool to DuckDuckGo.
+- Support for API key generation to authenticate API requests.
+- API key authentication added to the chat API endpoints. You will need to create an API key to interact with the chat API.
 
 ### Changed
 
