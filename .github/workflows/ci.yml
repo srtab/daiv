@@ -44,6 +44,7 @@ jobs:
         env:
           POSTGRES_USER: dbuser
           POSTGRES_PASSWORD: dbpass
+          POSTGRES_DB: db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
