@@ -155,7 +155,7 @@ class WebSearchInput(BaseModel):
     query: str = Field(
         ...,
         description=(
-            "The search query to find relevant information from the web. "
+            "Search query to look up relevant information in the web. "
             "The query should be focused and specific to get accurate results."
         ),
     )
