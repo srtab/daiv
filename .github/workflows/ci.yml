@@ -74,4 +74,11 @@ jobs:
         run: uv sync --locked
 
       - name: Run Unittests
-        run: printenv && make test
+        run: make test
+        env:
+          DB_HOST: db
+          DB_NAME: db
+          DB_USER: dbuser
+          DB_PASSWORD: dbpass
+          DB_PORT: 5432
+          DB_SSLMODE: prefer
