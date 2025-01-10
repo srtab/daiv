@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.17] - 2025-01-10
+
 ### Added
 
 - Added `commands` configuration to `.daiv.yml` to allow fix linting issues.
@@ -326,7 +328,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.16...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.17...HEAD
+[0.1.0-alpha.17]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.16...v0.1.0-alpha.17
 [0.1.0-alpha.16]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.15...v0.1.0-alpha.16
 [0.1.0-alpha.15]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.14...v0.1.0-alpha.15
 [0.1.0-alpha.14]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.13...v0.1.0-alpha.14
