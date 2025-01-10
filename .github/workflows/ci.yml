@@ -73,13 +73,5 @@ jobs:
       - name: Install the project
         run: uv sync --locked
 
-      - name: Wait for DB DNS
-        run: |
-          for i in {1..10}; do
-            nc -z db 5432 && echo "Resolved host db" && break
-            echo "db not reachable yet, waiting…"
-            sleep 2
-          done
-
       - name: Run Unittests
-        run: make test
+        run: printenv && make test
