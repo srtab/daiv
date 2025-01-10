@@ -229,6 +229,9 @@ def prepare_repository_files_as_messages(
             )
             tool_call_messages.append(ToolMessage(content=repository_file_content, tool_call_id=tool_call_id))
 
+    if not tool_calls:
+        return []
+
     return [
         AIMessage(
             content=textwrap.dedent(
