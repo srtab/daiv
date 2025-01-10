@@ -13,6 +13,7 @@ help:
 	@echo "  make lock           - Update uv lock"
 
 test:
+	env | grep DB_
 	uv run pytest tests
 
 lint: lint-check lint-format
