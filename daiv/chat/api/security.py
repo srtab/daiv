@@ -1,18 +1,15 @@
-from ninja.security import APIKeyHeader
+from asgiref.sync import sync_to_async
+from ninja.security import HttpBearer
 
-from accounts.models import APIKey
-
-API_KEY_HEADER = "X-API-Key"
+from accounts.models import APIKey, User
 
 
-class APIKeyAuth(APIKeyHeader):
+class AuthBearer(HttpBearer):
     """
     Authentication class for the API using API keys.
     """
 
-    param_name = API_KEY_HEADER
-
-    def authenticate(self, request, key):
+    def authenticate(self, request, key: str | None) -> User | None:
         if key is None:
             return None
 
@@ -20,4 +17,14 @@ class APIKeyAuth(APIKeyHeader):
             api_key = APIKey.objects.get_from_key(key)
         except APIKey.DoesNotExist:
             return None
+
         return api_key.user
+
+
+class AsyncAuthBearer(AuthBearer):
+    """
+    Async authentication class for the API using API keys.
+    """
+
+    async def authenticate(self, request, key: str | None) -> User | None:
+        return await sync_to_async(super().authenticate)(request, key)

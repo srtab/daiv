@@ -30,7 +30,7 @@ class APIKeyManager(models.Manager, Generic[T]):
     def get_from_key(self, key: str) -> T:
         prefix, _, _ = key.partition(".")
 
-        api_key = self.get_usable_keys().get(prefix=prefix)
+        api_key = self.get_usable_keys().select_related("user").get(prefix=prefix)
 
         if not self.key_generator.verify(key, api_key.hashed_key):
             raise self.model.DoesNotExist("Key is not valid.")

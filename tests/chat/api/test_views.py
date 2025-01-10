@@ -2,7 +2,7 @@ import pytest
 from ninja.testing import TestClient
 
 from accounts.models import APIKey, User
-from chat.api.security import API_KEY_HEADER
+from chat.api.security import AuthBearer
 from chat.api.views import MODEL_ID
 from core.constants import BOT_NAME
 from daiv.api import api
@@ -12,7 +12,7 @@ from daiv.api import api
 def client():
     user = User.objects.create_user(username="testuser", email="test@example.com", password="testpass123")  # noqa: S106
     api_key = APIKey.objects.create_key(user=user, name="Test Key")[1]
-    return TestClient(api, headers={API_KEY_HEADER: api_key})
+    return TestClient(api, headers={AuthBearer.header: f"Bearer {api_key}"})
 
 
 @pytest.fixture
