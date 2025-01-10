@@ -8,11 +8,6 @@ def concatenate(left: str, right: str) -> str:
     return f"{left}.{right}"
 
 
-def split(concatenated: str) -> tuple[str, str]:
-    left, _, right = concatenated.partition(".")
-    return left, right
-
-
 class Sha512ApiKeyHasher(BasePasswordHasher):
     """
     An API key hasher using the sha512 algorithm.
