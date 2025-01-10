@@ -46,7 +46,7 @@ jobs:
           POSTGRES_PASSWORD: dbpass
           POSTGRES_DB: db
         options: >-
-          --health-cmd "pg_isready -U dbuser -d db"
+          --health-cmd "pg_isready -h localhost -U dbuser -d db"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
