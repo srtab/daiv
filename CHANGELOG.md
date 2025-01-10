@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Authentication method was not compatible with OpenAI API for Chat API endpoints. Changed to use the same method as the rest of the API.
+- Async views were not working with sync authentication methods. Created an async authentication method to fix this.
+
 ## [0.1.0-alpha.17] - 2025-01-10
 
 ### Added
