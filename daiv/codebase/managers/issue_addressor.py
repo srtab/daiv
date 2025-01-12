@@ -15,6 +15,7 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
     ISSUE_QUESTIONS_TEMPLATE,
+    ISSUE_REPLAN_TEMPLATE,
     ISSUE_REVIEW_PLAN_TEMPLATE,
     ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
 )
@@ -94,6 +95,7 @@ class IssueAddressorManager(BaseManager):
                 history_states := list(issue_addressor_agent.get_state_history(config, filter={"step": -1}))
             ):
                 config = history_states[-1].config
+                self.client.comment_issue(self.repo_id, cast("int", issue.iid), ISSUE_REPLAN_TEMPLATE)
 
             current_state = issue_addressor_agent.get_state(config)
 

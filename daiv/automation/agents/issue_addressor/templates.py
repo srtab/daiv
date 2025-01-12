@@ -6,7 +6,7 @@ I'm **{{ bot_name }}**, your assistant for refactoring the codebase. Here's the 
 2. ✍️ **Review:** Once ready, I'll share the planned tasks for your review. Feel free to refine the title or description of the issue and i will replan the tasks.
 3. 🚀 **Execution:** After approval, I'll implement the shared plan and submit a merge request with the updates.
 
-> ⚠️ ***Note:*** This may **take some time**. I'll notify you once the plan is ready.
+> ⚠️ ***Note:*** This may **take some time**. I'll leave you a message once the plan is ready.
 """  # noqa: E501
 
 ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the planned tasks:***
@@ -32,6 +32,12 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
  - ✅ If the plan is good, please approve the plan by **replying directly to this discussion** and I'll execute the plan.
 """  # noqa: E501
 
+ISSUE_REPLAN_TEMPLATE = """### 🔄 ***Replanning***
+
+I'm replanning the tasks with the new issue details.
+
+> ⚠️ ***Note:*** This may **take some time**. I'll leave you a message once the plan is ready.
+"""  # noqa: E501
 
 ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Unable to define a plan***
 
