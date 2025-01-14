@@ -5,18 +5,6 @@ from django.db import migrations
 import pgvector.django.indexes
 import pgvector.django.vector
 
-from codebase.search_engines.semantic import embeddings_function
-
-
-def update_source_vector(apps, schema_editor):
-    CodebaseDocument = apps.get_model("codebase", "CodebaseDocument")
-    documents = CodebaseDocument.objects.all()
-    embeddings = embeddings_function()
-    source_vectors = embeddings.embed_documents([document.source for document in documents])
-    for document, source_vector in zip(documents, source_vectors, strict=True):
-        document.source_vector = source_vector
-        document.save(update_fields=["source_vector"])
-
 
 class Migration(migrations.Migration):
     dependencies = [("codebase", "0004_codebasedocument")]
@@ -25,14 +13,8 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="codebasedocument",
             name="source_vector",
-            field=pgvector.django.vector.VectorField(null=True, dimensions=1536),
-            preserve_default=False,
-        ),
-        migrations.RunPython(update_source_vector, migrations.RunPython.noop),
-        migrations.AlterField(
-            model_name="codebasedocument",
-            name="source_vector",
             field=pgvector.django.vector.VectorField(dimensions=1536),
+            preserve_default=False,
         ),
         migrations.AddIndex(
             model_name="codebasedocument",
