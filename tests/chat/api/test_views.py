@@ -22,13 +22,13 @@ def client_unauthenticated():
 
 @pytest.mark.django_db
 def test_get_models_unauthenticated(client_unauthenticated: TestClient):
-    response = client_unauthenticated.get("/chat/models")
+    response = client_unauthenticated.get("/models")
     assert response.status_code == 401
 
 
 @pytest.mark.django_db
 def test_get_models(client: TestClient):
-    response = client.get("/chat/models")
+    response = client.get("/models")
     assert response.status_code == 200
     assert response.json() == {
         "object": "list",
@@ -38,18 +38,18 @@ def test_get_models(client: TestClient):
 
 @pytest.mark.django_db
 def test_get_model_detail_unauthenticated(client_unauthenticated: TestClient):
-    response = client_unauthenticated.get(f"/chat/models/{MODEL_ID}")
+    response = client_unauthenticated.get(f"/models/{MODEL_ID}")
     assert response.status_code == 401
 
 
 @pytest.mark.django_db
 def test_get_model_detail_valid_id(client: TestClient):
-    response = client.get(f"/chat/models/{MODEL_ID}")
+    response = client.get(f"/models/{MODEL_ID}")
     assert response.status_code == 200
     assert response.json() == {"id": MODEL_ID, "object": "model", "created": None, "owned_by": BOT_NAME}
 
 
 @pytest.mark.django_db
 def test_get_model_detail_invalid_id(client: TestClient):
-    response = client.get("/chat/models/invalid_model")
+    response = client.get("/models/invalid_model")
     assert response.status_code == 404

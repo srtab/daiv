@@ -103,7 +103,21 @@ def test_update_index_with_reset(mock_repo_client, mock_indexer):
     call_command("update_index", reset=True)
 
     # Verify index was reset and then updated
-    mock_indexer.delete.assert_called_once_with(repo_id="repo1", ref=None)
+    mock_indexer.delete.assert_called_once_with(repo_id="repo1", ref=None, delete_all=False)
+    mock_indexer.update.assert_called_once_with(repo_id="repo1", ref=None)
+
+
+def test_update_index_with_reset_all(mock_repo_client, mock_indexer):
+    """Test updating index with reset all option."""
+    # Mock repository
+    mock_repo = Mock(slug="repo1")
+    mock_repo_client.list_repositories.return_value = [mock_repo]
+
+    # Call the command with reset
+    call_command("update_index", reset_all=True)
+
+    # Verify index was reset and then updated
+    mock_indexer.delete.assert_called_once_with(repo_id="repo1", ref=None, delete_all=True)
     mock_indexer.update.assert_called_once_with(repo_id="repo1", ref=None)
 
 
