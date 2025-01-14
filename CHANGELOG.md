@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Show comment on the issue when the agent is replanning the tasks.
 - Repositories file paths are now being indexed too, allowing the agent to search for file paths.
 - New option `reset_all` added to the `update_index` command to allow reset indexes from all branches, not only the default branch.
 
