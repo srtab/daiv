@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added comment on the issue when the agent is replanning the tasks.
+
 ## [0.1.0-alpha.19] - 2025-01-10
 
 ### Fixed
