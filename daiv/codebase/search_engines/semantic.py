@@ -42,16 +42,22 @@ class SemanticSearchEngine(SearchEngine):
             list[CodebaseDocument]: The created document records
         """
         document_vectors = self.embeddings.embed_documents([document.page_content for document in documents])
+        source_vectors = self.embeddings.embed_documents([
+            document.metadata.get("source", "") for document in documents
+        ])
 
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
                 namespace=namespace,
                 source=document.metadata.get("source", ""),
+                source_vector=source_vector,
                 page_content=document.page_content,
-                page_content_vector=vector,
+                page_content_vector=page_content_vector,
                 metadata=document.metadata,
             )
-            for document, vector in zip(documents, document_vectors, strict=True)
+            for document, page_content_vector, source_vector in zip(
+                documents, document_vectors, source_vectors, strict=True
+            )
         ])
 
     def delete_documents(self, namespace: CodebaseNamespace, source: str | list[str]):

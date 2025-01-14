@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from gitlab import GitlabGetError
 from langchain.retrievers import EnsembleRetriever
@@ -119,7 +119,11 @@ class CodebaseIndex(abc.ABC):
                         repo_dir,
                         limit_to=loader_limit_paths_to,
                         exclude=repo_config.combined_exclude_patterns,
-                        documents_metadata={"repo_id": namespace.repository_info.external_slug, "ref": ref},
+                        documents_metadata={
+                            "repo_id": namespace.repository_info.external_slug,
+                            "ref": ref,
+                            "default_branch": cast("str", repo_config.default_branch),
+                        },
                     )
                     documents = loader.load_and_split()
 
@@ -149,7 +153,7 @@ class CodebaseIndex(abc.ABC):
             ref (str): The reference branch or tag
             source_files (list[str]): List of file paths to delete from indexes
         """
-        namespace = self._get_codebase_namespace(repo_id, ref)
+        namespace = self._get_codebase_namespace(repo_id, ref).first()
 
         if namespace is None:
             return
@@ -158,26 +162,29 @@ class CodebaseIndex(abc.ABC):
         if LEXICAL_INDEX_ENABLED:
             self.lexical_search_engine.delete_documents(namespace, source=source_files)
 
-    def delete(self, repo_id: str, ref: str | None = None):
+    def delete(self, repo_id: str, ref: str | None = None, delete_all: bool = False):
         """
-        Delete all indexes for a repository.
+        Delete indexes for a repository.
 
         Args:
             repo_id (str): The repository identifier
             ref (str | None): The reference branch or tag. If None, uses default branch
+            delete_all (bool): If True, deletes all indexes for the repository
         """
-        namespace = self._get_codebase_namespace(repo_id, ref)
 
-        if namespace is None:
+        namespaces = self._get_codebase_namespace(repo_id, ref, ignore_ref=delete_all)
+
+        if not namespaces.exists():
             return
 
-        logger.info("Reseting repo %s[%s] index.", repo_id, namespace.tracking_ref)
+        for namespace in namespaces.iterator():
+            logger.info("Reseting repo %s[%s] index.", repo_id, namespace.tracking_ref)
 
-        self.semantic_search_engine.delete(namespace)
-        if LEXICAL_INDEX_ENABLED:
-            self.lexical_search_engine.delete(namespace)
+            self.semantic_search_engine.delete(namespace)
+            if LEXICAL_INDEX_ENABLED:
+                self.lexical_search_engine.delete(namespace)
 
-        namespace.delete()
+            namespace.delete()
 
     def search(self, repo_id: str, ref: str, query: str) -> list[Document]:
         """
@@ -191,7 +198,7 @@ class CodebaseIndex(abc.ABC):
         Returns:
             list[Document]: List of matching documents from the search
         """
-        namespace = self._get_codebase_namespace(repo_id, ref)
+        namespace = self._get_codebase_namespace(repo_id, ref).first()
 
         if namespace is None:
             return []
@@ -239,20 +246,28 @@ class CodebaseIndex(abc.ABC):
             return analyze_repository(repo_dir, repo_config.combined_exclude_patterns)
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
-    def _get_codebase_namespace(self, repo_id: str, ref: str | None) -> CodebaseNamespace | None:
+    def _get_codebase_namespace(
+        self, repo_id: str, ref: str | None, ignore_ref: bool = False
+    ) -> QuerySet[CodebaseNamespace]:
         """
         Retrieve the CodebaseNamespace object for a given repository.
 
         Args:
             repo_id (str): The repository identifier
             ref (str | None): The reference branch or tag. If None, uses default branch
+            ignore_ref (bool): If True, ignores the reference branch
 
         Returns:
             CodebaseNamespace | None: The namespace object if found, None otherwise
         """
+        qs = CodebaseNamespace.objects.filter(
+            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
+        )
+
+        if ignore_ref:
+            return qs
+
         repo_config = RepositoryConfig.get_config(repo_id)
         _ref = cast("str", ref or repo_config.default_branch)
 
-        return CodebaseNamespace.objects.filter(
-            Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id), tracking_ref=_ref
-        ).first()
+        return qs.filter(tracking_ref=_ref)

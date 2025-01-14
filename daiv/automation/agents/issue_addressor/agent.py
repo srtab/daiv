@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
@@ -184,7 +184,10 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             },
         )
 
-        prompt = ChatPromptTemplate.from_messages([issue_addressor_system, issue_addressor_human, *extracted_images])
+        prompt = ChatPromptTemplate.from_messages([
+            issue_addressor_system,
+            HumanMessagePromptTemplate.from_template([issue_addressor_human, *extracted_images], "jinja2"),
+        ])
 
         messages = prompt.format_messages(
             issue_title=state["issue_title"],

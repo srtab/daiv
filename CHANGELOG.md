@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Repositories file paths are now being indexed too, allowing the agent to search for file paths.
+- New option `reset_all` added to the `update_index` command to allow reset indexes from all branches, not only the default branch.
+
+### Changed
+
+- Improved `CodebaseQAAgent` response, even when tool calls are not being called. Added web search tool to the agent to allow it to search for answers when the codebase doesn't have the information.
+- Changed models url paths on Chat API from `api/v1/chat/models` -> `api/v1/models` to be more consistent with OpenAI API. **This is a breaking change, as it will affect all clients using the Chat API.**
+
+### Fixed
+
+- Issues with images were not being processed correctly, leading to errors interpreting the image from the description.
+- Chat API was not returning the correct response structure when not on streaming mode.
+- Codebase retriever used for non-scoped indexes on `CodebaseQAAgent` was returning duplicate documents, from different branches. Now it's filtering always by repository default branch.q
+
 ## [0.1.0-alpha.19] - 2025-01-10
 
 ### Fixed
