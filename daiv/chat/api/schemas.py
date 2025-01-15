@@ -39,4 +39,4 @@ class ChatCompletionChunk(Schema):
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
     created: int
     model: str | None = None
-    choices: list[dict[str, int | dict | str]]
+    choices: list[dict[str, int | dict | str | None]]

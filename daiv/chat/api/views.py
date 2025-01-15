@@ -22,10 +22,20 @@ from core.constants import BOT_NAME
 MODEL_ID = "DAIV"
 
 
-router = Router(auth=AuthBearer(), tags=["chat"])
+chat_router = Router(auth=AsyncAuthBearer(), tags=["chat"])
+models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
-@router.post("/completions", response=ChatCompletionResponse | dict, auth=AsyncAuthBearer())
+def _extract_chunk_content(chunk):
+    content = ""
+    if isinstance(chunk.content, str):
+        content = chunk.content
+    elif isinstance(chunk.content, list) and chunk.content and chunk.content[0]["type"] == "text":
+        content = chunk.content[0]["text"]
+    return content
+
+
+@chat_router.post("/completions", response=ChatCompletionResponse | dict, auth=AsyncAuthBearer())
 async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRequest):
     """
     This endpoint is used to create a chat completion for a given set of messages within the indexed codebase.
@@ -43,7 +53,13 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             return ChatCompletionResponse(
                 id=str(uuid.uuid4()),
                 created=int(datetime.now().timestamp()),
-                choices=[{"index": 1, "message": result["messages"][-1].content, "finish_reason": "stop"}],
+                choices=[
+                    {
+                        "index": 1,
+                        "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
+                        "finish_reason": "stop",
+                    }
+                ],
             )
         except Exception as e:
             return {"error": str(e)}
@@ -53,34 +69,36 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         try:
             chunk_uuid = str(uuid.uuid4())
             created = int(datetime.now().timestamp())
-            async for chunk in codebase_qa.agent.astream({"messages": messages}, stream_mode="messages"):
-                # if the agent call a tool, we don't want to stream the response
-                if chunk and chunk[0] and chunk[0].type == "AIMessageChunk":
-                    content = ""
-
-                    if isinstance(chunk[0].content, str):
-                        content = chunk[0].content
-                    elif (
-                        isinstance(chunk[0].content, list)
-                        and chunk[0].content
-                        and chunk[0].content[0]["type"] == "text"
-                    ):
-                        content = chunk[0].content[0]["text"]
-
+            async for stream_event in codebase_qa.agent.astream_events({"messages": messages}, version="v2"):
+                if (
+                    stream_event["event"] == "on_chat_model_stream"
+                    # the node query_or_respond can respond directly to the user too, so we need to stream it too
+                    and stream_event["metadata"].get("langgraph_node") in ("query_or_respond", "generate")
+                    and (chunk := stream_event["data"].get("chunk"))
+                    # tool calls are handled in a different way, so we need to skip them
+                    and not chunk.tool_call_chunks
+                ):
                     chat_chunk = ChatCompletionChunk(
                         id=chunk_uuid,
                         created=created,
                         model=MODEL_ID,
-                        choices=[{"index": 1, "delta": {"content": content, "role": "ai"}}],
+                        choices=[
+                            {
+                                "index": 0,
+                                "finish_reason": None,
+                                "delta": {"content": _extract_chunk_content(chunk), "role": "assistant"},
+                            }
+                        ],
                     )
                     yield f"data: {chat_chunk.model_dump_json()}\n\n"
+
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingHttpResponse(generate_stream(), content_type="text/event-stream")
 
 
-@router.get("/models", response={200: ModelListSchema})
+@models_router.get("", response={200: ModelListSchema})
 def get_models(request: HttpRequest):
     """
     This endpoint is used to get the list of models available for the chat completion.
@@ -88,7 +106,7 @@ def get_models(request: HttpRequest):
     return ModelListSchema(object="list", data=[get_model(request, MODEL_ID)])
 
 
-@router.get("/models/{model_id}", response={200: ModelSchema})
+@models_router.get("/{model_id}", response={200: ModelSchema})
 def get_model(request: HttpRequest, model_id: str):
     """
     This endpoint is used to get the model information.

@@ -14,7 +14,7 @@ class SearchCodeSnippetsInput(BaseModel):
         ...,
         description=textwrap.dedent(
             """\
-            A code-centric search term including code snippets, function/class/method names, or code-related keywords.
+            A code-centric search term including code snippets, function/class/method names, code-related keywords or file paths.
 
             Tips:
             1. Avoid ambiguous terms for precise results.
@@ -22,7 +22,13 @@ class SearchCodeSnippetsInput(BaseModel):
             3. Optimize the query for hybrid search methods (vector and sparse retrieval).
             """  # noqa: E501
         ),
-        examples=["function foo", "class CharField", "def get", "method get_foo on class User"],
+        examples=[
+            "function foo",
+            "class CharField",
+            "def get",
+            "method get_foo on class User",
+            "example/tests/test_admin.py",
+        ],
     )
     intent: str = Field(..., description=("A brief description of why you are searching for this code."))
 

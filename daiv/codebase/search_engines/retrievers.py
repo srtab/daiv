@@ -1,7 +1,8 @@
 import re
 from typing import cast
 
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
+from django.db.models.functions import Least
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
@@ -38,7 +39,7 @@ class TantityRetriever(BaseRetriever):
         """
         self.index.reload()
         searcher = self.index.searcher()
-        parsed_query = self.index.parse_query(self._tokenize_code(query), ["page_content"])
+        parsed_query = self.index.parse_query(self._tokenize_code(query), ["page_content", "page_source"])
         results = []
         for _score, best_doc_address in searcher.search(parsed_query, self.k, **self.search_kwargs).hits:
             document = searcher.doc(best_doc_address)
@@ -106,6 +107,7 @@ class PostgresRetriever(BaseRetriever):
         Returns:
             list[Document]: The relevant documents.
         """
+        query_vector = self.embeddings.embed_query(query)
         return [
             Document(
                 id=document.uuid,
@@ -118,7 +120,11 @@ class PostgresRetriever(BaseRetriever):
                 },
             )
             for document in self._get_documents_queryset()
-            .annotate(distance=CosineDistance("page_content_vector", self.embeddings.embed_query(query)))
+            .annotate(
+                distance_content=CosineDistance("page_content_vector", query_vector),
+                distance_source=CosineDistance("source_vector", query_vector),
+            )
+            .annotate(distance=Least("distance_content", "distance_source"))
             .filter(**self.search_kwargs)
             .order_by("distance")[: self.k]
         ]
@@ -127,7 +133,7 @@ class PostgresRetriever(BaseRetriever):
         """
         Get the documents queryset.
         """
-        return CodebaseDocument.objects.all()
+        return CodebaseDocument.objects.filter(metadata__ref=F("metadata__default_branch"))
 
 
 class ScopedPostgresRetriever(PostgresRetriever):

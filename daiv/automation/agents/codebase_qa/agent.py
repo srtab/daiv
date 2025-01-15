@@ -7,9 +7,10 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from automation.agents import BaseAgent
 from automation.conf import settings
 from automation.tools.repository import SearchCodeSnippetsTool
+from automation.tools.toolkits import WebSearchToolkit
 from codebase.indexes import CodebaseIndex
 
-from .prompts import system
+from .prompts import system, system_query_or_respond
 from .state import OverallState
 
 logger = logging.getLogger("daiv.agents")
@@ -24,7 +25,7 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
 
     def __init__(self, index: CodebaseIndex):
         self.index = index
-        self.tools = [SearchCodeSnippetsTool(api_wrapper=index)]
+        self.tools = [SearchCodeSnippetsTool(api_wrapper=index)] + WebSearchToolkit.create_instance().get_tools()
         super().__init__()
 
     def compile(self) -> CompiledStateGraph:
@@ -48,7 +49,7 @@ class CodebaseQAAgent(BaseAgent[CompiledStateGraph]):
         Generate tool call for retrieval or respond.
         """
         llm_with_tools = self.model.bind_tools(self.tools)
-        response = llm_with_tools.invoke(state["messages"])
+        response = llm_with_tools.invoke([system_query_or_respond] + state["messages"])
         return {"messages": [response]}
 
     def generate(self, state: OverallState):

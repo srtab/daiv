@@ -187,15 +187,12 @@ Within your analysis, include the following steps:
     "jinja2",
 )
 
-issue_addressor_human = HumanMessagePromptTemplate.from_template(
-    """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:
+issue_addressor_human = """Analyze the issue and generate a structured, step-by-step task list that specifies clear, concise, and executable tasks necessary to resolve the issue within the existing codebase:
 
 <issue>
 <title>{{ issue_title }}</title>
 <description>{{ issue_description }}</description>
-</issue>""",  # noqa: E501
-    "jinja2",
-)
+</issue>"""  # noqa: E501
 
 human_feedback_system = SystemMessage("""### Examples ###
 <examples>

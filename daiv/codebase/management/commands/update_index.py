@@ -29,6 +29,11 @@ class Command(BaseCommand):
             "If repo-id is provided, this argument will be ignored.",
         )
         parser.add_argument("--reset", action="store_true", help="Reset the index before updating.")
+        parser.add_argument(
+            "--reset-all",
+            action="store_true",
+            help="Reset all indexes for the repository, ignoring the reference branch.",
+        )
 
     def handle(self, *args, **options):
         repo_client = RepoClient.create_instance()
@@ -45,6 +50,6 @@ class Command(BaseCommand):
             repositories = repo_client.list_repositories(topics=options["topics"] or None, load_all=True)
 
         for repository in repositories:
-            if options["reset"]:
-                indexer.delete(repo_id=repository.slug, ref=options["ref"])
+            if options["reset"] or options["reset_all"]:
+                indexer.delete(repo_id=repository.slug, ref=options["ref"], delete_all=options["reset_all"])
             indexer.update(repo_id=repository.slug, ref=options["ref"])
