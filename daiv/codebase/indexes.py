@@ -19,13 +19,11 @@ from codebase.utils import analyze_repository
 from core.config import RepositoryConfig
 
 if TYPE_CHECKING:
-    from langchain_core.documents import Document
+    from langchain_core.retrievers import BaseRetriever
 
     from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.indexes")
-
-LEXICAL_INDEX_ENABLED = True
 
 
 class CodebaseIndex(abc.ABC):
@@ -44,8 +42,7 @@ class CodebaseIndex(abc.ABC):
     def __init__(self, repo_client: AllRepoClient):
         self.repo_client = repo_client
         self.semantic_search_engine = SemanticSearchEngine()
-        if LEXICAL_INDEX_ENABLED:
-            self.lexical_search_engine = LexicalSearchEngine()
+        self.lexical_search_engine = LexicalSearchEngine()
 
     def update(self, repo_id: str, ref: str | None = None):
         """
@@ -133,8 +130,7 @@ class CodebaseIndex(abc.ABC):
 
                 if documents:
                     self.semantic_search_engine.add_documents(namespace, documents)
-                    if LEXICAL_INDEX_ENABLED:
-                        self.lexical_search_engine.add_documents(namespace, documents)
+                    self.lexical_search_engine.add_documents(namespace, documents)
         except Exception:
             logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
             namespace.status = CodebaseNamespace.Status.FAILED
@@ -143,6 +139,9 @@ class CodebaseIndex(abc.ABC):
             namespace.status = CodebaseNamespace.Status.INDEXED
             namespace.save(update_fields=["status", "modified"])
             logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
+        finally:
+            # Clear the cache for the namespace retrieval as it might have changed
+            self._get_codebase_namespace.cache_clear()
 
     def _delete_documents(self, repo_id: str, ref: str, source_files: list[str]):
         """
@@ -159,8 +158,7 @@ class CodebaseIndex(abc.ABC):
             return
 
         self.semantic_search_engine.delete_documents(namespace, source=source_files)
-        if LEXICAL_INDEX_ENABLED:
-            self.lexical_search_engine.delete_documents(namespace, source=source_files)
+        self.lexical_search_engine.delete_documents(namespace, source=source_files)
 
     def delete(self, repo_id: str, ref: str | None = None, delete_all: bool = False):
         """
@@ -181,52 +179,35 @@ class CodebaseIndex(abc.ABC):
             logger.info("Reseting repo %s[%s] index.", repo_id, namespace.tracking_ref)
 
             self.semantic_search_engine.delete(namespace)
-            if LEXICAL_INDEX_ENABLED:
-                self.lexical_search_engine.delete(namespace)
+            self.lexical_search_engine.delete(namespace)
 
             namespace.delete()
 
-    def search(self, repo_id: str, ref: str, query: str) -> list[Document]:
+    def as_retriever(self, repo_id: str | None = None, ref: str | None = None) -> BaseRetriever:
         """
-        Search the repository index using semantic and lexical search.
+        Get a retriever for the repository index.
 
         Args:
-            repo_id (str): The repository identifier
-            ref (str): The reference branch or tag
-            query (str): The search query string
+            repo_id (str | None): The repository identifier
+            ref (str | None): The reference branch or tag
 
         Returns:
-            list[Document]: List of matching documents from the search
+            BaseRetriever: The retriever for the repository index
         """
-        namespace = self._get_codebase_namespace(repo_id, ref).first()
+        namespace = self._get_codebase_namespace(repo_id, ref).first() if repo_id else None
 
-        if namespace is None:
-            return []
+        if repo_id and namespace is None:
+            raise ValueError(f"No namespace found for repo {repo_id} and ref {ref}.")
 
-        semantic_retriever = self.semantic_search_engine.as_retriever(
-            namespace, k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
+        return EnsembleRetriever(
+            retrievers=[
+                self.semantic_search_engine.as_retriever(
+                    namespace, k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
+                ),
+                self.lexical_search_engine.as_retriever(namespace, k=10),
+            ],
+            weights=[0.6, 0.4],
         )
-
-        if LEXICAL_INDEX_ENABLED:
-            return EnsembleRetriever(
-                retrievers=[semantic_retriever, self.lexical_search_engine.as_retriever(namespace, k=10)],
-                weights=[0.6, 0.4],
-            ).invoke(query)
-        return semantic_retriever.invoke(query)
-
-    def search_all(self, query: str) -> list[Document]:
-        """
-        Search all indexes using semantic search.
-
-        Args:
-            query (str): The search query string
-
-        Returns:
-            list[Document]: List of matching documents from the search
-        """
-        return self.semantic_search_engine.as_retriever(
-            k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
-        ).invoke(query)
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
     def extract_tree(self, repo_id: str, ref: str) -> str:

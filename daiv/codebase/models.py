@@ -10,9 +10,9 @@ from langchain_core.documents import Document
 from pgvector.django import HnswIndex, VectorField
 
 if TYPE_CHECKING:
-    from langchain_core.embeddings import Embeddings
-
     from codebase.base import Repository
+
+VECTOR_DIMENSIONS = 2000
 
 
 class ClientChoices(models.TextChoices):
@@ -80,33 +80,6 @@ class CodebaseNamespace(TimeStampedModel):
     def __str__(self) -> str:
         return self.sha
 
-    def add_documents(self, documents: list[Document], embedding: Embeddings) -> list[CodebaseDocument]:
-        """
-        Add documents to the index.
-        """
-        return CodebaseDocument.objects.create_from_documents(self, documents, embedding)
-
-
-class CodebaseDocumentManager(models.Manager):
-    def create_from_documents(
-        self, namespace: CodebaseNamespace, documents: list[Document], embedding: Embeddings
-    ) -> list[CodebaseDocument]:
-        """
-        Create documents from a list of documents using bulk_create.
-        """
-        document_vectors = embedding.embed_documents([document.page_content for document in documents])
-        return CodebaseDocument.objects.bulk_create([
-            CodebaseDocument(
-                uuid=document.id,
-                namespace=namespace,
-                source=document.metadata.get("source", ""),
-                page_content=document.page_content,
-                page_content_vector=vector,
-                metadata=document.metadata,
-            )
-            for document, vector in zip(documents, document_vectors, strict=True)
-        ])
-
 
 class CodebaseDocument(TimeStampedModel):
     """
@@ -116,12 +89,10 @@ class CodebaseDocument(TimeStampedModel):
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     namespace = models.ForeignKey(CodebaseNamespace, on_delete=models.CASCADE, related_name="documents")
     source = models.CharField(max_length=256)
-    source_vector = VectorField(dimensions=1536)
+    source_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
     page_content = models.TextField()
-    page_content_vector = VectorField(dimensions=1536)
+    page_content_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
     metadata = models.JSONField(default=dict)
-
-    objects: CodebaseDocumentManager = CodebaseDocumentManager()
 
     class Meta:
         indexes = [
@@ -139,6 +110,7 @@ class CodebaseDocument(TimeStampedModel):
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
             ),
+            models.Index(models.F("metadata__ref"), name="metadata__ref_idx"),
         ]
 
     def __str__(self) -> str:

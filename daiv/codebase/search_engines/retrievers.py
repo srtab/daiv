@@ -1,8 +1,7 @@
 import re
 from typing import cast
 
-from django.db.models import F, QuerySet
-from django.db.models.functions import Least
+from django.db.models import F, FloatField, QuerySet, Value
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
@@ -10,7 +9,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
 from pgvector.django import CosineDistance
 from pydantic import Field
-from tantivy import Index
+from tantivy import Index, Occur, Query
 
 from codebase.models import CodebaseDocument, CodebaseNamespace
 
@@ -39,9 +38,11 @@ class TantityRetriever(BaseRetriever):
         """
         self.index.reload()
         searcher = self.index.searcher()
-        parsed_query = self.index.parse_query(self._tokenize_code(query), ["page_content", "page_source"])
+
         results = []
-        for _score, best_doc_address in searcher.search(parsed_query, self.k, **self.search_kwargs).hits:
+        for _score, best_doc_address in searcher.search(
+            self._get_parsed_query(query), self.k, **self.search_kwargs
+        ).hits:
             document = searcher.doc(best_doc_address)
             results.append(
                 Document(
@@ -86,6 +87,43 @@ class TantityRetriever(BaseRetriever):
 
         return " ".join(tokens)
 
+    def _get_parsed_query(self, query: str) -> Query:
+        """
+        Get the parsed query.
+        """
+        return Query.boolean_query([
+            (
+                Occur.Must,
+                Query.boolean_query([
+                    # TODO: Turn refs configurable
+                    (Occur.Should, Query.term_query(self.index.schema, "ref", "main")),
+                    (Occur.Should, Query.term_query(self.index.schema, "ref", "master")),
+                ]),
+            ),
+            (
+                Occur.Must,
+                self.index.parse_query(self._tokenize_code(query), ["page_content", "page_source", "repo_id"]),
+            ),
+        ])
+
+
+class ScopedTantityRetriever(TantityRetriever):
+    """
+    Retriever based on Tantivy with a scoped namespace.
+    """
+
+    namespace: CodebaseNamespace
+
+    def _get_parsed_query(self, query: str) -> Query:
+        """
+        Get the parsed query for the scoped namespace.
+        """
+        return Query.boolean_query([
+            (Occur.Must, Query.term_query(self.index.schema, "repo_id", self.namespace.repository_info.external_slug)),
+            (Occur.Must, Query.term_query(self.index.schema, "ref", self.namespace.tracking_ref)),
+            (Occur.Must, self.index.parse_query(self._tokenize_code(query), ["page_content", "page_source"])),
+        ])
+
 
 class PostgresRetriever(BaseRetriever):
     """
@@ -95,6 +133,7 @@ class PostgresRetriever(BaseRetriever):
     embeddings: Embeddings
     k: int = 10
     search_kwargs: dict = Field(default_factory=dict)
+    threshold_distance: float = 0.8
 
     def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> list[Document]:
         """
@@ -121,11 +160,13 @@ class PostgresRetriever(BaseRetriever):
             )
             for document in self._get_documents_queryset()
             .annotate(
+                # TODO: do multi-step search to leverage HNSW index. pgvector works on a single vector field at a time.
                 distance_content=CosineDistance("page_content_vector", query_vector),
                 distance_source=CosineDistance("source_vector", query_vector),
+                distance=F("distance_content") * Value(0.4, output_field=FloatField())
+                + F("distance_source") * Value(0.6, output_field=FloatField()),
             )
-            .annotate(distance=Least("distance_content", "distance_source"))
-            .filter(**self.search_kwargs)
+            .filter(distance__lte=self.threshold_distance, **self.search_kwargs)
             .order_by("distance")[: self.k]
         ]
 

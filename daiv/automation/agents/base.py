@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
-from langchain.chat_models.base import BaseChatModel, _attempt_infer_model_provider, init_chat_model
+from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from automation.conf import settings
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
     from langchain_openai.chat_models import ChatOpenAI
     from langgraph.checkpoint.postgres import PostgresSaver
