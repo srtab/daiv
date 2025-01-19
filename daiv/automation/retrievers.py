@@ -1,3 +1,5 @@
+from typing import override
+
 from langchain.retrievers.multi_query import DEFAULT_QUERY_PROMPT, LineListOutputParser, MultiQueryRetriever
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseLanguageModel
@@ -23,6 +25,7 @@ REPHRASE_QUERY_PROMPT = PromptTemplate.from_template(
 
 class MultiQueryRephraseRetriever(MultiQueryRetriever):
     @classmethod
+    @override
     def from_llm(
         cls,
         retriever: BaseRetriever,
@@ -50,6 +53,7 @@ class MultiQueryRephraseRetriever(MultiQueryRetriever):
         llm_chain = prompt | llm | output_parser | REPHRASE_QUERY_PROMPT | llm | output_parser
         return cls(retriever=retriever, llm_chain=llm_chain, include_original=include_original)
 
+    @override
     def unique_union(self, documents: list[Document]) -> list[Document]:
         """
         Get unique Documents based on their id.

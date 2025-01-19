@@ -33,6 +33,9 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
     def compile(self) -> Runnable:
         """
         Compile the agent into a Runnable.
+
+        Returns:
+            Runnable: The compiled agent
         """
         return {
             "query": RunnablePassthrough(),
@@ -42,13 +45,19 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         )
 
     def get_model_kwargs(self) -> dict:
+        """
+        Get the model kwargs with a redefined temperature to make the model more creative.
+
+        Returns:
+            dict: The model kwargs
+        """
         kwargs = super().get_model_kwargs()
         kwargs["temperature"] = 0.5
         return kwargs
 
     def _compress_documents(self, documents: list[Document], query: str) -> Sequence[Document]:
         """
-        Compress the documents using a multi-query retriever and a listwise reranker.
+        Compress the documents using a listwise reranker.
 
         Args:
             documents (Sequence[Document]): The documents to compress

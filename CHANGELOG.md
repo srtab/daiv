@@ -15,14 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Improved `CodebaseQAAgent` response, even when tool calls are not being called. Added web search tool to the agent to allow it to search for answers when the codebase doesn't have the information.
+- Rewriten lexical search engine to only have one index, allowing the agent to search for answers in multiple repositories at once. **You must run command `update_index` with `reset_all=True` to update all the indexes.**
+- Rewritten `CodebaseSearchAgent` to improve the quality of search results by using techniques such as: generating multiple queries, rephrasing those queries and compressing documents with listwise reranking.
+- Simplified `CodebaseQAAgent` to use `CodebaseSearchAgent` to search for answers instead of binding tools to the agent.
 - Changed models url paths on Chat API from `api/v1/chat/models` -> `api/v1/models` to be more consistent with OpenAI API. **This is a breaking change, as it will affect all clients using the Chat API.**
+- Default embedding model changed to `text-embedding-3-large` to improve the quality of the search results. The dimension of stored vectors was increased from 1536 to 2000.
 
 ### Fixed
 
 - Issues with images were not being processed correctly, leading to errors interpreting the image from the description.
 - Chat API was not returning the correct response structure when not on streaming mode.
-- Codebase retriever used for non-scoped indexes on `CodebaseQAAgent` was returning duplicate documents, from different branches. Now it's filtering always by repository default branch.q
+- Codebase retriever used for non-scoped indexes on `CodebaseSearchAgent` was returning duplicate documents, from different refs. Now it's filtering always by repository default branch.
 
 ## [0.1.0-alpha.19] - 2025-01-10
 
