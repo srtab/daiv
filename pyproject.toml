@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "0.1.0-alpha.19"
+version = "0.1.0-alpha.20"
 description = "Developer assistant automating code issues, reviews, and pipeline fixes using AI Agents."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -18,34 +18,34 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.4",
-  "django==5.1.4",
+  "django==5.1.5",
   "django-extensions==3.2.3",
   "django-ninja==1.3",
   "django-split-settings==1.3.2",
-  "duckduckgo-search==7.2",
+  "duckduckgo-search==7.2.1",
   "esprima==4.0.1",
   "get-docker-secret==2",
   "gunicorn==23",
-  "httpx==0.27.2",
+  "httpx==0.28.1",
   "ipython==8.31",
   "jinja2==3.1.5",
   "langchain==0.3.14",
-  "langchain-anthropic==0.3.1",
+  "langchain-anthropic==0.3.3",
   "langchain-community==0.3.14",
-  "langchain-openai==0.2.14",
-  "langchain-text-splitters==0.3.4",
-  "langgraph==0.2.61",
-  "langgraph-checkpoint-postgres==2.0.9",
-  "langsmith==0.2.10",
+  "langchain-openai==0.3.1",
+  "langchain-text-splitters==0.3.5",
+  "langgraph==0.2.64",
+  "langgraph-checkpoint-postgres==2.0.13",
+  "langsmith==0.2.11",
   "pgvector==0.3.6",
-  "psycopg==3.2.3",
-  "pydantic==2.10.4",
+  "psycopg==3.2.4",
+  "pydantic==2.10.5",
   "pydantic-settings==2.7.1",
   "python-decouple==3.8",
-  "python-gitlab==5.3",
+  "python-gitlab==5.3.1",
   "pyyaml==6.0.2",
   "redis==5.2.1",
-  "sentry-sdk==2.19.2",
+  "sentry-sdk==2.20",
   "tantivy==0.22",
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
@@ -61,17 +61,17 @@ dev = [
   "coverage==7.6.10",
   "mypy==1.14.1",
   "pre-commit==4.0.1",
-  "pyopenssl==24.3",
+  "pyopenssl==25",
   "pyproject-fmt==2.5",
-  "pytest-asyncio==0.25.1",
+  "pytest-asyncio==0.25.2",
   "pytest-cov==6",
   "pytest-django==4.9",
   "pytest-env==1.1.5",
   "pytest-mock==3.14",
   "pytest-xdist==3.6.1",
-  "ruff==0.8.6",
+  "ruff==0.9.2",
   "types-pyyaml==6.0.12.20241230",
-  "watchfiles==1.0.3",
+  "watchfiles==1.0.4",
 ]
 
 [tool.ruff]

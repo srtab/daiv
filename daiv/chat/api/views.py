@@ -26,15 +26,6 @@ chat_router = Router(auth=AsyncAuthBearer(), tags=["chat"])
 models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
-def _extract_chunk_content(chunk):
-    content = ""
-    if isinstance(chunk.content, str):
-        content = chunk.content
-    elif isinstance(chunk.content, list) and chunk.content and chunk.content[0]["type"] == "text":
-        content = chunk.content[0]["text"]
-    return content
-
-
 @chat_router.post("/completions", response=ChatCompletionResponse | dict, auth=AsyncAuthBearer())
 async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRequest):
     """
@@ -69,15 +60,9 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         try:
             chunk_uuid = str(uuid.uuid4())
             created = int(datetime.now().timestamp())
-            async for stream_event in codebase_qa.agent.astream_events({"messages": messages}, version="v2"):
-                if (
-                    stream_event["event"] == "on_chat_model_stream"
-                    # the node query_or_respond can respond directly to the user too, so we need to stream it too
-                    and stream_event["metadata"].get("langgraph_node") in ("query_or_respond", "generate")
-                    and (chunk := stream_event["data"].get("chunk"))
-                    # tool calls are handled in a different way, so we need to skip them
-                    and not chunk.tool_call_chunks
-                ):
+
+            async for message, metadata in codebase_qa.agent.astream({"messages": messages}, stream_mode="messages"):
+                if metadata.get("langgraph_node") == "generate" and message.content:
                     chat_chunk = ChatCompletionChunk(
                         id=chunk_uuid,
                         created=created,
@@ -86,7 +71,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
                             {
                                 "index": 0,
                                 "finish_reason": None,
-                                "delta": {"content": _extract_chunk_content(chunk), "role": "assistant"},
+                                "delta": {"content": message.content, "role": "assistant"},
                             }
                         ],
                     )

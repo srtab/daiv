@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
@@ -33,7 +34,6 @@ from .state import OverallState
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
-    from langgraph.store.base import BaseStore
 
     from codebase.base import FileChange
     from codebase.clients import AllRepoClient

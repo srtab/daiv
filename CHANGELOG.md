@@ -5,24 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.1.0-alpha.20] - 2025-01-19
+
+### Upgrade Guide
+
+- There were substancial changes on the codebase search engines, as it was rewritten to improve the quality of the search results. You will need to run command `update_index` with `reset_all=True` to update the indexes.
 
 ### Added
 
 - Show comment on the issue when the agent is replanning the tasks.
-- Repositories file paths are now being indexed too, allowing the agent to search for file paths. **You must run command `update_index` with `reset_all=True` to update the indexes to include file paths.**
+- Repositories file paths are now being indexed too, allowing the agent to search for file paths.
 - New option `reset_all` added to the `update_index` command to allow reset indexes from all branches, not only the default branch.
 
 ### Changed
 
-- Improved `CodebaseQAAgent` response, even when tool calls are not being called. Added web search tool to the agent to allow it to search for answers when the codebase doesn't have the information.
-- Changed models url paths on Chat API from `api/v1/chat/models` -> `api/v1/models` to be more consistent with OpenAI API. **This is a breaking change, as it will affect all clients using the Chat API.**
+- Rewriten lexical search engine to only have one index, allowing the agent to search for answers in multiple repositories at once.
+- Rewritten `CodebaseSearchAgent` to improve the quality of search results by using techniques such as: generating multiple queries, rephrasing those queries and compressing documents with listwise reranking.
+- Simplified `CodebaseQAAgent` to use `CodebaseSearchAgent` to search for answers instead of binding tools to the agent.
+- Changed models url paths on Chat API from `api/v1/chat/models` -> `api/v1/models` to be more consistent with OpenAI API.
+- Default embedding model changed to `text-embedding-3-large` to improve the quality of the search results. The dimension of stored vectors was increased from 1536 to 2000.
 
 ### Fixed
 
 - Issues with images were not being processed correctly, leading to errors interpreting the image from the description.
 - Chat API was not returning the correct response structure when not on streaming mode.
-- Codebase retriever used for non-scoped indexes on `CodebaseQAAgent` was returning duplicate documents, from different branches. Now it's filtering always by repository default branch.q
+- Codebase retriever used for non-scoped indexes on `CodebaseSearchAgent` was returning duplicate documents, from different refs. Now it's filtering always by repository default branch.
+
+### Chore
+
+- Updated dependencies:
+  - `django` from 5.1.4 to 5.1.5
+  - `duckduckgo-search` from 7.2.0 to 7.2.1
+  - `httpx` from 0.27.2 to 0.28.1
+  - `langchain-anthropic` from 0.3.2 to 0.3.3
+  - `langchain-openai` from 0.3.0 to 0.3.1
+  - `langchain-text-splitters` from 0.3.4 to 0.3.5
+  - `langgraph` from 0.2.61 to 0.2.64
+  - `langgraph-checkpoint-postgres` from 2.0.9 to 2.0.13
+  - `langsmith` from 0.2.10 to 0.2.11
+  - `psycopg` from 3.2.3 to 3.2.4
+  - `pyopenssl` from 24.3 to 25
+  - `pydantic` from 2.10.4 to 2.10.5
+  - `pytest-asyncio` from 0.25.1 to 0.25.2
+  - `python-gitlab` from 5.3.0 to 5.3.1
+  - `ruff` from 0.8.7 to 0.9.2
+  - `sentry-sdk` from 2.19.2 to 2.20
+  - `watchfiles` from 1.0.3 to 1.0.4
 
 ## [0.1.0-alpha.19] - 2025-01-10
 

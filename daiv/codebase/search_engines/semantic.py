@@ -4,11 +4,12 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 
-from codebase.models import CodebaseDocument, CodebaseNamespace
+from codebase.models import VECTOR_DIMENSIONS, CodebaseDocument, CodebaseNamespace
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgresRetriever
 
-EMBEDDING_MODEL_NAME = "text-embedding-3-small"
+EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+EMBEDDING_CHUNK_SIZE = 500
 
 
 @functools.cache
@@ -19,7 +20,7 @@ def embeddings_function() -> OpenAIEmbeddings:
     Returns:
         OpenAIEmbeddings: Configured embeddings model with optimized chunk size.
     """
-    return OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME, chunk_size=500)
+    return OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME, dimensions=VECTOR_DIMENSIONS, chunk_size=EMBEDDING_CHUNK_SIZE)
 
 
 class SemanticSearchEngine(SearchEngine):

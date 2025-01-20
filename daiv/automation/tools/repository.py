@@ -51,8 +51,8 @@ class SearchCodeSnippetsTool(BaseTool):
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
     handle_validation_error: bool = True
 
-    source_repo_id: str | None = Field(None, description="The repository ID to search in.")
-    source_ref: str | None = Field(None, description="The branch or commit to search in.")
+    source_repo_id: str | None = Field(default=None, description="The repository ID to search in.")
+    source_ref: str | None = Field(default=None, description="The branch or commit to search in.")
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
@@ -71,28 +71,25 @@ class SearchCodeSnippetsTool(BaseTool):
 
         search_results_str = (
             "The query your provided did not return any results. "
-            "This means that the code/definition you are looking for is not present/defined in the repository."
+            "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
 
-        search = CodebaseSearchAgent(
-            index=self.api_wrapper, source_repo_id=self.source_repo_id, source_ref=self.source_ref
-        )
+        search = CodebaseSearchAgent(retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref))
 
-        if search_results := search.agent.invoke({"query": query, "query_intent": intent, "iterations": 0}).get(
-            "documents"
-        ):
+        if search_results := search.agent.invoke(query):
             search_results_str = ""
             for document in search_results:
                 logger.debug("[%s] Found snippet in '%s'", self.name, document.metadata["source"])
 
                 search_results_str += textwrap.dedent(
                     """\
-                    <CodeSnippet repository="{repository_id}" path="{file_path}">
+                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}">
                     {content}
                     </CodeSnippet>
                     """
                 ).format(
                     repository_id=document.metadata["repo_id"],
+                    ref=document.metadata["ref"],
                     file_path=document.metadata["source"],
                     content=document.page_content,
                 )
