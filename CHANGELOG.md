@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Tantivy index volume was not pointing to the correct folder on `docker-compose.yml`.
+- `ReviewAddressorManager` was committing duplicated file changes, leading to errors calling the repo client API.
 
 ### Chore
 
