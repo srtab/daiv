@@ -2,4 +2,4 @@
 !.gitignore
 !media/
 !static/
-!tantivy_index/
+!tantivy_index_v1/
