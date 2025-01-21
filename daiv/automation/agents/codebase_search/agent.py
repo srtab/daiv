@@ -3,17 +3,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMListwiseRerank
 from langchain_core.documents import Document
-from langchain_core.runnables import Runnable, RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
 from automation.conf import settings
 from automation.retrievers import MultiQueryRephraseRetriever
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from langchain_core.retrievers import BaseRetriever
 
 logger = logging.getLogger("daiv.agents")
@@ -37,34 +36,9 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         Returns:
             Runnable: The compiled agent
         """
-        return {
-            "query": RunnablePassthrough(),
-            "documents": MultiQueryRephraseRetriever.from_llm(self.retriever, llm=self.model),
-        } | RunnableLambda(
-            lambda inputs: self._compress_documents(inputs["documents"], inputs["query"]), name="compress_documents"
+        return ContextualCompressionRetriever(
+            base_compressor=LLMListwiseRerank.from_llm(
+                llm=self.get_model(temperature=0), top_n=settings.CODEBASE_SEARCH_TOP_N
+            ),
+            base_retriever=MultiQueryRephraseRetriever.from_llm(self.retriever, llm=self.get_model(temperature=0.3)),
         )
-
-    def get_model_kwargs(self) -> dict:
-        """
-        Get the model kwargs with a redefined temperature to make the model more creative.
-
-        Returns:
-            dict: The model kwargs
-        """
-        kwargs = super().get_model_kwargs()
-        kwargs["temperature"] = 0.5
-        return kwargs
-
-    def _compress_documents(self, documents: list[Document], query: str) -> Sequence[Document]:
-        """
-        Compress the documents using a listwise reranker.
-
-        Args:
-            documents (Sequence[Document]): The documents to compress
-            query (str): The search query string
-
-        Returns:
-            Sequence[Document]: The compressed documents
-        """
-        reranker = LLMListwiseRerank.from_llm(llm=self.model, top_n=5)
-        return reranker.compress_documents(documents, query)

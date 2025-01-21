@@ -45,8 +45,8 @@ class AutomationSettings(BaseSettings):
         ),
     )
     # Codebase search settings
-    CODEBASE_SEARCH_MAX_TRANSFORMATIONS: int = Field(
-        default=2, description="Maximum number of transformations to apply to the query."
+    CODEBASE_SEARCH_TOP_N: int = Field(
+        default=10, description="Maximum number of documents to return from the codebase search."
     )
 
 
