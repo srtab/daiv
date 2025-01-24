@@ -9,7 +9,8 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 DAIV leverages Django for its core framework, Celery for asynchronous tasks, LangChain and related models for AI-driven logic, PGVector and Tantivy for code search indexing, and GitLab’s API/webhooks for continuous integration with your source code workflow.
 
-> [!WARNING] > **Note:** DAIV is currently in an **alpha** stage. It is **not recommended for production use** at this time. Features are under active development and may change without warning.
+> [!WARNING]
+> **Note:** DAIV is currently in an **alpha** stage. It is **not recommended for production use** at this time. Features are under active development and may change without warning.
 
 ## Key Features
 
