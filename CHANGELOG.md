@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed
-
-- Performance improvements and cleaner use of compression retrievers on `CodebaseSearchAgent`.
-
 ### Added
 
 - Codebase search now allows to configure how many results are returned by the search.
+- Added support to Google GenAI and DeepSeek chat models.
+- Added command to `search_documents` to search for documents on the codebase, usefull for debugging and testing.
+
+### Changed
+
+- Performance improvements and cleaner use of compression retrievers on `CodebaseSearchAgent`.
 
 ### Fixed
 

@@ -52,7 +52,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             Runnable: The appropriate method
         """
         if settings.SNIPPET_REPLACER_STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
-            return self._prompt | self.model.with_structured_output(SnippetReplacerOutput, method="json_schema")
+            return self._prompt | self.model.with_structured_output(SnippetReplacerOutput)
         return RunnableLambda(self._replace_content_snippet)
 
     def _replace_content_snippet(self, input_data: SnippetReplacerInput) -> SnippetReplacerOutput | str:

@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    DEEPSEEK = "deepseek"
+    GOOGLE_GENAI = "google_genai"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -81,11 +83,23 @@ class BaseAgent(ABC, Generic[T]):
             "model_kwargs": {},
         }
 
-        if BaseAgent.get_model_provider(self.model_name) == ModelProvider.ANTHROPIC:
-            kwargs["model_kwargs"]["extra_headers"] = {
-                "anthropic-beta": "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15"
-            }
-            kwargs["max_tokens"] = str(self.get_max_token_value())
+        model_provider = BaseAgent.get_model_provider(self.model_name)
+
+        if model_provider == ModelProvider.ANTHROPIC:
+            # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
+            # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
+            # If needed, we can increase this value using the configurable field.
+            kwargs["max_tokens"] = "2048"
+            kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
+        elif model_provider == ModelProvider.DEEPSEEK:
+            assert settings.DEEPSEEK_API_KEY is not None, "DEEPSEEK_API_KEY is not set"
+
+            kwargs["model_provider"] = "openai"
+            kwargs["base_url"] = settings.DEEPSEEK_API_BASE
+            kwargs["api_key"] = settings.DEEPSEEK_API_KEY
+        elif model_provider == ModelProvider.GOOGLE_GENAI:
+            # otherwise it will be inferred as google_vertexai
+            kwargs["model_provider"] = "google_genai"
         return kwargs
 
     def get_config(self) -> RunnableConfig:
@@ -128,14 +142,19 @@ class BaseAgent(ABC, Generic[T]):
 
         match BaseAgent.get_model_provider(self.model_name):
             case ModelProvider.ANTHROPIC:
-                # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
-                # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
-                # If needed, we can increase this value using the configurable field.
-                return 2048
+                return 8192
 
             case ModelProvider.OPENAI:
                 _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
                 return encoding_model.max_token_value
+
+            case ModelProvider.DEEPSEEK:
+                # As stated in docs: https://api-docs.deepseek.com/quick_start/pricing
+                return 8192
+
+            case ModelProvider.GOOGLE_GENAI:
+                # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash
+                return 8192
 
             case _:
                 raise ValueError(f"Unknown provider for model {self.model_name}")
@@ -151,7 +170,17 @@ class BaseAgent(ABC, Generic[T]):
         Returns:
             ModelProvider: The model provider
         """
-        return _attempt_infer_model_provider(model_name)
+        if model_name.startswith("deepseek"):
+            model_provider = ModelProvider.DEEPSEEK
+        elif model_name.startswith("gemini"):
+            model_provider = ModelProvider.GOOGLE_GENAI
+        else:
+            model_provider = cast("ModelProvider | None", _attempt_infer_model_provider(model_name))
+
+        if model_provider is None:
+            raise ValueError(f"Unknown provider for model {model_name}")
+
+        return model_provider
 
 
 class Usage(BaseModel):

@@ -3,31 +3,44 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from automation.agents.constants import ModelName
+
 
 class AutomationSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="AUTOMATION_")
 
+    # DeepSeek settings
+    DEEPSEEK_API_BASE: str = Field(
+        default="https://api.deepseek.com/v1", description="Base URL for the DeepSeek API", alias="DEEPSEEK_API_BASE"
+    )
+    DEEPSEEK_API_KEY: str | None = Field(
+        default=None, description="API key for the DeepSeek API", alias="DEEPSEEK_API_KEY"
+    )
+
     # Agent settings
     RECURSION_LIMIT: int = Field(default=50, description="Default recursion limit for the agent")
-    PLANING_PERFORMANT_MODEL_NAME: str = Field(
-        default="claude-3-5-sonnet-20241022", description="Model name to be used to plan tasks with high performance."
+    PLANING_PERFORMANT_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_SONNET_20241022,
+        description="Model name to be used to plan tasks with high performance.",
     )
-    CODING_PERFORMANT_MODEL_NAME: str = Field(
-        default="claude-3-5-sonnet-20241022", description="Model name to be used to code with high performance."
+    CODING_PERFORMANT_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_SONNET_20241022, description="Model name to be used to code with high performance."
     )
-    CODING_COST_EFFICIENT_MODEL_NAME: str = Field(
-        default="claude-3-5-haiku-20241022", description="Model name to be used to code with cost efficiency."
+    CODING_COST_EFFICIENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used to code with cost efficiency."
     )
-    GENERIC_PERFORMANT_MODEL_NAME: str = Field(
-        default="gpt-4o-2024-11-20", description="Model name to be used for generic tasks with high performance."
+    GENERIC_PERFORMANT_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_2024_11_20,
+        description="Model name to be used for generic tasks with high performance.",
     )
-    GENERIC_COST_EFFICIENT_MODEL_NAME: str = Field(
-        default="gpt-4o-mini-2024-07-18", description="Model name to be used for generic tasks with cost efficiency."
+    GENERIC_COST_EFFICIENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18,
+        description="Model name to be used for generic tasks with cost efficiency.",
     )
 
     # Snippet replacer settings
-    SNIPPET_REPLACER_MODEL_NAME: str = Field(
-        default="claude-3-5-haiku-20241022", description="Model name to be used for snippet replacer."
+    SNIPPET_REPLACER_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for snippet replacer."
     )
     SNIPPET_REPLACER_STRATEGY: Literal["llm", "find_and_replace"] = Field(
         default="find_and_replace",

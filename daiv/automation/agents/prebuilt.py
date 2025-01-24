@@ -152,9 +152,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         except ValidationError:
             logger.warning("[ReAcT] Error structuring output with tool args. Fallback to llm with_structured_output.")
 
-            llm_with_structured_output = self.model.with_structured_output(
-                self.with_structured_output, method="json_schema"
-            )
+            llm_with_structured_output = self.model.with_structured_output(self.with_structured_output)
             response = cast(
                 "BaseModel",
                 llm_with_structured_output.invoke(
