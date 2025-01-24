@@ -227,7 +227,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             dict: The state of the agent to update.
         """
 
-        human_feedback_evaluator = self.model.with_structured_output(HumanFeedbackResponse, method="json_schema")
+        human_feedback_evaluator = self.model.with_structured_output(HumanFeedbackResponse)
         result = cast(
             "HumanFeedbackResponse",
             human_feedback_evaluator.invoke(

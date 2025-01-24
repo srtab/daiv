@@ -28,9 +28,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
             branch_name_convention=None, extra_details={}
         )
-        return prompt | self.model.with_structured_output(
-            PullRequestDescriberOutput, method="json_schema"
-        ).with_fallbacks([
+        return prompt | self.model.with_structured_output(PullRequestDescriberOutput).with_fallbacks([
             self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).with_structured_output(
                 PullRequestDescriberOutput
             )

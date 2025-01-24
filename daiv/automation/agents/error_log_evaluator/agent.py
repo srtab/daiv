@@ -29,4 +29,4 @@ class ErrorLogEvaluatorAgent(BaseAgent[Runnable[ErrorLogEvaluatorInput, ErrorLog
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human])
-        return prompt | self.model.with_structured_output(ErrorLogEvaluatorOutput, method="json_schema")
+        return prompt | self.model.with_structured_output(ErrorLogEvaluatorOutput)
