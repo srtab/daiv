@@ -1,6 +1,6 @@
 # DAIV: Development AI Assistant
 
-DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with GitLab repositories and uses AI agents, semantic code search, and configurable actions to automate common software development tasks such as:
+DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** repositories and uses AI agents, semantic code search, and configurable actions to automate common software development tasks such as:
 
 - **Issue Addressing**: Suggesting and implementing solutions directly from issue descriptions.
 - **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests.
@@ -9,7 +9,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 DAIV leverages Django for its core framework, Celery for asynchronous tasks, LangChain and related models for AI-driven logic, PGVector and Tantivy for code search indexing, and GitLab’s API/webhooks for continuous integration with your source code workflow.
 
-> **Note:** DAIV is currently in an **alpha** stage. It is **not recommended for production use** at this time. Features are under active development and may change without warning.
+> [!WARNING] > **Note:** DAIV is currently in an **alpha** stage. It is **not recommended for production use** at this time. Features are under active development and may change without warning.
 
 ## Key Features
 
@@ -19,7 +19,7 @@ DAIV leverages Django for its core framework, Celery for asynchronous tasks, Lan
 
 - **Pipeline Fixing**: Identifies failing pipeline jobs, analyzes logs, and attempts auto-remediations (e.g., lint fixes, dependency updates) to get the CI/CD pipeline back to green.
 
-- **Semantic Code Search**: Combines vector embeddings (via PGVector) and lexical search (via Tantivy) to quickly find relevant code snippets within your repository, improving developer efficiency.
+- **Semantic Code Search**: Combines vector embeddings (via PGVector) and lexical search (via Tantivy) to quickly find relevant code snippets within your repository, improving developer efficiency. An OpenAI compatible API is available for easy integration with tools such as [OpenWebUI](https://github.com/OpenWebUI/OpenWebUI).
 
 - **Configurable Behavior**: A `.daiv.yml` file in your repo’s default branch lets you tailor DAIV’s features (like toggling auto-issue addressing or pipeline autofix).
 
@@ -63,7 +63,7 @@ DAIV leverages Django for its core framework, Celery for asynchronous tasks, Lan
    uv sync
    ```
 
-   This will install the project dependencies into a virtual environment. Useful for running tests and linting outside of Docker.
+   This will install the project dependencies into a virtual environment. Useful for running linting outside of Docker or autocompletion on VSCode.
 
 4. **Start the Server**:
 
@@ -71,7 +71,12 @@ DAIV leverages Django for its core framework, Celery for asynchronous tasks, Lan
    docker-compose up --build
    ```
 
-   This will start the web app, workers, Redis, PostgreSQL, and GitLab services locally.
+   This will start the all needed services locally, you can access some of them at:
+
+   - Web app (https://localhost:8000/api/docs/)
+   - PGAdmin (http://localhost:8080)
+   - GitLab (http://localhost:8929)
+   - Sandbox (http://localhost:8888/docs)
 
 ## Running Tests
 
