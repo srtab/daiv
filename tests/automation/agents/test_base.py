@@ -73,10 +73,10 @@ class TestBaseAgent:
             mock_provider.return_value = ModelProvider.ANTHROPIC
 
             agent = ConcreteAgent(model_name="claude-3-5-sonnet-20240229")
-            assert agent.get_max_token_value() == 2048
+            assert agent.get_max_token_value() == 8192
 
             agent = ConcreteAgent(model_name="claude-3-opus-20240229")
-            assert agent.get_max_token_value() == 2048
+            assert agent.get_max_token_value() == 8192
 
     def test_get_config(self):
         agent = ConcreteAgent(run_name="TestAgent")

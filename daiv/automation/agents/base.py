@@ -89,7 +89,7 @@ class BaseAgent(ABC, Generic[T]):
             # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
             # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
             # If needed, we can increase this value using the configurable field.
-            kwargs["max_tokens"] = 2048
+            kwargs["max_tokens"] = "2048"
             kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
         elif model_provider == ModelProvider.DEEPSEEK:
             assert settings.DEEPSEEK_API_KEY is not None, "DEEPSEEK_API_KEY is not set"
@@ -142,7 +142,7 @@ class BaseAgent(ABC, Generic[T]):
 
         match BaseAgent.get_model_provider(self.model_name):
             case ModelProvider.ANTHROPIC:
-                return 2048
+                return 8192
 
             case ModelProvider.OPENAI:
                 _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
