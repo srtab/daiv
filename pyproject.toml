@@ -79,9 +79,10 @@ dev = [
 target-version = "py312"
 line-length = 120
 extend-exclude = [ "*/node_modules/*", "*/static/*" ]
-
 force-exclude = true
 preview = true
+unsafe-fixes = true
+
 show-fixes = true
 format.skip-magic-trailing-comma = true
 lint.select = [

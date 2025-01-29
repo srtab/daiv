@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added custom Django checks to ensure the API keys for the models configured are set.
+- Added `REASONING` setting to the `chat` app to enable/disable reasoning tags on the chat completion. This will allow tools like `OpenWebUI` to show loader indicating the agent is thinking.
+- Added `external_link` to the `CodeSnippet` tool to allow linking to the codebase file on the Repository UI.
+
 ### Changed
 
 - Improved `README.md` to include more information about the project and how to run it locally.
+- Improved `CodebaseQAAgent` logic to consider history of the conversation and have a more agentic behavior by following the ReAct pattern. The answer now will include a `References` section with links to the codebase files that were used to answer the question.
 
 ### Fixed
 
 - Filled placeholder on the `LICENSE` file with correct copyright information.
+- Agents model instantiation was not overriding the model name as expected, leading to wrong model provider handling.
 
 ## [0.1.0-alpha.21] - 2025-01-24
 

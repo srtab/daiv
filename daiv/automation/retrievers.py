@@ -17,9 +17,10 @@ DEFAULT_QUERY_PROMPT = PromptTemplate(
     template=textwrap.dedent(
         """\
         You are an AI language model assistant. Your task is to generate 3 different versions of the given user question to retrieve relevant documents from a vector database.
-        By generating multiple perspectives on the user question, your goal is to help the user overcome some of the limitations of distance-based similarity search. Provide these alternative
-        questions separated by newlines.
-        The output should be a list of queries, separated by newlines, with no numbering or additional formatting.
+
+        By generating multiple perspectives on the user question, your goal is to help the user overcome some of the limitations of distance-based similarity search. Provide these alternative questions separated by newlines. Maintain the original meaning of the question as much as possible. Don't loose precision in the query
+
+        The output should be a list of questions, separated by newlines, with no numbering or additional formatting.
         Original question: {question}
         """  # NOQA: E501
     ),
@@ -28,8 +29,8 @@ DEFAULT_QUERY_PROMPT = PromptTemplate(
 REPHRASE_SYSTEM = SystemMessage(
     textwrap.dedent(
         """\
-        You are an assistant tasked with taking 3 coding-related queries in natural language from a user and converting them into 3 queries optimized for a semantiv search on a vector database.
-        In this process, you strip out information that is not relevant to improve semantic matching.
+        You are an assistant tasked with taking 3 coding-related queries in natural language from a user and converting them into 3 queries optimized for a semantic search on a vector database.
+        In this process, strip out information that is not relevant for semantic matching, such as filler words. Maintain the original meaning of the question as much as possible. Don't loose precision in the query.
         The output should be a list of queries, separated by newlines, with no numbering or additional formatting.
         """  # NOQA: E501
     )

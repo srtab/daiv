@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field
 from automation.agents.codebase_search import CodebaseSearchAgent
 from automation.agents.snippet_replacer.agent import SnippetReplacerAgent
 from automation.utils import file_changes_namespace
-from codebase.base import FileChange, FileChangeAction
+from codebase.base import ClientType, FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
+from core.utils import build_uri
 
 from .schemas import (
     CreateNewRepositoryFileInput,
@@ -74,7 +75,9 @@ class SearchCodeSnippetsTool(BaseTool):
             "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
 
-        search = CodebaseSearchAgent(retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref))
+        search = CodebaseSearchAgent(
+            retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref), rephrase=False
+        )
 
         if search_results := search.agent.invoke(query):
             search_results_str = ""
@@ -83,7 +86,7 @@ class SearchCodeSnippetsTool(BaseTool):
 
                 search_results_str += textwrap.dedent(
                     """\
-                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}">
+                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}" external_link="{link}">
                     {content}
                     </CodeSnippet>
                     """
@@ -91,10 +94,19 @@ class SearchCodeSnippetsTool(BaseTool):
                     repository_id=document.metadata["repo_id"],
                     ref=document.metadata["ref"],
                     file_path=document.metadata["source"],
+                    link=self._get_file_link(
+                        document.metadata["repo_id"], document.metadata["ref"], document.metadata["source"]
+                    ),
                     content=document.page_content,
                 )
 
         return search_results_str
+
+    def _get_file_link(self, repository_id: str, ref: str, file_path: str) -> str:
+        if self.api_wrapper.repo_client.client_slug == ClientType.GITLAB:
+            return build_uri(self.api_wrapper.repo_client.codebase_url, f"/{repository_id}/-/blob/{ref}/{file_path}")
+
+        raise ValueError(f"Unsupported repository client type: {self.api_wrapper.repo_client.client_slug}")
 
 
 class BaseRepositoryTool(BaseTool):

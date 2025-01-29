@@ -22,13 +22,6 @@ class SearchCodeSnippetsInput(BaseModel):
             3. Optimize the query for hybrid search methods (vector and sparse retrieval).
             """  # noqa: E501
         ),
-        examples=[
-            "function foo",
-            "class CharField",
-            "def get",
-            "method get_foo on class User",
-            "example/tests/test_admin.py",
-        ],
     )
     intent: str = Field(..., description=("A brief description of why you are searching for this code."))
 
