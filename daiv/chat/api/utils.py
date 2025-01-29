@@ -124,6 +124,9 @@ async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_
 
 
 def format_references(references: list[HttpUrl]) -> str:
+    if not references:
+        return ""
+
     return jinja2_formatter(
         textwrap.dedent(
             """\
