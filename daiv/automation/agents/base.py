@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
@@ -29,7 +29,7 @@ class ModelProvider(StrEnum):
 T = TypeVar("T", bound=Runnable)
 
 
-class BaseAgent(ABC, Generic[T]):
+class BaseAgent[T: Runnable](ABC):
     """
     Base agent class for creating agents that interact with a model.
     """
@@ -64,43 +64,43 @@ class BaseAgent(ABC, Generic[T]):
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs()
-        model_kwargs.update(kwargs)
+        model_kwargs = self.get_model_kwargs(**kwargs)
         return init_chat_model(**model_kwargs)
 
-    def get_model_kwargs(self) -> dict:
+    def get_model_kwargs(self, **kwargs) -> dict:
         """
         Get the keyword arguments to pass to the model.
 
         Returns:
             dict: The keyword arguments
         """
-        kwargs = {
+        _kwargs = {
             "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
             "configurable_fields": ("model", "temperature", "max_tokens"),
             "model_kwargs": {},
+            **kwargs,
         }
 
-        model_provider = BaseAgent.get_model_provider(self.model_name)
+        model_provider = BaseAgent.get_model_provider(_kwargs["model"])
 
         if model_provider == ModelProvider.ANTHROPIC:
             # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
             # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
             # If needed, we can increase this value using the configurable field.
-            kwargs["max_tokens"] = "2048"
-            kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
+            _kwargs["max_tokens"] = "2048"
+            _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
         elif model_provider == ModelProvider.DEEPSEEK:
             assert settings.DEEPSEEK_API_KEY is not None, "DEEPSEEK_API_KEY is not set"
 
-            kwargs["model_provider"] = "openai"
-            kwargs["base_url"] = settings.DEEPSEEK_API_BASE
-            kwargs["api_key"] = settings.DEEPSEEK_API_KEY
+            _kwargs["model_provider"] = "openai"
+            _kwargs["base_url"] = settings.DEEPSEEK_API_BASE
+            _kwargs["api_key"] = settings.DEEPSEEK_API_KEY
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             # otherwise it will be inferred as google_vertexai
-            kwargs["model_provider"] = "google_genai"
-        return kwargs
+            _kwargs["model_provider"] = "google_genai"
+        return _kwargs
 
     def get_config(self) -> RunnableConfig:
         """

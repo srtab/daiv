@@ -13,6 +13,7 @@ from automation.utils import file_changes_namespace
 from codebase.base import FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
+from core.utils import build_uri
 
 from .schemas import (
     CreateNewRepositoryFileInput,
@@ -74,7 +75,9 @@ class SearchCodeSnippetsTool(BaseTool):
             "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
 
-        search = CodebaseSearchAgent(retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref))
+        search = CodebaseSearchAgent(
+            retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref), rephrase=False
+        )
 
         if search_results := search.agent.invoke(query):
             search_results_str = ""
@@ -83,7 +86,7 @@ class SearchCodeSnippetsTool(BaseTool):
 
                 search_results_str += textwrap.dedent(
                     """\
-                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}">
+                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}" external_link="{link}">
                     {content}
                     </CodeSnippet>
                     """
@@ -91,6 +94,10 @@ class SearchCodeSnippetsTool(BaseTool):
                     repository_id=document.metadata["repo_id"],
                     ref=document.metadata["ref"],
                     file_path=document.metadata["source"],
+                    link=build_uri(
+                        self.api_wrapper.repo_client.codebase_url,
+                        f"/{document.metadata['repo_id']}/-/blob/{document.metadata['ref']}/{document.metadata['source']}",
+                    ),
                     content=document.page_content,
                 )
 

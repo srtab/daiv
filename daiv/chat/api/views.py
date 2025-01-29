@@ -1,4 +1,4 @@
-import json
+import logging
 import uuid
 from datetime import datetime
 
@@ -7,17 +7,15 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from ninja import Router
 
 from automation.agents.codebase_qa.agent import CodebaseQAAgent
-from chat.api.schemas import (
-    ChatCompletionChunk,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ModelListSchema,
-    ModelSchema,
-)
-from chat.api.security import AsyncAuthBearer, AuthBearer
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.constants import BOT_NAME
+
+from .schemas import ChatCompletionRequest, ChatCompletionResponse, ModelListSchema, ModelSchema
+from .security import AsyncAuthBearer, AuthBearer
+from .utils import format_references, generate_stream
+
+logger = logging.getLogger("daiv.chat")
 
 MODEL_ID = "DAIV"
 
@@ -26,61 +24,41 @@ chat_router = Router(auth=AsyncAuthBearer(), tags=["chat"])
 models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
-@chat_router.post("/completions", response=ChatCompletionResponse | dict, auth=AsyncAuthBearer())
+@chat_router.post("/completions", response=ChatCompletionResponse | dict)
 async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRequest):
     """
     This endpoint is used to create a chat completion for a given set of messages within the indexed codebase.
 
     The main goal is to have an OpenAI compatible API to allow seamless integration with existing tools and services.
     """
-    messages = [msg.dict() for msg in payload.messages]
+    input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
     codebase_qa = CodebaseQAAgent(index=CodebaseIndex(RepoClient.create_instance()))
 
-    # Non-streaming completion
-    if not payload.stream:
-        try:
-            result = codebase_qa.agent.invoke({"messages": messages})
-            return ChatCompletionResponse(
-                id=str(uuid.uuid4()),
-                created=int(datetime.now().timestamp()),
-                choices=[
-                    {
-                        "index": 1,
-                        "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
-                        "finish_reason": "stop",
-                    }
-                ],
-            )
-        except Exception as e:
-            return {"error": str(e)}
+    if payload.stream:
+        return StreamingHttpResponse(
+            generate_stream(codebase_qa, input_data, MODEL_ID), content_type="text/event-stream"
+        )
+    try:
+        result = codebase_qa.agent.invoke(input_data)
 
-    # Streaming completion
-    async def generate_stream():
-        try:
-            chunk_uuid = str(uuid.uuid4())
-            created = int(datetime.now().timestamp())
-
-            async for message, metadata in codebase_qa.agent.astream({"messages": messages}, stream_mode="messages"):
-                if metadata.get("langgraph_node") == "generate" and message.content:
-                    chat_chunk = ChatCompletionChunk(
-                        id=chunk_uuid,
-                        created=created,
-                        model=MODEL_ID,
-                        choices=[
-                            {
-                                "index": 0,
-                                "finish_reason": None,
-                                "delta": {"content": message.content, "role": "assistant"},
-                            }
-                        ],
-                    )
-                    yield f"data: {chat_chunk.model_dump_json()}\n\n"
-
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return StreamingHttpResponse(generate_stream(), content_type="text/event-stream")
+        return ChatCompletionResponse(
+            id=str(uuid.uuid4()),
+            created=int(datetime.now().timestamp()),
+            choices=[
+                {
+                    "index": 1,
+                    "message": {
+                        "content": result.content + format_references(result.references),
+                        "role": "assistant",
+                        "tool_calls": [],
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @models_router.get("", response={200: ModelListSchema})

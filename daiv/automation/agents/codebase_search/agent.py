@@ -25,8 +25,9 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
 
     model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
 
-    def __init__(self, retriever: BaseRetriever, *args, **kwargs):
+    def __init__(self, retriever: BaseRetriever, rephrase: bool = True, *args, **kwargs):
         self.retriever = retriever
+        self.rephrase = rephrase
         super().__init__(*args, **kwargs)
 
     def compile(self) -> Runnable:
@@ -36,9 +37,14 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         Returns:
             Runnable: The compiled agent
         """
+        if self.rephrase:
+            base_retriever = MultiQueryRephraseRetriever.from_llm(self.retriever, llm=self.get_model(temperature=0.3))
+        else:
+            base_retriever = self.retriever
+
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
                 llm=self.get_model(temperature=0), top_n=settings.CODEBASE_SEARCH_TOP_N
             ),
-            base_retriever=MultiQueryRephraseRetriever.from_llm(self.retriever, llm=self.get_model(temperature=0.3)),
+            base_retriever=base_retriever,
         )
