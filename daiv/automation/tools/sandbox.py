@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import httpx
 from langchain.tools import BaseTool
 from langchain_core.prompts.string import jinja2_formatter
+from langgraph.store.memory import BaseStore  # noqa: TC002
 from pydantic import BaseModel, Field
 
 from automation.utils import file_changes_namespace
@@ -23,7 +24,6 @@ from .schemas import RunCodeInput, RunCommandInput, RunCommandResponse
 
 if TYPE_CHECKING:
     from langchain.callbacks.manager import CallbackManagerForToolRun
-    from langgraph.store.memory import BaseStore
 
 logger = logging.getLogger("daiv.tools")
 

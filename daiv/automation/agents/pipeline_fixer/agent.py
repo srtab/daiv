@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 import logging
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
-from langgraph.store.base import BaseStore
+from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
@@ -14,8 +15,6 @@ from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
-from codebase.base import FileChange
-from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
@@ -28,6 +27,13 @@ from .prompts import (
 )
 from .schemas import ActionPlanOutput, PipelineLogClassifierOutput
 from .state import OverallState
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+
+    from codebase.base import FileChange
+    from codebase.clients import AllRepoClient
+
 
 logger = logging.getLogger("daiv.agents")
 

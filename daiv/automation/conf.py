@@ -9,14 +9,6 @@ from automation.agents.constants import ModelName
 class AutomationSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="AUTOMATION_")
 
-    # DeepSeek settings
-    DEEPSEEK_API_BASE: str = Field(
-        default="https://api.deepseek.com/v1", description="Base URL for the DeepSeek API", alias="DEEPSEEK_API_BASE"
-    )
-    DEEPSEEK_API_KEY: str | None = Field(
-        default=None, description="API key for the DeepSeek API", alias="DEEPSEEK_API_KEY"
-    )
-
     # Agent settings
     RECURSION_LIMIT: int = Field(default=50, description="Default recursion limit for the agent")
     PLANING_PERFORMANT_MODEL_NAME: ModelName = Field(

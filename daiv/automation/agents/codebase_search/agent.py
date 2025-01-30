@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMListwiseRerank
@@ -13,7 +13,9 @@ from automation.conf import settings
 from automation.retrievers import MultiQueryRephraseRetriever
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.retrievers import BaseRetriever
+
 
 logger = logging.getLogger("daiv.agents")
 
@@ -24,6 +26,7 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
     """
 
     model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
+    fallback_model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
 
     def __init__(self, retriever: BaseRetriever, rephrase: bool = True, *args, **kwargs):
         self.retriever = retriever
@@ -38,13 +41,16 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
             Runnable: The compiled agent
         """
         if self.rephrase:
-            base_retriever = MultiQueryRephraseRetriever.from_llm(self.retriever, llm=self.get_model(temperature=0.3))
+            base_retriever = MultiQueryRephraseRetriever.from_llm(
+                self.retriever, llm=self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)])
+            )
         else:
             base_retriever = self.retriever
 
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
-                llm=self.get_model(temperature=0), top_n=settings.CODEBASE_SEARCH_TOP_N
+                llm=self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)]),
+                top_n=settings.CODEBASE_SEARCH_TOP_N,
             ),
             base_retriever=base_retriever,
         )

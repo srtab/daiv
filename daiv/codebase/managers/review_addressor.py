@@ -16,6 +16,7 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from codebase.base import (
     Discussion,
     FileChange,
+    FileChangeAction,
     Note,
     NoteDiffPosition,
     NoteDiffPositionType,
@@ -139,6 +140,38 @@ class NoteProcessor:
         return None
 
 
+class UniqueFileChangeList:
+    """
+    A list-like container that maintains uniqueness of FileChange objects based on their file_path and action.
+    Later changes to the same file override earlier ones.
+    """
+
+    def __init__(self):
+        self._changes: dict[tuple[str, FileChangeAction], FileChange] = {}
+
+    def extend(self, changes: list[FileChange]):
+        """
+        Add multiple FileChange objects, maintaining uniqueness.
+
+        Args:
+            changes: A list of FileChange objects to add.
+        """
+        for change in changes:
+            self._changes[(change.file_path, change.action)] = change
+
+    def __bool__(self):
+        return bool(self._changes)
+
+    def to_list(self) -> list[FileChange]:
+        """
+        Convert to a regular list of FileChange objects.
+
+        Returns:
+            A list of FileChange objects.
+        """
+        return list(self._changes.values())
+
+
 class ReviewAddressorManager(BaseManager):
     """
     Manages the code review process.
@@ -166,7 +199,7 @@ class ReviewAddressorManager(BaseManager):
         Each iteration of dicussions resolution will be processed with the changes from the previous iterations,
         ensuring that the file changes are processed correctly.
         """
-        file_changes: set[FileChange] = set()
+        file_changes = UniqueFileChangeList()
         resolved_discussions: list[str] = []
 
         merge_request_patches = self._extract_merge_request_diffs()
@@ -183,7 +216,7 @@ class ReviewAddressorManager(BaseManager):
                     merge_request_id=self.merge_request_id,
                     discussion_id=context.discussion.id,
                     checkpointer=checkpointer,
-                    file_changes=file_changes,
+                    file_changes=file_changes.to_list(),
                 )
                 reviewer_addressor_agent = reviewer_addressor.agent
 
@@ -221,8 +254,8 @@ class ReviewAddressorManager(BaseManager):
 
                 if not state_after_run.tasks:
                     if files_to_commit := reviewer_addressor.get_files_to_commit():
-                        # Use set and update method to avoid duplicates
-                        file_changes.update(files_to_commit)
+                        # Add new file changes while maintaining uniqueness
+                        file_changes.extend(files_to_commit)
 
                     if result and ("response" not in result or not result["response"]):
                         # If the response is not in the result or is empty, it means the discussion was resolved,
@@ -230,7 +263,7 @@ class ReviewAddressorManager(BaseManager):
                         resolved_discussions.append(context.discussion.id)
 
         if file_changes:
-            self._commit_changes(file_changes=list(file_changes), thread_id=thread_id)
+            self._commit_changes(file_changes=file_changes.to_list(), thread_id=thread_id)
 
         if resolved_discussions:
             for discussion_id in resolved_discussions:

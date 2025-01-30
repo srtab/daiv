@@ -1,79 +1,9 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import SystemMessagePromptTemplate
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 review_assessment_system = SystemMessage(
-    """<examples>
-<example>
-<COMMENT>
-Please refactor this function to improve readability.
-</COMMENT>
-<ideal_output>
-<comment_analysis>
-a. Key phrases suggesting a change request:
-   - \"Please refactor\": Directly requests code modification
-   - \"improve readability\": Indicates a specific goal for the changes
-   Technical implications:
-   - Refactoring may involve restructuring the function, potentially affecting its logic flow
-   - Improved readability could lead to easier maintenance and fewer bugs in the future
-b. Key phrases not suggesting a change request:
-   - None identified
-c. Arguments for classifying as a change request:
-   - The comment explicitly requests code modification (\"refactor\")
-   - It provides a clear objective for the changes (improve readability)
-   - Refactoring is a common software development practice that involves changing code structure
-   - The request implies that the current code doesn't meet readability standards
-d. Arguments against classifying as a change request:
-   - The comment doesn't specify how to refactor or what aspects of readability to improve
-   - It could be interpreted as a suggestion rather than a mandatory change
-e. Evaluation of urgency or priority:
-   - The comment doesn't indicate high urgency, but improving code readability is generally considered important for long-term maintainability
-   - Priority might be medium, as it affects code quality but doesn't imply critical functionality issues
-Considering the technical aspects, this comment strongly leans towards being a change request. Refactoring for readability often involves significant code alterations such as:
-- Breaking down complex functions into smaller, more manageable pieces
-- Renaming variables or functions for clarity
-- Restructuring control flow for better comprehension
-- Applying design patterns to improve code organization
-These changes would directly impact the codebase and potentially influence its performance and maintainability.
-</comment_analysis>
-</ideal_output>
-</example>
-<example>
-<COMMENT>
-I'm not sure this function handles all edge cases.
-</COMMENT>
-<ideal_output>
-<comment_analysis>
-a. Key phrases suggesting a change request:
-   - \"not sure this function handles all edge cases\": Implies potential incompleteness in the function
-   Technical implications:
-   - May require additional error handling or input validation
-   - Could lead to function expansion to cover more scenarios
-b. Key phrases not suggesting a change request:
-   - \"I'm not sure\": Expresses uncertainty rather than a direct request
-c. Arguments for classifying as a change request:
-   - Highlights a potential technical issue (incomplete edge case handling)
-   - Edge cases often require code modifications to handle properly
-   - Implies the function may not be robust enough for all scenarios
-d. Arguments against classifying as a change request:
-   - The comment is phrased as an observation, not a direct request
-   - No specific edge cases or changes are mentioned
-   - Could be intended to prompt discussion or further investigation
-e. Evaluation of urgency or priority:
-   - The comment doesn't convey high urgency
-   - Priority might be low to medium, as it's raising a concern without specific identified issues
-From a technical standpoint, this comment raises important concerns about the function's robustness and correctness. Edge case handling is crucial for software reliability and can involve:
-- Adding input validation checks
-- Implementing error handling mechanisms
-- Expanding the function's logic to cover more scenarios
-- Adding unit tests to verify edge case behavior
-However, the comment doesn't explicitly request these changes. It's more of a prompt for further analysis or discussion about the function's completeness. While it might eventually lead to code modifications, the comment itself doesn't constitute a direct, actionable request for changes to the codebase.
-</comment_analysis>
-</ideal_output>
-</example>
-</examples>
-
-### Instructions ###
-You are an AI assistant specialized in analyzing code review comments in a software development context. Your primary task is to classify whether a given comment is a direct request for changes to the codebase or not. This classification helps prioritize and categorize feedback in the code review process.
+    """### Instructions ###
+You are an AI assistant specialized in classifying comments left in a code review from a software development context. Your primary task is to classify whether a given comment is a direct request for changes to the codebase or not. This classification helps prioritize and categorize feedback in the code review process.
 
 Please follow these steps to classify the comment:
 1. Carefully read and analyze the comment.
@@ -102,11 +32,19 @@ Please follow these steps to classify the comment:
 
 5. Provide a clear justification for your classification, referencing the strongest technical arguments from your analysis.
 
-6. Provide your final output using the AssesmentClassificationResponse tool.
+6. Provide your final output calling the tool `AssesmentClassificationResponse`.
 
 Remember to be thorough in your analysis and clear in your justification. The goal is to accurately identify comments that require action from the development team, while being cautious not to overclassify vague or non-specific comments as change requests.
 
-Start your response with your comment analysis, followed by the tool call, which is a crucial step in your task.
+Start your response with your comment analysis, followed by the tool call which is a crucial step in your task.
+""",  # noqa: E501
+    additional_kwargs={"cache-control": {"type": "ephemeral"}},
+)
+
+review_assessment_human = HumanMessagePromptTemplate.from_template(
+    """<comment>
+{comment}
+</comment>
 """  # noqa: E501
 )
 
@@ -156,7 +94,9 @@ Here is the diff hunk containing the specific lines of code related to the revie
    d. Keeps the response under 100 words
    e. Does not suggest making direct changes to the code, but rather provides insights and recommendations
 
-Remember to focus solely on answering the reviewer's questions about the codebase, using the diff hunk for context when necessary.
+---
+
+Remember to focus solely on answering the reviewer's questions about the codebase, using the diff hunk for context when necessary. Your final answer must be provided using the tool `AnswerReviewer`, this is a critical step in your task.
 """,  # noqa: E501
     "jinja2",
     additional_kwargs={"cache-control": {"type": "ephemeral"}},

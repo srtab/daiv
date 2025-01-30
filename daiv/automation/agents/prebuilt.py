@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.prebuilt.tool_node import ToolNode
+from langgraph.store.base import BaseStore  # noqa: TC002
 from openai import InternalServerError as OpenAIInternalServerError
 from pydantic import BaseModel, ValidationError  # noqa: TCH002
 
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
 
     from langchain_core.prompts.chat import MessageLikeRepresentation
     from langchain_core.tools.base import BaseTool
-    from langgraph.store.base import BaseStore
 
     from codebase.clients import AllRepoClient
 
@@ -52,7 +52,6 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         *args,
         with_structured_output: type[BaseModel] | None = None,
         store: BaseStore | None = None,
-        fallback_model_name: str | None = None,
         **kwargs,
     ):
         self.tool_classes = tools
@@ -60,7 +59,6 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         self.store = store
         self.structured_tool_name = None
         self.state_class: type[AgentState] = AgentState
-        self.fallback_model_name = fallback_model_name
         if self.with_structured_output:
             self.tool_classes.append(self.with_structured_output)
             self.structured_tool_name = self.with_structured_output.model_json_schema()["title"]
@@ -117,9 +115,7 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
                     self.model_name,
                     self.fallback_model_name,
                 )
-                llm_with_tools = self.get_model(model=self.fallback_model_name).bind_tools(
-                    self.tool_classes, **tools_kwargs
-                )
+                llm_with_tools = self.fallback_model.bind_tools(self.tool_classes, **tools_kwargs)
                 response = llm_with_tools.invoke(state["messages"])
             else:
                 raise e
@@ -148,18 +144,20 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         response = None
 
         try:
+            if not last_message.tool_calls:
+                # this can happen if the agent don't use any tool, which is an edge case, but we need to handle it
+                # the expected behavior is the agent calling the tool defined by the with_structured_output
+                raise ValidationError("No tool calls found in the last message.")
+
             response = self.with_structured_output(**last_message.tool_calls[0]["args"])
         except ValidationError:
             logger.warning("[ReAcT] Error structuring output with tool args. Fallback to llm with_structured_output.")
 
-            llm_with_structured_output = self.model.with_structured_output(self.with_structured_output)
-            response = cast(
-                "BaseModel",
-                llm_with_structured_output.invoke(
-                    [HumanMessage(last_message.pretty_repr())],
-                    config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
-                ),
-            )
+            llm_with_structured_output = self.get_model(
+                model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME
+            ).with_structured_output(self.with_structured_output)
+
+            response = cast("BaseModel", llm_with_structured_output.invoke([HumanMessage(last_message.pretty_repr())]))
 
         return {"response": response}
 
@@ -175,10 +173,10 @@ class REACTAgent(BaseAgent[CompiledStateGraph]):
         """
         last_message = cast("AIMessage", state["messages"][-1])
 
-        if (
+        if self.structured_tool_name and (
             last_message.tool_calls
-            and self.structured_tool_name
             and last_message.tool_calls[0]["name"] == self.structured_tool_name
+            or not last_message.tool_calls
         ):
             return "respond"
         elif not last_message.tool_calls:

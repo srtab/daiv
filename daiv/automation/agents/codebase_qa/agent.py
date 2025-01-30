@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableLambda
@@ -9,9 +11,13 @@ from pydantic import BaseModel, Field, HttpUrl
 from automation.agents import BaseAgent
 from automation.conf import settings
 from automation.tools.repository import SearchCodeSnippetsTool
-from codebase.indexes import CodebaseIndex
 
 from .prompts import data_collection_system
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
+
+    from codebase.indexes import CodebaseIndex
 
 logger = logging.getLogger("daiv.agents")
 
@@ -43,19 +49,22 @@ class CodebaseQAAgent(BaseAgent[Runnable[dict[str, Any], FinalAnswer]]):
     """
 
     model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
+    fallback_model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
 
-    def __init__(self, index: CodebaseIndex):
+    def __init__(self, *args, index: CodebaseIndex, **kwargs):
         self.index = index
-        super().__init__()
+        super().__init__(*args, **kwargs)
 
     def compile(self) -> Runnable:
-        return RunnableLambda(self._execute_react_agent) | self.model.with_structured_output(FinalAnswer)
+        return RunnableLambda(self._execute_react_agent) | self.model.with_structured_output(
+            FinalAnswer
+        ).with_fallbacks([cast("BaseChatModel", self.fallback_model).with_structured_output(FinalAnswer)])
 
     def _execute_react_agent(self, inputs):
         react_agent = create_react_agent(
-            self.model,
+            self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)]),
             tools=[SearchCodeSnippetsTool(api_wrapper=self.index)],
-            state_modifier=ChatPromptTemplate.from_messages([data_collection_system, MessagesPlaceholder("messages")]),
+            prompt=ChatPromptTemplate.from_messages([data_collection_system, MessagesPlaceholder("messages")]),
         )
         result = react_agent.invoke(inputs)
 
