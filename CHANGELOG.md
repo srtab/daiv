@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-alpha.22] - 2025-01-30
+
 ### Added
 
 - Added custom Django checks to ensure the API keys for the models configured are set.
@@ -431,7 +433,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.21...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.22...HEAD
+[0.1.0-alpha.22]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.21...v0.1.0-alpha.22
 [0.1.0-alpha.21]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.20...v0.1.0-alpha.21
 [0.1.0-alpha.20]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.19...v0.1.0-alpha.20
 [0.1.0-alpha.19]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.18...v0.1.0-alpha.19
