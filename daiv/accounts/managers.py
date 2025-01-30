@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="APIKey")
 
 
-class APIKeyManager(models.Manager, Generic[T]):
+class APIKeyManager(models.Manager, Generic[T]):  # noqa: UP046
     """
     Manager for the APIKey model.
     """
