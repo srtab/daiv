@@ -5,6 +5,7 @@ import textwrap
 from typing import TYPE_CHECKING
 
 from langchain_core.tools import BaseTool
+from langgraph.store.memory import BaseStore  # noqa: TC002
 from pydantic import BaseModel, Field
 
 from automation.agents.codebase_search import CodebaseSearchAgent
@@ -26,7 +27,7 @@ from .schemas import (
 
 if TYPE_CHECKING:
     from langchain.callbacks.manager import CallbackManagerForToolRun
-    from langgraph.store.memory import BaseStore
+
 
 logger = logging.getLogger("daiv.tools")
 
@@ -74,6 +75,12 @@ class SearchCodeSnippetsTool(BaseTool):
             "The query your provided did not return any results. "
             "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
+
+        if self.source_repo_id and self.source_ref:
+            # we need to update the index before retrieving the documents
+            # because the codebase search agent needs to search for the codebase changes
+            # and we need to make sure the index is updated before the agent starts retrieving the documents
+            self.api_wrapper.update(self.source_repo_id, self.source_ref)
 
         search = CodebaseSearchAgent(
             retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref), rephrase=False

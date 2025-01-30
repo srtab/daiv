@@ -12,16 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added custom Django checks to ensure the API keys for the models configured are set.
 - Added `REASONING` setting to the `chat` app to enable/disable reasoning tags on the chat completion. This will allow tools like `OpenWebUI` to show loader indicating the agent is thinking.
 - Added `external_link` to the `CodeSnippet` tool to allow linking to the codebase file on the Repository UI.
+- Added fallback models support to `BaseAgent` to ease and streamline the fallback logic on all agents.
 
 ### Changed
 
 - Improved `README.md` to include more information about the project and how to run it locally.
 - Improved `CodebaseQAAgent` logic to consider history of the conversation and have a more agentic behavior by following the ReAct pattern. The answer now will include a `References` section with links to the codebase files that were used to answer the question.
+- Moved DeepSeek integration to langchain official: `langchain-deepseek-official`.
+- Now `CodebaseQAAgent` will use the fallback model if the main model is not available.
 
 ### Fixed
 
 - Filled placeholder on the `LICENSE` file with correct copyright information.
 - Agents model instantiation was not overriding the model name as expected, leading to wrong model provider handling.
+- `ReActAgent` was not calling the structued output on some cases, which was not the expected behavior. Now it will always call the structured output if it's defined, even if the agent is not calling the tool.
+- `FileChange` is not hashable, leading to errors when storing it in a set on `ReviewAddressorManager`. Created structure to store file changes without repeating the same file changes.
+- Assessment on `ReviewAddressorAgent` was not calling the structured output on some cases, leading to errors. Now it will always be called.
 
 ## [0.1.0-alpha.21] - 2025-01-24
 

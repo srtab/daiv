@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
@@ -29,7 +29,7 @@ class ModelProvider(StrEnum):
 T = TypeVar("T", bound=Runnable)
 
 
-class BaseAgent[T: Runnable](ABC):
+class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     """
     Base agent class for creating agents that interact with a model.
     """
@@ -37,20 +37,24 @@ class BaseAgent[T: Runnable](ABC):
     agent: T
 
     model_name: str = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
+    fallback_model_name: str | None = None
 
     def __init__(
         self,
         *,
         run_name: str | None = None,
         model_name: str | None = None,
+        fallback_model_name: str | None = None,
         usage_handler: OpenAICallbackHandler | None = None,
         checkpointer: PostgresSaver | None = None,
     ):
         self.run_name = run_name or self.__class__.__name__
         self.model_name = model_name or self.model_name
+        self.fallback_model_name = fallback_model_name or self.fallback_model_name
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.checkpointer = checkpointer
-        self.model = self.get_model()
+        self.model = self.get_model(model=self.model_name)
+        self.fallback_model = self.get_model(model=self.fallback_model_name) if self.fallback_model_name else None
         self.agent = self.compile().with_config(self.get_config())
 
     @abstractmethod
@@ -91,15 +95,10 @@ class BaseAgent[T: Runnable](ABC):
             # If needed, we can increase this value using the configurable field.
             _kwargs["max_tokens"] = "2048"
             _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
-        elif model_provider == ModelProvider.DEEPSEEK:
-            assert settings.DEEPSEEK_API_KEY is not None, "DEEPSEEK_API_KEY is not set"
-
-            _kwargs["model_provider"] = "openai"
-            _kwargs["base_url"] = settings.DEEPSEEK_API_BASE
-            _kwargs["api_key"] = settings.DEEPSEEK_API_KEY
-        elif model_provider == ModelProvider.GOOGLE_GENAI:
-            # otherwise it will be inferred as google_vertexai
-            _kwargs["model_provider"] = "google_genai"
+        elif model_provider in [ModelProvider.DEEPSEEK, ModelProvider.GOOGLE_GENAI]:
+            # otherwise google_genai will be inferred as google_vertexai
+            # deepseek is not yet being inferred yet by langchain
+            _kwargs["model_provider"] = model_provider
         return _kwargs
 
     def get_config(self) -> RunnableConfig:
@@ -132,7 +131,7 @@ class BaseAgent[T: Runnable](ABC):
         """
         return self.model.get_num_tokens_from_messages(messages)
 
-    def get_max_token_value(self) -> int:
+    def get_max_token_value(self, model_name: str) -> int:
         """
         Get the maximum token value for the model.
 
@@ -140,7 +139,7 @@ class BaseAgent[T: Runnable](ABC):
             int: The maximum token value
         """
 
-        match BaseAgent.get_model_provider(self.model_name):
+        match BaseAgent.get_model_provider(model_name):
             case ModelProvider.ANTHROPIC:
                 return 8192
 
@@ -157,7 +156,7 @@ class BaseAgent[T: Runnable](ABC):
                 return 8192
 
             case _:
-                raise ValueError(f"Unknown provider for model {self.model_name}")
+                raise ValueError(f"Unknown provider for model {model_name}")
 
     @staticmethod
     def get_model_provider(model_name: str) -> ModelProvider:

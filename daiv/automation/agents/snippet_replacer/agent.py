@@ -111,7 +111,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         estimated_needed_tokens = self.get_num_tokens_from_messages(
             filled_messages
         ) - self.get_num_tokens_from_messages(empty_messages)
-        return estimated_needed_tokens <= self.get_max_token_value()
+        return estimated_needed_tokens <= self.get_max_token_value(self.model_name)
 
     @cached_property
     def _prompt(self) -> ChatPromptTemplate:
@@ -122,12 +122,3 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             ChatPromptTemplate: The prompt.
         """
         return ChatPromptTemplate.from_messages([system, human])
-
-    def get_max_token_value(self) -> int:
-        """
-        Get the maximum token value for the model to increase the chances of modal usage on replacement.
-
-        Returns:
-            int: The maximum token value
-        """
-        return 8192

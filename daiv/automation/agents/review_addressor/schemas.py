@@ -4,12 +4,12 @@ from automation.agents.schemas import AskForClarification
 from automation.agents.schemas import Plan as BasePlan
 
 
-class RespondReviewerResponse(BaseModel):
+class AnswerReviewer(BaseModel):
     """
-    Provide a final response to the reviewer.
+    Provide a final answer to the reviewer.
     """
 
-    response: str = Field(
+    answer: str = Field(
         description=(
             "Answer in the first person, without asking if they want more changes. E.g., "
             "'The changes you requested have been made.'"

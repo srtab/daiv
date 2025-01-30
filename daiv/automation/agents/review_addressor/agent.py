@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import logging
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig, RunnablePassthrough
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.store.base import BaseStore
+from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent
@@ -17,14 +19,16 @@ from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
-from codebase.base import FileChange
-from codebase.clients import AllRepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
-from .prompts import respond_reviewer_system, review_analyzer_plan, review_assessment_system
-from .schemas import DetermineNextActionResponse, RespondReviewerResponse
+from .prompts import respond_reviewer_system, review_analyzer_plan, review_assessment_human, review_assessment_system
+from .schemas import AnswerReviewer, DetermineNextActionResponse
 from .state import OverallState
+
+if TYPE_CHECKING:
+    from codebase.base import FileChange
+    from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
 
@@ -128,24 +132,25 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The state of the agent to update.
         """
-        prompt = ChatPromptTemplate.from_messages([review_assessment_system, MessagesPlaceholder("comments")])
-
         evaluator = (
-            prompt
+            RunnablePassthrough.assign(
+                messages=lambda inputs: inputs["messages"][:-1], comment=lambda inputs: inputs["messages"][-1].content
+            )
+            | ChatPromptTemplate.from_messages([
+                review_assessment_system,
+                MessagesPlaceholder("messages"),
+                review_assessment_human,
+            ])
             # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
             # a tool call without reasoning, which is crucial here to make the right decision.
             # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
-            | self.model.bind_tools([AssesmentClassificationResponse], tool_choice="auto")
+            | self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).bind_tools(
+                [AssesmentClassificationResponse], tool_choice="auto"
+            )
             | PydanticToolsParser(tools=[AssesmentClassificationResponse], first_tool_only=True)
         )
 
-        response = cast(
-            "AssesmentClassificationResponse",
-            evaluator.invoke(
-                {"comments": state["messages"]},
-                config={"configurable": {"model": settings.CODING_COST_EFFICIENT_MODEL_NAME}},
-            ),
-        )
+        response = cast("AssesmentClassificationResponse", evaluator.invoke({"messages": state["messages"]}))
         return {"request_for_changes": response.request_for_changes}
 
     def plan(self, state: OverallState, store: BaseStore):
@@ -306,11 +311,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             tools=tools,
             model_name=settings.CODING_PERFORMANT_MODEL_NAME,
             fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
-            with_structured_output=RespondReviewerResponse,
+            with_structured_output=AnswerReviewer,
             store=store,
         )
         result = react_agent.agent.invoke({"messages": [system_message] + state["messages"]})
-        return {"response": cast("RespondReviewerResponse", result["response"]).response}
+        return {"response": cast("AnswerReviewer", result["response"]).answer}
 
     def human_feedback(self, state: OverallState):
         """
