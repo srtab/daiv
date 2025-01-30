@@ -79,6 +79,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             dict: The keyword arguments
         """
         _kwargs = {
+            "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
             "configurable_fields": ("model", "temperature", "max_tokens"),

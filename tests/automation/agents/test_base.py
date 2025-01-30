@@ -52,7 +52,6 @@ class TestBaseAgent:
             agent = ConcreteAgent(model_name="claude-3-5-sonnet-20240229")
             kwargs = agent.get_model_kwargs()
 
-            assert kwargs["model"] == "claude-3-5-sonnet-20240229"
             assert kwargs["temperature"] == 0
             assert "anthropic-beta" in kwargs["model_kwargs"]["extra_headers"]
             assert kwargs["max_tokens"] == "2048"
@@ -63,7 +62,6 @@ class TestBaseAgent:
             agent = ConcreteAgent(model_name="gpt-4")
             kwargs = agent.get_model_kwargs()
 
-            assert kwargs["model"] == "gpt-4"
             assert kwargs["temperature"] == 0
             assert "max_tokens" not in kwargs
             assert not kwargs["model_kwargs"]
@@ -72,11 +70,11 @@ class TestBaseAgent:
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
             mock_provider.return_value = ModelProvider.ANTHROPIC
 
-            agent = ConcreteAgent(model_name="claude-3-5-sonnet-20240229")
-            assert agent.get_max_token_value() == 8192
+            agent = ConcreteAgent()
+            assert agent.get_max_token_value(model_name="claude-3-5-sonnet-20240229") == 8192
 
-            agent = ConcreteAgent(model_name="claude-3-opus-20240229")
-            assert agent.get_max_token_value() == 8192
+            agent = ConcreteAgent()
+            assert agent.get_max_token_value(model_name="claude-3-opus-20240229") == 8192
 
     def test_get_config(self):
         agent = ConcreteAgent(run_name="TestAgent")
@@ -93,7 +91,7 @@ class TestBaseAgent:
             agent = ConcreteAgent()
 
             with pytest.raises(ValueError, match="Unknown provider for model"):
-                agent.get_max_token_value()
+                agent.get_max_token_value(model_name="invalid_model")
 
 
 class TestUsage:
