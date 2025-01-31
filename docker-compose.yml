@@ -15,10 +15,16 @@ x-app-defaults: &x_app_default
     - ./data/models:/home/app/.cache/huggingface/hub/
     - .:/home/app/src
   depends_on:
-    - db
-    - redis
-    - gitlab
-    - sandbox
+    db:
+      condition: service_healthy
+      restart: true
+    redis:
+      condition: service_healthy
+      restart: true
+    gitlab:
+      condition: service_healthy
+    sandbox:
+      condition: service_healthy
 
 services:
   db:
@@ -31,6 +37,12 @@ services:
       POSTGRES_DB: db
     volumes:
       - ./data/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d db"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
     ports:
       - "5432:5432"
 
@@ -50,13 +62,19 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   redis:
     image: redis:latest
     command: redis-server --save "" --appendonly no
     restart: unless-stopped
     container_name: daiv-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "6379:6379"
 
@@ -101,7 +119,8 @@ services:
       - ./docker/local/gitlab-runner/config.toml:/etc/gitlab-runner/config.toml
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - gitlab
+      gitlab:
+        condition: service_healthy
 
   sandbox:
     build:

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
+
 ## [0.1.0-alpha.22] - 2025-01-30
 
 ### Added
