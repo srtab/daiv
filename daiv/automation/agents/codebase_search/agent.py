@@ -25,8 +25,9 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
     Agent to search for code snippets in the codebase.
     """
 
-    model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
+    # this model shows better results for listwise reranking and rephrasing
+    model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
+    fallback_model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
 
     def __init__(self, retriever: BaseRetriever, rephrase: bool = True, *args, **kwargs):
         self.retriever = retriever

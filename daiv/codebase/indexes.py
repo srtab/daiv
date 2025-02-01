@@ -201,9 +201,7 @@ class CodebaseIndex(abc.ABC):
 
         return EnsembleRetriever(
             retrievers=[
-                self.semantic_search_engine.as_retriever(
-                    namespace, k=10, search_kwargs={"metadata__contains": {"content_type": "functions_classes"}}
-                ),
+                self.semantic_search_engine.as_retriever(namespace, k=10),
                 self.lexical_search_engine.as_retriever(namespace, k=10),
             ],
             weights=[0.6, 0.4],
