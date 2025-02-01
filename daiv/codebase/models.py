@@ -89,9 +89,9 @@ class CodebaseDocument(TimeStampedModel):
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     namespace = models.ForeignKey(CodebaseNamespace, on_delete=models.CASCADE, related_name="documents")
     source = models.CharField(max_length=256)
-    source_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
     page_content = models.TextField()
     page_content_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
+    is_default_branch = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict)
 
     class Meta:
@@ -102,15 +102,7 @@ class CodebaseDocument(TimeStampedModel):
                 m=16,
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
-            ),
-            HnswIndex(
-                name="source_hnsw_index",
-                fields=["source_vector"],
-                m=16,
-                ef_construction=64,
-                opclasses=["vector_cosine_ops"],
-            ),
-            models.Index(models.F("metadata__ref"), name="metadata__ref_idx"),
+            )
         ]
 
     def __str__(self) -> str:

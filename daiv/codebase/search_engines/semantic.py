@@ -1,4 +1,5 @@
 import functools
+from textwrap import dedent
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -42,24 +43,41 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             list[CodebaseDocument]: The created document records
         """
-        document_vectors = self.embeddings.embed_documents([document.page_content for document in documents])
-        source_vectors = self.embeddings.embed_documents([
-            document.metadata.get("source", "") for document in documents
+        documents = [document for document in documents if document.metadata.get("content_type") != "simplified_code"]
+
+        document_vectors = self.embeddings.embed_documents([
+            self._build_content_to_embed(document) for document in documents
         ])
 
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
                 namespace=namespace,
                 source=document.metadata.get("source", ""),
-                source_vector=source_vector,
                 page_content=document.page_content,
                 page_content_vector=page_content_vector,
+                is_default_branch=document.metadata.get("default_branch") == document.metadata.get("ref"),
                 metadata=document.metadata,
             )
-            for document, page_content_vector, source_vector in zip(
-                documents, document_vectors, source_vectors, strict=True
-            )
+            for document, page_content_vector in zip(documents, document_vectors, strict=True)
         ])
+
+    def _build_content_to_embed(self, document: Document) -> str:
+        """
+        Add contextual information to the content to embed.
+
+        Args:
+            document: Document to add contextual information to
+
+        Returns:
+            str: Content to embed
+        """
+        # TODO: add contextual information to the embedding to improve the search results
+        return dedent(f"""\
+            Repository: {document.metadata.get("repo_id", "")}
+            FilePath: {document.metadata.get("source", "")}
+
+            {document.page_content}
+        """)
 
     def delete_documents(self, namespace: CodebaseNamespace, source: str | list[str]):
         """

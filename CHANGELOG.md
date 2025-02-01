@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
+- Improved performance of `PostgresRetriever` by simplifying the query and take advantage of the `Hnsw` index. **Breaking change: run `update_index` with `--reset-all` to update all indexes.**
 
 ## [0.1.0-alpha.22] - 2025-01-30
 

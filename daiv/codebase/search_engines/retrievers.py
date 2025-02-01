@@ -1,7 +1,7 @@
 import re
 from typing import cast
 
-from django.db.models import F, FloatField, QuerySet, Value
+from django.db.models import QuerySet
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
@@ -146,7 +146,14 @@ class PostgresRetriever(BaseRetriever):
         Returns:
             list[Document]: The relevant documents.
         """
+        # TODO: the embeddings call is slow, maybe use a local embedding model to speed up the process
         query_vector = self.embeddings.embed_query(query)
+        queryset = (
+            self._get_documents_queryset()
+            .filter(**self.search_kwargs)
+            .annotate(distance=CosineDistance("page_content_vector", query_vector))
+            .order_by("distance")[: self.k]
+        )
         return [
             Document(
                 id=document.uuid,
@@ -158,23 +165,15 @@ class PostgresRetriever(BaseRetriever):
                     **document.metadata,
                 },
             )
-            for document in self._get_documents_queryset()
-            .annotate(
-                # TODO: do multi-step search to leverage HNSW index. pgvector works on a single vector field at a time.
-                distance_content=CosineDistance("page_content_vector", query_vector),
-                distance_source=CosineDistance("source_vector", query_vector),
-                distance=F("distance_content") * Value(0.4, output_field=FloatField())
-                + F("distance_source") * Value(0.6, output_field=FloatField()),
-            )
-            .filter(distance__lte=self.threshold_distance, **self.search_kwargs)
-            .order_by("distance")[: self.k]
+            for document in queryset
+            if document.distance <= self.threshold_distance
         ]
 
     def _get_documents_queryset(self) -> QuerySet[CodebaseDocument]:
         """
         Get the documents queryset.
         """
-        return CodebaseDocument.objects.filter(metadata__ref=F("metadata__default_branch"))
+        return CodebaseDocument.objects.filter(is_default_branch=True)
 
 
 class ScopedPostgresRetriever(PostgresRetriever):
