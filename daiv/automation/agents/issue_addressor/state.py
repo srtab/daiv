@@ -1,11 +1,18 @@
 from langgraph.graph import MessagesState
 
-from automation.agents.state import PlanExecuteState
 
-
-class OverallState(PlanExecuteState, MessagesState):
+class OverallState(MessagesState):
     issue_title: str
+    """
+    The title of the issue.
+    """
+
     issue_description: str
+    """
+    The description of the issue.
+    """
+
     request_for_changes: bool
-    human_approved: bool
-    questions: list[str]
+    """
+    Whether the issue is a request for changes.
+    """

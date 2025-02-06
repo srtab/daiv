@@ -16,7 +16,8 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
     from langchain_openai.chat_models import ChatOpenAI
-    from langgraph.checkpoint.postgres import PostgresSaver
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.store.base import BaseStore
 
 
 class ModelProvider(StrEnum):
@@ -46,13 +47,15 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         model_name: str | None = None,
         fallback_model_name: str | None = None,
         usage_handler: OpenAICallbackHandler | None = None,
-        checkpointer: PostgresSaver | None = None,
+        checkpointer: BaseCheckpointSaver | None = None,
+        store: BaseStore | None = None,
     ):
         self.run_name = run_name or self.__class__.__name__
         self.model_name = model_name or self.model_name
         self.fallback_model_name = fallback_model_name or self.fallback_model_name
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.checkpointer = checkpointer
+        self.store = store
         self.model = self.get_model(model=self.model_name)
         self.fallback_model = self.get_model(model=self.fallback_model_name) if self.fallback_model_name else None
         self.agent = self.compile().with_config(self.get_config())

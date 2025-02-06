@@ -161,7 +161,7 @@ Within your analysis, include the following steps:
 1. **Understand Reviewer Comments**:
    - Comprehend the requested changes based on the comments and diff hunk.
    - Extract high-level objectives to address the feedback.
-   - If any details are unclear, use the `DetermineNextActionResponse` tool to seek clarification.
+   - If any details are unclear, use the `DetermineNextAction` tool to seek clarification.
 
 2. **Break Down Tasks**:
    - Decompose the resolution into specific, granular steps.
@@ -206,11 +206,11 @@ Within your analysis, include the following steps:
 
 ### **Output Requirements**
 - **Analysis**: Wrap your analysis within `<analysis>` tags.
-- **Checklist**: Present the final checklist using the `DetermineNextActionResponse` tool.
+- **Checklist**: Present the final checklist using the `DetermineNextAction` tool.
 
 ---
 
-**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextActionResponse` tool.**
+**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextAction` tool.**
 """,  # noqa: E501
     "jinja2",
 )

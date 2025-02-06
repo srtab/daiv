@@ -27,6 +27,6 @@ class Plan(BasePlan):
     )
 
 
-# need rewrite the class `DetermineNextActionResponse` to use the redefined class `Plan`.
-class DetermineNextActionResponse(BaseModel):
+# need rewrite the class `DetermineNextAction` to use the redefined class `Plan`.
+class DetermineNextAction(BaseModel):
     action: Plan | AskForClarification = Field(description="The next action to be taken.")

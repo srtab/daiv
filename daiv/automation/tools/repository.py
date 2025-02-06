@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import textwrap
-from typing import TYPE_CHECKING
 
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import BaseTool
 from langgraph.store.memory import BaseStore  # noqa: TC002
 from pydantic import BaseModel, Field
@@ -24,10 +24,6 @@ from .schemas import (
     RetrieveFileContentInput,
     SearchCodeSnippetsInput,
 )
-
-if TYPE_CHECKING:
-    from langchain.callbacks.manager import CallbackManagerForToolRun
-
 
 logger = logging.getLogger("daiv.tools")
 
@@ -53,12 +49,9 @@ class SearchCodeSnippetsTool(BaseTool):
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
     handle_validation_error: bool = True
 
-    source_repo_id: str | None = Field(default=None, description="The repository ID to search in.")
-    source_ref: str | None = Field(default=None, description="The branch or commit to search in.")
-
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(self, query: str, intent: str, **kwargs) -> str:
+    def _run(self, query: str, intent: str, config: RunnableConfig) -> str:
         """
         Searches the codebase for a given query.
 
@@ -69,21 +62,24 @@ class SearchCodeSnippetsTool(BaseTool):
         Returns:
             The search results.
         """
-        logger.debug("[%s] Searching codebase for '%s'", self.name, query)
+        logger.debug("[%s] Searching for '%s' (intent: %s)", self.name, query, intent)
+
+        source_repo_id = config["configurable"].get("source_repo_id")
+        source_ref = config["configurable"].get("source_ref")
 
         search_results_str = (
             "The query your provided did not return any results. "
             "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
 
-        if self.source_repo_id and self.source_ref:
+        if source_repo_id and source_ref:
             # we need to update the index before retrieving the documents
             # because the codebase search agent needs to search for the codebase changes
             # and we need to make sure the index is updated before the agent starts retrieving the documents
-            self.api_wrapper.update(self.source_repo_id, self.source_ref)
+            self.api_wrapper.update(source_repo_id, source_ref)
 
         search = CodebaseSearchAgent(
-            retriever=self.api_wrapper.as_retriever(self.source_repo_id, self.source_ref), rephrase=False
+            retriever=self.api_wrapper.as_retriever(source_repo_id, source_ref), rephrase=False
         )
 
         if search_results := search.agent.invoke(query):
@@ -123,12 +119,9 @@ class BaseRepositoryTool(BaseTool):
 
     handle_validation_error: bool = True
 
-    source_repo_id: str = Field(..., description="The repository ID to search in.")
-    source_ref: str = Field(..., description="The branch or commit to search in.")
-
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
-    def _get_file_content(self, file_path: str, store: BaseStore) -> str | None:
+    def _get_file_content(self, file_path: str, store: BaseStore, source_repo_id: str, source_ref: str) -> str | None:
         """
         Gets the content of a file to replace a snippet in.
 
@@ -139,10 +132,10 @@ class BaseRepositoryTool(BaseTool):
             The content of the file.
         """
 
-        if stored_item := store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path):
+        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
             return stored_item.value["data"].content
 
-        return self.api_wrapper.get_repository_file(self.source_repo_id, file_path, self.source_ref)
+        return self.api_wrapper.get_repository_file(source_repo_id, file_path, source_ref)
 
 
 class RetrieveFileContentTool(BaseRepositoryTool):
@@ -160,9 +153,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
-    def _run(
-        self, file_path: str, intent: str, store: BaseStore, run_manager: CallbackManagerForToolRun | None = None
-    ) -> str | None:
+    def _run(self, file_path: str, intent: str, store: BaseStore, config: RunnableConfig) -> str | None:
         """
         Gets the content of a file from the repository.
 
@@ -174,7 +165,10 @@ class RetrieveFileContentTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Getting file '%s' (intent: %s)", self.name, file_path, intent)
 
-        content = self._get_file_content(file_path, store)
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
+
+        content = self._get_file_content(file_path, store, source_repo_id, source_ref)
 
         if not content:
             return f"error: File '{file_path}' not found." if self.return_not_found_message else None
@@ -212,7 +206,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         replacement_snippet: str,
         commit_message: str,
         store: BaseStore,
-        run_manager: CallbackManagerForToolRun | None = None,
+        config: RunnableConfig,
     ) -> str:
         """
         Replaces a snippet in a file with the provided replacement.
@@ -228,14 +222,17 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Replacing snippet in file '%s'", self.name, file_path)
 
-        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
+
+        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
 
         file_change: FileChange | None = stored_item.value["data"] if stored_item else None
 
         if file_change and file_change.action == FileChangeAction.DELETE:
             return "error: You previously marked {file_path} to be deleted."
 
-        if not (repo_file_content := self._get_file_content(file_path, store)):
+        if not (repo_file_content := self._get_file_content(file_path, store, source_repo_id, source_ref)):
             return f"error: File {file_path} not found."
 
         if original_snippet == replacement_snippet:
@@ -267,7 +264,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
             )
 
         store.put(
-            file_changes_namespace(self.source_repo_id, self.source_ref),
+            file_changes_namespace(source_repo_id, source_ref),
             file_path,
             {"data": file_change, "action": file_change.action},
         )
@@ -286,12 +283,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
     args_schema: type[BaseModel] = CreateNewRepositoryFileInput
 
     def _run(
-        self,
-        file_path: str,
-        file_content: str,
-        commit_message: str,
-        store: BaseStore,
-        run_manager: CallbackManagerForToolRun | None = None,
+        self, file_path: str, file_content: str, commit_message: str, store: BaseStore, config: RunnableConfig
     ) -> str:
         """
         Creates a new file with the provided content in the repository.
@@ -306,13 +298,16 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Creating new file '%s'", self.name, file_path)
 
-        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
 
-        if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
+        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+
+        if stored_item or self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
             return f"File already exists. Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
 
         store.put(
-            file_changes_namespace(self.source_repo_id, self.source_ref),
+            file_changes_namespace(source_repo_id, source_ref),
             file_path,
             {
                 "data": FileChange(
@@ -339,12 +334,7 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
     args_schema: type[BaseModel] = RenameRepositoryFileInput
 
     def _run(
-        self,
-        file_path: str,
-        new_file_path: str,
-        commit_message: str,
-        store: BaseStore,
-        run_manager: CallbackManagerForToolRun | None = None,
+        self, file_path: str, new_file_path: str, commit_message: str, store: BaseStore, config: RunnableConfig
     ) -> str:
         """
         Renames a file in the repository.
@@ -359,13 +349,16 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Renaming file '%s' to '%s'", self.name, file_path, new_file_path)
 
-        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
 
-        if stored_item or self.api_wrapper.repository_file_exists(self.source_repo_id, new_file_path, self.source_ref):
+        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+
+        if stored_item or self.api_wrapper.repository_file_exists(source_repo_id, new_file_path, source_ref):
             return f"error: File {new_file_path} already exists."
 
         store.put(
-            file_changes_namespace(self.source_repo_id, self.source_ref),
+            file_changes_namespace(source_repo_id, source_ref),
             new_file_path,
             {
                 "data": FileChange(
@@ -391,13 +384,7 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = DeleteRepositoryFileInput
 
-    def _run(
-        self,
-        file_path: str,
-        commit_message: str,
-        store: BaseStore,
-        run_manager: CallbackManagerForToolRun | None = None,
-    ) -> str:
+    def _run(self, file_path: str, commit_message: str, store: BaseStore, config: RunnableConfig) -> str:
         """
         Deletes a file in the repository.
 
@@ -410,14 +397,17 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         """
         logger.debug("[%s] Deleting file '%s'", self.name, file_path)
 
-        stored_item = store.get(file_changes_namespace(self.source_repo_id, self.source_ref), file_path)
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
+
+        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
 
         if stored_item:
             return f"error: File {file_path} has uncommited changes."
 
-        if self.api_wrapper.repository_file_exists(self.source_repo_id, file_path, self.source_ref):
+        if self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
             store.put(
-                file_changes_namespace(self.source_repo_id, self.source_ref),
+                file_changes_namespace(source_repo_id, source_ref),
                 file_path,
                 {
                     "data": FileChange(

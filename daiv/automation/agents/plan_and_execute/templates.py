@@ -41,7 +41,7 @@ I'm replanning the tasks with the new issue details.
 
 ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Unable to define a plan***
 
-I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to **clarify the following questions**:
+I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to clarify the following questions:
 
 {% for question in questions %}
 1. {{ question }}{% endfor %}
@@ -63,26 +63,6 @@ I was unable to define a plan for this issue. To help me assist you better, plea
 💡 **Next Steps:**
 
  - Update the issue description/title and I'll attempt to create a plan again.
-"""  # noqa: E501
-
-
-ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE = """### ⚠ ***Unable to Execute the Plan***
-
-I was unable to execute the plan for this issue. To help me assist you better, please make the following adjustments:
-
-- **Refine Description:** Provide more details about the problem.
-- **Add Examples:** Include specific examples or scenarios to clarify the issue.
-- **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
-
-💡 **Next Steps:**
-
-- Update the issue description/title and I'll attempt to create a plan again.
-"""  # noqa: E501
-
-
-ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE = """### ⚠ ***Unable to Process the Issue***
-
-An unexpected error occurred while processing the issue.
 """  # noqa: E501
 
 

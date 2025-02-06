@@ -145,9 +145,17 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_issue_discussions(self, repo_id: str, issue_id: int) -> list[Discussion]:
+        pass
+
+    @abc.abstractmethod
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
+        pass
+
+    @abc.abstractmethod
+    def create_issue_discussion_note(self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None):
         pass
 
     @abc.abstractmethod

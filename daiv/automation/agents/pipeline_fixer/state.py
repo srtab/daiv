@@ -1,10 +1,11 @@
 from typing import Literal
 
+from typing_extensions import TypedDict
+
 from automation.agents.pipeline_fixer.schemas import ActionPlan
-from automation.agents.state import PlanExecuteState
 
 
-class OverallState(PlanExecuteState):
+class OverallState(TypedDict):
     job_logs: str
     diff: str
     category: Literal["codebase", "external-factor"]

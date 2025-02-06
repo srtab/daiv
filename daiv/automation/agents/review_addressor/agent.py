@@ -14,7 +14,7 @@ from langgraph.store.memory import InMemoryStore
 from automation.agents import BaseAgent
 from automation.agents.prebuilt import REACTAgent, prepare_repository_files_as_messages
 from automation.agents.prompts import execute_plan_human, execute_plan_system
-from automation.agents.schemas import AskForClarification, AssesmentClassificationResponse
+from automation.agents.schemas import AskForClarification, AssesmentClassification
 from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
@@ -23,7 +23,7 @@ from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .prompts import respond_reviewer_system, review_analyzer_plan, review_assessment_human, review_assessment_system
-from .schemas import AnswerReviewer, DetermineNextActionResponse
+from .schemas import AnswerReviewer, DetermineNextAction
 from .state import OverallState
 
 if TYPE_CHECKING:
@@ -145,12 +145,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             # a tool call without reasoning, which is crucial here to make the right decision.
             # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
             | self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).bind_tools(
-                [AssesmentClassificationResponse], tool_choice="auto"
+                [AssesmentClassification], tool_choice="auto"
             )
-            | PydanticToolsParser(tools=[AssesmentClassificationResponse], first_tool_only=True)
+            | PydanticToolsParser(tools=[AssesmentClassification], first_tool_only=True)
         )
 
-        response = cast("AssesmentClassificationResponse", evaluator.invoke({"messages": state["messages"]}))
+        response = cast("AssesmentClassification", evaluator.invoke({"messages": state["messages"]}))
         return {"request_for_changes": response.request_for_changes}
 
     def plan(self, state: OverallState, store: BaseStore):
@@ -183,7 +183,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             tools=tools,
             model_name=settings.PLANING_PERFORMANT_MODEL_NAME,
             fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
-            with_structured_output=DetermineNextActionResponse,
+            with_structured_output=DetermineNextAction,
             store=store,
         )
         response = react_agent.agent.invoke(

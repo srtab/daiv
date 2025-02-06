@@ -3,10 +3,10 @@ from pydantic import BaseModel, ConfigDict, Field
 DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 
-class AssesmentClassificationResponse(BaseModel):
+class AssesmentClassification(BaseModel):
     """
-    Use this tool to respond to the result of the assessment by classifying whether a feedback is a request for
-    direct changes to the codebase, and provide the rationale behind that classification.
+    This tool is intended to be used to respond the result of the classification assessment whether a feedback
+    is a request for direct changes to the codebase, and provide the rationale behind that classification.
     """
 
     # this is commented to avoid the error: https://github.com/langchain-ai/langchain/issues/27260#issue-2579527949
@@ -22,7 +22,7 @@ class AskForClarification(BaseModel):
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextActionResponse` as tool with strict mode
+    # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     questions: list[str] = Field(
@@ -36,7 +36,7 @@ class Task(BaseModel):
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextActionResponse` as tool with strict mode
+    # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     title: str = Field(description="A title of the task to be executed by the AI agents.")
@@ -51,14 +51,14 @@ class Plan(BaseModel):
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextActionResponse` as tool with strict mode
+    # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     tasks: list[Task] = Field(description="A sorted list of tasks to follow.")
     goal: str = Field(description="A detailed objective of the requested changes to be made.")
 
 
-class DetermineNextActionResponse(BaseModel):
+class DetermineNextAction(BaseModel):
     """
     Respond with the appropriate action.
 
