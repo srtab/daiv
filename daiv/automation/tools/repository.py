@@ -133,7 +133,12 @@ class BaseRepositoryTool(BaseTool):
         """
 
         if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
-            return stored_item.value["data"].content
+            if stored_item.value["action"] == FileChangeAction.DELETE:
+                # act as if the file does not exist
+                return None
+            # If the file was moved, the content will not be in the store.
+            elif stored_item.value["action"] != FileChangeAction.MOVE:
+                return stored_item.value["data"].content
 
         return self.api_wrapper.get_repository_file(source_repo_id, file_path, source_ref)
 
@@ -216,6 +221,8 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
             original_snippet: The original snippet to replace.
             replacement_snippet: The replacement snippet.
             commit_message: The commit message to use for the replacement.
+            store: The store to use for the replacement.
+            config: The config to use for the replacement.
 
         Returns:
             A message indicating the success of the replacement.
@@ -229,9 +236,6 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
 
         file_change: FileChange | None = stored_item.value["data"] if stored_item else None
 
-        if file_change and file_change.action == FileChangeAction.DELETE:
-            return "error: You previously marked {file_path} to be deleted."
-
         if not (repo_file_content := self._get_file_content(file_path, store, source_repo_id, source_ref)):
             return f"error: File {file_path} not found."
 
@@ -241,15 +245,14 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
                 "No changes will be made. Make sure you're not missing any changes."
             )
 
-        replacer = SnippetReplacerAgent()
-        result = replacer.agent.invoke({
+        result = SnippetReplacerAgent().agent.invoke({
             "original_snippet": original_snippet,
             "replacement_snippet": replacement_snippet,
             "content": repo_file_content,
         })
 
         if isinstance(result, str):
-            # It means, and error occurred during the replacement.
+            # It means an error occurred during the replacement.
             return result
 
         if file_change:
@@ -292,6 +295,8 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
             file_path: The file path to create.
             content: The content of the file.
             commit_message: The commit message to use for the creation.
+            store: The store to use for the creation.
+            config: The config to use for the creation.
 
         Returns:
             A message indicating the success of the creation
@@ -301,10 +306,40 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
-        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
+            file_change: FileChange = stored_item.value["data"]
 
-        if stored_item or self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
-            return f"File already exists. Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
+            if stored_item.value["action"] == FileChangeAction.CREATE:
+                return (
+                    f"error: File {file_path} already exists. "
+                    f"Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
+                )
+            elif stored_item.value["action"] == FileChangeAction.DELETE:
+                # The file was previously marked for deletion, which means the file exists in the repository, otherwise
+                # the file would have been deleted from the store.
+                # So we can just update the content and mark it as an update.
+                file_change.content = file_content
+                file_change.action = FileChangeAction.UPDATE
+                # Reset the commit messages because all previous changes were undone.
+                file_change.commit_messages = [commit_message]
+                store.put(
+                    file_changes_namespace(source_repo_id, source_ref),
+                    file_path,
+                    {"data": file_change, "action": file_change.action},
+                )
+                return (
+                    f"success: The file {file_path} had already been created earlier, so the content has been updated."
+                )
+
+            # All other actions can't be reverted, so we need to return an error.
+            return f"error: File {file_path} has uncommited changes."
+
+        # This call is made after checking stored items to minimize the number of calls to the repository.
+        if self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
+            return (
+                f"error: File {file_path} already exists. "
+                f"Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
+            )
 
         store.put(
             file_changes_namespace(source_repo_id, source_ref),
@@ -343,6 +378,8 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
             file_path: The file path to rename.
             new_file_path: The new file path.
             commit_message: The commit message to use for the renaming.
+            store: The store to use for the renaming.
+            config: The config to use for the renaming.
 
         Returns:
             A message indicating the success of the renaming.
@@ -352,9 +389,27 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
-        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), new_file_path):
+            if stored_item.value["action"] == FileChangeAction.MOVE:
+                # The file is already marked for deletion, we don't need to do anything, just notify DAIV
+                return f"warning: File {new_file_path} is already marked for deletion. No need to rename it."
 
-        if stored_item or self.api_wrapper.repository_file_exists(source_repo_id, new_file_path, source_ref):
+            elif stored_item.value["action"] == FileChangeAction.CREATE:
+                # The file was previously created, but not committed yet, so we can just update the path.
+                file_change: FileChange = stored_item.value["data"]
+                file_change.file_path = new_file_path
+                store.put(
+                    file_changes_namespace(source_repo_id, source_ref),
+                    new_file_path,
+                    {"data": file_change, "action": file_change.action},
+                )
+                return f"success: Renamed file {file_path} to {new_file_path}."
+
+            # All other actions can't be reverted, so we need to return an error.
+            return f"error: File {new_file_path} has uncommited changes."
+
+        # This call is made after checking stored items to minimize the number of calls to the repository.
+        if self.api_wrapper.repository_file_exists(source_repo_id, new_file_path, source_ref):
             return f"error: File {new_file_path} already exists."
 
         store.put(
@@ -391,6 +446,8 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         Args:
             file_path: The file path to delete.
             commit_message: The commit message to use for the deletion.
+            store: The store to use for the deletion.
+            config: The config to use for the deletion.
 
         Returns:
             A message indicating the success of the deletion.
@@ -400,22 +457,31 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
-        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
+            if stored_item.value["action"] == FileChangeAction.DELETE:
+                # The file is already marked for deletion, we don't need to do anything, just notify DAIV to
+                # try to avoid calling this tool multiple times.
+                return f"error: File {file_path} not found."
+            elif stored_item.value["action"] == FileChangeAction.CREATE:
+                # The file was previously created, but not committed yet, so we need to delete it from the store.
+                store.delete(file_changes_namespace(source_repo_id, source_ref), file_path)
+                return f"success: Deleted file {file_path}."
 
-        if stored_item:
+            # All other actions can't be reverted, so we need to return an error.
             return f"error: File {file_path} has uncommited changes."
 
-        if self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
-            store.put(
-                file_changes_namespace(source_repo_id, source_ref),
-                file_path,
-                {
-                    "data": FileChange(
-                        action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
-                    ),
-                    "action": FileChangeAction.DELETE,
-                },
-            )
-            return f"success: Deleted file {file_path}."
+        # This call is made after checking stored items to minimize the number of calls to the repository.
+        if not self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
+            return f"error: File {file_path} not found."
 
-        return f"error: File {file_path} not found."
+        store.put(
+            file_changes_namespace(source_repo_id, source_ref),
+            file_path,
+            {
+                "data": FileChange(
+                    action=FileChangeAction.DELETE, file_path=file_path, commit_messages=[commit_message]
+                ),
+                "action": FileChangeAction.DELETE,
+            },
+        )
+        return f"success: Deleted file {file_path}."
