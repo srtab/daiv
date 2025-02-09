@@ -187,7 +187,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_lint_fix", END]]: The next step in the workflow.
         """
-        message = autofix_human.format(job_logs=state["job_logs"], troubleshooting_details=state["troubleshooting"])
+        message = autofix_human.format(job_logs=state["job_logs"])
 
         plan_and_execute = PlanAndExecuteAgent(store=store, human_in_the_loop=False, checkpointer=False)
 

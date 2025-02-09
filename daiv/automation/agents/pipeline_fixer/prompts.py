@@ -26,7 +26,7 @@ error_log_evaluator_system = SystemMessage(
    - **Unrelated Errors:** If there are significant discrepancies in any of the key elements.
 
 4. **Mandatory Differentiation:**
-   **IMPORTANT:** If any one of the key elements (e.g., error message text, error type, file involved, or stack trace details) does not match exactly between the logs, you must classify the error logs as representing different errors. Do not overlook minor differences, as they are crucial for correct classification.
+   **IMPORTANT:** If any one of the key elements (e.g., error message text, error type, file involved, stack trace details, or number of errors) does not match exactly between the logs, you must classify the error logs as representing different errors. Do not overlook minor differences, as they are crucial for correct classification.
 
 5. **Provide a Detailed Justification:**
    In your final response, clearly state your determination and provide a detailed explanation referencing the specific elements from each log that support your conclusion.
@@ -98,22 +98,13 @@ troubleshoot_human = HumanMessagePromptTemplate.from_template(
 )
 
 autofix_human = HumanMessagePromptTemplate.from_template(
-    """**Job logs:**
+    """**Job logs extracted from a failed CI/CD pipeline:**
 <job_logs>
 {{ job_logs }}
 </job_logs>
 
-**Troubleshooting details:**
-{% for troubleshooting in troubleshooting_details -%}
-- **{{ troubleshooting.details }}**:
-  {% if troubleshooting.file_path -%}
-  - **File path:** {{ troubleshooting.file_path }}{% endif %}
-  - **Remediation steps:** {% for step in troubleshooting.remediation_steps %}
-    - {{ step }}{% endfor %}
-{% endfor %}
-
 ---
-Analyze the results of the troubleshooting analysis that has been made in the job logs, and generate a structured, step-by-step checklist of tasks to fix the issues identified on the job logs by the troubleshooting analysis.
+Analyse the job logs and create a structured, step-by-step checklist of tasks to fix the problems you can identify in the job logs. **IMPORTANT: Focus only on fixing these problems, the main goal is to bring the pipeline to a successful state.**
 """,  # noqa: E501
     "jinja2",
 )

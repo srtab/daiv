@@ -59,6 +59,7 @@ class PipelineFixerManager(BaseManager):
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
         config = RunnableConfig(
+            run_name="PipelineFixer",
             tags=["pipeline_fixer", self.client.client_slug],
             metadata={"merge_request_id": merge_request_id, "job_id": job_id},
             configurable={

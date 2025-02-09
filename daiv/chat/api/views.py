@@ -39,6 +39,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     codebase_qa = CodebaseQAAgent(index=CodebaseIndex(client))
 
     config = RunnableConfig(
+        run_name="CodebaseQAChat",
         tags=["codebase_qa", client.client_slug],
         metadata={"model_id": MODEL_ID, "chat_reasoning": settings.REASONING, "chat_stream": payload.stream},
     )

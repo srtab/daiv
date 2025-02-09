@@ -104,6 +104,7 @@ class IssueAddressorManager(BaseManager):
             should_reset_plan: Whether to reset the plan.
         """
         config = RunnableConfig(
+            run_name="IssueAddressor",
             tags=["issue_addressor", self.client.client_slug],
             configurable={
                 "thread_id": self.thread_id,
@@ -230,6 +231,7 @@ class IssueAddressorManager(BaseManager):
                 "branch_name_convention": self.repo_config.branch_name_convention,
             },
             config={
+                "run_name": "PullRequestDescriber",
                 "tags": ["pull_request_describer", self.client.client_slug],
                 "configurable": {"thread_id": thread_id},
             },
