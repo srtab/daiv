@@ -4,7 +4,6 @@ import pytest
 
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient
-from codebase.conf import settings
 from codebase.managers.pipeline_fixer import PipelineFixerManager
 
 
@@ -13,55 +12,6 @@ from codebase.managers.pipeline_fixer import PipelineFixerManager
 def pipeline_fixer() -> PipelineFixerManager:
     client = Mock(spec=AllRepoClient)
     return PipelineFixerManager(client, repo_id="test-repo", ref="main", thread_id="test-thread")
-
-
-@pytest.mark.parametrize(
-    "iteration,expected", [(settings.PIPELINE_FIXER_MAX_RETRY, False), (settings.PIPELINE_FIXER_MAX_RETRY + 1, False)]
-)
-def test_should_retry_fix_max_iterations(pipeline_fixer: PipelineFixerManager, iteration, expected):
-    """Test that _should_retry_fix returns False when max iterations are reached."""
-    result = pipeline_fixer._should_retry_fix(
-        iteration=iteration,
-        previous_log_trace="error: test failed",
-        new_log_trace="error: test failed again",
-        job_name="test-job",
-    )
-    assert result == expected
-
-
-@patch("codebase.managers.pipeline_fixer.ErrorLogEvaluatorAgent")
-def test_should_retry_fix_same_error(mock_error_evaluator, pipeline_fixer: PipelineFixerManager):
-    """Test that _should_retry_fix returns False when errors are the same."""
-    # Setup mock
-    mock_agent = Mock()
-    mock_agent.invoke.return_value.is_same_error = True
-    mock_error_evaluator.return_value.agent = mock_agent
-
-    result = pipeline_fixer._should_retry_fix(
-        iteration=1, previous_log_trace="error: test failed", new_log_trace="error: test failed", job_name="test-job"
-    )
-
-    assert result is False
-    mock_agent.invoke.assert_called_once()
-
-
-@patch("codebase.managers.pipeline_fixer.ErrorLogEvaluatorAgent")
-def test_should_retry_fix_different_error(mock_error_evaluator, pipeline_fixer: PipelineFixerManager):
-    """Test that _should_retry_fix returns True when errors are different."""
-    # Setup mock
-    mock_agent = Mock()
-    mock_agent.invoke.return_value.is_same_error = False
-    mock_error_evaluator.return_value.agent = mock_agent
-
-    result = pipeline_fixer._should_retry_fix(
-        iteration=1,
-        previous_log_trace="error: test failed",
-        new_log_trace="error: different failure",
-        job_name="test-job",
-    )
-
-    assert result is True
-    mock_agent.invoke.assert_called_once()
 
 
 def test_clean_logs_gitlab(pipeline_fixer: PipelineFixerManager):

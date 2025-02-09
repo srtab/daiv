@@ -210,7 +210,7 @@ class IssueAddressorManager(BaseManager):
             raise UnableToPlanIssueError("Unexpected state from plan and execute node")
 
     @override
-    def _commit_changes(self, file_changes: list[FileChange], thread_id: str, skip_ci: bool = False):
+    def _commit_changes(self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False):
         """
         Process file changes and create or update merge request.
 

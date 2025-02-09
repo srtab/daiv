@@ -13,7 +13,7 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
-from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
+from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.review_addressor.tools import reply_reviewer_tool
 from automation.agents.schemas import AssesmentClassification
 from automation.conf import settings

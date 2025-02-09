@@ -1,20 +1,16 @@
 import re
 from collections.abc import Iterable
-from venv import logger
 
 from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.constants import START
+from langgraph.checkpoint.postgres import ShallowPostgresSaver
 
-from automation.agents.error_log_evaluator.agent import ErrorLogEvaluatorAgent
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
-from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE
+from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
-from codebase.conf import settings as core_settings
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -62,95 +58,47 @@ class PipelineFixerManager(BaseManager):
         log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
-        config = RunnableConfig(configurable={"thread_id": self.thread_id})
+        config = RunnableConfig(
+            tags=["pipeline_fixer", self.client.client_slug],
+            metadata={"merge_request_id": merge_request_id, "job_id": job_id},
+            configurable={
+                "thread_id": self.thread_id,
+                "source_repo_id": self.repo_id,
+                "source_ref": self.ref,
+                "job_name": job_name,
+            },
+        )
 
-        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            pipeline_fixer = PipelineFixerAgent(
-                repo_client=self.client,
-                source_repo_id=self.repo_id,
-                source_ref=self.ref,
-                job_id=job_id,
-                checkpointer=checkpointer,
+        with ShallowPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+            pipeline_fixer = PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store)
+
+            current_state = pipeline_fixer.agent.get_state(config)
+
+            result = pipeline_fixer.agent.invoke(
+                {
+                    "diff": self._merge_request_diffs_to_str(diffs),
+                    "job_logs": log_trace,
+                    "previous_job_logs": current_state.values.get("job_logs", None),
+                    "iteration": current_state.values.get("iteration", 0),
+                    "need_manual_fix": False,
+                },
+                config,
             )
-            pipeline_fixer_agent = pipeline_fixer.agent
-            current_state = pipeline_fixer_agent.get_state(config)
 
-            input_data = {"job_logs": log_trace, "diff": self._merge_request_diffs_to_str(diffs)}
-            result = None
-
-            if current_state.created_at is None or START in current_state.next:
-                result = pipeline_fixer_agent.invoke(input_data, config)
-
-            elif self._should_retry_fix(
-                iteration=current_state.values.get("iteration", 0),
-                previous_log_trace=current_state.values.get("job_logs", None),
-                new_log_trace=log_trace,
-                job_name=job_name,
-            ):
-                input_data["iteration"] = current_state.values.get("iteration", 0)
-
-                pipeline_fixer_agent.update_state(config, input_data, as_node=START)
-                result = pipeline_fixer_agent.invoke(None, config)
-
-            if file_changes := pipeline_fixer.get_files_to_commit():
+            if file_changes := self._get_file_changes():
                 self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
 
-            elif result and result["root_cause"] and result.get("actions"):
+            elif result and result.get("need_manual_fix", False) and (troubleshooting := result.get("troubleshooting")):
                 self.client.comment_merge_request(
                     self.repo_id,
                     merge_request_id,
                     jinja2_formatter(
-                        PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE,
-                        root_cause=result["root_cause"],
-                        actions=result["actions"],
+                        PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
+                        troubleshooting_details=troubleshooting,
                         job_name=job_name,
                         bot_name=BOT_NAME,
                     ),
                 )
-
-    def _should_retry_fix(self, *, iteration: int, previous_log_trace: str | None, new_log_trace: str, job_name: str):
-        """
-        Check if the fix should be retried.
-
-        Try to evaluate if the new log trace is the same as the previous one.
-        If it isn't, then the fix should be retried.
-
-        Args:
-            iteration: The iteration
-            previous_log_trace: The previous log trace
-            new_log_trace: The new log trace
-            job_name: The job name
-
-        Returns:
-            Whether the fix should be retried
-        """
-        if iteration >= core_settings.PIPELINE_FIXER_MAX_RETRY:
-            logger.warning(
-                "Max retry iterations reached for pipeline fix on %s[%s] for job %s", self.repo_id, self.ref, job_name
-            )
-            return False
-
-        if previous_log_trace is None:
-            return True
-
-        error_log_evaluator = ErrorLogEvaluatorAgent()
-        error_log_evaluator_agent = error_log_evaluator.agent
-
-        result = error_log_evaluator_agent.invoke(
-            {"log_trace_1": previous_log_trace, "log_trace_2": new_log_trace},
-            RunnableConfig(configurable={"thread_id": self.thread_id}),
-        )
-
-        if result.is_same_error:
-            logger.warning(
-                "Not applying pipeline fix on %s[%s] for job %s because it's the same error as the previous one",
-                self.repo_id,
-                self.ref,
-                job_name,
-            )
-            return False
-
-        return True
 
     def _clean_logs(self, log: str):
         """

@@ -193,7 +193,6 @@ class RepositoryConfig(BaseModel):
         cache_key = f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}"
 
         if (cached_config := cache.get(cache_key)) is not None:
-            logger.debug("Loaded cached configuration for repository %s", repo_id)
             return RepositoryConfig(**cached_config)
 
         repo_client = RepoClient.create_instance()

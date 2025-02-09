@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -18,8 +17,6 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
     from codebase.indexes import CodebaseIndex
-
-logger = logging.getLogger("daiv.agents")
 
 
 class FinalAnswer(BaseModel):
@@ -48,21 +45,24 @@ class CodebaseQAAgent(BaseAgent[Runnable[dict[str, Any], FinalAnswer]]):
     Agent to answer questions about the codebase.
     """
 
-    model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
-
     def __init__(self, *args, index: CodebaseIndex, **kwargs):
         self.index = index
         super().__init__(*args, **kwargs)
 
     def compile(self) -> Runnable:
-        return RunnableLambda(self._execute_react_agent) | self.model.with_structured_output(
-            FinalAnswer
-        ).with_fallbacks([cast("BaseChatModel", self.fallback_model).with_structured_output(FinalAnswer)])
+        return RunnableLambda(self._execute_react_agent) | self.get_model(
+            model=settings.CODING_COST_EFFICIENT_MODEL_NAME
+        ).with_structured_output(FinalAnswer).with_fallbacks([
+            cast(
+                "BaseChatModel", self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME)
+            ).with_structured_output(FinalAnswer)
+        ])
 
     def _execute_react_agent(self, inputs):
         react_agent = create_react_agent(
-            self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)]),
+            self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
+                cast("BaseChatModel", self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME))
+            ]),
             tools=[SearchCodeSnippetsTool(api_wrapper=self.index)],
             prompt=ChatPromptTemplate.from_messages([data_collection_system, MessagesPlaceholder("messages")]),
         )

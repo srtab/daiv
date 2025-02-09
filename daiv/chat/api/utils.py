@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 
 from langchain_core.prompts.string import jinja2_formatter
+from langchain_core.runnables import RunnableConfig
 from pydantic import HttpUrl
 
 from automation.agents.codebase_qa import CodebaseQAAgent, FinalAnswer
@@ -14,7 +15,7 @@ from chat.conf import settings
 logger = logging.getLogger("daiv.chat")
 
 
-async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_id: str):
+async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_id: str, config: RunnableConfig):
     """
     Generate a stream of chat completion events.
     """
@@ -35,7 +36,7 @@ async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_
         previous_content = ""
 
         async for event_data in codebase_qa.agent.astream_events(
-            input_data, version="v2", include_names=["CodebaseQAAgent"]
+            input_data, version="v2", include_names=["CodebaseQAAgent"], config=config
         ):
             if (
                 event_data["event"] == "on_chain_stream"

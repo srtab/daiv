@@ -7,10 +7,8 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel
-
-from automation.conf import settings
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -37,41 +35,30 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
     agent: T
 
-    model_name: str = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name: str | None = None
-
     def __init__(
         self,
         *,
-        run_name: str | None = None,
-        model_name: str | None = None,
-        fallback_model_name: str | None = None,
         usage_handler: OpenAICallbackHandler | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         store: BaseStore | None = None,
     ):
-        self.run_name = run_name or self.__class__.__name__
-        self.model_name = model_name or self.model_name
-        self.fallback_model_name = fallback_model_name or self.fallback_model_name
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.checkpointer = checkpointer
         self.store = store
-        self.model = self.get_model(model=self.model_name)
-        self.fallback_model = self.get_model(model=self.fallback_model_name) if self.fallback_model_name else None
-        self.agent = self.compile().with_config(self.get_config())
+        self.agent = self.compile()
 
     @abstractmethod
     def compile(self) -> T:
         pass
 
-    def get_model(self, **kwargs) -> BaseChatModel:
+    def get_model(self, *, model: str, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs(**kwargs)
+        model_kwargs = self.get_model_kwargs(model=model, **kwargs)
         return init_chat_model(**model_kwargs)
 
     def get_model_kwargs(self, **kwargs) -> dict:
@@ -82,7 +69,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             dict: The keyword arguments
         """
         _kwargs = {
-            "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
             "configurable_fields": ("model", "temperature", "max_tokens"),
@@ -104,15 +90,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["model_provider"] = model_provider
         return _kwargs
 
-    def get_config(self) -> RunnableConfig:
-        """
-        Get the configuration for the agent.
-
-        Returns:
-            dict: The configuration
-        """
-        return RunnableConfig(run_name=self.run_name, tags=[self.run_name], metadata={}, configurable={})
-
     def draw_mermaid(self):
         """
         Draw the graph in Mermaid format.
@@ -122,21 +99,25 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         return self.agent.get_graph().draw_mermaid()
 
-    def get_num_tokens_from_messages(self, messages: list[BaseMessage]) -> int:
+    def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """
         Get the number of tokens from a list of messages.
 
         Args:
             messages (list[BaseMessage]): The messages
+            model_name (str): The model name
 
         Returns:
             int: The number of tokens
         """
-        return self.model.get_num_tokens_from_messages(messages)
+        return self.get_model(model=model_name).get_num_tokens_from_messages(messages)
 
     def get_max_token_value(self, model_name: str) -> int:
         """
         Get the maximum token value for the model.
+
+        Args:
+            model_name (str): The model name
 
         Returns:
             int: The maximum token value
@@ -147,7 +128,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 return 8192
 
             case ModelProvider.OPENAI:
-                _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
+                _, encoding_model = cast("ChatOpenAI", self.get_model(model=model_name))._get_encoding_model()
                 return encoding_model.max_token_value
 
             case ModelProvider.DEEPSEEK:
@@ -172,6 +153,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             ModelProvider: The model provider
         """
+        model_provider: ModelProvider | None = None
+
         if model_name.startswith("deepseek"):
             model_provider = ModelProvider.DEEPSEEK
         elif model_name.startswith("gemini"):

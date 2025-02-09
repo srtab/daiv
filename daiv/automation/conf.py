@@ -54,5 +54,10 @@ class AutomationSettings(BaseSettings):
         default=10, description="Maximum number of documents to return from the codebase search."
     )
 
+    # Pipeline fixer settings
+    PIPELINE_FIXER_MAX_RETRY: int = Field(
+        default=20, description="Maximum number of retry iterations for pipeline fixer"
+    )
+
 
 settings = AutomationSettings()  # type: ignore

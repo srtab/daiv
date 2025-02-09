@@ -34,7 +34,7 @@ class RunSandboxCommandsTool(BaseTool):
     )
     args_schema: type[BaseModel] = RunCommandInput
 
-    api_wrapper: RepoClient = Field(..., default_factory=RepoClient.create_instance)
+    api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
     def _run(self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
         """
@@ -131,10 +131,12 @@ class RunSandboxCommandsTool(BaseTool):
             textwrap.dedent(
                 """\
                 {% for result in results %}
-                ### `{{ result.command }}` (exit code: `{{ result.exit_code }}`)
                 ```bash
+                $ {{ result.command }}
                 {{ result.output }}
+                (exit code: `{{ result.exit_code }}`)
                 ```
+                ---
                 {% endfor %}
                 """
             ),

@@ -42,15 +42,28 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
             Runnable: The compiled agent
         """
         if self.rephrase:
-            base_retriever = MultiQueryRephraseRetriever.from_llm(
-                self.retriever, llm=self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)])
+            base_retriever: BaseRetriever = MultiQueryRephraseRetriever.from_llm(
+                self.retriever,
+                # this model shows better results for rephrasing
+                llm=cast(
+                    "BaseChatModel",
+                    self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
+                        self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
+                    ]),
+                ),
             )
         else:
-            base_retriever = self.retriever
+            base_retriever: BaseRetriever = self.retriever
 
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
-                llm=self.model.with_fallbacks([cast("BaseChatModel", self.fallback_model)]),
+                # this model shows better results for listwise reranking
+                llm=cast(
+                    "BaseChatModel",
+                    self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
+                        self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
+                    ]),
+                ),
                 top_n=settings.CODEBASE_SEARCH_TOP_N,
             ),
             base_retriever=base_retriever,

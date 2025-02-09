@@ -4,9 +4,11 @@ from datetime import datetime
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
+from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
 from automation.agents.codebase_qa.agent import CodebaseQAAgent
+from chat.conf import settings
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.constants import BOT_NAME
@@ -33,14 +35,20 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     """
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
-    codebase_qa = CodebaseQAAgent(index=CodebaseIndex(RepoClient.create_instance()))
+    client = RepoClient.create_instance()
+    codebase_qa = CodebaseQAAgent(index=CodebaseIndex(client))
+
+    config = RunnableConfig(
+        tags=["codebase_qa", client.client_slug],
+        metadata={"model_id": MODEL_ID, "chat_reasoning": settings.REASONING, "chat_stream": payload.stream},
+    )
 
     if payload.stream:
         return StreamingHttpResponse(
-            generate_stream(codebase_qa, input_data, MODEL_ID), content_type="text/event-stream"
+            generate_stream(codebase_qa, input_data, MODEL_ID, config=config), content_type="text/event-stream"
         )
     try:
-        result = codebase_qa.agent.invoke(input_data)
+        result = codebase_qa.agent.invoke(input_data, config=config)
 
         return ChatCompletionResponse(
             id=str(uuid.uuid4()),
