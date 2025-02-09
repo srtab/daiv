@@ -1,11 +1,8 @@
 from textwrap import dedent
 
-from langgraph.graph import MessagesState
-from langgraph.prebuilt.chat_agent_executor import AgentState
-from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from automation.agents.schemas import Task
+DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 
 class HumanApproval(BaseModel):
@@ -29,65 +26,58 @@ class HumanApproval(BaseModel):
     )
 
 
-class PlanAndExecuteConfig(TypedDict):
+class AskForClarification(BaseModel):
     """
-    The configuration for the plan and execute agent.
-    """
-
-    source_repo_id: str
-    """
-    The ID of the source repository.
+    Ask the human for clarification if their request is unclear.
     """
 
-    source_ref: str
-    """
-    The reference of the source repository.
-    """
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `DetermineNextAction` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
+
+    questions: list[str] = Field(
+        description="Questions phrased in the first person. E.g., 'Could you please clarify what you mean by...?'"
+    )
 
 
-class PlanAndExecuteState(MessagesState):
+class Task(BaseModel):
     """
-    The state of the overall plan and execute agent.
-    """
-
-    plan_questions: list[str]
-    """
-    The questions to be answered by the human to clarify it's intent.
+    A detailed task to be executed by the AI agents.
     """
 
-    plan_goal: str
-    """
-    The goal of the tasks to be executed.
-    """
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `DetermineNextAction` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    plan_tasks: list[Task]
-    """
-    The tasks to be executed by the agent in order to complete the goal.
-    """
-
-    plan_approval_response: str
-    """
-    The response to be provided to the human when the plan approval is ambiguous.
-    """
+    title: str = Field(description="A title of the task to be executed by the AI agents.")
+    context: str = Field(description="Additional context or information to help the AI agents understand the task.")
+    subtasks: list[str] = Field(description="A list of subtasks to be executed in order.")
+    path: str = Field(description="The path to the file where the task should be executed (if applicable).")
 
 
-class PlanState(AgentState):
+class Plan(BaseModel):
     """
-    The state of the plan agent.
-    """
-
-
-class ExecuteState(AgentState):
-    """
-    The state of the execute plan agent.
+    Outline future tasks to be addressed by the ai agents.
     """
 
-    plan_goal: str
+    # Need to add manually `additionalProperties=False` to allow use the schema
+    # `DetermineNextAction` as tool with strict mode
+    model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
+
+    tasks: list[Task] = Field(description="A sorted list of tasks to follow.")
+    goal: str = Field(description="A detailed objective of the requested changes to be made.")
+
+
+class DetermineNextAction(BaseModel):
     """
-    The goal of the tasks to be executed.
+    Respond with the appropriate action.
+
+    Usage Guidelines:
+     - Choose the appropriate action based on the feedback.
+     - Communicate in the first person, as if speaking directly to the human.
+     - Be clear, concise, and professional in your responses, tasks, or questions.
     """
 
-    plan_tasks: list[Task]
-    """
-    The tasks to be executed by the agent in order to complete the goal.
-    """
+    model_config = ConfigDict(title=DETERMINE_NEXT_ACTION_TOOL_NAME)
+
+    action: Plan | AskForClarification = Field(description="The next action to be taken.")

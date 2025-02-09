@@ -178,6 +178,12 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def update_merge_request_discussion_note(
+        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
+    ):
+        pass
+
+    @abc.abstractmethod
     def create_merge_request_discussion_note(
         self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
     ):
@@ -938,9 +944,29 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         merge_request.discussions.update(discussion_id, {"resolved": True})
 
+    def update_merge_request_discussion_note(
+        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
+    ):
+        """
+        Update a discussion in a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+            note_id: The note ID.
+            body: The note body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        discussion = merge_request.discussions.get(discussion_id, lazy=True)
+        note = discussion.notes.get(note_id)
+        note.body = body
+        note.save()
+
     def create_merge_request_discussion_note(
         self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
-    ):
+    ) -> str:
         """
         Create a note in a discussion of a merge request.
 
@@ -949,14 +975,19 @@ class GitLabClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The note body.
             discussion_id: The discussion ID.
+
+        Returns:
+            The note ID.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         if discussion_id:
             discussion = merge_request.discussions.get(discussion_id, lazy=True)
-            discussion.notes.create({"body": body})
+            note = discussion.notes.create({"body": body})
+            return note.id
         else:
-            merge_request.discussions.create({"body": body})
+            discussion = merge_request.discussions.create({"body": body})
+            return discussion.attributes["notes"][0]["id"]
 
     def job_log_trace(self, repo_id: str, job_id: int) -> str:
         """

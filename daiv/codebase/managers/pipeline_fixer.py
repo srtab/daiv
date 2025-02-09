@@ -12,8 +12,7 @@ from langgraph.constants import START
 from automation.agents.error_log_evaluator.agent import ErrorLogEvaluatorAgent
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_ROOT_CAUSE_TEMPLATE
-from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from codebase.base import ClientType, FileChange, MergeRequestDiff
+from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.conf import settings as core_settings
 from codebase.managers.base import BaseManager
@@ -94,7 +93,7 @@ class PipelineFixerManager(BaseManager):
                 result = pipeline_fixer_agent.invoke(None, config)
 
             if file_changes := pipeline_fixer.get_files_to_commit():
-                self._commit_changes(file_changes=file_changes)
+                self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
 
             elif result and result["root_cause"] and result.get("actions"):
                 self.client.comment_merge_request(
@@ -221,18 +220,3 @@ class PipelineFixerManager(BaseManager):
             The merge request diffs as a string
         """
         return "\n".join([mr_diff.diff.decode() for mr_diff in diffs if mr_diff.diff])
-
-    def _commit_changes(self, *, file_changes: list[FileChange]):
-        """
-        Commit changes to the merge request.
-
-        Args:
-            file_changes: The file changes
-        """
-        pr_describer = PullRequestDescriberAgent()
-        changes_description = pr_describer.agent.invoke(
-            {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
-            RunnableConfig(configurable={"thread_id": self.thread_id}),
-        )
-
-        self.client.commit_changes(self.repo_id, self.ref, changes_description.commit_message, file_changes)

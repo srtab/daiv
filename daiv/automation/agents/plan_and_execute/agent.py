@@ -22,7 +22,8 @@ from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
 from .prompts import plan_approval_system, plan_system
-from .schemas import ExecuteState, HumanApproval, PlanAndExecuteConfig, PlanAndExecuteState
+from .schemas import HumanApproval
+from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
 if TYPE_CHECKING:

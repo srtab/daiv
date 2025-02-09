@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 from langgraph.graph import END
 from langgraph.types import Command
 
-from automation.agents.schemas import AskForClarification, DetermineNextAction, Plan
+from .schemas import AskForClarification, DetermineNextAction, Plan
 
 
 @tool("determine_next_action", args_schema=DetermineNextAction)

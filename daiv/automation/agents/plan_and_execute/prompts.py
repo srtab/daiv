@@ -32,7 +32,7 @@ Within your analysis, include the following steps:
 1. **Understand the Task**:
     - Comprehend the problem or feature request from the title and description.
     - Identify the high-level objectives required to resolve the task.
-    - If any information is unclear, vague, or missing, use the `DetermineNextAction` tool to ask for clarifications.
+    - If any information is unclear, vague, or missing, use the `determine_next_action` tool to ask for clarifications.
 
 2. **Break Down the Work**:
    - Decompose the main goal into specific, granular steps.
@@ -78,11 +78,11 @@ Within your analysis, include the following steps:
 
 ### **Output Requirements**
 - **Analysis**: Wrap your analysis within `<analysis>` tags.
-- **Checklist**: Present the final checklist using the `DetermineNextAction` tool.
+- **Checklist**: Present the final checklist using the `determine_next_action` tool.
 
 ---
 
-**Please proceed with your `<analysis>` and then output your self-contained checklist using the `DetermineNextAction` tool.**""",  # noqa: E501
+**Please proceed with your `<analysis>` and then output your self-contained checklist using the `determine_next_action` tool.**""",  # noqa: E501
     "jinja2",
 )
 

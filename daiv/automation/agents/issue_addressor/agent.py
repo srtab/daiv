@@ -24,7 +24,7 @@ from .prompts import issue_addressor_human, issue_assessment_human, issue_assess
 from .state import OverallState
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.postgres import PostgresSaver
+    from langgraph.checkpoint.postgres import ShallowPostgresSaver
 
 logger = logging.getLogger("daiv.agents")
 
@@ -128,7 +128,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
     def plan_and_execute_subgraph(
-        self, checkpointer: PostgresSaver | None, store: BaseStore | None
+        self, checkpointer: ShallowPostgresSaver | None, store: BaseStore | None
     ) -> CompiledStateGraph:
         """
         Compile the subgraph for the plan and execute node that will be used to address the issue.

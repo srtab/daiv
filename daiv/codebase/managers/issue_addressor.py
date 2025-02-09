@@ -1,12 +1,11 @@
 import logging
-from typing import cast
+from typing import cast, override
 
 from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import ShallowPostgresSaver
-from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 
 from automation.agents.issue_addressor.agent import IssueAddressorAgent
@@ -22,7 +21,6 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
 )
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from automation.utils import file_changes_namespace
 from codebase.base import FileChange, Issue
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
@@ -105,9 +103,6 @@ class IssueAddressorManager(BaseManager):
         Args:
             should_reset_plan: Whether to reset the plan.
         """
-        # The store is used to persist the file changes across the agent nodes
-        store = InMemoryStore()
-
         config = RunnableConfig(
             tags=["issue_addressor", self.client.client_slug],
             configurable={
@@ -123,7 +118,7 @@ class IssueAddressorManager(BaseManager):
         self._add_welcome_note()
 
         with ShallowPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=store)
+            issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
 
             if should_reset_plan:
                 self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), ISSUE_REPLAN_TEMPLATE)
@@ -171,12 +166,9 @@ class IssueAddressorManager(BaseManager):
                 # This can happen if the agent got an error and we need to retry, or was interrupted.
                 issue_addressor.agent.invoke(None, config)
 
-            # when changes where made by the agent, commit them
-            if file_changes := [
-                cast("FileChange", item.value["data"])
-                for item in store.search(file_changes_namespace(self.repo_id, self.ref))
-            ]:
-                self._commit_changes(file_changes)
+            if file_changes := self._get_file_changes():
+                # when changes where made by the agent, commit them
+                self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
 
     def _add_welcome_note(self):
         """
@@ -199,9 +191,6 @@ class IssueAddressorManager(BaseManager):
 
         Args:
             state: The state of the agent.
-
-        Returns:
-            The comment where the plan is waiting for approval.
         """
         # All good, we share the plan with the human to review and approve
         if plan_tasks := state.get("plan_tasks"):
@@ -220,13 +209,15 @@ class IssueAddressorManager(BaseManager):
         else:
             raise UnableToPlanIssueError("Unexpected state from plan and execute node")
 
-    def _commit_changes(self, file_changes: list[FileChange]):
+    @override
+    def _commit_changes(self, file_changes: list[FileChange], thread_id: str, skip_ci: bool = False):
         """
         Process file changes and create or update merge request.
 
         Args:
-            issue: The issue to process.
             file_changes: The file changes to commit.
+            thread_id: The thread ID.
+            skip_ci: Whether to skip the CI.
         """
         pr_describer = PullRequestDescriberAgent()
         changes_description = pr_describer.agent.invoke(
@@ -240,8 +231,7 @@ class IssueAddressorManager(BaseManager):
             },
             config={
                 "tags": ["pull_request_describer", self.client.client_slug],
-                "metadata": {"issue_id": self.issue.iid},
-                "configurable": {"thread_id": self.thread_id},
+                "configurable": {"thread_id": thread_id},
             },
         )
         merge_requests = self.client.get_issue_related_merge_requests(
@@ -253,10 +243,14 @@ class IssueAddressorManager(BaseManager):
         else:
             changes_description.branch = self._get_unique_branch_name(changes_description.branch)
 
+        commit_message = changes_description.commit_message
+        if skip_ci:
+            commit_message = f"[skip ci] {commit_message}"
+
         self.client.commit_changes(
             self.repo_id,
             changes_description.branch,
-            changes_description.commit_message,
+            commit_message,
             file_changes,
             start_branch=self.ref,
             override_commits=True,
