@@ -89,7 +89,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         return create_react_agent(
-            self.get_model(model=settings.CODING_PERFORMANT_MODEL_NAME).with_fallbacks([
+            self.get_model(model=settings.PLANING_PERFORMANT_MODEL_NAME).with_fallbacks([
                 self.get_model(model=settings.GENERIC_PERFORMANT_MODEL_NAME)
             ]),
             tools=tools + [determine_next_action],
