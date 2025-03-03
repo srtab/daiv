@@ -95,24 +95,11 @@ Begin your analysis of the issue above.""",  # noqa: E501
     "jinja2",
 )
 
-issue_addressor_human = """**Issue Title:** {{ issue_title }}
+issue_addressor_human = """# Issue to implement
+<issue_title>{{ issue_title }}</issue_title>
+<issue_description>{{ issue_description }}</issue_description>
 
-**Issue Description:**
-{{ issue_description }}
-
-{% if project_description or repository_structure -%}
-### Project Context
 {% if project_description -%}
-**Description:**
-{{ project_description }}
-{% endif -%}
-
-{% if repository_structure -%}
-**Structure:**
-{{ repository_structure }}
-{% endif -%}
-
-{% endif %}
----
-Analyze the issue above and generate a structured, step-by-step checklist of tasks to resolve it.
-Ensure that the checklist leverages the provided project context where applicable."""  # noqa: E501
+# Project Context
+<project_description>{{ project_description }}</project_description>
+{% endif %}"""  # noqa: E501

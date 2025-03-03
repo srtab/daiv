@@ -3,11 +3,11 @@
 from django.conf import settings
 from django.db import migrations
 
-from langgraph.checkpoint.postgres import ShallowPostgresSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 
 
 def initialize_postgres_saver(apps, schema_editor):
-    with ShallowPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+    with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
         checkpointer.setup()
 
 

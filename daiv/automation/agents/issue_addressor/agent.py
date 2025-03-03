@@ -95,15 +95,15 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute"]]: The next step in the workflow.
         """
-        codebase_index = CodebaseIndex(RepoClient.create_instance())
+        CodebaseIndex(RepoClient.create_instance())
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
             {"markdown_text": state["issue_description"]},
             {
                 "configurable": {
-                    "repo_client_slug": config["configurable"]["repo_client"],
-                    "project_id": config["configurable"]["project_id"],
+                    "repo_client_slug": config["configurable"].get("repo_client"),
+                    "project_id": config["configurable"].get("project_id"),
                     # Anthropic models require base64 images to be sent as data URLs
                     "only_base64": IssueAddressorAgent.get_model_provider(settings.PLANING_PERFORMANT_MODEL_NAME)
                     == ModelProvider.ANTHROPIC,
@@ -120,9 +120,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
                     issue_title=state["issue_title"],
                     issue_description=state["issue_description"],
                     project_description=repo_config.repository_description,
-                    repository_structure=codebase_index.extract_tree(
-                        config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
-                    ),
                 )
             },
         )

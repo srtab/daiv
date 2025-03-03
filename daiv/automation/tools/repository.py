@@ -27,14 +27,13 @@ from .schemas import (
 
 logger = logging.getLogger("daiv.tools")
 
-EXPLORE_REPOSITORY_PATH_NAME = "explore_repository_path"
 RETRIEVE_FILE_CONTENT_NAME = "retrieve_file_content"
+REPOSITORY_STRUCTURE_NAME = "repository_structure"
 SEARCH_CODE_SNIPPETS_NAME = "search_code_snippets"
 REPLACE_SNIPPET_IN_FILE_NAME = "replace_snippet_in_file"
 CREATE_NEW_REPOSITORY_FILE_NAME = "create_new_repository_file"
 RENAME_REPOSITORY_FILE_NAME = "rename_repository_file"
 DELETE_REPOSITORY_FILE_NAME = "delete_repository_file"
-APPEND_TO_REPOSITORY_FILE_NAME = "append_to_repository_file"
 
 
 class SearchCodeSnippetsTool(BaseTool):
@@ -110,6 +109,24 @@ class SearchCodeSnippetsTool(BaseTool):
             return build_uri(self.api_wrapper.repo_client.codebase_url, f"/{repository_id}/-/blob/{ref}/{file_path}")
 
         raise ValueError(f"Unsupported repository client type: {self.api_wrapper.repo_client.client_slug}")
+
+
+class RepositoryStructureTool(BaseTool):
+    name: str = REPOSITORY_STRUCTURE_NAME
+    description: str = textwrap.dedent(
+        """\
+        Get the full file tree structure of the repository. You don't need to use this tool more than once per conversation, as the structure don't change from one iteration to another.
+        """  # noqa: E501
+    )
+    api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
+
+    def _run(self, config: RunnableConfig) -> str:
+        """
+        Gets the full file tree structure of the repository.
+        """
+        return self.api_wrapper.extract_tree(
+            config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
+        )
 
 
 class BaseRepositoryTool(BaseTool):

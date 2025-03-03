@@ -47,12 +47,6 @@ class PlanAndExecuteState(MessagesState):
     """
 
 
-class PlanState(AgentState):
-    """
-    The state of the plan agent.
-    """
-
-
 class ExecuteState(AgentState):
     """
     The state of the execute plan agent.

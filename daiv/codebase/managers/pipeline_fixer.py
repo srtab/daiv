@@ -5,7 +5,7 @@ from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import ShallowPostgresSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE
@@ -60,7 +60,7 @@ class PipelineFixerManager(BaseManager):
 
         config = RunnableConfig(
             run_name="PipelineFixer",
-            tags=["pipeline_fixer", self.client.client_slug],
+            tags=["pipeline_fixer", str(self.client.client_slug)],
             metadata={"merge_request_id": merge_request_id, "job_id": job_id},
             configurable={
                 "thread_id": self.thread_id,
@@ -70,7 +70,7 @@ class PipelineFixerManager(BaseManager):
             },
         )
 
-        with ShallowPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             pipeline_fixer = PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store)
 
             current_state = pipeline_fixer.agent.get_state(config)

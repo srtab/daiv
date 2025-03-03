@@ -26,12 +26,7 @@ class Command(BaseCommand):
         repo_client = RepoClient.create_instance()
         indexer = CodebaseIndex(repo_client=repo_client)
 
-        namespace = None
-
-        if options["repo_id"]:
-            namespace = indexer._get_codebase_namespace(options["repo_id"], options["ref"])
-
-        codebase_search = CodebaseSearchAgent(indexer.as_retriever(namespace))
+        codebase_search = CodebaseSearchAgent(indexer.as_retriever(options["repo_id"], options["ref"]))
 
         for doc in codebase_search.agent.invoke(options["query"]):
             self.stdout.write("-" * 100)

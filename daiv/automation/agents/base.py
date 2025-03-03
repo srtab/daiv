@@ -25,6 +25,12 @@ class ModelProvider(StrEnum):
     GOOGLE_GENAI = "google_genai"
 
 
+class ThinkingLevel(StrEnum):
+    SOFT = "soft"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
 T = TypeVar("T", bound=Runnable)
 
 
@@ -51,17 +57,17 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     def compile(self) -> T:
         pass
 
-    def get_model(self, *, model: str, **kwargs) -> BaseChatModel:
+    def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs(model=model, **kwargs)
+        model_kwargs = self.get_model_kwargs(model=model, thinking_level=thinking_level, **kwargs)
         return init_chat_model(**model_kwargs)
 
-    def get_model_kwargs(self, **kwargs) -> dict:
+    def get_model_kwargs(self, *, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
         """
         Get the keyword arguments to pass to the model.
 
@@ -71,7 +77,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         _kwargs = {
             "temperature": 0,
             "callbacks": [self.usage_handler],
-            "configurable_fields": ("model", "temperature", "max_tokens"),
+            "configurable_fields": ("temperature", "max_tokens"),
             "model_kwargs": {},
             **kwargs,
         }
@@ -82,11 +88,22 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
             # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
             # If needed, we can increase this value using the configurable field.
-            _kwargs["max_tokens"] = "2048"
-            _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
-        elif model_provider in [ModelProvider.DEEPSEEK, ModelProvider.GOOGLE_GENAI]:
+            if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
+                # When using thinking the temperature need to be set to 1
+                _kwargs["temperature"] = 1
+                if thinking_level == ThinkingLevel.SOFT:
+                    _kwargs["max_tokens"] = 4_000
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_000}
+                elif thinking_level == ThinkingLevel.MEDIUM:
+                    _kwargs["max_tokens"] = 10_000
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_000}
+                elif thinking_level == ThinkingLevel.HARD:
+                    _kwargs["max_tokens"] = 20_000
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_000}
+            else:
+                _kwargs["max_tokens"] = 2048
+        elif model_provider in [ModelProvider.GOOGLE_GENAI]:
             # otherwise google_genai will be inferred as google_vertexai
-            # deepseek is not yet being inferred yet by langchain
             _kwargs["model_provider"] = model_provider
         return _kwargs
 
@@ -97,7 +114,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             str: The Mermaid graph
         """
-        return self.agent.get_graph().draw_mermaid()
+        return self.agent.get_graph().draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """
@@ -155,9 +172,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         model_provider: ModelProvider | None = None
 
-        if model_name.startswith("deepseek"):
-            model_provider = ModelProvider.DEEPSEEK
-        elif model_name.startswith("gemini"):
+        if model_name.startswith("gemini"):
             model_provider = ModelProvider.GOOGLE_GENAI
         else:
             model_provider = cast("ModelProvider | None", _attempt_infer_model_provider(model_name))

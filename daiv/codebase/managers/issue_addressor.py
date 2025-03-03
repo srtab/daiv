@@ -1,11 +1,13 @@
 import logging
+from textwrap import dedent
 from typing import cast, override
 
 from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import ShallowPostgresSaver
+from langchain_core.runnables.config import merge_configs
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.types import Command
 
 from automation.agents.issue_addressor.agent import IssueAddressorAgent
@@ -105,23 +107,28 @@ class IssueAddressorManager(BaseManager):
         """
         config = RunnableConfig(
             run_name="IssueAddressor",
-            tags=["issue_addressor", self.client.client_slug],
+            tags=["issue_addressor", str(self.client.client_slug)],
             configurable={
                 "thread_id": self.thread_id,
                 "project_id": self.repository.pk,
                 "source_repo_id": self.repo_id,
                 "source_ref": self.ref,
                 "issue_id": cast("int", self.issue.iid),
-                "repo_client": self.client.client_slug,
+                "repo_client": str(self.client.client_slug),
             },
         )
 
         self._add_welcome_note()
 
-        with ShallowPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
 
-            if should_reset_plan:
+            if should_reset_plan and (
+                history_states := list(issue_addressor.agent.get_state_history(config, filter={"step": -1}))
+            ):
+                # Rollback to the first state to reset the state of the agent
+                config = merge_configs(config, history_states[-1].config)
+                print("Resetting plan", config)  # noqa: T201
                 self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), ISSUE_REPLAN_TEMPLATE)
 
             current_state = issue_addressor.agent.get_state(config, subgraphs=True)
@@ -224,15 +231,19 @@ class IssueAddressorManager(BaseManager):
         changes_description = pr_describer.agent.invoke(
             {
                 "changes": file_changes,
-                "extra_details": {
-                    "Issue title": self.issue.title,
-                    "Issue description": self.issue.description or "No description provided",
-                },
+                "extra_context": dedent(
+                    """\
+                    This changes were made to address the following issue:
+
+                    Issue title: {title}
+                    Issue description: {description}
+                    """
+                ).format(title=self.issue.title, description=self.issue.description),
                 "branch_name_convention": self.repo_config.branch_name_convention,
             },
             config={
                 "run_name": "PullRequestDescriber",
-                "tags": ["pull_request_describer", self.client.client_slug],
+                "tags": ["pull_request_describer", str(self.client.client_slug)],
                 "configurable": {"thread_id": thread_id},
             },
         )

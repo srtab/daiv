@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from langchain_core.prompts import ChatPromptTemplate
+from django.utils import timezone
+
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
@@ -12,7 +14,6 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.prebuilt import prepare_repository_files_as_messages
 from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
@@ -25,7 +26,10 @@ from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
 if TYPE_CHECKING:
-    from langchain_core.messages import SystemMessage
+    from collections.abc import Sequence
+
+    from langchain_core.messages import BaseMessage, SystemMessage
+    from langgraph.prebuilt.chat_agent_executor import AgentState
 
 
 logger = logging.getLogger("daiv.agents")
@@ -76,26 +80,37 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledGraph: The compiled subgraph.
         """
-
         tools = (
             ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
             + SandboxToolkit.create_instance().get_tools()
         )
 
-        system_message = cast(
-            "SystemMessage",
-            plan_system.format(tools=[tool.name for tool in tools], recursion_limit=settings.RECURSION_LIMIT),
-        )
+        tools_names = [tool.name for tool in tools]
+        current_date_time = timezone.now().strftime("%d %B, %Y %H:%M")
+
+        def prompt_template(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
+            system_message = cast(
+                "SystemMessage",
+                plan_system.format(
+                    tools=tools_names,
+                    recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT),
+                    current_date_time=current_date_time,
+                ),
+            )
+            return [system_message] + state["messages"]
 
         return create_react_agent(
-            self.get_model(model=settings.PLANING_PERFORMANT_MODEL_NAME).with_fallbacks([
-                self.get_model(model=settings.GENERIC_PERFORMANT_MODEL_NAME)
-            ]),
+            # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
+            # between reasoning models and non-reasoning models. Both models need to be reasoning models.
+            self.get_model(
+                model=settings.PLAN_AND_EXECUTE.PLANNING_MODEL_NAME,
+                thinking_level=settings.PLAN_AND_EXECUTE.PLANNING_THINKING_LEVEL,
+            ),
             tools=tools + [determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
-            prompt=system_message,
+            prompt=prompt_template,
             name="plan_agent",
             version="v2",
         )
@@ -116,7 +131,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)
 
         plan_approval_evaluator = self.get_model(
-            model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME
+            model=settings.PLAN_AND_EXECUTE.PLAN_APPROVAL_MODEL_NAME
         ).with_structured_output(HumanApproval)
 
         result = cast("HumanApproval", plan_approval_evaluator.invoke([plan_approval_system] + messages))
@@ -142,28 +157,42 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
-        tools = WriteRepositoryToolkit.create_instance().get_tools() + SandboxToolkit.create_instance().get_tools()
-
         react_agent = create_react_agent(
-            self.get_model(model=settings.CODING_PERFORMANT_MODEL_NAME).with_fallbacks([
-                self.get_model(model=settings.GENERIC_PERFORMANT_MODEL_NAME)
-            ]),
+            # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
+            # between reasoning models and non-reasoning models. Both models need to be reasoning models.
+            self.get_model(
+                model=settings.PLAN_AND_EXECUTE.EXECUTION_MODEL_NAME,
+                thinking_level=settings.PLAN_AND_EXECUTE.EXECUTION_THINKING_LEVEL,
+            ),
             state_schema=ExecuteState,
-            tools=tools,
+            tools=WriteRepositoryToolkit.create_instance().get_tools() + SandboxToolkit.create_instance().get_tools(),
             store=store,
-            prompt=execute_plan_system,
+            prompt=ChatPromptTemplate.from_messages([
+                execute_plan_system,
+                execute_plan_human,
+                MessagesPlaceholder("messages"),
+            ]),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
-            name="execute_agent",
+            name="execute_react_agent",
             version="v2",
         )
 
-        messages = ChatPromptTemplate.from_messages([execute_plan_human]).format_messages(
-            plan_goal=state["plan_goal"], plan_tasks=enumerate(state["plan_tasks"])
-        ) + prepare_repository_files_as_messages(
-            source_repo_id, source_ref, [task.path for task in state["plan_tasks"]], store
-        )
+        # Prepare paths to be included in the context of the agent to improve performance
+        paths_to_context = set()
+        for task in state["plan_tasks"]:
+            paths_to_context.update(task.context_paths)
+            paths_to_context.add(task.path)
 
-        react_agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
+        react_agent.invoke(
+            {
+                "plan_goal": state["plan_goal"],
+                "plan_tasks": list(enumerate(state["plan_tasks"])),
+                # "messages": prepare_repository_files_as_messages(
+                #     source_repo_id, source_ref, list(paths_to_context), store  # NOQA
+                # ),
+            },
+            config={"recursion_limit": config.get("recursion_limit", settings.RECURSION_LIMIT)},
+        )
 
         if store.search(file_changes_namespace(source_repo_id, source_ref), limit=1):
             return Command(goto="apply_format_code")

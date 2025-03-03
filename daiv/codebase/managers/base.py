@@ -82,7 +82,8 @@ class BaseManager:
         changes_description = pr_describer.agent.invoke(
             {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
             config={
-                "tags": ["pull_request_describer", self.client.client_slug],
+                "run_name": "PullRequestDescriber",
+                "tags": ["pull_request_describer", str(self.client.client_slug)],
                 "configurable": {"thread_id": thread_id},
             },
         )

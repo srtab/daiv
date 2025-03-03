@@ -13,6 +13,7 @@ from .repository import (
     DeleteRepositoryFileTool,
     RenameRepositoryFileTool,
     ReplaceSnippetInFileTool,
+    RepositoryStructureTool,
     RetrieveFileContentTool,
     SearchCodeSnippetsTool,
 )
@@ -37,7 +38,7 @@ class ReadRepositoryToolkit(BaseToolkit):
 
     @classmethod
     def create_instance(cls) -> BaseToolkit:
-        return cls(tools=[SearchCodeSnippetsTool(), RetrieveFileContentTool()])
+        return cls(tools=[SearchCodeSnippetsTool(), RetrieveFileContentTool(), RepositoryStructureTool()])
 
 
 class WriteRepositoryToolkit(ReadRepositoryToolkit):

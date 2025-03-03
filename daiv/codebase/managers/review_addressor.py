@@ -182,7 +182,7 @@ class ReviewAddressorManager(BaseManager):
 
         config = RunnableConfig(
             run_name="ReviewAddressor",
-            tags=["review_addressor", self.client.client_slug],
+            tags=["review_addressor", str(self.client.client_slug)],
             metadata={"merge_request_id": self.merge_request_id, "discussion_id": context.discussion.id},
             configurable={"thread_id": thread_id, "source_repo_id": self.repo_id, "source_ref": self.ref},
         )

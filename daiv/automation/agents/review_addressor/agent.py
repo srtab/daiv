@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -14,7 +14,6 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.review_addressor.tools import reply_reviewer_tool
 from automation.agents.schemas import AssesmentClassification
 from automation.conf import settings
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit
@@ -23,11 +22,8 @@ from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .prompts import plan_and_execute_human, respond_reviewer_system, review_assessment_human, review_assessment_system
-from .state import OverallState
-
-if TYPE_CHECKING:
-    from langchain_core.messages import SystemMessage
-
+from .state import OverallState, ReplyAgentState
+from .tools import reply_reviewer_tool
 
 logger = logging.getLogger("daiv.agents")
 
@@ -93,7 +89,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             | PydanticToolsParser(tools=[AssesmentClassification], first_tool_only=True)
         )
 
-        response = cast("AssesmentClassification", evaluator.invoke({"messages": state["messages"]}))
+        response = cast("AssesmentClassification", evaluator.invoke({"messages": state["notes"]}))
 
         if response.request_for_changes:
             return Command(goto="plan_and_execute", update={"requested_changes": response.requested_changes})
@@ -120,9 +116,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             requested_changes=state["requested_changes"],
             diff=state["diff"],
             project_description=repo_config.repository_description,
-            repository_structure=self.codebase_index.extract_tree(
-                config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
-            ),
         )
 
         plan_and_execute = PlanAndExecuteAgent(store=store, human_in_the_loop=False, checkpointer=False)
@@ -147,35 +140,26 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
-
-        message_system = respond_reviewer_system.format(
-            comment=state["messages"][-1].content,
-            diff=state["diff"],
-            project_description=repo_config.repository_description,
-            repository_structure=self.codebase_index.extract_tree(
-                config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
-            ),
+        tools = (
+            ReadRepositoryToolkit.create_instance().get_tools()
+            + WebSearchToolkit.create_instance().get_tools()
+            + SandboxToolkit.create_instance().get_tools()
         )
 
         react_agent = create_react_agent(
-            self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
-                self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME)
+            self.get_model(model=settings.REVIEW_ADDRESSOR.REPLY_MODEL_NAME).with_fallbacks([
+                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_REPLY_MODEL_NAME)
             ]),
-            tools=(
-                ReadRepositoryToolkit.create_instance().get_tools()
-                + WebSearchToolkit.create_instance().get_tools()
-                + SandboxToolkit.create_instance().get_tools()
-                + [reply_reviewer_tool]
-            ),
+            state_schema=ReplyAgentState,
+            tools=tools + [reply_reviewer_tool],
             store=store,
             checkpointer=False,
-            prompt=cast("SystemMessage", message_system),
+            prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]),
             name="reply_reviewer_react_agent",
             version="v2",
         )
 
-        result = react_agent.invoke({"messages": state["messages"]})
+        result = react_agent.invoke({"messages": state["notes"], "diff": state["diff"]})
 
         # The reply is updated in the state by the reply_reviewer tool.
         # There's cases where the tool is not called, so we use the last message content as the reply.

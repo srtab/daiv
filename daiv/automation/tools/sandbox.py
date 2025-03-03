@@ -34,6 +34,7 @@ class RunSandboxCommandsTool(BaseTool):
     )
     args_schema: type[BaseModel] = RunCommandInput
 
+    handle_tool_error: bool = True
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
     def _run(self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:

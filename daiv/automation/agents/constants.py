@@ -2,6 +2,7 @@ from enum import StrEnum
 
 
 class ModelName(StrEnum):
+    CLAUDE_3_7_SONNET_20250219 = "claude-3-7-sonnet-20250219"
     CLAUDE_3_5_SONNET_20241022 = "claude-3-5-sonnet-20241022"
     CLAUDE_3_5_HAIKU_20241022 = "claude-3-5-haiku-20241022"
     GPT_4O_2024_11_20 = "gpt-4o-2024-11-20"

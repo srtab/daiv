@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class PullRequestDescriberInput(TypedDict):
     changes: list[FileChange]
-    extra_details: NotRequired[dict[str, str]]
+    extra_context: NotRequired[str]
     branch_name_convention: NotRequired[str]
 
 
@@ -30,11 +30,11 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
 
     def compile(self) -> Runnable:
         return ChatPromptTemplate.from_messages([system, human]).partial(
-            branch_name_convention=None, extra_details={}
-        ) | self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_structured_output(
+            branch_name_convention=None, extra_context=""
+        ) | self.get_model(model=settings.PR_DESCRIBER.MODEL_NAME).with_structured_output(
             PullRequestDescriberOutput
         ).with_fallbacks([
             cast(
-                "BaseChatModel", self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
+                "BaseChatModel", self.get_model(model=settings.PR_DESCRIBER.FALLBACK_MODEL_NAME)
             ).with_structured_output(PullRequestDescriberOutput)
         ])

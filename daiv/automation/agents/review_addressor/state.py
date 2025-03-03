@@ -1,9 +1,25 @@
-from langgraph.graph import MessagesState
+from typing import Annotated
+
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt.chat_agent_executor import AgentState
+from typing_extensions import TypedDict
 
 
-class OverallState(MessagesState):
+class OverallState(TypedDict):
     """
     The state of the review addressor agent.
+    """
+
+    messages: Annotated[list[AnyMessage], add_messages]
+    """
+    This is necessary be declared in order to avoid errors with the Pregel loop.
+    It is not used in the agent.
+    """
+
+    notes: Annotated[list[AnyMessage], add_messages]
+    """
+    The notes of the discussion left on the merge request.
     """
 
     diff: str
@@ -24,4 +40,15 @@ class OverallState(MessagesState):
     The summarised requested changes stated by the reviewer.
 
     This is used to feed the plan and execute node with the requested changes required by the reviewer.
+    """
+
+
+class ReplyAgentState(AgentState):
+    """
+    Schema for the reply react agent.
+    """
+
+    diff: str
+    """
+    The unified diff of the merge request.
     """

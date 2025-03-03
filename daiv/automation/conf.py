@@ -3,7 +3,49 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from automation.agents.base import ThinkingLevel
 from automation.agents.constants import ModelName
+
+
+class PRDescriberSettings(BaseSettings):
+    MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for PR describer."
+    )
+    FALLBACK_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18, description="Fallback model name to be used for PR describer."
+    )
+
+
+class ReviewAddressorSettings(BaseSettings):
+    REPLY_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022,
+        description="Model name to be used for reply to comments or questions.",
+    )
+    FALLBACK_REPLY_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18, description="Fallback model name for REPLY_MODEL_NAME."
+    )
+
+
+class PlanAndExecuteSettings(BaseSettings):
+    """
+    Settings for the plan and execute agent.
+    """
+
+    PLANNING_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_7_SONNET_20250219, description="Model name to be used to plan tasks."
+    )
+    PLANNING_THINKING_LEVEL: ThinkingLevel = Field(
+        default=ThinkingLevel.MEDIUM, description="Thinking level to be used to plan tasks."
+    )
+    EXECUTION_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_7_SONNET_20250219, description="Model name to be used to execute tasks."
+    )
+    EXECUTION_THINKING_LEVEL: ThinkingLevel = Field(
+        default=ThinkingLevel.MEDIUM, description="Thinking level to be used to execute tasks."
+    )
+    PLAN_APPROVAL_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used to evaluate the plan approval."
+    )
 
 
 class AutomationSettings(BaseSettings):
@@ -12,11 +54,11 @@ class AutomationSettings(BaseSettings):
     # Agent settings
     RECURSION_LIMIT: int = Field(default=50, description="Default recursion limit for the agent")
     PLANING_PERFORMANT_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_SONNET_20241022,
+        default=ModelName.CLAUDE_3_7_SONNET_20250219,
         description="Model name to be used to plan tasks with high performance.",
     )
     CODING_PERFORMANT_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_SONNET_20241022, description="Model name to be used to code with high performance."
+        default=ModelName.CLAUDE_3_7_SONNET_20250219, description="Model name to be used to code with high performance."
     )
     CODING_COST_EFFICIENT_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used to code with cost efficiency."
@@ -57,6 +99,16 @@ class AutomationSettings(BaseSettings):
     # Pipeline fixer settings
     PIPELINE_FIXER_MAX_RETRY: int = Field(
         default=20, description="Maximum number of retry iterations for pipeline fixer"
+    )
+
+    PR_DESCRIBER: PRDescriberSettings = Field(
+        default_factory=PRDescriberSettings, description="Pull request describer agent settings."
+    )
+    REVIEW_ADDRESSOR: ReviewAddressorSettings = Field(
+        default_factory=ReviewAddressorSettings, description="Review addressor agent settings."
+    )
+    PLAN_AND_EXECUTE: PlanAndExecuteSettings = Field(
+        default_factory=PlanAndExecuteSettings, description="Plan and execute agent settings."
     )
 
 
