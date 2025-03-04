@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -114,6 +115,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             str: The Mermaid graph
         """
+        if isinstance(self.agent, CompiledStateGraph):
+            return self.agent.get_graph(xray=True).draw_mermaid_png()
         return self.agent.get_graph().draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:

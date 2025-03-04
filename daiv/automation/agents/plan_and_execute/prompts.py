@@ -64,11 +64,7 @@ IMPORTANT: Exceeding the iteration limit will result in the task being terminate
 ---
 
 # Doing the checklist
-The user will request you to preform software engineering tasks. You will:
- 1. Plan tools usage on thinking;
- 2. Collect all necessary information using the available tools;
- 3. Create the checklist;
- 4. Output your self-contained checklist using the `determine_next_action` tool.""",  # noqa: E501
+The user will request you to preform software engineering tasks. Think throughly about the requested tasks and begin by planning the tools usage. Next collect the necessary information and finally create the checklist.""",  # noqa: E501
     "jinja2",
 )
 
@@ -185,6 +181,8 @@ execute_plan_system = SystemMessage(
 
 IMPORTANT: You are not allowed to write code that is not part of the provided tasks.
 
+The current date and time is {{ current_date_time }}.
+
 # Following conventions
 When making changes to files, first understand the file's code conventions. Mimic code style, use existing libraries and utilities, and follow existing patterns.
 - NEVER assume that a given library is available, even if it is well known. Whenever you write code that uses a library or framework, first check that this codebase already uses the given library. For example, you might look at neighboring files, or check the package.json (or cargo.toml, and so on depending on the language).
@@ -198,7 +196,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 - Do not add blank lines with whitespaces to the code you write, as this can break linters and formatters.
 
 # Tool usage policy
-- If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same function_calls block.
+- If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same tool calling block.
 - Handle any required imports or dependencies in a separate, explicit step. List the imports at the beginning of the modified file or in a dedicated import section if the codebase has one.
 
 # Final Review
@@ -227,6 +225,16 @@ Ensure that the steps you take and the code you write contribute directly to ach
   </subtasks>
 </task>
 {% endfor %}
+
+# Context
+The following files was identified as relevant to the task:
+{% for file_content in file_contents %}
+{{ file_content }}
+{% endfor %}
+
+---
+
+Please think about the planned tasks and the context files thoroughly to make sure you don't miss any important details and show your reasoning.
 """,  # noqa: E501
     "jinja2",
 )

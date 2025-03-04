@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
@@ -47,8 +47,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         workflow.add_node("prepare_data", self.prepare_data)
         workflow.add_node("plan_and_execute", self.plan_and_execute_subgraph(self.checkpointer, self.store))
 
-        workflow.add_edge(START, "assessment")
-        workflow.add_edge("plan_and_execute", END)
+        workflow.set_entry_point("assessment")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store)
 
