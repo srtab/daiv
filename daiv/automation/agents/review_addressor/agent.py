@@ -147,8 +147,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = create_react_agent(
-            self.get_model(model=settings.REVIEW_ADDRESSOR.REPLY_MODEL_NAME).with_fallbacks([
-                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_REPLY_MODEL_NAME)
+            self.get_model(model=settings.REVIEW_ADDRESSOR.REPLY_MODEL_NAME, temperature=0.5).with_fallbacks([
+                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_REPLY_MODEL_NAME, temperature=0.5)
             ]),
             state_schema=ReplyAgentState,
             tools=tools + [reply_reviewer_tool],

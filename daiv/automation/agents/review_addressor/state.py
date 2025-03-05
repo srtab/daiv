@@ -11,12 +11,6 @@ class OverallState(TypedDict):
     The state of the review addressor agent.
     """
 
-    messages: Annotated[list[AnyMessage], add_messages]
-    """
-    This is necessary be declared in order to avoid errors with the Pregel loop.
-    It is not used in the agent.
-    """
-
     notes: Annotated[list[AnyMessage], add_messages]
     """
     The notes of the discussion left on the merge request.

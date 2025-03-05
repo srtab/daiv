@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Literal, cast
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import (
+    RunnableConfig,  # noqa: TC002
+    RunnableLambda,
+)
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -27,7 +30,7 @@ from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from langchain_core.messages import BaseMessage, SystemMessage
     from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -38,12 +41,33 @@ logger = logging.getLogger("daiv.agents")
 INTERRUPT_AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
 
 
+def prompt_system(tools_names: list[str], current_date_time: str) -> RunnableLambda:
+    def prompt(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
+        system_message = cast(
+            "SystemMessage",
+            plan_system.format(
+                tools=tools_names,
+                recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT),
+                current_date_time=current_date_time,
+            ),
+        )
+        return [system_message] + state["messages"]
+
+    return RunnableLambda(prompt)
+
+
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to plan and execute a task.
     """
 
-    def __init__(self, *, human_in_the_loop: bool = True, **kwargs):
+    def __init__(
+        self,
+        *,
+        plan_prompt_system: Callable[[list[str], str], RunnableLambda] | None = None,
+        human_in_the_loop: bool = True,
+        **kwargs,
+    ):
         """
         Initialize the agent.
 
@@ -51,6 +75,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             human_in_the_loop (bool): Whether to include a human in the loop or execute the plan automatically.
         """
         self.human_in_the_loop = human_in_the_loop
+        self.plan_prompt_system = plan_prompt_system or prompt_system
         super().__init__(**kwargs)
 
     def compile(self) -> CompiledStateGraph:
@@ -90,17 +115,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         tools_names = [tool.name for tool in tools]
         current_date_time = timezone.now().strftime("%d %B, %Y %H:%M")
 
-        def prompt_template(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
-            system_message = cast(
-                "SystemMessage",
-                plan_system.format(
-                    tools=tools_names,
-                    recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT),
-                    current_date_time=current_date_time,
-                ),
-            )
-            return [system_message] + state["messages"]
-
         return create_react_agent(
             # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
             # between reasoning models and non-reasoning models. Both models need to be reasoning models.
@@ -111,7 +125,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=tools + [determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
-            prompt=prompt_template,
+            prompt=self.plan_prompt_system(tools_names, current_date_time),
             name="plan_react_agent",
             version="v2",
         )
