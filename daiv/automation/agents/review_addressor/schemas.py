@@ -1,3 +1,5 @@
+from textwrap import dedent
+
 from pydantic import BaseModel, Field
 
 
@@ -7,8 +9,10 @@ class ReplyReviewer(BaseModel):
     """
 
     reply: str = Field(
-        description=(
-            "Reply in the first person, without asking if they want more changes. E.g., "
-            "'The changes you requested have been made.'"
+        description=dedent(
+            """\
+            - The reply MUST be under 100 words.
+            - Format your response using appropriate markdown for code snippets, lists, or emphasis where needed.
+            """
         )
     )

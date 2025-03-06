@@ -27,9 +27,9 @@ class ModelProvider(StrEnum):
 
 
 class ThinkingLevel(StrEnum):
-    SOFT = "soft"
+    LOW = "low"
     MEDIUM = "medium"
-    HARD = "hard"
+    HIGH = "high"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -92,17 +92,21 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
-                if thinking_level == ThinkingLevel.SOFT:
+                if thinking_level == ThinkingLevel.LOW:
                     _kwargs["max_tokens"] = 4_000
                     _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_000}
                 elif thinking_level == ThinkingLevel.MEDIUM:
                     _kwargs["max_tokens"] = 10_000
                     _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_000}
-                elif thinking_level == ThinkingLevel.HARD:
+                elif thinking_level == ThinkingLevel.HIGH:
                     _kwargs["max_tokens"] = 20_000
                     _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_000}
             else:
                 _kwargs["max_tokens"] = 2048
+        elif model_provider == ModelProvider.OPENAI:
+            if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
+                _kwargs["temperature"] = 1
+                _kwargs["reasoning_effort"] = thinking_level
         elif model_provider in [ModelProvider.GOOGLE_GENAI]:
             # otherwise google_genai will be inferred as google_vertexai
             _kwargs["model_provider"] = model_provider

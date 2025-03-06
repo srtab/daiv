@@ -154,6 +154,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             tools=tools + [reply_reviewer_tool],
             store=store,
             checkpointer=False,
+            # FIXME: Add diff hunk referenced file to the prompt to improve the agent's performance
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]),
             name="reply_reviewer_react_agent",
             version="v2",
