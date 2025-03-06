@@ -1,3 +1,5 @@
+from django.utils import timezone
+
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
@@ -66,6 +68,8 @@ IMPORTANT: Exceeding the iteration limit will result in the task being terminate
 # Doing the checklist
 The user will request you to preform software engineering tasks. Think throughly about the requested tasks and begin by planning the tools usage. Next collect the necessary information and finally create the checklist.""",  # noqa: E501
     "jinja2",
+    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
+    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
 plan_approval_system = SystemMessage("""### Examples ###
@@ -176,7 +180,7 @@ Remember:
 Please begin your analysis now.""")  # noqa: E501
 
 
-execute_plan_system = SystemMessage(
+execute_plan_system = SystemMessagePromptTemplate.from_template(
     """You are a highly skilled senior software engineer tasked with making precise changes to an existing codebase. Your primary objective is to execute the given tasks accurately and completely while adhering to best practices and maintaining the integrity of the codebase. The tasks you receive will already be broken down into smaller, manageable components. Your responsibility is to execute these components precisely.
 
 IMPORTANT: You are not allowed to write code that is not part of the provided tasks.
@@ -204,6 +208,8 @@ Conduct a final review of your work, ensuring that all subtasks have been comple
 Describe *how* your changes integrate with the existing codebase and confirm that no unintended side effects have been introduced. Be specific about the integration points and any potential conflicts you considered.
 
 **REMEMBER**: Execute all planned tasks and subtasks thoroughly, leaving no steps or details unaddressed. Your goal is to produce high-quality, production-ready code that fully meets the specified requirements by precisely following the instructions.""",  # noqa: E501
+    "jinja2",
+    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
@@ -227,10 +233,10 @@ Ensure that the steps you take and the code you write contribute directly to ach
 {% endfor %}
 
 # Context
-The following files was identified as relevant to the task:
+The following repository files were identified as relevant to the task and were retrieved using the `retrieve_file_content` tool:
 {% for file_content in file_contents %}
 {{ file_content }}
-{% endfor %}
+{% endfor -%}
 
 ---
 

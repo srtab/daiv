@@ -18,7 +18,7 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 </summary>
 
-**{{ plan_task.context }}.**
+**{{ plan_task.description }}**
 {% for subtask in plan_task.subtasks %}
 - [ ] {{ subtask }}{% endfor %}
 
@@ -28,8 +28,8 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 💡 **Next Steps:**
 
- - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then replan the tasks.
  - ✅ If the plan is good, please approve the plan by **replying directly to this discussion** and I'll execute the plan.
+ - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then replan the tasks.
 """  # noqa: E501
 
 ISSUE_REPLAN_TEMPLATE = """### 🔄 ***Replanning***

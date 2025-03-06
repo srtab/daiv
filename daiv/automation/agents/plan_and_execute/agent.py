@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from django.utils import timezone
-
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langchain_core.runnables import (
     RunnableConfig,  # noqa: TC002
     RunnableLambda,
@@ -30,7 +28,7 @@ from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
     from langchain_core.messages import BaseMessage, SystemMessage
     from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -64,7 +62,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     def __init__(
         self,
         *,
-        plan_prompt_system: Callable[[list[str], str], RunnableLambda] | None = None,
+        plan_system_template: SystemMessagePromptTemplate | None = None,
         human_in_the_loop: bool = True,
         **kwargs,
     ):
@@ -75,7 +73,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             human_in_the_loop (bool): Whether to include a human in the loop or execute the plan automatically.
         """
         self.human_in_the_loop = human_in_the_loop
-        self.plan_prompt_system = plan_prompt_system or prompt_system
+        self.plan_system_template = plan_system_template or plan_system
         super().__init__(**kwargs)
 
     def compile(self) -> CompiledStateGraph:
@@ -113,7 +111,15 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         tools_names = [tool.name for tool in tools]
-        current_date_time = timezone.now().strftime("%d %B, %Y %H:%M")
+
+        def prompt(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
+            system_message = cast(
+                "SystemMessage",
+                self.plan_system_template.format(
+                    tools=tools_names, recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT)
+                ),
+            )
+            return [system_message] + state["messages"]
 
         return create_react_agent(
             # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
@@ -125,7 +131,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=tools + [determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
-            prompt=self.plan_prompt_system(tools_names, current_date_time),
+            prompt=RunnableLambda(prompt),
             name="plan_react_agent",
             version="v2",
         )
@@ -197,7 +203,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 "plan_goal": state["plan_goal"],
                 "plan_tasks": list(enumerate(state["plan_tasks"])),
                 "file_contents": self._prepare_repository_files(source_repo_id, source_ref, state["plan_tasks"], store),
-                "current_date_time": timezone.now().strftime("%d %B, %Y %H:%M"),
             },
             config={"recursion_limit": config.get("recursion_limit", settings.RECURSION_LIMIT)},
         )

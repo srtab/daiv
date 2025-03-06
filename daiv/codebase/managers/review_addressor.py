@@ -200,8 +200,7 @@ class ReviewAddressorManager(BaseManager):
 
         try:
             result = reviewer_addressor.agent.invoke(
-                {"messages": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff},
-                config,
+                {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff}, config
             )
         except Exception:
             logger.exception("Error processing discussion: %s", context.discussion.id)

@@ -2,7 +2,7 @@ import logging
 from textwrap import dedent
 from typing import cast, override
 
-from django.conf import settings
+from django.conf import settings as django_settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
@@ -23,12 +23,14 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
 )
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
+from automation.conf import settings
 from codebase.base import FileChange, Issue
 from codebase.clients import AllRepoClient, RepoClient
-from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
+
+from .base import BaseManager
 
 logger = logging.getLogger("daiv.managers")
 
@@ -107,6 +109,7 @@ class IssueAddressorManager(BaseManager):
         """
         config = RunnableConfig(
             run_name="IssueAddressor",
+            recursion_limit=settings.RECURSION_LIMIT,
             tags=["issue_addressor", str(self.client.client_slug)],
             configurable={
                 "thread_id": self.thread_id,
@@ -120,7 +123,7 @@ class IssueAddressorManager(BaseManager):
 
         self._add_welcome_note()
 
-        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+        with PostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
 
             if should_reset_plan and (
@@ -128,7 +131,6 @@ class IssueAddressorManager(BaseManager):
             ):
                 # Rollback to the first state to reset the state of the agent
                 config = merge_configs(config, history_states[-1].config)
-                print("Resetting plan", config)  # noqa: T201
                 self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), ISSUE_REPLAN_TEMPLATE)
 
             current_state = issue_addressor.agent.get_state(config, subgraphs=True)

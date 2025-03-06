@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Literal, cast
 
+from django.utils import timezone
+
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnablePassthrough
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -21,7 +23,13 @@ from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
-from .prompts import plan_and_execute_human, respond_reviewer_system, review_assessment_human, review_assessment_system
+from .prompts import (
+    respond_reviewer_system,
+    review_assessment_human,
+    review_assessment_system,
+    review_plan_human,
+    review_plan_system_template,
+)
 from .state import OverallState, ReplyAgentState
 from .tools import reply_reviewer_tool
 
@@ -112,15 +120,24 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
-        message = plan_and_execute_human.format(
-            requested_changes=state["requested_changes"],
-            diff=state["diff"],
-            project_description=repo_config.repository_description,
+        review_plan_system = SystemMessagePromptTemplate.from_template(
+            review_plan_system_template,
+            "jinja2",
+            partial_variables={
+                "current_date_time": timezone.now().strftime("%d %B, %Y %H:%M"),
+                "diff": state["diff"],
+                "project_description": repo_config.repository_description,
+            },
+            additional_kwargs={"cache-control": {"type": "ephemeral"}},
         )
 
-        plan_and_execute = PlanAndExecuteAgent(store=store, human_in_the_loop=False, checkpointer=False)
+        plan_and_execute = PlanAndExecuteAgent(
+            plan_system_template=review_plan_system, store=store, human_in_the_loop=False, checkpointer=False
+        )
 
-        result = plan_and_execute.agent.invoke({"messages": [message]})
+        result = plan_and_execute.agent.invoke({
+            "messages": [review_plan_human.format(requested_changes=state["requested_changes"])]
+        })
 
         if plan_questions := result.get("plan_questions"):
             return Command(goto=END, update={"reply": "\n".join(plan_questions)})

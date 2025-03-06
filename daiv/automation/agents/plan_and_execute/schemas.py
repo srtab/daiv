@@ -63,10 +63,8 @@ class Task(BaseModel):
         description=dedent(
             """\
             A list of subtasks to be executed in order. Be detailed and specific on what to do. The subtasks should be self-contained and executable on their own without further context. You can use multiple paragraphs.
-
-            Rules:
-            - You should NOT write subtasks to manage files as the developer will do this with their own tools. Examples: "Open the X file.", "Save the changes to the X file", "Locate the line x in the file y".
-            - You should NOT write subtasks to run commands/tests as the developer will do this with their own tools. Examples: "Run the test suite", "Run tests to ensure coverage", "Run the linter...", "Run the formatter...".
+            - You should NOT add subtasks to manage files (open, save, find, etc). Bad examples: "Open CHANGES.md file", "Save changes to CHANGES.md file", "Open CHANGES.md file", "Save changes to CHANGES.md file", "Find line x in CHANGES.md file" or variations of these.
+            - You should NOT add subtasks to execute commands/tests. Bad examples: "Run the test suite", "Run tests to ensure coverage", "Run the linter...", "Run the formatter..." or variations of these.
             """  # noqa: E501
         )
     )
