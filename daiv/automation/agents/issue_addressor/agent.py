@@ -11,20 +11,18 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
-from automation.agents.base import ModelProvider
 from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.schemas import AssesmentClassification
 from automation.conf import settings
-from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .prompts import issue_addressor_human, issue_assessment_human, issue_assessment_system
+from .schemas import IssueAssessment
 from .state import OverallState
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.base import BasePostgresSaver
+
 
 logger = logging.getLogger("daiv.agents")
 
@@ -65,16 +63,16 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         prompt = ChatPromptTemplate.from_messages([issue_assessment_system, issue_assessment_human])
 
-        evaluator = prompt | self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_structured_output(
-            AssesmentClassification
-        ).with_fallbacks([
-            self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME).with_structured_output(
-                AssesmentClassification
+        evaluator = prompt | self.get_model(
+            model=settings.ISSUE_ADDRESSOR.ASSESSMENT_MODEL_NAME
+        ).with_structured_output(IssueAssessment).with_fallbacks([
+            self.get_model(model=settings.ISSUE_ADDRESSOR.FALLBACK_ASSESSMENT_MODEL_NAME).with_structured_output(
+                IssueAssessment
             )
         ])
 
         response = cast(
-            "AssesmentClassification",
+            "IssueAssessment",
             evaluator.invoke({"issue_title": state["issue_title"], "issue_description": state["issue_description"]}),
         )
 
@@ -94,7 +92,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute"]]: The next step in the workflow.
         """
-        CodebaseIndex(RepoClient.create_instance())
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
         extracted_images = ImageURLExtractorAgent().agent.invoke(
@@ -103,9 +100,6 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
                 "configurable": {
                     "repo_client_slug": config["configurable"].get("repo_client"),
                     "project_id": config["configurable"].get("project_id"),
-                    # Anthropic models require base64 images to be sent as data URLs
-                    "only_base64": IssueAddressorAgent.get_model_provider(settings.PLANING_PERFORMANT_MODEL_NAME)
-                    == ModelProvider.ANTHROPIC,
                 }
             },
         )

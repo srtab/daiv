@@ -16,7 +16,6 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.schemas import AssesmentClassification
 from automation.conf import settings
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
@@ -30,6 +29,7 @@ from .prompts import (
     review_plan_human,
     review_plan_system_template,
 )
+from .schemas import ReviewAssessment
 from .state import OverallState, ReplyAgentState
 from .tools import reply_reviewer_tool
 
@@ -87,17 +87,17 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
             # a tool call without reasoning, which is crucial here to make the right decision.
             # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
-            | self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
-            .bind_tools([AssesmentClassification], tool_choice="auto")
+            | self.get_model(model=settings.REVIEW_ADDRESSOR.ASSESSMENT_MODEL_NAME)
+            .bind_tools([ReviewAssessment], tool_choice="auto")
             .with_fallbacks([
-                self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).bind_tools(
-                    [AssesmentClassification], tool_choice="auto"
+                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_ASSESSMENT_MODEL_NAME).bind_tools(
+                    [ReviewAssessment], tool_choice="auto"
                 )
             ])
-            | PydanticToolsParser(tools=[AssesmentClassification], first_tool_only=True)
+            | PydanticToolsParser(tools=[ReviewAssessment], first_tool_only=True)
         )
 
-        response = cast("AssesmentClassification", evaluator.invoke({"messages": state["notes"]}))
+        response = cast("ReviewAssessment", evaluator.invoke({"messages": state["notes"]}))
 
         if response.request_for_changes:
             return Command(goto="plan_and_execute", update={"requested_changes": response.requested_changes})

@@ -16,7 +16,22 @@ class PRDescriberSettings(BaseSettings):
     )
 
 
+class IssueAddressorSettings(BaseSettings):
+    ASSESSMENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used for issue assessment."
+    )
+    FALLBACK_ASSESSMENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Fallback model name to be used for issue assessment."
+    )
+
+
 class ReviewAddressorSettings(BaseSettings):
+    ASSESSMENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for review assessment."
+    )
+    FALLBACK_ASSESSMENT_MODEL_NAME: ModelName = Field(
+        default=ModelName.GPT_4O_MINI_2024_07_18, description="Fallback model name to be used for review assessment."
+    )
     REPLY_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022,
         description="Model name to be used for reply to comments or questions.",
@@ -103,6 +118,9 @@ class AutomationSettings(BaseSettings):
 
     PR_DESCRIBER: PRDescriberSettings = Field(
         default_factory=PRDescriberSettings, description="Pull request describer agent settings."
+    )
+    ISSUE_ADDRESSOR: IssueAddressorSettings = Field(
+        default_factory=IssueAddressorSettings, description="Issue addressor agent settings."
     )
     REVIEW_ADDRESSOR: ReviewAddressorSettings = Field(
         default_factory=ReviewAddressorSettings, description="Review addressor agent settings."
