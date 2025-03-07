@@ -31,13 +31,6 @@ def check_api_keys(app_configs, **kwargs):
                     "Please set the API key using the environment variable OPENAI_API_KEY."
                 )
             )
-        elif model_provider == ModelProvider.DEEPSEEK and not os.environ.get("DEEPSEEK_API_KEY"):
-            errors.append(
-                Error(
-                    f"No API key found for {model_name}. "
-                    "Please set the API key using the environment variable DEEPSEEK_API_KEY."
-                )
-            )
         elif model_provider == ModelProvider.GOOGLE_GENAI and not os.environ.get("GOOGLE_API_KEY"):
             errors.append(
                 Error(

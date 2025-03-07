@@ -62,11 +62,6 @@ class ExecuteState(AgentState):
     The tasks to be executed by the agent in order to complete the goal.
     """
 
-    file_contents: list[str]
-    """
-    The contents of the files to be included in the context of the agent.
-    """
-
     current_date_time: str
     """
     The current date and time.

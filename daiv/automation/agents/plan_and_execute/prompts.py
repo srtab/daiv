@@ -63,10 +63,8 @@ IMPORTANT: Exceeding the iteration limit will result in the task being terminate
 8. **Self-Contained Checklist:**
     - The checklist must be fully self-contained as the developer will execute it on their own without further context.
 
----
-
 # Doing the checklist
-The user will request you to preform software engineering tasks. Think throughly about the requested tasks and begin by planning the tools usage. Next collect the necessary information and finally create the checklist.""",  # noqa: E501
+The user will request you to preform software engineering tasks. Think throughly about the requested tasks, try multiple approaches and choose the best one. Then plan the tools usage to collect the necessary information in the most efficient way. Finally, collect the necessary information and create the checklist.""",  # noqa: E501
     "jinja2",
     partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
@@ -201,13 +199,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 
 # Tool usage policy
 - If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same tool calling block.
-- Handle any required imports or dependencies in a separate, explicit step. List the imports at the beginning of the modified file or in a dedicated import section if the codebase has one.
-
-# Final Review
-Conduct a final review of your work, ensuring that all subtasks have been completed and the overall goal has been met.
-Describe *how* your changes integrate with the existing codebase and confirm that no unintended side effects have been introduced. Be specific about the integration points and any potential conflicts you considered.
-
-**REMEMBER**: Execute all planned tasks and subtasks thoroughly, leaving no steps or details unaddressed. Your goal is to produce high-quality, production-ready code that fully meets the specified requirements by precisely following the instructions.""",  # noqa: E501
+- Handle any required imports or dependencies in a separate, explicit step. List the imports at the beginning of the modified file or in a dedicated import section if the codebase has one.""",  # noqa: E501
     "jinja2",
     partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
@@ -232,15 +224,11 @@ Ensure that the steps you take and the code you write contribute directly to ach
 </task>
 {% endfor %}
 
-# Context
-The following repository files were identified as relevant to the task and were retrieved using the `retrieve_file_content` tool:
-{% for file_content in file_contents %}
-{{ file_content }}
-{% endfor -%}
-
 ---
 
-Please think about the planned tasks and the context files thoroughly to make sure you don't miss any important details and show your reasoning.
+Think about the approach you will take to complete the tasks, ensuring that all subtasks are completed and the overall goal is met. Describe *how* your changes integrate with the existing codebase and confirm that no unintended side effects will be introduced. Be specific about the integration points and any potential conflicts you considered.
+
+**REMEMBER**: Execute all planned tasks and subtasks thoroughly, leaving no steps or details unaddressed. Your goal is to produce high-quality, production-ready code that fully meets the specified requirements by precisely following the instructions.
 """,  # noqa: E501
     "jinja2",
 )

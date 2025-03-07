@@ -16,14 +16,13 @@ from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.conf import settings
-from automation.tools.repository import RetrieveFileContentTool
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
 from .prompts import execute_plan_human, execute_plan_system, plan_approval_system, plan_system
-from .schemas import HumanApproval, Task
+from .schemas import HumanApproval
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
@@ -199,11 +198,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent.invoke(
-            {
-                "plan_goal": state["plan_goal"],
-                "plan_tasks": list(enumerate(state["plan_tasks"])),
-                "file_contents": self._prepare_repository_files(source_repo_id, source_ref, state["plan_tasks"], store),
-            },
+            {"plan_goal": state["plan_goal"], "plan_tasks": list(enumerate(state["plan_tasks"]))},
             config={"recursion_limit": config.get("recursion_limit", settings.RECURSION_LIMIT)},
         )
 
@@ -245,38 +240,3 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         return Command(goto=END)
-
-    def _prepare_repository_files(
-        self, source_repo_id: str, source_ref: str, plan_tasks: list[Task], store: BaseStore
-    ) -> list[str]:
-        """
-        Prepare the repository files to be included in the context of the agent.
-
-        Args:
-            source_repo_id (str): The ID of the source repository.
-            source_ref (str): The reference of the source repository.
-            plan_tasks (list[Task]): The tasks of the plan.
-            store (BaseStore): The store to use for caching.
-
-        Returns:
-            list[str]: The repository files to be included in the context of the agent.
-        """
-        retrieve_file_content_tool = RetrieveFileContentTool(return_not_found_message=False)
-        paths = set()
-        for task in plan_tasks:
-            paths.update(task.context_paths)
-            paths.add(task.path)
-
-        file_contents = []
-
-        for path in paths:
-            if repository_file_content := retrieve_file_content_tool.invoke(
-                {"file_path": path, "intent": "[Manual call] Check current implementation", "store": store},
-                config={"configurable": {"source_repo_id": source_repo_id, "source_ref": source_ref}},
-            ):
-                file_contents.append(repository_file_content)
-
-        if not file_contents:
-            return []
-
-        return file_contents

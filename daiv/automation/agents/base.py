@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
-    DEEPSEEK = "deepseek"
     GOOGLE_GENAI = "google_genai"
 
 
@@ -93,16 +92,16 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
                 if thinking_level == ThinkingLevel.LOW:
-                    _kwargs["max_tokens"] = 4_000
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_000}
+                    _kwargs["max_tokens"] = 4_096
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_048}
                 elif thinking_level == ThinkingLevel.MEDIUM:
-                    _kwargs["max_tokens"] = 10_000
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_000}
+                    _kwargs["max_tokens"] = 10_240
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_168}
                 elif thinking_level == ThinkingLevel.HIGH:
-                    _kwargs["max_tokens"] = 20_000
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_000}
+                    _kwargs["max_tokens"] = 20_480
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_384}
             else:
-                _kwargs["max_tokens"] = 2048
+                _kwargs["max_tokens"] = 2_048
         elif model_provider == ModelProvider.OPENAI:
             if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
                 _kwargs["temperature"] = 1
@@ -154,10 +153,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             case ModelProvider.OPENAI:
                 _, encoding_model = cast("ChatOpenAI", self.get_model(model=model_name))._get_encoding_model()
                 return encoding_model.max_token_value
-
-            case ModelProvider.DEEPSEEK:
-                # As stated in docs: https://api-docs.deepseek.com/quick_start/pricing
-                return 8192
 
             case ModelProvider.GOOGLE_GENAI:
                 # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash

@@ -176,10 +176,8 @@ You will be provided with the file name(s) and specific line(s) of code where th
 8. **Self-Contained Checklist:**
     - The checklist must be fully self-contained as the developer will execute it on their own without further context.
 
----
-
 # Doing the checklist
-The user will request you to preform software engineering tasks. Think throughly about the requested tasks and begin by planning the tools usage. Next collect the necessary information and finally create the checklist."""  # noqa: E501
+The user will request you to preform software engineering tasks. Think throughly about the requested tasks, try multiple approaches and choose the best one. Then plan the tools usage to collect the necessary information in the most efficient way. Finally, collect the necessary information and create the checklist."""  # noqa: E501
 
 review_plan_human = HumanMessagePromptTemplate.from_template(
     """{% for change in requested_changes %}

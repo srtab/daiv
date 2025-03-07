@@ -43,8 +43,7 @@ class TestBaseAgent:
             kwargs = agent.get_model_kwargs(model="claude-3-5-sonnet-20240229")
 
             assert kwargs["temperature"] == 0
-            assert "anthropic-beta" in kwargs["model_kwargs"]["extra_headers"]
-            assert kwargs["max_tokens"] == "2048"
+            assert kwargs["max_tokens"] == 2048
 
     def test_get_model_kwargs_openai(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
