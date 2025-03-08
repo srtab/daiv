@@ -38,21 +38,6 @@ logger = logging.getLogger("daiv.agents")
 INTERRUPT_AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
 
 
-def prompt_system(tools_names: list[str], current_date_time: str) -> RunnableLambda:
-    def prompt(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
-        system_message = cast(
-            "SystemMessage",
-            plan_system.format(
-                tools=tools_names,
-                recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT),
-                current_date_time=current_date_time,
-            ),
-        )
-        return [system_message] + state["messages"]
-
-    return RunnableLambda(prompt)
-
-
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to plan and execute a task.
@@ -61,18 +46,22 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     def __init__(
         self,
         *,
+        skip_planning: bool = False,
+        skip_approval: bool = False,
         plan_system_template: SystemMessagePromptTemplate | None = None,
-        human_in_the_loop: bool = True,
         **kwargs,
     ):
         """
         Initialize the agent.
 
         Args:
-            human_in_the_loop (bool): Whether to include a human in the loop or execute the plan automatically.
+            skip_planning (bool): Whether to skip the planning step.
+            skip_approval (bool): Whether to skip the approval step.
+            plan_system_template (SystemMessagePromptTemplate): The system prompt template for the planning step.
         """
-        self.human_in_the_loop = human_in_the_loop
         self.plan_system_template = plan_system_template or plan_system
+        self.skip_planning = skip_planning
+        self.skip_approval = skip_approval
         super().__init__(**kwargs)
 
     def compile(self) -> CompiledStateGraph:
@@ -84,12 +73,17 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
 
-        workflow.add_node("plan", self.plan_subgraph(self.store))
-        workflow.add_node("plan_approval", self.plan_approval)
+        if not self.skip_planning:
+            workflow.add_node("plan", self.plan_subgraph(self.store))
+            workflow.add_node("plan_approval", self.plan_approval)
+
         workflow.add_node("execute_plan", self.execute_plan)
         workflow.add_node("apply_format_code", self.apply_format_code)
 
-        workflow.set_entry_point("plan")
+        if not self.skip_planning:
+            workflow.set_entry_point("plan")
+        else:
+            workflow.set_entry_point("execute_plan")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store)
 
@@ -145,7 +139,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["execute_plan", "plan_approval"]]: The next step in the workflow.
         """
-        if not self.human_in_the_loop:
+        if self.skip_approval:
             return Command(goto="execute_plan")
 
         messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)

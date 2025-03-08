@@ -53,58 +53,36 @@ Now, determine if the two error logs represent the same error or are strictly re
 
 troubleshoot_system = SystemMessage("""You are an expert DevOps engineer tasked with troubleshooting logs from a failed CI/CD job pipeline. Your objective is to perform a detailed troubleshooting analysis and provide actionable remediation steps based on the log output. Rather than solely pinpointing a singular root cause, your analysis should focus on identifying potential issues, outlining remediation strategies, and categorizing the failure for further action.
 
-Please follow these troubleshooting steps:
+# Tool usage
+You have at your disposal tools to help you with the troubleshooting process. You can use them to get more information about the codebase, if necessary.
+ALWAYS execute the necessary function calls before you respond.
 
+# Output format
+**IMPORTANT:** At the end of your analysis, you **must** call the `troubleshoot_analysis_result` tool. Provide your final categorization and troubleshooting details.
+
+# Troubleshooting
 1. **Log Analysis**:
    - **Identify Key Issues**: List all error messages, unexpected behaviors, failed commands, resource issues (memory, CPU, disk space), and timeouts from the log output.
-   - **Exclude Warnings**: Ignore any warnings, as they are not directly relevant to the failure.
-   - **Diff Hunk Analysis**: If available, analyze any diff hunks (in unified diff format) that might indicate recent changes related to the issue. (Skip if not applicable.)
+   - **Exclude Warnings**: You MUST ignore any warnings, as they are not directly related to the failure.
+   - **Code changes**: The diff hunk (in unified diff format) shows the changes made to the codebase that could have caused the pipeline to fail.
 
 2. **Troubleshooting & Remediation**:
-   - **For Each Error Message**: List potential causes and immediate remediation actions.
    - **Determine the Nature of the Issue**: For every potential issue, evaluate if it is likely to be resolved through codebase modifications (e.g., code fixes, test adjustments, configuration changes) or if it is due to external factors (e.g., CI/CD environment, infrastructure, or third-party services).
-
-3. **Actionable Classification**:
-   - **Categorize the Issue**:
-     - Use `"codebase"` if the issue can be addressed by changes to the application's code or configuration.
-     - Use `"external-factor"` if any possibility exists that the problem stems from external influences.
-   - **Pipeline Phase Identification**:
-     - If the error is related to unit tests, use `"unittest"`.
-     - If it is related to linting, use `"lint"`.
-     - Otherwise, use `"other"`.
-
-4. **Documentation of Your Analysis**:
-   - Wrap your detailed troubleshooting analysis within `<log_analysis>` tags to clearly show your step-by-step thought process.
-   - Within the `<log_analysis>` block, include:
-     - A list of error messages identified.
-     - Any relevant diff hunk analysis.
-     - Potential causes for each error along with suggested immediate remediation steps.
-     - A clear explanation of why the issue is classified as either `codebase` or `external-factor`.
-
-5. **Tool Invocation**:
-   - **Important**: At the end of your analysis, you **must** call the `PipelineLogClassification` tool. Provide your final categorization and troubleshooting details.""")  # noqa: E501
+   - **For Each Error Message**: List potential causes and immediate remediation actions.""")  # noqa: E501
 
 
 troubleshoot_human = HumanMessagePromptTemplate.from_template(
-    """Here are the logs from the failed CI/CD pipeline:
-<job_logs>
+    """<log_output>
 {{ job_logs }}
-</job_logs>
+</log_output>
 
 <diff_hunk>
 {{ diff }}
-</diff_hunk>""",
-    "jinja2",
-)
-
-autofix_human = HumanMessagePromptTemplate.from_template(
-    """**Job logs extracted from a failed CI/CD pipeline:**
-<job_logs>
-{{ job_logs }}
-</job_logs>
+</diff_hunk>
 
 ---
-Analyse the job logs and create a structured, step-by-step checklist of tasks to fix the problems you can identify in the job logs. **IMPORTANT: Focus only on fixing these problems, the main goal is to bring the pipeline to a successful state.**
-""",  # noqa: E501
+
+Find out what caused the pipeline to fail. Use the extracted job output and try to correlate them with the changes made to the codebase. Then, troubleshoot each issue and provide a detailed explanation of the potential causes and immediate remediation actions.
+**IMPORTANT: Focus only on fixing the problems you can identify in the job output, the main goal is to bring the pipeline to a successful state.**""",  # noqa: E501
     "jinja2",
 )

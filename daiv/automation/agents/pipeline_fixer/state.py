@@ -1,3 +1,4 @@
+from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
 
 from .schemas import TroubleshootingDetail
@@ -32,4 +33,16 @@ class OverallState(TypedDict):
     need_manual_fix: bool
     """
     Whether the agent couldnt fix the issue and needs a manual fix.
+    """
+
+
+class TroubleshootState(AgentState):
+    diff: str
+    """
+    The diff of the changes made to the codebase.
+    """
+
+    job_logs: str
+    """
+    The logs of the job that failed.
     """

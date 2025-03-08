@@ -15,7 +15,7 @@ def determine_next_action(
     """
     Determine the next action to take. Choose the appropriate action based on the feedback.
     """
-    message = ToolMessage(content={"action": action.model_dump()}, tool_call_id=tool_call_id)
+    message = ToolMessage(content=[{"action": action.model_dump()}], tool_call_id=tool_call_id)
 
     if isinstance(action, AskForClarification):
         return Command(

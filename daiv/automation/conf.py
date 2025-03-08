@@ -41,6 +41,19 @@ class ReviewAddressorSettings(BaseSettings):
     )
 
 
+class PipelineFixerSettings(BaseSettings):
+    """
+    Settings for the pipeline fixer agent.
+    """
+
+    MODEL_NAME: ModelName = Field(
+        default=ModelName.O3_MINI_2025_01_31, description="Model name to be used for pipeline fixer."
+    )
+    THINKING_LEVEL: ThinkingLevel = Field(
+        default=ThinkingLevel.HIGH, description="Thinking level to be used for pipeline fixer."
+    )
+
+
 class PlanAndExecuteSettings(BaseSettings):
     """
     Settings for the plan and execute agent.
@@ -127,6 +140,9 @@ class AutomationSettings(BaseSettings):
     )
     PLAN_AND_EXECUTE: PlanAndExecuteSettings = Field(
         default_factory=PlanAndExecuteSettings, description="Plan and execute agent settings."
+    )
+    PIPELINE_FIXER: PipelineFixerSettings = Field(
+        default_factory=PipelineFixerSettings, description="Pipeline fixer agent settings."
     )
 
 

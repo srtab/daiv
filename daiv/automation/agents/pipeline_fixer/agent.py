@@ -4,27 +4,25 @@ import logging
 from typing import Literal, cast
 
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
+from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.schemas import Plan, Task
 from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
+from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
 
-from .prompts import (
-    autofix_human,
-    error_log_evaluator_human,
-    error_log_evaluator_system,
-    troubleshoot_human,
-    troubleshoot_system,
-)
-from .schemas import ErrorLogEvaluation, PipelineLogClassification, TroubleshootingDetail
-from .state import OverallState
+from .prompts import error_log_evaluator_human, error_log_evaluator_system, troubleshoot_human, troubleshoot_system
+from .schemas import ErrorLogEvaluation, TroubleshootingDetail
+from .state import OverallState, TroubleshootState
+from .tools import troubleshoot_analysis_result
 
 logger = logging.getLogger("daiv.agents")
 
@@ -138,7 +136,9 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
-    def troubleshoot(self, state: OverallState) -> Command[Literal["apply_unittest_fix", "apply_lint_fix", "__end__"]]:
+    def troubleshoot(
+        self, state: OverallState, store: BaseStore
+    ) -> Command[Literal["apply_unittest_fix", "apply_lint_fix", "__end__"]]:
         """
         Troubleshoot the issue based on the logs from the failed CI/CD pipeline.
 
@@ -146,36 +146,51 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         Args:
             state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
 
         Returns:
             Command[Literal["apply_unittest_fix", "apply_lint_fix", "__end__"]]: The next step in the workflow.
         """
-        evaluator = (
-            ChatPromptTemplate.from_messages([troubleshoot_system, troubleshoot_human])
-            | self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
-            .bind_tools([PipelineLogClassification], tool_choice="auto")
-            .with_fallbacks([
-                self.get_model(model=settings.CODING_PERFORMANT_MODEL_NAME).bind_tools(
-                    [PipelineLogClassification], tool_choice="auto"
-                )
-            ])
-            | PydanticToolsParser(tools=[PipelineLogClassification], first_tool_only=True)
+        tools = ReadRepositoryToolkit.create_instance().get_tools()
+
+        agent = create_react_agent(
+            model=self.get_model(
+                model=settings.PIPELINE_FIXER.MODEL_NAME, thinking_level=settings.PIPELINE_FIXER.THINKING_LEVEL
+            ),
+            tools=tools + [troubleshoot_analysis_result],
+            state_schema=TroubleshootState,
+            prompt=ChatPromptTemplate.from_messages([
+                troubleshoot_system,
+                troubleshoot_human,
+                MessagesPlaceholder("messages"),
+            ]),
+            store=store,
+            checkpointer=False,  # Disable checkpointer to avoid persisting the state in the store
+            name="troubleshoot_react_agent",
+            version="v2",
         )
 
-        response = cast(
-            "PipelineLogClassification", evaluator.invoke({"job_logs": state["job_logs"], "diff": state["diff"]})
+        agent.invoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
+
+        # At this stage, the agent has invoked the troubleshoot_analysis_result tool and next step is
+        # already set in the tool call. If not, it means something went wrong and we need to fallback to a
+        # manual fix.
+        return Command(
+            goto=END,
+            update={
+                "troubleshooting": [
+                    TroubleshootingDetail(
+                        details="Couldn't fix the pipeline automatically.",
+                        remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                    )
+                ],
+                "need_manual_fix": True,
+            },
         )
 
-        if response.category == "codebase":
-            if response.pipeline_phase == "lint":
-                return Command(goto="apply_lint_fix", update={"troubleshooting": response.troubleshooting})
-
-            elif response.pipeline_phase == "unittest":
-                return Command(goto="apply_unittest_fix", update={"troubleshooting": response.troubleshooting})
-
-        return Command(goto=END, update={"troubleshooting": response.troubleshooting, "need_manual_fix": True})
-
-    def apply_unittest_fix(self, state: OverallState, store: BaseStore, config: RunnableConfig):
+    def apply_unittest_fix(
+        self, state: OverallState, store: BaseStore, config: RunnableConfig
+    ) -> Command[Literal["__end__"]]:
         """
         Apply the unittest fix using the plan and execute agent.
 
@@ -185,27 +200,25 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             config (RunnableConfig): The config to use for the agent.
 
         Returns:
-            Command[Literal["apply_lint_fix", END]]: The next step in the workflow.
+            Command[Literal["__end__"]]: The next step in the workflow.
         """
-        message = autofix_human.format(job_logs=state["job_logs"])
+        plan = Plan(
+            goal="Fix the identified issues in the unittest pipeline to make it pass.",
+            tasks=[
+                Task(
+                    title=troubleshooting.title,
+                    description=troubleshooting.details,
+                    path=troubleshooting.file_path,
+                    context_paths=[troubleshooting.file_path],
+                    subtasks=troubleshooting.remediation_steps,
+                )
+                for troubleshooting in state["troubleshooting"]
+            ],
+        )
 
-        plan_and_execute = PlanAndExecuteAgent(store=store, human_in_the_loop=False, checkpointer=False)
+        plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
+        plan_and_execute.agent.invoke({"plan_goal": plan.goal, "plan_tasks": plan.tasks})
 
-        result = plan_and_execute.agent.invoke({"messages": [message]})
-
-        if result.get("plan_questions"):
-            return Command(
-                goto=END,
-                update={
-                    "need_manual_fix": True,
-                    "troubleshooting": [
-                        TroubleshootingDetail(
-                            details="Couldn't fix the pipeline automatically.",
-                            remediation_steps=["Please review the logs and apply the necessary fixes manually."],
-                        )
-                    ],
-                },
-            )
         return Command(goto=END)
 
     def apply_lint_fix(
