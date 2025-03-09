@@ -49,3 +49,11 @@ class ActionPlanOutput(BaseModel):
     """
 
     actions: list[ActionPlan] = Field(..., description="A list of actions to fix the issue.")
+
+
+class CommandOutputResult(BaseModel):
+    """
+    Result of the command output analysis to determine if there are any errors, or indications of failures.
+    """
+
+    has_errors: bool = Field(description="Whether the command output contains any errors, or indications of failures.")

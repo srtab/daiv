@@ -86,3 +86,17 @@ Find out what caused the pipeline to fail. Use the extracted job output and try 
 **IMPORTANT: Focus only on fixing the problems you can identify in the job output, the main goal is to bring the pipeline to a successful state.**""",  # noqa: E501
     "jinja2",
 )
+
+
+lint_evaluator_human = HumanMessagePromptTemplate.from_template(
+    """You will be analyzing a command output to determine if there are any errors present. Your task is to provide a simple True or False answer based on your analysis.
+
+Here is the command output to analyze:
+
+<command_output>
+{{ output }}
+</command_output>
+
+Carefully examine the command output above and determine if there are any error messages, or indications of failures present.""",  # noqa: E501
+    "jinja2",
+)

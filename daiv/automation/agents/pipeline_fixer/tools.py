@@ -14,7 +14,7 @@ def troubleshoot_analysis_result(
     pipeline_phase: Literal["lint", "unittest", "other"],
     pipeline_phase_reasoning: str,
     troubleshooting: list[TroubleshootingDetail],
-) -> Command[Literal["apply_unittest_fix", "apply_lint_fix", "__end__"]]:
+) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
     """
     Provide your final categorization and troubleshooting details by using this tool.
 
@@ -32,13 +32,15 @@ def troubleshoot_analysis_result(
             troubleshooting details, no error messages or the pipeline succeeded, return an empty list.
 
     Returns:
-        Command[Literal["apply_unittest_fix", "apply_lint_fix", "__end__"]]: The next step in the workflow.
+        Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]: The next step in the workflow.
     """
     if category == "codebase":
         if pipeline_phase == "lint":
-            return Command(goto="apply_lint_fix", update={"troubleshooting": troubleshooting}, graph=Command.PARENT)
+            return Command(goto="apply_format_code", update={"troubleshooting": troubleshooting}, graph=Command.PARENT)
 
         elif pipeline_phase == "unittest":
-            return Command(goto="apply_unittest_fix", update={"troubleshooting": troubleshooting}, graph=Command.PARENT)
+            return Command(
+                goto="execute_remediation_steps", update={"troubleshooting": troubleshooting}, graph=Command.PARENT
+            )
 
     return Command(goto=END, update={"need_manual_fix": True, "troubleshooting": troubleshooting}, graph=Command.PARENT)

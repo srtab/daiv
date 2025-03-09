@@ -6,6 +6,7 @@ import logging
 import tarfile
 import textwrap
 import uuid
+from typing import Literal
 
 import httpx
 from langchain_core.prompts.string import jinja2_formatter
@@ -20,7 +21,7 @@ from codebase.clients import RepoClient
 from core.conf import settings
 from core.config import RepositoryConfig
 
-from .schemas import RunCodeInput, RunCommandInput, RunCommandResponse
+from .schemas import RunCodeInput, RunCommandInput, RunCommandResponse, RunCommandResult
 
 logger = logging.getLogger("daiv.tools")
 
@@ -32,12 +33,15 @@ class RunSandboxCommandsTool(BaseTool):
         Run a list of commands on the repository. The commands will be run in the same order as they are provided. All the changes made by the commands will be considered to be committed.
         """  # noqa: E501
     )
-    args_schema: type[BaseModel] = RunCommandInput
-
-    handle_tool_error: bool = True
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
-    def _run(self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
+    args_schema: type[BaseModel] = RunCommandInput
+    handle_tool_error: bool = True
+    response_format: Literal["content_and_artifact", "content"] = "content_and_artifact"
+
+    def _run(
+        self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig
+    ) -> tuple[str, list[RunCommandResult]]:
         """
         Run commands in the sandbox.
 
@@ -85,7 +89,9 @@ class RunSandboxCommandsTool(BaseTool):
         response.raise_for_status()
         return self._treat_response(response, store, source_repo_id, source_ref)
 
-    def _treat_response(self, response: httpx.Response, store: BaseStore, source_repo_id: str, source_ref: str) -> str:
+    def _treat_response(
+        self, response: httpx.Response, store: BaseStore, source_repo_id: str, source_ref: str
+    ) -> tuple[str, list[RunCommandResult]]:
         """
         Treat the response from the sandbox.
 
@@ -128,9 +134,10 @@ class RunSandboxCommandsTool(BaseTool):
                                 },
                             )
 
-        return jinja2_formatter(
-            textwrap.dedent(
-                """\
+        return (
+            jinja2_formatter(
+                textwrap.dedent(
+                    """\
                 {% for result in results %}
                 ```bash
                 $ {{ result.command }}
@@ -140,8 +147,10 @@ class RunSandboxCommandsTool(BaseTool):
                 ---
                 {% endfor %}
                 """
+                ),
+                results=resp.results,
             ),
-            results=resp.results,
+            resp.results,
         )
 
     def _extract_workdir(self, source_tar: tarfile.TarFile) -> str:
