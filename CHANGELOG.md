@@ -7,10 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Introduced Jupyter notebooks for `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
+- Added support to thinking models from Anthropic: `claude-3.7-sonnet` and OpenAI: `o1` and `o3-mini`.
+
 ### Changed
 
 - Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
 - Improved performance of `PostgresRetriever` by simplifying the query and take advantage of the `Hnsw` index. **Breaking change: run `update_index` with `--reset-all` to update all indexes.**
+- Grouped automation settings by agent to simplify setup and customization.
+- Replaced `REACTAgent` with `create_react_agent` from `langgraph.prebuilt` for streamlined ReAct agents creation.
+- Improved error handling when running `IssueAddressorAgent` on manager, showing a more contextualized error message to the user.
+- Refactor: All agents logic have been rewritten to make use of `create_react_agent` and `PlanAndExecuteAgent`, simplifying the agents logic and reuse the pattern, as it has proven to be an effective method on all sort of tasks.
+
+### Removed
+
+- Removed `ErrorLogEvaluatorAgent` as its functionality is now integrated into the `PipelineFixerAgent`.
+- Removed support to DeepSeek models, as the function calling capabilitity is unstable.
 
 ## [0.1.0-alpha.22] - 2025-01-30
 

@@ -32,7 +32,7 @@ Please follow these steps to classify the comment:
 
 5. Provide a clear justification for your classification, referencing the strongest technical arguments from your analysis.
 
-6. Provide your final output calling the tool `AssesmentClassificationResponse`.
+6. Provide your final output calling the tool `ReviewAssessment`.
 
 Remember to be thorough in your analysis and clear in your justification. The goal is to accurately identify comments that require action from the development team, while being cautious not to overclassify vague or non-specific comments as change requests.
 
