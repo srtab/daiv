@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agents")
 
 
-START_TASK_MESSAGE = "Working on it; I'll confirm once done! 🚀"
-END_TASK_MESSAGE = "Task completed—ready for your review! ✅"
-ERROR_TASK_MESSAGE = "⚠️ Oops! I couldn't handle that comment. Drop a reply to retry! 🔄"
+START_TASK_MESSAGE = "⏳ Working on it, i'll confirm once done..."
+END_TASK_MESSAGE = "✅ Task completed—ready for your review!"
+ERROR_TASK_MESSAGE = "⚠️ Oops! I couldn't handle that comment. Drop a reply to retry!"
 
 
 @dataclass
