@@ -9,8 +9,9 @@ from langchain_core.documents import Document
 from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
-from automation.conf import settings
 from automation.retrievers import MultiQueryRephraseRetriever
+
+from .conf import settings
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -24,10 +25,6 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
     """
     Agent to search for code snippets in the codebase.
     """
-
-    # this model shows better results for listwise reranking and rephrasing
-    model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
 
     def __init__(self, retriever: BaseRetriever, rephrase: bool = True, *args, **kwargs):
         self.retriever = retriever
@@ -44,11 +41,11 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         if self.rephrase:
             base_retriever: BaseRetriever = MultiQueryRephraseRetriever.from_llm(
                 self.retriever,
-                # this model shows better results for rephrasing
                 llm=cast(
                     "BaseChatModel",
-                    self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
-                        self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
+                    # this model shows better results for rephrasing
+                    self.get_model(model=settings.REPHRASE_MODEL_NAME).with_fallbacks([
+                        self.get_model(model=settings.REPHRASE_FALLBACK_MODEL_NAME)
                     ]),
                 ),
             )
@@ -57,14 +54,14 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
 
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
-                # this model shows better results for listwise reranking
                 llm=cast(
                     "BaseChatModel",
-                    self.get_model(model=settings.GENERIC_COST_EFFICIENT_MODEL_NAME).with_fallbacks([
-                        self.get_model(model=settings.CODING_COST_EFFICIENT_MODEL_NAME)
+                    # this model shows better results for listwise reranking
+                    self.get_model(model=settings.RERANKING_MODEL_NAME).with_fallbacks([
+                        self.get_model(model=settings.RERANKING_FALLBACK_MODEL_NAME)
                     ]),
                 ),
-                top_n=settings.CODEBASE_SEARCH_TOP_N,
+                top_n=settings.TOP_N,
             ),
             base_retriever=base_retriever,
         )

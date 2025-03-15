@@ -3,16 +3,31 @@ import os
 from django.core.checks import Error, register
 
 from automation.agents.base import BaseAgent, ModelProvider
-
-from .conf import settings
+from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
+from automation.agents.codebase_search.conf import settings as codebase_search_settings
+from automation.agents.image_url_extractor.conf import settings as image_url_extractor_settings
+from automation.agents.issue_addressor.conf import settings as issue_addressor_settings
+from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
+from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
 
 declared_model_names = {
-    settings.CODING_COST_EFFICIENT_MODEL_NAME,
-    settings.CODING_PERFORMANT_MODEL_NAME,
-    settings.GENERIC_COST_EFFICIENT_MODEL_NAME,
-    settings.GENERIC_PERFORMANT_MODEL_NAME,
-    settings.PLANING_PERFORMANT_MODEL_NAME,
-    settings.SNIPPET_REPLACER_MODEL_NAME,
+    codebase_chat_settings.MODEL_NAME,
+    codebase_search_settings.REPHRASE_FALLBACK_MODEL_NAME,
+    codebase_search_settings.REPHRASE_MODEL_NAME,
+    codebase_search_settings.RERANKING_FALLBACK_MODEL_NAME,
+    codebase_search_settings.RERANKING_MODEL_NAME,
+    image_url_extractor_settings.MODEL_NAME,
+    issue_addressor_settings.ASSESSMENT_MODEL_NAME,
+    issue_addressor_settings.FALLBACK_ASSESSMENT_MODEL_NAME,
+    pipeline_fixer_settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME,
+    pipeline_fixer_settings.LINT_EVALUATOR_MODEL_NAME,
+    pipeline_fixer_settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME,
+    pipeline_fixer_settings.LOG_EVALUATOR_MODEL_NAME,
+    pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
+    pipeline_fixer_settings.TROUBLESHOOTING_THINKING_LEVEL,
+    plan_and_execute_settings.EXECUTION_MODEL_NAME,
+    plan_and_execute_settings.PLANNING_MODEL_NAME,
+    plan_and_execute_settings.PLAN_APPROVAL_MODEL_NAME,
 }
 
 

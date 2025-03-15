@@ -6,8 +6,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
-from automation.conf import settings
 
+from .conf import settings
 from .prompts import human, system
 from .schemas import PullRequestDescriberOutput
 
@@ -29,12 +29,13 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     """
 
     def compile(self) -> Runnable:
-        return ChatPromptTemplate.from_messages([system, human]).partial(
+        prompt = ChatPromptTemplate.from_messages([system, human]).partial(
             branch_name_convention=None, extra_context=""
-        ) | self.get_model(model=settings.PR_DESCRIBER.MODEL_NAME).with_structured_output(
+        )
+        return prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(
             PullRequestDescriberOutput
         ).with_fallbacks([
-            cast(
-                "BaseChatModel", self.get_model(model=settings.PR_DESCRIBER.FALLBACK_MODEL_NAME)
-            ).with_structured_output(PullRequestDescriberOutput)
+            cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
+                PullRequestDescriberOutput
+            )
         ])

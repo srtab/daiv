@@ -15,12 +15,12 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
+from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_approval_system, plan_system
 from .schemas import HumanApproval
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
@@ -117,10 +117,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         return create_react_agent(
             # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
             # between reasoning models and non-reasoning models. Both models need to be reasoning models.
-            self.get_model(
-                model=settings.PLAN_AND_EXECUTE.PLANNING_MODEL_NAME,
-                thinking_level=settings.PLAN_AND_EXECUTE.PLANNING_THINKING_LEVEL,
-            ),
+            self.get_model(model=settings.PLANNING_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL),
             tools=tools + [determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
@@ -144,9 +141,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)
 
-        plan_approval_evaluator = self.get_model(
-            model=settings.PLAN_AND_EXECUTE.PLAN_APPROVAL_MODEL_NAME
-        ).with_structured_output(HumanApproval)
+        plan_approval_evaluator = self.get_model(model=settings.PLAN_APPROVAL_MODEL_NAME).with_structured_output(
+            HumanApproval
+        )
 
         result = cast("HumanApproval", plan_approval_evaluator.invoke([plan_approval_system] + messages))
 
@@ -174,10 +171,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         react_agent = create_react_agent(
             # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
             # between reasoning models and non-reasoning models. Both models need to be reasoning models.
-            self.get_model(
-                model=settings.PLAN_AND_EXECUTE.EXECUTION_MODEL_NAME,
-                thinking_level=settings.PLAN_AND_EXECUTE.EXECUTION_THINKING_LEVEL,
-            ),
+            self.get_model(model=settings.EXECUTION_MODEL_NAME, thinking_level=settings.EXECUTION_THINKING_LEVEL),
             state_schema=ExecuteState,
             tools=WriteRepositoryToolkit.create_instance().get_tools() + SandboxToolkit.create_instance().get_tools(),
             store=store,

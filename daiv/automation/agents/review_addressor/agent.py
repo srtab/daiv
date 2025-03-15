@@ -16,12 +16,12 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.conf import settings
 from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
+from .conf import settings
 from .prompts import (
     respond_reviewer_system,
     review_assessment_human,
@@ -87,10 +87,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
             # a tool call without reasoning, which is crucial here to make the right decision.
             # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
-            | self.get_model(model=settings.REVIEW_ADDRESSOR.ASSESSMENT_MODEL_NAME)
+            | self.get_model(model=settings.ASSESSMENT_MODEL_NAME)
             .bind_tools([ReviewAssessment], tool_choice="auto")
             .with_fallbacks([
-                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_ASSESSMENT_MODEL_NAME).bind_tools(
+                self.get_model(model=settings.FALLBACK_ASSESSMENT_MODEL_NAME).bind_tools(
                     [ReviewAssessment], tool_choice="auto"
                 )
             ])
@@ -164,8 +164,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         react_agent = create_react_agent(
-            self.get_model(model=settings.REVIEW_ADDRESSOR.REPLY_MODEL_NAME, temperature=0.5).with_fallbacks([
-                self.get_model(model=settings.REVIEW_ADDRESSOR.FALLBACK_REPLY_MODEL_NAME, temperature=0.5)
+            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE).with_fallbacks([
+                self.get_model(model=settings.FALLBACK_REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE)
             ]),
             state_schema=ReplyAgentState,
             tools=tools + [reply_reviewer_tool],

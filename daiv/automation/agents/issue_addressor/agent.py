@@ -13,9 +13,9 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.image_url_extractor.agent import ImageURLExtractorAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.conf import settings
 from core.config import RepositoryConfig
 
+from .conf import settings
 from .prompts import issue_addressor_human, issue_assessment_human, issue_assessment_system
 from .schemas import IssueAssessment
 from .state import OverallState
@@ -63,12 +63,10 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         prompt = ChatPromptTemplate.from_messages([issue_assessment_system, issue_assessment_human])
 
-        evaluator = prompt | self.get_model(
-            model=settings.ISSUE_ADDRESSOR.ASSESSMENT_MODEL_NAME
-        ).with_structured_output(IssueAssessment).with_fallbacks([
-            self.get_model(model=settings.ISSUE_ADDRESSOR.FALLBACK_ASSESSMENT_MODEL_NAME).with_structured_output(
-                IssueAssessment
-            )
+        evaluator = prompt | self.get_model(model=settings.ASSESSMENT_MODEL_NAME).with_structured_output(
+            IssueAssessment
+        ).with_fallbacks([
+            self.get_model(model=settings.FALLBACK_ASSESSMENT_MODEL_NAME).with_structured_output(IssueAssessment)
         ])
 
         response = cast(

@@ -15,11 +15,11 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.schemas import Plan, Task
-from automation.conf import settings
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
 
+from .conf import settings
 from .prompts import (
     error_log_evaluator_human,
     error_log_evaluator_system,
@@ -77,7 +77,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["troubleshoot", "__end__"]]: The next step in the workflow.
         """
-        if state.get("iteration", 0) >= settings.PIPELINE_FIXER.MAX_RETRY:
+        if state.get("iteration", 0) >= settings.MAX_ITERATIONS:
             logger.warning(
                 "Max retry iterations reached for pipeline fix on %s[%s] for job %s",
                 config["configurable"]["source_repo_id"],
@@ -103,10 +103,10 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         evaluator = (
             ChatPromptTemplate.from_messages([error_log_evaluator_system, error_log_evaluator_human])
-            | self.get_model(model=settings.PIPELINE_FIXER.LOG_EVALUATOR_MODEL_NAME)
+            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME)
             .bind_tools([ErrorLogEvaluation], tool_choice="auto")
             .with_fallbacks([
-                self.get_model(model=settings.PIPELINE_FIXER.LOG_EVALUATOR_FALLBACK_MODEL_NAME).bind_tools(
+                self.get_model(model=settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME).bind_tools(
                     [ErrorLogEvaluation], tool_choice="auto"
                 )
             ])
@@ -163,8 +163,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         agent = create_react_agent(
             model=self.get_model(
-                model=settings.PIPELINE_FIXER.TROUBLESHOOTING_MODEL_NAME,
-                thinking_level=settings.PIPELINE_FIXER.TROUBLESHOOTING_THINKING_LEVEL,
+                model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
             tools=tools + [troubleshoot_analysis_result],
             state_schema=TroubleshootState,
@@ -274,9 +273,9 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
         chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
-            model=settings.PIPELINE_FIXER.LINT_EVALUATOR_MODEL_NAME
+            model=settings.LINT_EVALUATOR_MODEL_NAME
         ).with_structured_output(CommandOutputResult).with_fallbacks([
-            self.get_model(model=settings.PIPELINE_FIXER.LINT_EVALUATOR_FALLBACK_MODEL_NAME).with_structured_output(
+            self.get_model(model=settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME).with_structured_output(
                 CommandOutputResult
             )
         ])
