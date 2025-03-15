@@ -1,65 +1,69 @@
+from __future__ import annotations
+
 import json
 import logging
-import textwrap
+import re
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from langchain_core.prompts.string import jinja2_formatter
-from langchain_core.runnables import RunnableConfig
-from pydantic import HttpUrl
-
-from automation.agents.codebase_qa import CodebaseQAAgent, FinalAnswer
+from automation.tools.repository import SEARCH_CODE_SNIPPETS_NAME
 from chat.api.schemas import ChatCompletionChunk
-from chat.conf import settings
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+    from langchain_core.runnables.schema import StreamEvent
+
+    from automation.agents.codebase_chat import CodebaseChatAgent
 
 logger = logging.getLogger("daiv.chat")
 
 
-async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_id: str, config: RunnableConfig):
+def extract_text_from_event_data(event_data: StreamEvent) -> str:
+    if isinstance(event_data["data"]["chunk"].content, list) and len(event_data["data"]["chunk"].content) > 0:
+        if event_data["data"]["chunk"].content[0]["type"] == "text":
+            return event_data["data"]["chunk"].content[0]["text"]
+    elif isinstance(event_data["data"]["chunk"].content, str):
+        return event_data["data"]["chunk"].content
+    return ""
+
+
+def format_tool_output(event_data: StreamEvent) -> str:
+    """
+    Format the result of a tool call.
+    """
+    if event_data["name"] == SEARCH_CODE_SNIPPETS_NAME:
+        if "output" not in event_data["data"]:
+            query = event_data["data"]["input"]["query"]
+            intent = event_data["data"]["input"]["intent"]
+            return f"\n\n---\n\n### 🔍 Searching repositories:\n * Query: `{query}`\n * Intent: {intent}\n\n"
+        else:
+            pattern = r"<CodeSnippet\s+([^>]+)>(.*?)</CodeSnippet>"
+            snippets = []
+            for attr_str, snippet_content in re.findall(pattern, event_data["data"]["output"].content, re.DOTALL):
+                attributes = dict(re.findall(r'(\w+)="([^"]*)"', attr_str))
+                snippets.append(
+                    "🧩 Relevant snippet found in: "
+                    f"[`{attributes['repository']}/{attributes['path']}`]({attributes['external_link']})\n"
+                    f"````\n{snippet_content.strip()}\n````\n\n"
+                )
+            return "".join(snippets)
+    return ""
+
+
+async def generate_stream(codebase_chat: CodebaseChatAgent, input_data: dict, model_id: str, config: RunnableConfig):
     """
     Generate a stream of chat completion events.
     """
     chunk_uuid = str(uuid.uuid4())
     created = int(datetime.now().timestamp())
-    is_reasoning = True
 
     try:
-        if settings.REASONING:
-            chat_chunk = ChatCompletionChunk(
-                id=chunk_uuid,
-                created=created,
-                model=model_id,
-                choices=[{"index": 0, "finish_reason": None, "delta": {"content": "<reason>\n", "role": "assistant"}}],
-            )
-            yield f"data: {chat_chunk.model_dump_json()}\n\n"
-
-        previous_content = ""
-
-        async for event_data in codebase_qa.agent.astream_events(
-            input_data, version="v2", include_names=["CodebaseQAAgent"], config=config
-        ):
+        async for event_data in codebase_chat.agent.astream_events(input_data, version="v2", config=config):
             if (
-                event_data["event"] == "on_chain_stream"
-                and event_data["data"]["chunk"]
-                and event_data["data"]["chunk"].content
-                and event_data["data"]["chunk"].content != previous_content
+                event_data["event"] in ("on_tool_start", "on_tool_end")
+                and event_data["metadata"]["langgraph_node"] == "tools"
             ):
-                if settings.REASONING and is_reasoning:
-                    is_reasoning = False
-                    chat_chunk = ChatCompletionChunk(
-                        id=chunk_uuid,
-                        created=created,
-                        model=model_id,
-                        choices=[
-                            {
-                                "index": 0,
-                                "finish_reason": None,
-                                "delta": {"content": "</reason>\n", "role": "assistant"},
-                            }
-                        ],
-                    )
-                    yield f"data: {chat_chunk.model_dump_json()}\n\n"
-
                 chat_chunk = ChatCompletionChunk(
                     id=chunk_uuid,
                     created=created,
@@ -68,25 +72,12 @@ async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_
                         {
                             "index": 0,
                             "finish_reason": None,
-                            "delta": {
-                                # on_chain_stream event sends the full content, so we need to remove the previous
-                                # content to get the delta
-                                "content": event_data["data"]["chunk"].content.replace(previous_content, ""),
-                                "role": "assistant",
-                            },
+                            "delta": {"content": format_tool_output(event_data), "role": "assistant"},
                         }
                     ],
                 )
                 yield f"data: {chat_chunk.model_dump_json()}\n\n"
-
-                previous_content = event_data["data"]["chunk"].content
-
-            if (
-                event_data["event"] == "on_chain_end"
-                and event_data["data"]["output"]
-                and isinstance(event_data["data"]["output"], FinalAnswer)
-                and event_data["data"]["output"].references
-            ):
+            elif event_data["event"] == "on_chat_model_stream" and event_data["metadata"]["langgraph_node"] == "agent":
                 chat_chunk = ChatCompletionChunk(
                     id=chunk_uuid,
                     created=created,
@@ -95,10 +86,7 @@ async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_
                         {
                             "index": 0,
                             "finish_reason": None,
-                            "delta": {
-                                "content": format_references(event_data["data"]["output"].references),
-                                "role": "assistant",
-                            },
+                            "delta": {"content": extract_text_from_event_data(event_data), "role": "assistant"},
                         }
                     ],
                 )
@@ -122,23 +110,3 @@ async def generate_stream(codebase_qa: CodebaseQAAgent, input_data: dict, model_
         )
         yield f"data: {chat_chunk.model_dump_json()}\n\n"
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-
-def format_references(references: list[HttpUrl]) -> str:
-    if not references:
-        return ""
-
-    return jinja2_formatter(
-        textwrap.dedent(
-            """\
-
-
-            ---
-            **References:**
-            {% for reference in references %}
-            - [{{ reference }}]({{ reference }})
-            {% endfor %}
-            """
-        ),
-        references=references,
-    )

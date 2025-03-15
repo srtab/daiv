@@ -14,6 +14,7 @@ from automation.utils import file_changes_namespace
 from codebase.base import ClientType, FileChange, FileChangeAction
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
+from core.config import RepositoryConfig
 from core.utils import build_uri
 
 from .schemas import (
@@ -50,21 +51,27 @@ class SearchCodeSnippetsTool(BaseTool):
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(self, query: str, intent: str, config: RunnableConfig) -> str:
+    def _run(self, query: str, intent: str, config: RunnableConfig, repository: str | None = None) -> str:
         """
         Searches the codebase for a given query.
 
         Args:
             query: The query to search for.
             intent: The intent of the search query, why you are searching for this code.
+            repository: The name of the repository to search in. If not provided, will fallback to runnable config.
+                If not provided in the config, the search will be performed in all repositories.
 
         Returns:
             The search results.
         """
         logger.debug("[%s] Searching for '%s' (intent: %s)", self.name, query, intent)
 
-        source_repo_id = config["configurable"].get("source_repo_id")
+        source_repo_id = repository or config["configurable"].get("source_repo_id")
         source_ref = config["configurable"].get("source_ref")
+
+        if repository:
+            repo_config = RepositoryConfig.get_config(repository)
+            source_ref = repo_config.default_branch
 
         search_results_str = (
             "The query your provided did not return any results. "
@@ -105,8 +112,34 @@ class SearchCodeSnippetsTool(BaseTool):
         return search_results_str
 
     def _get_file_link(self, repository_id: str, ref: str, file_path: str) -> str:
+        """
+        Get the link to the file in the repository.
+
+        Args:
+            repository_id: The ID of the repository.
+            ref: The reference to the file.
+            file_path: The path to the file.
+
+        Returns:
+            The link to the file in the repository.
+        """
         if self.api_wrapper.repo_client.client_slug == ClientType.GITLAB:
             return build_uri(self.api_wrapper.repo_client.codebase_url, f"/{repository_id}/-/blob/{ref}/{file_path}")
+
+        raise ValueError(f"Unsupported repository client type: {self.api_wrapper.repo_client.client_slug}")
+
+    def _get_repository_link(self, repository_id: str) -> str:
+        """
+        Get the link to the repository.
+
+        Args:
+            repository_id: The ID of the repository.
+
+        Returns:
+            The link to the repository.
+        """
+        if self.api_wrapper.repo_client.client_slug == ClientType.GITLAB:
+            return build_uri(self.api_wrapper.repo_client.codebase_url, f"/{repository_id}")
 
         raise ValueError(f"Unsupported repository client type: {self.api_wrapper.repo_client.client_slug}")
 

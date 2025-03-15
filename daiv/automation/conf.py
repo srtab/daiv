@@ -7,6 +7,13 @@ from automation.agents.base import ThinkingLevel
 from automation.agents.constants import ModelName
 
 
+class CodebaseChatSettings(BaseSettings):
+    MODEL_NAME: ModelName = Field(
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for codebase chat."
+    )
+    TEMPERATURE: float = Field(default=0.5, description="Temperature to be used for codebase chat.")
+
+
 class PRDescriberSettings(BaseSettings):
     MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for PR describer."
@@ -136,7 +143,9 @@ class AutomationSettings(BaseSettings):
     CODEBASE_SEARCH_TOP_N: int = Field(
         default=10, description="Maximum number of documents to return from the codebase search."
     )
-
+    CODEBASE_CHAT: CodebaseChatSettings = Field(
+        default_factory=CodebaseChatSettings, description="Codebase chat agent settings."
+    )
     PR_DESCRIBER: PRDescriberSettings = Field(
         default_factory=PRDescriberSettings, description="Pull request describer agent settings."
     )

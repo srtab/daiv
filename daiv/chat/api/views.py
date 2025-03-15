@@ -7,15 +7,13 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
-from automation.agents.codebase_qa.agent import CodebaseQAAgent
-from chat.conf import settings
+from automation.agents.codebase_chat.agent import CodebaseChatAgent
 from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
 from core.constants import BOT_NAME
 
 from .schemas import ChatCompletionRequest, ChatCompletionResponse, ModelListSchema, ModelSchema
 from .security import AsyncAuthBearer, AuthBearer
-from .utils import format_references, generate_stream
+from .utils import generate_stream
 
 logger = logging.getLogger("daiv.chat")
 
@@ -36,20 +34,20 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
     client = RepoClient.create_instance()
-    codebase_qa = CodebaseQAAgent(index=CodebaseIndex(client))
+    codebase_chat = CodebaseChatAgent()
 
     config = RunnableConfig(
-        run_name="CodebaseQAChat",
-        tags=["codebase_qa", client.client_slug],
-        metadata={"model_id": MODEL_ID, "chat_reasoning": settings.REASONING, "chat_stream": payload.stream},
+        run_name="CodebaseChat",
+        tags=["codebase_chat", str(client.client_slug)],
+        metadata={"model_id": MODEL_ID, "chat_stream": payload.stream},
     )
 
     if payload.stream:
         return StreamingHttpResponse(
-            generate_stream(codebase_qa, input_data, MODEL_ID, config=config), content_type="text/event-stream"
+            generate_stream(codebase_chat, input_data, MODEL_ID, config=config), content_type="text/event-stream"
         )
     try:
-        result = codebase_qa.agent.invoke(input_data, config=config)
+        result = codebase_chat.agent.invoke(input_data, config=config)
 
         return ChatCompletionResponse(
             id=str(uuid.uuid4()),
@@ -57,11 +55,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             choices=[
                 {
                     "index": 1,
-                    "message": {
-                        "content": result.content + format_references(result.references),
-                        "role": "assistant",
-                        "tool_calls": [],
-                    },
+                    "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
                     "finish_reason": "stop",
                 }
             ],
