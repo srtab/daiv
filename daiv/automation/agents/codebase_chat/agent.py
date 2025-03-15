@@ -46,6 +46,6 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
                 current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
             ),
             version="v2",
-            name="codebase_answer_react_agent",
+            name="codebase_chat_react_agent",
         )
         return react_agent
