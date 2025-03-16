@@ -15,5 +15,6 @@
     "editor.codeActionsOnSave": {
       "source.fixAll.ruff": "explicit"
     }
-  }
+  },
+  "jupyter.notebookFileRoot": "${workspaceFolder}"
 }

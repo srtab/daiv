@@ -1,39 +1,35 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+import uuid
+from typing import Literal, cast
 
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph.state import END, START, CompiledStateGraph, StateGraph
+from langchain_core.output_parsers.openai_tools import PydanticToolsParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langgraph.graph.state import END, CompiledStateGraph, StateGraph
+from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
-from langgraph.store.memory import InMemoryStore
+from langgraph.types import Command
 
 from automation.agents import BaseAgent
-from automation.agents.prebuilt import REACTAgent
-from automation.agents.prompts import execute_plan_system
-from automation.conf import settings
+from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.schemas import Plan, Task
 from automation.tools.sandbox import RunSandboxCommandsTool
-from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit, WriteRepositoryToolkit
-from automation.utils import file_changes_namespace
-from codebase.indexes import CodebaseIndex
+from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
 
+from .conf import settings
 from .prompts import (
-    autofix_apply_human,
-    external_factor_plan_human,
-    external_factor_plan_system,
-    pipeline_log_classifier_human,
-    pipeline_log_classifier_system,
+    error_log_evaluator_human,
+    error_log_evaluator_system,
+    lint_evaluator_human,
+    troubleshoot_human,
+    troubleshoot_system,
 )
-from .schemas import ActionPlanOutput, PipelineLogClassifierOutput
-from .state import OverallState
-
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
-
-    from codebase.base import FileChange
-    from codebase.clients import AllRepoClient
-
+from .schemas import CommandOutputResult, ErrorLogEvaluation, TroubleshootingDetail
+from .state import OverallState, TroubleshootState
+from .tools import troubleshoot_analysis_result
 
 logger = logging.getLogger("daiv.agents")
 
@@ -42,32 +38,6 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent for fixing pipeline failures.
     """
-
-    def __init__(self, *, repo_client: AllRepoClient, source_repo_id: str, source_ref: str, job_id: int, **kwargs):
-        self.repo_client = repo_client
-        self.source_repo_id = source_repo_id
-        self.source_ref = source_ref
-        self.job_id = job_id
-        self.repo_config = RepositoryConfig.get_config(self.source_repo_id)
-        self.codebase_index = CodebaseIndex(self.repo_client)
-        super().__init__(**kwargs)
-
-    def get_config(self) -> RunnableConfig:
-        """
-        Include the metadata identifying the source repository and pipeline.
-
-        Returns:
-            dict: The configuration for the agent.
-        """
-        config = super().get_config()
-        config["tags"].append(self.repo_client.client_slug)
-        config["metadata"].update({
-            "repo_client": self.repo_client.client_slug,
-            "source_repo_id": self.source_repo_id,
-            "source_ref": self.source_ref,
-            "job_id": self.job_id,
-        })
-        return config
 
     def compile(self) -> CompiledStateGraph:
         """
@@ -78,187 +48,242 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(OverallState)
 
-        workflow.add_node("categorizer", self.categorizer)
-        workflow.add_node("apply_unittest_fix", self.apply_unittest_fix)
-        workflow.add_node("apply_lint_fix", self.apply_lint_fix)
-        workflow.add_node("respond", self.respond)
+        workflow.add_node("should_try_to_fix", self.should_try_to_fix)
+        workflow.add_node("troubleshoot", self.troubleshoot)
+        workflow.add_node("execute_remediation_steps", self.execute_remediation_steps)
+        workflow.add_node("apply_format_code", self.apply_format_code)
 
-        workflow.add_edge(START, "categorizer")
-        workflow.add_conditional_edges("categorizer", self.determine_next_action)
-        workflow.add_conditional_edges(
-            "apply_unittest_fix",
-            self.determine_if_lint_fix_should_be_applied,
-            {"apply_lint_fix": "apply_lint_fix", "end": END},
-        )
-        workflow.add_edge("apply_lint_fix", END)
-        workflow.add_edge("respond", END)
+        workflow.set_entry_point("should_try_to_fix")
 
-        in_memory_store = InMemoryStore()
+        return workflow.compile(checkpointer=self.checkpointer, store=self.store)
 
-        return workflow.compile(checkpointer=self.checkpointer, store=in_memory_store)
-
-    def categorizer(self, state: OverallState):
+    def should_try_to_fix(
+        self, state: OverallState, config: RunnableConfig
+    ) -> Command[Literal["troubleshoot", "__end__"]]:
         """
-        Categorize the issue based on the logs from the failed CI/CD pipeline.
+        Determine if the agent should try to fix the pipeline issue.
+
+        If the agent has reached the maximum number of retries, or if the previous job logs are not available,
+        the agent will try to fix the pipeline issue.
+
+        If the previous job logs are available, the agent will invoke the error log evaluator to determine if the
+        error is the same as the previous one. This is important to prevent the agent from applying the same fix
+        over and over.
+
+        Args:
+            state (OverallState): The state of the agent.
+            config (RunnableConfig): The config to use for the agent.
+
+        Returns:
+            Command[Literal["troubleshoot", "__end__"]]: The next step in the workflow.
+        """
+        if state.get("iteration", 0) >= settings.MAX_ITERATIONS:
+            logger.warning(
+                "Max retry iterations reached for pipeline fix on %s[%s] for job %s",
+                config["configurable"]["source_repo_id"],
+                config["configurable"]["source_ref"],
+                config["configurable"]["job_name"],
+            )
+            return Command(
+                goto=END,
+                update={
+                    "need_manual_fix": True,
+                    "troubleshooting": [
+                        TroubleshootingDetail(
+                            details="Maximum retry iterations reached for automatic pipeline fix.",
+                            remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                        )
+                    ],
+                },
+            )
+
+        if state.get("previous_job_logs") is None:
+            # This means that it's the first time the agent is running, so we need to troubleshoot the issue.
+            return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
+
+        evaluator = (
+            ChatPromptTemplate.from_messages([error_log_evaluator_system, error_log_evaluator_human])
+            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME)
+            .bind_tools([ErrorLogEvaluation], tool_choice="auto")
+            .with_fallbacks([
+                self.get_model(model=settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME).bind_tools(
+                    [ErrorLogEvaluation], tool_choice="auto"
+                )
+            ])
+            | PydanticToolsParser(tools=[ErrorLogEvaluation], first_tool_only=True)
+        )
+
+        result = cast(
+            "ErrorLogEvaluation",
+            evaluator.invoke({
+                "log_trace_1": cast("str", state["previous_job_logs"]),
+                "log_trace_2": state["job_logs"],
+            }),
+        )
+
+        if result.is_same_error:
+            logger.warning(
+                "Not applying pipeline fix on %s[%s] for job %s because it's the same error as the previous one",
+                config["configurable"]["source_repo_id"],
+                config["configurable"]["source_ref"],
+                config["configurable"]["job_name"],
+            )
+            return Command(
+                goto=END,
+                update={
+                    "need_manual_fix": True,
+                    "troubleshooting": [
+                        TroubleshootingDetail(
+                            details="Couldn't fix the pipeline automatically.",
+                            remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                        )
+                    ],
+                },
+            )
+
+        return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
+
+    def troubleshoot(
+        self, state: OverallState, store: BaseStore
+    ) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
+        """
+        Troubleshoot the issue based on the logs from the failed CI/CD pipeline.
 
         This will determine whether the issue is directly related to the codebase or caused by external factors.
 
         Args:
             state (OverallState): The state of the agent.
+            store (BaseStore): The store to use for caching.
 
         Returns:
-            OverallState: The state of the agent with the category added.
+            Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]: The next step in
+                the workflow.
         """
-        prompt = ChatPromptTemplate.from_messages([pipeline_log_classifier_system, pipeline_log_classifier_human])
+        tools = ReadRepositoryToolkit.create_instance().get_tools()
 
-        evaluator = prompt | self.model.with_structured_output(PipelineLogClassifierOutput)
-
-        response = cast(
-            "PipelineLogClassifierOutput",
-            evaluator.invoke(
-                {"job_logs": state["job_logs"], "diff": state["diff"]},
-                config={"configurable": {"model": settings.GENERIC_COST_EFFICIENT_MODEL_NAME}},
+        agent = create_react_agent(
+            model=self.get_model(
+                model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
-        )
-        return {
-            "category": response.category,
-            "pipeline_phase": response.pipeline_phase,
-            "root_cause": response.root_cause,
-            "iteration": state.get("iteration", 0) + 1,
-        }
-
-    def determine_next_action(self, state: OverallState) -> Literal["apply_unittest_fix", "apply_lint_fix", "respond"]:
-        """
-        Determine whether the issue should be fixed automatically or manually.
-
-        Args:
-            state (OverallState): The state of the agent.
-
-        Returns:
-            Literal["apply_unittest_fix", "apply_lint_fix", "respond"]: The next step in the workflow.
-        """
-        if state["category"] == "codebase":
-            if state["pipeline_phase"] == "lint" and self.repo_config.commands.enabled():
-                return "apply_lint_fix"
-            elif state["pipeline_phase"] == "unittest":
-                return "apply_unittest_fix"
-        return "respond"
-
-    def apply_unittest_fix(self, state: OverallState, store: BaseStore):
-        """
-        Apply the unittest fix.
-
-        Args:
-            state (OverallState): The state of the agent.
-            store (BaseStore): The store to use for caching.
-
-        Returns:
-            OverallState: The state of the agent with the autofix applied.
-        """
-        tools = (
-            WriteRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
-            + SandboxToolkit.create_instance().get_tools()
-        )
-
-        prompt = ChatPromptTemplate.from_messages([execute_plan_system, autofix_apply_human])
-        messages = prompt.format_messages(
-            job_logs=state["job_logs"],
-            diff=state["diff"],
-            repository_description=self.repo_config.repository_description,
-            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
-        )
-
-        react_agent = REACTAgent(
-            run_name="unittest_fix_react_agent",
-            tools=tools,
-            model_name=settings.CODING_PERFORMANT_MODEL_NAME,
-            fallback_model_name=settings.GENERIC_PERFORMANT_MODEL_NAME,
+            tools=tools + [troubleshoot_analysis_result],
+            state_schema=TroubleshootState,
+            prompt=ChatPromptTemplate.from_messages([
+                troubleshoot_system,
+                troubleshoot_human,
+                MessagesPlaceholder("messages"),
+            ]),
             store=store,
+            checkpointer=False,  # Disable checkpointer to avoid persisting the state in the store
+            name="troubleshoot_react_agent",
+            version="v2",
         )
-        react_agent.agent.invoke({"messages": messages}, config={"recursion_limit": settings.RECURSION_LIMIT})
 
-    def determine_if_lint_fix_should_be_applied(
-        self, state: OverallState, store: BaseStore
-    ) -> Literal["apply_lint_fix", "end"]:
+        agent.invoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
+
+        # At this stage, the agent has invoked the troubleshoot_analysis_result tool and next step is
+        # already set in the tool call. If not, it means something went wrong and we need to fallback to a
+        # manual fix.
+        return Command(
+            goto=END,
+            update={
+                "troubleshooting": [
+                    TroubleshootingDetail(
+                        details="Couldn't fix the pipeline automatically.",
+                        remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                    )
+                ]
+                + state.get("troubleshooting", []),
+                "need_manual_fix": True,
+            },
+        )
+
+    def execute_remediation_steps(self, state: OverallState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
-        Determine whether the lint fix should be applied after the unittest fix.
+        Execute the remediation steps to fix the pipeline issue.
 
         Args:
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
 
         Returns:
-            Literal["apply_lint_fix", "end"]: The next step in the workflow.
+            Command[Literal["__end__"]]: The next step in the workflow.
         """
-        if self.repo_config.commands.enabled() and store.search(
-            file_changes_namespace(self.source_repo_id, self.source_ref), limit=1
-        ):
-            return "apply_lint_fix"
-        return "end"
+        plan = Plan(
+            goal="Bring the pipeline to a passing state by fixing the identified issues.",
+            tasks=[
+                Task(
+                    title=troubleshooting.title,
+                    description=troubleshooting.details,
+                    path=troubleshooting.file_path,
+                    context_paths=[troubleshooting.file_path],
+                    subtasks=troubleshooting.remediation_steps,
+                )
+                for troubleshooting in state["troubleshooting"]
+            ],
+        )
 
-    def apply_lint_fix(self, state: OverallState, store: BaseStore):
+        plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
+        plan_and_execute.agent.invoke({"plan_goal": plan.goal, "plan_tasks": plan.tasks})
+
+        return Command(goto=END)
+
+    def apply_format_code(
+        self, state: OverallState, store: BaseStore, config: RunnableConfig
+    ) -> Command[Literal["execute_remediation_steps", "__end__"]]:
         """
-        Apply the lint fix.
+        Apply format code to the repository to fix the linting issues in the pipeline.
 
         Args:
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
-        """
-        run_command_tool = RunSandboxCommandsTool(
-            source_repo_id=self.source_repo_id, source_ref=self.source_ref, api_wrapper=self.repo_client
-        )
-        run_command_tool.invoke({
-            "commands": [self.repo_config.commands.install_dependencies, self.repo_config.commands.format_code],
-            "intent": "Fix linting issues",
-            "store": store,
-        })
-
-    def respond(self, state: OverallState, store: BaseStore):
-        """
-        Respond to user with the root cause and a plan to fix the issue.
-
-        Args:
-            state (OverallState): The state of the agent.
+            config (RunnableConfig): The config for the agent.
 
         Returns:
-            OverallState: The state of the agent with the actions added.
+            Command[Literal["execute_remediation_steps", "__end__"]]: The next step in the workflow.
         """
-        tools = (
-            ReadRepositoryToolkit.create_instance(self.repo_client, self.source_repo_id, self.source_ref).get_tools()
-            + WebSearchToolkit.create_instance().get_tools()
+        repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
+
+        if not repo_config.commands.enabled():
+            logger.info("Format code is disabled for this repository, skipping.")
+            # If format code is disabled, we need to try to fix the linting issues by executing the remediation steps.
+            # This is less effective than actually formatting the code, but it's better than nothing. For instance,
+            # linting errors like whitespaces can be challenging to fix by an agent, or even impossible.
+            return Command(goto="execute_remediation_steps")
+
+        tool_message = RunSandboxCommandsTool().invoke(
+            {
+                "name": "run_sandbox_commands",
+                "args": {
+                    "commands": [repo_config.commands.install_dependencies, repo_config.commands.format_code],
+                    "intent": "[Manual run] Format code in the repository to fix the pipeline issue.",
+                    "store": store,
+                },
+                "id": str(uuid.uuid4()),
+                "type": "tool_call",
+            },
+            config={
+                "configurable": {
+                    "source_repo_id": config["configurable"]["source_repo_id"],
+                    "source_ref": config["configurable"]["source_ref"],
+                }
+            },
         )
 
-        prompt = ChatPromptTemplate.from_messages([external_factor_plan_system, external_factor_plan_human])
-        messages = prompt.format_messages(
-            root_cause=state["root_cause"],
-            repository_description=self.repo_config.repository_description,
-            repository_structure=self.codebase_index.extract_tree(self.source_repo_id, self.source_ref),
-            action_plan_output_tool="ActionPlanOutput",
-        )
+        # We need to check if the command output contains more errors, or indications of failures.
+        # The command may not have been enough to fix the problems, so we need to check if there are any
+        # errors left.
+        chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
+            model=settings.LINT_EVALUATOR_MODEL_NAME
+        ).with_structured_output(CommandOutputResult).with_fallbacks([
+            self.get_model(model=settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME).with_structured_output(
+                CommandOutputResult
+            )
+        ])
 
-        react_agent = REACTAgent(
-            run_name="pipeline_fixer_react_agent",
-            tools=tools,
-            model_name=settings.CODING_COST_EFFICIENT_MODEL_NAME,
-            fallback_model_name=settings.GENERIC_COST_EFFICIENT_MODEL_NAME,
-            with_structured_output=ActionPlanOutput,
-            store=store,
-        )
+        result = cast("CommandOutputResult", chain.invoke({"output": tool_message.artifact[-1].output}))
 
-        result = react_agent.agent.invoke({"messages": messages})
+        if result.has_errors:
+            # If there are still errors, we need to try to fix them by executing the remediation steps.
+            return Command(goto="execute_remediation_steps")
 
-        return {"actions": cast("ActionPlanOutput", result["response"]).actions}
-
-    def get_files_to_commit(self) -> list[FileChange]:
-        """
-        Get the files to commit.
-
-        Returns:
-            list[FileChange]: The files to commit.
-        """
-        if self.agent.store is None:
-            return []
-        return [
-            cast("FileChange", item.value["data"])
-            for item in self.agent.store.search(file_changes_namespace(self.source_repo_id, self.source_ref))
-        ]
+        return Command(goto=END)

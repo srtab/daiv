@@ -23,7 +23,14 @@ class SearchCodeSnippetsInput(BaseModel):
             """  # noqa: E501
         ),
     )
-    intent: str = Field(..., description=("A brief description of why you are searching for this code."))
+    repository: str | None = Field(
+        default=None,
+        description=(
+            "The name of the repository to search in. "
+            "If not provided, the search will be performed in all repositories."
+        ),
+    )
+    intent: str = Field(..., description="A brief description of why you are searching for this code.")
 
 
 class RetrieveFileContentInput(BaseModel):

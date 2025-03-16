@@ -1,32 +1,39 @@
+from textwrap import dedent
+
 from pydantic import BaseModel, Field
 
-from automation.agents.schemas import AskForClarification
-from automation.agents.schemas import Plan as BasePlan
 
-
-class AnswerReviewer(BaseModel):
+class ReviewAssessment(BaseModel):
     """
-    Provide a final answer to the reviewer.
+    This tool is intended to be used to respond the result of the classification assessment whether a feedback
+    is a request for direct changes to the codebase, and provide the rationale behind that classification.
     """
 
-    answer: str = Field(
+    # this is commented to avoid the error: https://github.com/langchain-ai/langchain/issues/27260#issue-2579527949
+    # model_config = ConfigDict(title="review_assessment")  # noqa: ERA001
+
+    request_for_changes: bool = Field(description="True if classified as a 'Change Request', and false otherwise.")
+    justification: str = Field(description="Brief explanation of your reasoning for the classification.")
+    requested_changes: list[str] = Field(
         description=(
-            "Answer in the first person, without asking if they want more changes. E.g., "
-            "'The changes you requested have been made.'"
-        )
+            "Describe what changes where requested in a clear, concise and actionable way. "
+            "If no changes are requested, return an empty list. "
+            "Be as verbose as possible to avoid lost important information."
+        ),
+        default_factory=list,
     )
 
 
-class Plan(BasePlan):
-    show_diff_hunk_to_executor: bool = Field(
-        description=(
-            "Set to True if is relevant to show the diff hunk to the executor agent; otherwise, False. "
-            "A relevant situation to show the diff hunk is if the reviewer asks to revert changes, "
-            "to help the executor recover the required code."
+class ReplyReviewer(BaseModel):
+    """
+    Provide a reply to the reviewer's comment or question.
+    """
+
+    reply: str = Field(
+        description=dedent(
+            """\
+            - The reply MUST be under 100 words.
+            - Format your response using appropriate markdown for code snippets, lists, or emphasis where needed.
+            """
         )
     )
-
-
-# need rewrite the class `DetermineNextActionResponse` to use the redefined class `Plan`.
-class DetermineNextActionResponse(BaseModel):
-    action: Plan | AskForClarification = Field(description="The next action to be taken.")

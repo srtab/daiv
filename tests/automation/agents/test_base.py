@@ -7,7 +7,6 @@ from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 
 from automation.agents.base import BaseAgent, ModelProvider, Usage
-from automation.conf import settings
 
 
 class ConcreteAgent(BaseAgent):
@@ -25,42 +24,32 @@ class TestBaseAgent:
     def test_default_initialization(self, mock_init_chat_model):
         agent = ConcreteAgent()
 
-        assert agent.run_name == "ConcreteAgent"
-        assert agent.model_name == settings.GENERIC_COST_EFFICIENT_MODEL_NAME
         assert isinstance(agent.usage_handler, OpenAICallbackHandler)
         assert agent.checkpointer is None
-        assert agent.model == mock_init_chat_model.return_value
 
     def test_custom_initialization(self, mock_init_chat_model):
-        custom_name = "CustomAgent"
-        custom_model = "gpt-4"
         usage_handler = Mock(spec=OpenAICallbackHandler)
         checkpointer = Mock(name="PostgresSaver")
 
-        agent = ConcreteAgent(
-            run_name=custom_name, model_name=custom_model, usage_handler=usage_handler, checkpointer=checkpointer
-        )
+        agent = ConcreteAgent(usage_handler=usage_handler, checkpointer=checkpointer)
 
-        assert agent.run_name == custom_name
-        assert agent.model_name == custom_model
         assert agent.usage_handler == usage_handler
         assert agent.checkpointer == checkpointer
 
     def test_get_model_kwargs_anthropic(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
             mock_provider.return_value = ModelProvider.ANTHROPIC
-            agent = ConcreteAgent(model_name="claude-3-5-sonnet-20240229")
-            kwargs = agent.get_model_kwargs()
+            agent = ConcreteAgent()
+            kwargs = agent.get_model_kwargs(model="claude-3-5-sonnet-20240229")
 
             assert kwargs["temperature"] == 0
-            assert "anthropic-beta" in kwargs["model_kwargs"]["extra_headers"]
-            assert kwargs["max_tokens"] == "2048"
+            assert kwargs["max_tokens"] == 2048
 
     def test_get_model_kwargs_openai(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
             mock_provider.return_value = ModelProvider.OPENAI
-            agent = ConcreteAgent(model_name="gpt-4")
-            kwargs = agent.get_model_kwargs()
+            agent = ConcreteAgent()
+            kwargs = agent.get_model_kwargs(model="gpt-4")
 
             assert kwargs["temperature"] == 0
             assert "max_tokens" not in kwargs
@@ -75,15 +64,6 @@ class TestBaseAgent:
 
             agent = ConcreteAgent()
             assert agent.get_max_token_value(model_name="claude-3-opus-20240229") == 8192
-
-    def test_get_config(self):
-        agent = ConcreteAgent(run_name="TestAgent")
-        config = agent.get_config()
-
-        assert config["run_name"] == "TestAgent"
-        assert config["tags"] == ["TestAgent"]
-        assert config["metadata"] == {}
-        assert config["configurable"] == {}
 
     def test_invalid_model_provider(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:

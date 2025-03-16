@@ -6,26 +6,14 @@ from codebase.base import ClientType
 
 class TestImageTemplate:
     @patch("automation.agents.image_url_extractor.schemas.is_valid_url")
-    def test_from_images_valid_url_only_base64_false(self, mock_is_valid_url):
+    def test_from_images_valid_url(self, mock_is_valid_url):
         mock_is_valid_url.return_value = True
         images = [Image(url="http://example.com/image.png", filename="image.png")]
 
-        result = ImageTemplate.from_images(images, only_base64=False)
+        result = ImageTemplate.from_images(images)
 
         assert len(result) == 1
         assert result[0]["image_url"]["url"] == "http://example.com/image.png"
-
-    @patch("automation.agents.image_url_extractor.schemas.is_valid_url")
-    @patch("automation.agents.image_url_extractor.schemas.url_to_data_url")
-    def test_from_images_valid_url_only_base64_true(self, mock_url_to_data_url, mock_is_valid_url):
-        mock_is_valid_url.return_value = True
-        mock_url_to_data_url.return_value = "data:image/png;base64,..."
-        images = [Image(url="http://example.com/image.png", filename="image.png")]
-
-        result = ImageTemplate.from_images(images, only_base64=True)
-
-        assert len(result) == 1
-        assert result[0]["image_url"]["url"] == "data:image/png;base64,..."
 
     @patch("automation.agents.image_url_extractor.schemas.build_uri")
     @patch("automation.agents.image_url_extractor.schemas.url_to_data_url")

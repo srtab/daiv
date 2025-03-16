@@ -7,10 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Introduced Jupyter notebooks for `CodebaseChatAgent`, `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
+- Added support to thinking models from Anthropic: `claude-3.7-sonnet` and OpenAI: `o1` and `o3-mini`.
+- Added `PlanAndExecuteAgent` to streamline the creation of agents that need to plan and execute a task. This agent replaced all plan and execute flows on `IssueAddressorAgent`, `PipelineFixerAgent`, and `ReviewAddressorAgent`. The model used to plan and execute is `claude-3.7-sonnet` to leverage the reasoning capabilities of the models, improving the quality of the plans and executions.
+
 ### Changed
 
 - Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
 - Improved performance of `PostgresRetriever` by simplifying the query and take advantage of the `Hnsw` index. **Breaking change: run `update_index` with `--reset-all` to update all indexes.**
+- Grouped automation settings by agent to simplify setup and customization.
+- Replaced `REACTAgent` with `create_react_agent` from `langgraph.prebuilt` for streamlined ReAct agents creation.
+- Refactor: All agents logic have been rewritten to make use of subgraphs created with `create_react_agent` and `PlanAndExecuteAgent`, simplifying the agents logic and reuse the pattern, as it has proven to be an effective method on all sort of tasks.
+- Refactor: Pipeline Fixer logic completely rewritten to improve remediation flows, including linting remediation in case of format code not being enough to fix the pipeline. The troubleshooting is now done with a thinking model `03-mini`, improving the quality of the troubleshooting and respective remediation steps.
+- Refactor: Review Addressor now add more feedback by adding notes to the end user to inform the status of the discussion resolution.
+- Refactor: Issue Addressor logic improved error handling to provide the end user with more contextualized error messages.
+- Improved observability data sent to the `langsmith` to track all agent executions.
+- Refactor: Renamed `CodebaseQAAgent` to `CodebaseChatAgent` to better reflect the agent's purpose. Now it uses a simple ReAct agent to answer questions. Improved the prompt to be more accurate and concise, and to output the thinking process of the agent.
+
+### Removed
+
+- Removed `ErrorLogEvaluatorAgent` as its functionality is now integrated into the `PipelineFixerAgent`.
+- Removed support to DeepSeek models, as the function calling capabilitity is unstable.
 
 ## [0.1.0-alpha.22] - 2025-01-30
 

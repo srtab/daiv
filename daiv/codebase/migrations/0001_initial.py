@@ -3,16 +3,9 @@
 import uuid
 
 import django.db.models.deletion
-from django.conf import settings
 from django.db import migrations, models
 
 import django_extensions.db.fields
-from langgraph.checkpoint.postgres import PostgresSaver
-
-
-def initialize_postgres_saver(apps, schema_editor):
-    with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-        checkpointer.setup()
 
 
 class Migration(migrations.Migration):
@@ -79,5 +72,4 @@ class Migration(migrations.Migration):
             ],
             options={"get_latest_by": "created"},
         ),
-        migrations.RunPython(initialize_postgres_saver, reverse_code=migrations.RunPython.noop),
     ]

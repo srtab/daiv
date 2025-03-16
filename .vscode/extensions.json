@@ -8,6 +8,7 @@
     "mrorz.language-gettext",
     "eamodio.gitlens",
     "charliermarsh.ruff",
-    "tamasfe.even-better-toml"
+    "tamasfe.even-better-toml",
+    "ms-toolsai.jupyter"
   ]
 }

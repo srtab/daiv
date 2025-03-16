@@ -1,26 +1,22 @@
 from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod
-from typing import TYPE_CHECKING
 
 from langchain_core.tools.base import BaseTool
 from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
 
 from automation.tools.sandbox import RunSandboxCodeTool
 from automation.tools.web_search import WebSearchTool
-from codebase.indexes import CodebaseIndex
 
 from .repository import (
     CreateNewRepositoryFileTool,
     DeleteRepositoryFileTool,
     RenameRepositoryFileTool,
     ReplaceSnippetInFileTool,
+    RepositoryStructureTool,
     RetrieveFileContentTool,
     SearchCodeSnippetsTool,
 )
-
-if TYPE_CHECKING:
-    from codebase.clients import AllRepoClient
 
 
 class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
@@ -28,7 +24,7 @@ class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def create_instance(cls, repo_client: AllRepoClient, source_repo_id: str, source_ref: str) -> BaseToolkit:
+    def create_instance(cls) -> BaseToolkit:
         pass
 
     def get_tools(self) -> list[BaseTool]:
@@ -41,17 +37,8 @@ class ReadRepositoryToolkit(BaseToolkit):
     """
 
     @classmethod
-    def create_instance(cls, repo_client: AllRepoClient, source_repo_id: str, source_ref: str) -> BaseToolkit:
-        return cls(
-            tools=[
-                SearchCodeSnippetsTool(
-                    source_repo_id=source_repo_id,
-                    source_ref=source_ref,
-                    api_wrapper=CodebaseIndex(repo_client=repo_client),
-                ),
-                RetrieveFileContentTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
-            ]
-        )
+    def create_instance(cls) -> BaseToolkit:
+        return cls(tools=[SearchCodeSnippetsTool(), RetrieveFileContentTool(), RepositoryStructureTool()])
 
 
 class WriteRepositoryToolkit(ReadRepositoryToolkit):
@@ -62,15 +49,13 @@ class WriteRepositoryToolkit(ReadRepositoryToolkit):
     tools: list[BaseTool]
 
     @classmethod
-    def create_instance(cls, repo_client: AllRepoClient, source_repo_id: str, source_ref: str) -> BaseToolkit:
-        super_instance = super().create_instance(
-            repo_client=repo_client, source_repo_id=source_repo_id, source_ref=source_ref
-        )
+    def create_instance(cls) -> BaseToolkit:
+        super_instance = super().create_instance()
         super_instance.tools.extend([
-            ReplaceSnippetInFileTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
-            CreateNewRepositoryFileTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
-            RenameRepositoryFileTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
-            DeleteRepositoryFileTool(source_repo_id=source_repo_id, source_ref=source_ref, api_wrapper=repo_client),
+            ReplaceSnippetInFileTool(),
+            CreateNewRepositoryFileTool(),
+            RenameRepositoryFileTool(),
+            DeleteRepositoryFileTool(),
         ])
         return super_instance
 

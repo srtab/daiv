@@ -12,7 +12,7 @@ from gitlab import GitlabGetError
 from langchain.retrievers import EnsembleRetriever
 
 from codebase.document_loaders import GenericLanguageLoader
-from codebase.models import CodebaseNamespace
+from codebase.models import CodebaseNamespace, RepositoryInfo
 from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
 from codebase.utils import analyze_repository
@@ -250,3 +250,10 @@ class CodebaseIndex(abc.ABC):
         _ref = cast("str", ref or repo_config.default_branch)
 
         return qs.filter(tracking_ref=_ref)
+
+    @functools.lru_cache(maxsize=1)  # noqa: B019
+    def _get_all_repositories(self) -> list[RepositoryInfo]:
+        """
+        Get all repositories from the codebase.
+        """
+        return list(RepositoryInfo.objects.values_list("external_slug", flat=True))

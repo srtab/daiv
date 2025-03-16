@@ -21,10 +21,7 @@ class ImageTemplate(BaseModel):
 
     @staticmethod
     def from_images(
-        images: list[Image],
-        repo_client_slug: str | None = None,
-        project_id: int | None = None,
-        only_base64: bool = False,
+        images: list[Image], repo_client_slug: str | None = None, project_id: int | None = None
     ) -> list[dict]:
         """
         Create a list of image templates from a list of images.
@@ -32,7 +29,6 @@ class ImageTemplate(BaseModel):
         Args:
             project_id (int): The project ID.
             images (list[Image]): The list of images.
-            only_base64 (bool): Whether to convert the image URL to base64 or not.
 
         Returns:
             list[dict]: The list of image templates.
@@ -43,7 +39,7 @@ class ImageTemplate(BaseModel):
             image_url = None
 
             if is_valid_url(image.url):
-                image_url = image.url if not only_base64 else url_to_data_url(image.url)
+                image_url = image.url
 
             elif (
                 (parsed_url := urlparse(image.url))

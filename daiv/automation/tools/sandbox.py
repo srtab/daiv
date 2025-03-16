@@ -6,11 +6,12 @@ import logging
 import tarfile
 import textwrap
 import uuid
-from typing import TYPE_CHECKING
+from typing import Literal
 
 import httpx
-from langchain.tools import BaseTool
 from langchain_core.prompts.string import jinja2_formatter
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.tools import BaseTool
 from langgraph.store.memory import BaseStore  # noqa: TC002
 from pydantic import BaseModel, Field
 
@@ -20,10 +21,7 @@ from codebase.clients import RepoClient
 from core.conf import settings
 from core.config import RepositoryConfig
 
-from .schemas import RunCodeInput, RunCommandInput, RunCommandResponse
-
-if TYPE_CHECKING:
-    from langchain.callbacks.manager import CallbackManagerForToolRun
+from .schemas import RunCodeInput, RunCommandInput, RunCommandResponse, RunCommandResult
 
 logger = logging.getLogger("daiv.tools")
 
@@ -35,16 +33,15 @@ class RunSandboxCommandsTool(BaseTool):
         Run a list of commands on the repository. The commands will be run in the same order as they are provided. All the changes made by the commands will be considered to be committed.
         """  # noqa: E501
     )
+    api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
+
     args_schema: type[BaseModel] = RunCommandInput
-
-    source_repo_id: str = Field(..., description="The repository to run the commands on.")
-    source_ref: str = Field(..., description="The branch or commit to run the commands on.")
-
-    api_wrapper: RepoClient = Field(..., default_factory=RepoClient.create_instance)
+    handle_tool_error: bool = True
+    response_format: Literal["content_and_artifact", "content"] = "content_and_artifact"
 
     def _run(
-        self, commands: list[str], intent: str, store: BaseStore, run_manager: CallbackManagerForToolRun | None = None
-    ) -> str:
+        self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig
+    ) -> tuple[str, list[RunCommandResult]]:
         """
         Run commands in the sandbox.
 
@@ -58,16 +55,19 @@ class RunSandboxCommandsTool(BaseTool):
         """
         logger.debug("[%s] Running commands in sandbox: %s (intent: %s)", self.name, commands, intent)
 
+        source_repo_id = config["configurable"]["source_repo_id"]
+        source_ref = config["configurable"]["source_ref"]
+
         with (
-            self.api_wrapper.get_repository_archive(self.source_repo_id, self.source_ref) as tarstream,
+            self.api_wrapper.get_repository_archive(source_repo_id, source_ref) as tarstream,
             tarfile.open(fileobj=tarstream, mode="r:*") as tar,
         ):
             workdir = self._extract_workdir(tar)
 
-            if store.search(file_changes_namespace(self.source_repo_id, self.source_ref), limit=1):
+            if store.search(file_changes_namespace(source_repo_id, source_ref), limit=1):
                 # If there's already file changes stored, we need to update the tar archive with them.
                 logger.debug("[%s] Updating tar archive with file changes", self.name)
-                tar_archive = self._copy_tar_with_file_changes(tar, store, workdir)
+                tar_archive = self._copy_tar_with_file_changes(tar, store, workdir, source_repo_id, source_ref)
             else:
                 # If there's no file changes stored, we can use the original tar archive.
                 logger.debug("[%s] Using original tar archive", self.name)
@@ -77,7 +77,7 @@ class RunSandboxCommandsTool(BaseTool):
                 f"{settings.SANDBOX_URL}run/commands/",
                 json={
                     "run_id": str(uuid.uuid4()),
-                    "base_image": RepositoryConfig.get_config(self.source_repo_id).commands.base_image,
+                    "base_image": RepositoryConfig.get_config(source_repo_id).commands.base_image,
                     "commands": commands,
                     "workdir": workdir,
                     "archive": tar_archive,
@@ -87,9 +87,11 @@ class RunSandboxCommandsTool(BaseTool):
             )
 
         response.raise_for_status()
-        return self._treat_response(response, store)
+        return self._treat_response(response, store, source_repo_id, source_ref)
 
-    def _treat_response(self, response: httpx.Response, store: BaseStore) -> str:
+    def _treat_response(
+        self, response: httpx.Response, store: BaseStore, source_repo_id: str, source_ref: str
+    ) -> tuple[str, list[RunCommandResult]]:
         """
         Treat the response from the sandbox.
 
@@ -107,20 +109,20 @@ class RunSandboxCommandsTool(BaseTool):
                 for member in tar.getmembers():
                     if member.isfile() and (extracted_file := tar.extractfile(member)):
                         if existent_file_change := store.get(
-                            file_changes_namespace(self.source_repo_id, self.source_ref), member.name
+                            file_changes_namespace(source_repo_id, source_ref), member.name
                         ):
                             # Update the file content extracted from store.
                             data: FileChange = existent_file_change.value["data"]
                             data.content = extracted_file.read().decode()
                             store.put(
-                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                file_changes_namespace(source_repo_id, source_ref),
                                 member.name,
                                 {"data": data, "action": existent_file_change.value["action"]},
                             )
                         else:
                             # Add the new file to the store.
                             store.put(
-                                file_changes_namespace(self.source_repo_id, self.source_ref),
+                                file_changes_namespace(source_repo_id, source_ref),
                                 member.name,
                                 {
                                     "data": FileChange(
@@ -132,18 +134,23 @@ class RunSandboxCommandsTool(BaseTool):
                                 },
                             )
 
-        return jinja2_formatter(
-            textwrap.dedent(
-                """\
+        return (
+            jinja2_formatter(
+                textwrap.dedent(
+                    """\
                 {% for result in results %}
-                ### `{{ result.command }}` (exit code: `{{ result.exit_code }}`)
                 ```bash
+                $ {{ result.command }}
                 {{ result.output }}
+                (exit code: `{{ result.exit_code }}`)
                 ```
+                ---
                 {% endfor %}
                 """
+                ),
+                results=resp.results,
             ),
-            results=resp.results,
+            resp.results,
         )
 
     def _extract_workdir(self, source_tar: tarfile.TarFile) -> str:
@@ -167,13 +174,17 @@ class RunSandboxCommandsTool(BaseTool):
             )
         return first_level_folders.pop()
 
-    def _copy_tar_with_file_changes(self, source_tar: tarfile.TarFile, store: BaseStore, workdir: str) -> str:
+    def _copy_tar_with_file_changes(
+        self, source_tar: tarfile.TarFile, store: BaseStore, workdir: str, source_repo_id: str, source_ref: str
+    ) -> str:
         """
         Copy the tar archive and update it to reflect the registered file changes.
 
         Args:
             source_tar: The tar archive to copy and update.
             store: The store to get the file changes from.
+            source_repo_id: The repository ID to get the file changes from.
+            source_ref: The branch or commit to get the file changes from.
             workdir: The workdir to use in the sandbox.
 
         Returns:
@@ -187,8 +198,7 @@ class RunSandboxCommandsTool(BaseTool):
                     new_tar.addfile(member)
                 elif member.isfile():
                     if file_change := store.get(
-                        file_changes_namespace(self.source_repo_id, self.source_ref),
-                        member.name.removeprefix(f"{workdir}/"),
+                        file_changes_namespace(source_repo_id, source_ref), member.name.removeprefix(f"{workdir}/")
                     ):
                         if file_change.value["data"].action == FileChangeAction.DELETE:
                             logger.debug("[%s] Skipping deleted file in tar archive: %s", self.name, member.name)
@@ -208,7 +218,7 @@ class RunSandboxCommandsTool(BaseTool):
 
             # Add the new files to the tar archive as they are not in the original tar archive.
             for item in store.search(
-                file_changes_namespace(self.source_repo_id, self.source_ref),
+                file_changes_namespace(source_repo_id, source_ref),
                 filter={"action": FileChangeAction.CREATE},
                 limit=100,
             ):
@@ -237,13 +247,7 @@ class RunSandboxCodeTool(BaseTool):
     )
     args_schema: type[BaseModel] = RunCodeInput
 
-    def _run(
-        self,
-        python_code: str,
-        dependencies: list[str],
-        intent: str,
-        run_manager: CallbackManagerForToolRun | None = None,
-    ) -> str:
+    def _run(self, python_code: str, dependencies: list[str], intent: str, config: RunnableConfig) -> str:
         """
         Run python code in the sandbox.
 

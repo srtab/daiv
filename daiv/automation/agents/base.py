@@ -7,23 +7,28 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
-
-from automation.conf import settings
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
     from langchain_openai.chat_models import ChatOpenAI
-    from langgraph.checkpoint.postgres import PostgresSaver
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.store.base import BaseStore
 
 
 class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
-    DEEPSEEK = "deepseek"
     GOOGLE_GENAI = "google_genai"
+
+
+class ThinkingLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -36,42 +41,33 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
     agent: T
 
-    model_name: str = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name: str | None = None
-
     def __init__(
         self,
         *,
-        run_name: str | None = None,
-        model_name: str | None = None,
-        fallback_model_name: str | None = None,
         usage_handler: OpenAICallbackHandler | None = None,
-        checkpointer: PostgresSaver | None = None,
+        checkpointer: BaseCheckpointSaver | None = None,
+        store: BaseStore | None = None,
     ):
-        self.run_name = run_name or self.__class__.__name__
-        self.model_name = model_name or self.model_name
-        self.fallback_model_name = fallback_model_name or self.fallback_model_name
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.checkpointer = checkpointer
-        self.model = self.get_model(model=self.model_name)
-        self.fallback_model = self.get_model(model=self.fallback_model_name) if self.fallback_model_name else None
-        self.agent = self.compile().with_config(self.get_config())
+        self.store = store
+        self.agent = self.compile()
 
     @abstractmethod
     def compile(self) -> T:
         pass
 
-    def get_model(self, **kwargs) -> BaseChatModel:
+    def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs(**kwargs)
+        model_kwargs = self.get_model_kwargs(model=model, thinking_level=thinking_level, **kwargs)
         return init_chat_model(**model_kwargs)
 
-    def get_model_kwargs(self, **kwargs) -> dict:
+    def get_model_kwargs(self, *, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
         """
         Get the keyword arguments to pass to the model.
 
@@ -79,10 +75,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             dict: The keyword arguments
         """
         _kwargs = {
-            "model": self.model_name,
             "temperature": 0,
             "callbacks": [self.usage_handler],
-            "configurable_fields": ("model", "temperature", "max_tokens"),
+            "configurable_fields": ("temperature", "max_tokens"),
             "model_kwargs": {},
             **kwargs,
         }
@@ -93,22 +88,28 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
             # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
             # If needed, we can increase this value using the configurable field.
-            _kwargs["max_tokens"] = "2048"
-            _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"}
-        elif model_provider in [ModelProvider.DEEPSEEK, ModelProvider.GOOGLE_GENAI]:
+            if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
+                # When using thinking the temperature need to be set to 1
+                _kwargs["temperature"] = 1
+                if thinking_level == ThinkingLevel.LOW:
+                    _kwargs["max_tokens"] = 4_096
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_048}
+                elif thinking_level == ThinkingLevel.MEDIUM:
+                    _kwargs["max_tokens"] = 10_240
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_168}
+                elif thinking_level == ThinkingLevel.HIGH:
+                    _kwargs["max_tokens"] = 20_480
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_384}
+            else:
+                _kwargs["max_tokens"] = 2_048
+        elif model_provider == ModelProvider.OPENAI:
+            if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
+                _kwargs["temperature"] = 1
+                _kwargs["reasoning_effort"] = thinking_level
+        elif model_provider in [ModelProvider.GOOGLE_GENAI]:
             # otherwise google_genai will be inferred as google_vertexai
-            # deepseek is not yet being inferred yet by langchain
             _kwargs["model_provider"] = model_provider
         return _kwargs
-
-    def get_config(self) -> RunnableConfig:
-        """
-        Get the configuration for the agent.
-
-        Returns:
-            dict: The configuration
-        """
-        return RunnableConfig(run_name=self.run_name, tags=[self.run_name], metadata={}, configurable={})
 
     def draw_mermaid(self):
         """
@@ -117,23 +118,29 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             str: The Mermaid graph
         """
-        return self.agent.get_graph().draw_mermaid()
+        if isinstance(self.agent, CompiledStateGraph):
+            return self.agent.get_graph(xray=True).draw_mermaid_png()
+        return self.agent.get_graph().draw_mermaid_png()
 
-    def get_num_tokens_from_messages(self, messages: list[BaseMessage]) -> int:
+    def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """
         Get the number of tokens from a list of messages.
 
         Args:
             messages (list[BaseMessage]): The messages
+            model_name (str): The model name
 
         Returns:
             int: The number of tokens
         """
-        return self.model.get_num_tokens_from_messages(messages)
+        return self.get_model(model=model_name).get_num_tokens_from_messages(messages)
 
     def get_max_token_value(self, model_name: str) -> int:
         """
         Get the maximum token value for the model.
+
+        Args:
+            model_name (str): The model name
 
         Returns:
             int: The maximum token value
@@ -144,12 +151,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 return 8192
 
             case ModelProvider.OPENAI:
-                _, encoding_model = cast("ChatOpenAI", self.model)._get_encoding_model()
+                _, encoding_model = cast("ChatOpenAI", self.get_model(model=model_name))._get_encoding_model()
                 return encoding_model.max_token_value
-
-            case ModelProvider.DEEPSEEK:
-                # As stated in docs: https://api-docs.deepseek.com/quick_start/pricing
-                return 8192
 
             case ModelProvider.GOOGLE_GENAI:
                 # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash
@@ -169,9 +172,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             ModelProvider: The model provider
         """
-        if model_name.startswith("deepseek"):
-            model_provider = ModelProvider.DEEPSEEK
-        elif model_name.startswith("gemini"):
+        model_provider: ModelProvider | None = None
+
+        if model_name.startswith("gemini"):
             model_provider = ModelProvider.GOOGLE_GENAI
         else:
             model_provider = cast("ModelProvider | None", _attempt_infer_model_provider(model_name))

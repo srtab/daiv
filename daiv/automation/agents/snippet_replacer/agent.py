@@ -5,8 +5,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from automation.agents import BaseAgent
-from automation.conf import settings
 
+from .conf import settings
 from .prompts import human, system
 from .schemas import SnippetReplacerOutput
 from .utils import find_original_snippet
@@ -26,8 +26,6 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
     """
     Agent to replace a code snippet in a codebase.
     """
-
-    model_name = settings.SNIPPET_REPLACER_MODEL_NAME
 
     def compile(self) -> Runnable:
         """
@@ -51,8 +49,10 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             Runnable: The appropriate method
         """
-        if settings.SNIPPET_REPLACER_STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
-            return self._prompt | self.model.with_structured_output(SnippetReplacerOutput)
+        if settings.STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
+            return self._prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+                SnippetReplacerOutput
+            )
         return RunnableLambda(self._replace_content_snippet)
 
     def _replace_content_snippet(self, input_data: SnippetReplacerInput) -> SnippetReplacerOutput | str:
@@ -109,9 +109,9 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         empty_messages = prompt.invoke({"original_snippet": "", "replacement_snippet": "", "content": ""}).to_messages()
         # try to anticipate the number of tokens needed for the output
         estimated_needed_tokens = self.get_num_tokens_from_messages(
-            filled_messages
-        ) - self.get_num_tokens_from_messages(empty_messages)
-        return estimated_needed_tokens <= self.get_max_token_value(self.model_name)
+            filled_messages, settings.MODEL_NAME
+        ) - self.get_num_tokens_from_messages(empty_messages, settings.MODEL_NAME)
+        return estimated_needed_tokens <= self.get_max_token_value(settings.MODEL_NAME)
 
     @cached_property
     def _prompt(self) -> ChatPromptTemplate:

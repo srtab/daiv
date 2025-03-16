@@ -18,7 +18,7 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 </summary>
 
-**{{ plan_task.context }}.**
+**{{ plan_task.description }}**
 {% for subtask in plan_task.subtasks %}
 - [ ] {{ subtask }}{% endfor %}
 
@@ -28,8 +28,8 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 💡 **Next Steps:**
 
- - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then replan the tasks.
  - ✅ If the plan is good, please approve the plan by **replying directly to this discussion** and I'll execute the plan.
+ - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then replan the tasks.
 """  # noqa: E501
 
 ISSUE_REPLAN_TEMPLATE = """### 🔄 ***Replanning***
@@ -41,7 +41,7 @@ I'm replanning the tasks with the new issue details.
 
 ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Unable to define a plan***
 
-I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to clarify the following questions:
+I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to **clarify the following questions**:
 
 {% for question in questions %}
 1. {{ question }}{% endfor %}
@@ -63,6 +63,26 @@ I was unable to define a plan for this issue. To help me assist you better, plea
 💡 **Next Steps:**
 
  - Update the issue description/title and I'll attempt to create a plan again.
+"""  # noqa: E501
+
+
+ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE = """### ⚠ ***Unable to Execute the Plan***
+
+I was unable to execute the plan for this issue. To help me assist you better, please make the following adjustments:
+
+- **Refine Description:** Provide more details about the problem.
+- **Add Examples:** Include specific examples or scenarios to clarify the issue.
+- **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
+
+💡 **Next Steps:**
+
+- Update the issue description/title and I'll attempt to create a plan again.
+"""  # noqa: E501
+
+
+ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE = """### ⚠ ***Unable to Process the Issue***
+
+An unexpected error occurred while processing the issue.
 """  # noqa: E501
 
 

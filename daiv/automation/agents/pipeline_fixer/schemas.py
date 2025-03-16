@@ -1,38 +1,35 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
-class PipelineLogClassifierOutput(BaseModel):
+class ErrorLogEvaluation(BaseModel):
     """
-    Classify the root cause of the failure.
+    Provide the output of the error log evaluator to determine if the two logs are the same error using this tool.
     """
 
-    # model_config = ConfigDict(title="pipeline_log_classifier")  # noqa: ERA001
+    is_same_error: bool = Field(description="Whether the two logs are the same error")
+    justification: str = Field(description="The justification for the decision")
 
-    category: Literal["codebase", "external-factor"] = Field(
-        ...,
-        description="State whether the issue is 'codebase' or 'external-factor'. "
-        "If there is any possibility that the issue could be caused by an external factor, "
-        "classify it as 'external-factor'.",
+
+class TroubleshootingDetail(BaseModel):
+    """
+    Provide a detailed explanation of your troubleshooting findings.
+    """
+
+    title: str = Field(description="A short title of the issue.", default="")
+    details: str = Field(
+        description=(
+            "Summary of your key troubleshooting findings. "
+            "Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed."
+        )
     )
-    pipeline_phase: Literal["lint", "unittest", "other"] = Field(
-        ...,
-        description="Identified the phase when the pipeline failed according to job_logs output. "
-        "If the command and command output is related with unittests failing, state it as 'unittest'. "
-        "If it is related with linting, state it as 'lint'. Otherwise as 'other'.",
-    )
-    category_reasoning: str = Field(
-        ...,
-        description="Explain the reasoning behind your categorization. "
-        "Consider the potential external factors that could have caused the failure.",
-    )
-    root_cause: str = Field(
-        ...,
-        description="A detailed explanation of the primary cause behind the failure. "
-        "If related to the 'codebase', describe any code elements potentially contributing to the problem. "
-        "For 'external-factor' issues, clarify which external factors may have impacted functionality. "
-        "Use markdown formatting for `variables`, `files`, `directories`, `dependencies`, etc.",
+    file_path: str = Field(description="The path to the file that is causing the issue, if applicable.", default="")
+    remediation_steps: list[str] = Field(
+        description=(
+            "Outline actionable remediation steps to resolve the identified issues, "
+            "including any code changes, configuration adjustments, or infrastructure interventions. "
+            "Focus on actions that solve the identified issue directly."
+        ),
+        default_factory=list,
     )
 
 
@@ -52,3 +49,11 @@ class ActionPlanOutput(BaseModel):
     """
 
     actions: list[ActionPlan] = Field(..., description="A list of actions to fix the issue.")
+
+
+class CommandOutputResult(BaseModel):
+    """
+    Result of the command output analysis to determine if there are any errors, or indications of failures.
+    """
+
+    has_errors: bool = Field(description="Whether the command output contains any errors, or indications of failures.")

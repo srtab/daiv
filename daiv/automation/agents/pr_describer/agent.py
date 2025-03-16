@@ -6,8 +6,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
 from automation.agents import BaseAgent
-from automation.conf import settings
 
+from .conf import settings
 from .prompts import human, system
 from .schemas import PullRequestDescriberOutput
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class PullRequestDescriberInput(TypedDict):
     changes: list[FileChange]
-    extra_details: NotRequired[dict[str, str]]
+    extra_context: NotRequired[str]
     branch_name_convention: NotRequired[str]
 
 
@@ -28,13 +28,14 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     Agent to describe changes in a pull request.
     """
 
-    model_name = settings.GENERIC_COST_EFFICIENT_MODEL_NAME
-    fallback_model_name = settings.CODING_COST_EFFICIENT_MODEL_NAME
-
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
-            branch_name_convention=None, extra_details={}
+            branch_name_convention=None, extra_context=""
         )
-        return prompt | self.model.with_structured_output(PullRequestDescriberOutput).with_fallbacks([
-            cast("BaseChatModel", self.fallback_model).with_structured_output(PullRequestDescriberOutput)
+        return prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+            PullRequestDescriberOutput
+        ).with_fallbacks([
+            cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
+                PullRequestDescriberOutput
+            )
         ])

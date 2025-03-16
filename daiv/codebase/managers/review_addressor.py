@@ -4,25 +4,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from django.conf import settings
-
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.graph import START
+from langgraph.store.memory import InMemoryStore
 from unidiff import Hunk, PatchedFile, PatchSet
 
-from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
-from codebase.base import (
-    Discussion,
-    FileChange,
-    FileChangeAction,
-    Note,
-    NoteDiffPosition,
-    NoteDiffPositionType,
-    NotePositionType,
-    NoteType,
-)
+from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
@@ -34,6 +21,11 @@ if TYPE_CHECKING:
     from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
+
+
+START_TASK_MESSAGE = "⏳ Working on it, i'll confirm once done..."
+END_TASK_MESSAGE = "✅ Task completed—ready for your review!"
+ERROR_TASK_MESSAGE = "⚠️ Oops! I couldn't handle that comment. Drop a reply to retry!"
 
 
 @dataclass
@@ -140,38 +132,6 @@ class NoteProcessor:
         return None
 
 
-class UniqueFileChangeList:
-    """
-    A list-like container that maintains uniqueness of FileChange objects based on their file_path and action.
-    Later changes to the same file override earlier ones.
-    """
-
-    def __init__(self):
-        self._changes: dict[tuple[str, FileChangeAction], FileChange] = {}
-
-    def extend(self, changes: list[FileChange]):
-        """
-        Add multiple FileChange objects, maintaining uniqueness.
-
-        Args:
-            changes: A list of FileChange objects to add.
-        """
-        for change in changes:
-            self._changes[(change.file_path, change.action)] = change
-
-    def __bool__(self):
-        return bool(self._changes)
-
-    def to_list(self) -> list[FileChange]:
-        """
-        Convert to a regular list of FileChange objects.
-
-        Returns:
-            A list of FileChange objects.
-        """
-        return list(self._changes.values())
-
-
 class ReviewAddressorManager(BaseManager):
     """
     Manages the code review process.
@@ -189,87 +149,78 @@ class ReviewAddressorManager(BaseManager):
         """
         client = RepoClient.create_instance()
         manager = cls(client, repo_id, ref, merge_request_id=merge_request_id)
-        manager._process_review()
 
-    def _process_review(self):
+        resolved_discussions: list[tuple[str, str]] = []
+
+        for context in manager._process_discussions(manager._extract_merge_request_diffs()):
+            try:
+                if result := manager._process_discussion(context):
+                    resolved_discussions.append(result)
+            except Exception:
+                # If there is an error, we will not resolve the discussion but we will continue to process the next one,
+                # avoiding loosing the work done so far.
+                logger.exception("Error processing discussion: %s", context.discussion.id)
+
+        if file_changes := manager._get_file_changes():
+            manager._commit_changes(file_changes=file_changes)
+
+        for discussion_id, note_id in resolved_discussions:
+            manager.client.update_merge_request_discussion_note(
+                manager.repo_id, manager.merge_request_id, discussion_id, note_id, END_TASK_MESSAGE
+            )
+            manager.client.resolve_merge_request_discussion(manager.repo_id, manager.merge_request_id, discussion_id)
+
+    def _process_discussion(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
         """
-        Process code review discussions for merge request.
+        Process code review discussion.
 
         If the discussion is resolved, it will save the file changes to be committed later.
         Each iteration of dicussions resolution will be processed with the changes from the previous iterations,
         ensuring that the file changes are processed correctly.
         """
-        file_changes = UniqueFileChangeList()
-        resolved_discussions: list[str] = []
+        thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
 
-        merge_request_patches = self._extract_merge_request_diffs()
-        for context in self._process_discussions(merge_request_patches):
-            thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
+        config = RunnableConfig(
+            run_name="ReviewAddressor",
+            tags=["review_addressor", str(self.client.client_slug)],
+            metadata={"merge_request_id": self.merge_request_id, "discussion_id": context.discussion.id},
+            configurable={"thread_id": thread_id, "source_repo_id": self.repo_id, "source_ref": self.ref},
+        )
 
-            config = RunnableConfig(configurable={"thread_id": thread_id})
+        # Create a new store for each discussion.
+        file_changes_store = InMemoryStore()
+        # Pre-populate the store with file changes that resulted from previous discussions resolution.
+        self._set_file_changes(self._get_file_changes(), store=file_changes_store)
 
-            with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-                reviewer_addressor = ReviewAddressorAgent(
-                    self.client,
-                    source_repo_id=self.repo_id,
-                    source_ref=self.ref,
-                    merge_request_id=self.merge_request_id,
-                    discussion_id=context.discussion.id,
-                    checkpointer=checkpointer,
-                    file_changes=file_changes.to_list(),
-                )
-                reviewer_addressor_agent = reviewer_addressor.agent
+        reviewer_addressor = ReviewAddressorAgent(store=file_changes_store)
 
-                current_state = reviewer_addressor_agent.get_state(config)
-                result = None
+        note_id = self.client.create_merge_request_discussion_note(
+            self.repo_id, self.merge_request_id, START_TASK_MESSAGE, discussion_id=context.discussion.id
+        )
 
-                # ``current_state.next`` is empty on first run or when the graph is in a final state.
-                if not current_state.next or START in current_state.next:
-                    result = reviewer_addressor_agent.invoke(
-                        {
-                            "diff": context.diff,
-                            "messages": notes_to_messages(context.notes, self.client.current_user.id),
-                            "response": None,
-                        },
-                        config,
-                    )
+        try:
+            result = reviewer_addressor.agent.invoke(
+                {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff}, config
+            )
+        except Exception:
+            logger.exception("Error processing discussion: %s", context.discussion.id)
+            self.client.update_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, context.discussion.id, note_id, ERROR_TASK_MESSAGE
+            )
+            return None
 
-                elif "human_feedback" in current_state.next:
-                    reviewer_addressor_agent.update_state(
-                        config,
-                        {"messages": notes_to_messages(context.notes, self.client.current_user.id), "response": None},
-                        as_node="human_feedback",
-                    )
+        if note := (result.get("reply") or result.get("plan_questions")):
+            self.client.update_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
+            )
+        elif files_to_commit := self._get_file_changes(store=file_changes_store):
+            # Update the global file changes store with file changes that resulted from the discussion resolution.
+            self._set_file_changes(files_to_commit)
+            return context.discussion.id, note_id
 
-                if current_state.tasks:
-                    # This can happen if the agent got an error and we need to retry, or was interrupted.
-                    result = reviewer_addressor_agent.invoke(None, config)
+        return None
 
-                state_after_run = reviewer_addressor_agent.get_state(config)
-
-                if result and "response" in result and result["response"]:
-                    self.client.create_merge_request_discussion_note(
-                        self.repo_id, self.merge_request_id, result["response"], context.discussion.id
-                    )
-
-                if not state_after_run.tasks:
-                    if files_to_commit := reviewer_addressor.get_files_to_commit():
-                        # Add new file changes while maintaining uniqueness
-                        file_changes.extend(files_to_commit)
-
-                    if result and ("response" not in result or not result["response"]):
-                        # If the response is not in the result or is empty, it means the discussion was resolved,
-                        # no further action would be needed.
-                        resolved_discussions.append(context.discussion.id)
-
-        if file_changes:
-            self._commit_changes(file_changes=file_changes.to_list(), thread_id=thread_id)
-
-        if resolved_discussions:
-            for discussion_id in resolved_discussions:
-                self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, discussion_id)
-
-    def _extract_merge_request_diffs(self):
+    def _extract_merge_request_diffs(self) -> dict[str, PatchedFile]:
         """
         Extract patch files from merge request.
         """
@@ -326,15 +277,3 @@ class ReviewAddressorManager(BaseManager):
             if context.notes:
                 discussions.append(context)
         return discussions
-
-    def _commit_changes(self, *, file_changes: list[FileChange], thread_id: str):
-        """
-        Commit changes to the merge request.
-        """
-        pr_describer = PullRequestDescriberAgent()
-        changes_description = pr_describer.agent.invoke(
-            {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
-            config=RunnableConfig(configurable={"thread_id": thread_id}),
-        )
-
-        self.client.commit_changes(self.repo_id, self.ref, changes_description.commit_message, file_changes)

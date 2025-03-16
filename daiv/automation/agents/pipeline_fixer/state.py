@@ -1,14 +1,48 @@
-from typing import Literal
+from langgraph.prebuilt.chat_agent_executor import AgentState
+from typing_extensions import TypedDict
 
-from automation.agents.pipeline_fixer.schemas import ActionPlan
-from automation.agents.state import PlanExecuteState
+from .schemas import TroubleshootingDetail
 
 
-class OverallState(PlanExecuteState):
-    job_logs: str
+class OverallState(TypedDict):
     diff: str
-    category: Literal["codebase", "external-factor"]
-    pipeline_phase: Literal["lint", "unittest", "other"]
-    root_cause: str
-    actions: list[ActionPlan]
+    """
+    The diff of the changes made to the codebase.
+    """
+
+    job_logs: str
+    """
+    The logs of the job that failed.
+    """
+
+    previous_job_logs: str | None
+    """
+    The logs of the previous job that failed.
+    """
+
+    troubleshooting: list[TroubleshootingDetail]
+    """
+    The troubleshooting details of the job that failed.
+    """
+
     iteration: int
+    """
+    The iteration of the agent.
+    """
+
+    need_manual_fix: bool
+    """
+    Whether the agent couldnt fix the issue and needs a manual fix.
+    """
+
+
+class TroubleshootState(AgentState):
+    diff: str
+    """
+    The diff of the changes made to the codebase.
+    """
+
+    job_logs: str
+    """
+    The logs of the job that failed.
+    """
