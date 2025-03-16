@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Introduced Jupyter notebooks for `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
+- Introduced Jupyter notebooks for `CodebaseChatAgent`, `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
 - Added support to thinking models from Anthropic: `claude-3.7-sonnet` and OpenAI: `o1` and `o3-mini`.
 - Added `PlanAndExecuteAgent` to streamline the creation of agents that need to plan and execute a task. This agent replaced all plan and execute flows on `IssueAddressorAgent`, `PipelineFixerAgent`, and `ReviewAddressorAgent`. The model used to plan and execute is `claude-3.7-sonnet` to leverage the reasoning capabilities of the models, improving the quality of the plans and executions.
 
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor: Review Addressor now add more feedback by adding notes to the end user to inform the status of the discussion resolution.
 - Refactor: Issue Addressor logic improved error handling to provide the end user with more contextualized error messages.
 - Improved observability data sent to the `langsmith` to track all agent executions.
+- Refactor: Renamed `CodebaseQAAgent` to `CodebaseChatAgent` to better reflect the agent's purpose. Now it uses a simple ReAct agent to answer questions. Improved the prompt to be more accurate and concise, and to output the thinking process of the agent.
 
 ### Removed
 
