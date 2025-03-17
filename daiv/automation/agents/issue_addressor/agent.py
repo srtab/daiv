@@ -47,7 +47,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.set_entry_point("assessment")
 
-        return workflow.compile(checkpointer=self.checkpointer, store=self.store)
+        return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     def assessment(self, state: OverallState) -> Command[Literal["prepare_data", "__end__"]]:
         """

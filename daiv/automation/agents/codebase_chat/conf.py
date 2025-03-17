@@ -11,6 +11,7 @@ class CodebaseChatSettings(BaseSettings):
 
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_CHAT_")
 
+    NAME: str = Field(default="CodebaseChat", description="Name of the codebase chat agent.")
     MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for codebase chat."
     )

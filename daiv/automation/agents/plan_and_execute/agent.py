@@ -8,6 +8,7 @@ from langchain_core.runnables import (
     RunnableConfig,  # noqa: TC002
     RunnableLambda,
 )
+from langchain_core.runnables.config import DEFAULT_RECURSION_LIMIT
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -85,7 +86,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         else:
             workflow.set_entry_point("execute_plan")
 
-        return workflow.compile(checkpointer=self.checkpointer, store=self.store)
+        return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     def plan_subgraph(self, store: BaseStore | None = None) -> CompiledGraph:
         """
@@ -109,10 +110,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             system_message = cast(
                 "SystemMessage",
                 self.plan_system_template.format(
-                    tools=tools_names, recursion_limit=config.get("recursion_limit", settings.RECURSION_LIMIT)
+                    tools=tools_names, recursion_limit=config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
                 ),
             )
-            return [system_message] + state["messages"]
+            return [system_message] + cast("list[BaseMessage]", state["messages"])
 
         return create_react_agent(
             # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
@@ -122,7 +123,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=RunnableLambda(prompt),
-            name="plan_react_agent",
+            name="Planner",
             version="v2",
         )
 
@@ -181,13 +182,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
-            name="execute_react_agent",
+            name="PlanExecuter",
             version="v2",
         )
 
         react_agent.invoke(
             {"plan_goal": state["plan_goal"], "plan_tasks": list(enumerate(state["plan_tasks"]))},
-            config={"recursion_limit": config.get("recursion_limit", settings.RECURSION_LIMIT)},
+            config={"recursion_limit": config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)},
         )
 
         if store.search(file_changes_namespace(source_repo_id, source_ref), limit=1):

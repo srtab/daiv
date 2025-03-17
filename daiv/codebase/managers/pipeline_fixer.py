@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
+from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient, RepoClient
@@ -59,8 +60,7 @@ class PipelineFixerManager(BaseManager):
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
         config = RunnableConfig(
-            run_name="PipelineFixer",
-            tags=["pipeline_fixer", str(self.client.client_slug)],
+            tags=[pipeline_fixer_settings.NAME, str(self.client.client_slug)],
             metadata={"merge_request_id": merge_request_id, "job_id": job_id},
             configurable={
                 "thread_id": self.thread_id,

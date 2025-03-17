@@ -6,18 +6,19 @@ from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
-from unidiff import Hunk, PatchedFile, PatchSet
+from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile, PatchSet
+from unidiff.patch import Line
 
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
+from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
-from codebase.managers.base import BaseManager
 from codebase.utils import notes_to_messages
 from core.utils import generate_uuid
 
-if TYPE_CHECKING:
-    from unidiff.patch import Line
+from .base import BaseManager
 
+if TYPE_CHECKING:
     from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
@@ -41,9 +42,17 @@ class NoteProcessor:
     Processes text-based diff notes.
     """
 
-    def extract_diff(self, note: Note, patch_file: PatchedFile) -> str | None:
+    def extract_diff(self, note: Note, patch_file: PatchedFile, file_content: str) -> str | None:
         """
         Extract diff content where the note was left.
+
+        Args:
+            note: The note containing position information
+            patch_file: The patch file to extract content from
+            file_content: The file content to extract content from when the note is an expanded line range
+
+        Returns:
+            str | None: The extracted diff content or None if extraction fails
         """
         if not note.position:
             return None
@@ -51,84 +60,126 @@ class NoteProcessor:
         if note.position.position_type == NotePositionType.FILE:
             return str(patch_file)
         elif note.position.position_type == NotePositionType.TEXT and note.position.line_range:
-            return self._extract_diff_content(note, patch_file)
+            # Extract line range information
+            start_info = self._get_line_info(note.position.line_range.start)
+            end_info = self._get_line_info(note.position.line_range.end)
 
+            return self._build_diff_content(
+                self._merge_hunks_from_patch_file(patch_file, file_content), start_info, end_info
+            )
         return None
 
-    def _extract_diff_content(self, note: Note, patch_file: PatchedFile) -> str | None:
+    def _merge_hunks_from_patch_file(self, patch_file: PatchedFile, original_content: str) -> PatchedFile:
         """
-        Extract diff content from note.
+        Merge all hunks from patch file into a single hunk with the whole file content.
+
+        This simplifies the diff processing as we can treat the patch file as a single hunk. Specially for the case
+        where the note is an expanded line range.
 
         Args:
-            note: The note containing position information
-            patch_file: The patch file to extract content from
+            patch_file: The patch file to merge
+            original_content: The original content of the file
 
         Returns:
-            str | None: The extracted diff content or None if extraction fails
+            The patch file with the merged hunks
         """
-        # Add null safety checks
-        if not note.position or not note.position.line_range:
-            return None
+        splitted_content = original_content.splitlines()
 
-        if (
-            note.position.line_range.start.type == NoteDiffPositionType.EXPANDED
-            or note.position.line_range.end.type == NoteDiffPositionType.EXPANDED
-        ):
-            logger.warning("Ignoring note, expanded line range not supported yet: %s", note.id)
-            return None
+        unified_hunk = Hunk(src_start=1, src_len=len(splitted_content), tgt_start=1, tgt_len=len(splitted_content))
 
-        # Extract line range information
-        start_info = self._get_line_info(note.position.line_range.start)
-        end_info = self._get_line_info(note.position.line_range.end)
+        # Add lines of original content to the unified hunk
+        for line_no, line in enumerate(splitted_content, 1):
+            unified_hunk.append(
+                Line(
+                    line + "\n", LINE_TYPE_CONTEXT, source_line_no=line_no, target_line_no=line_no, diff_line_no=line_no
+                )
+            )
 
-        return self._build_diff_content(patch_file, start_info, end_info)
+        # Add hunks from patch file to the unified hunk
+        hunk_offset = 0
+        for hunk in patch_file:
+            unified_hunk[
+                hunk.target_start + hunk_offset - 1 : hunk.target_start + hunk.target_length + hunk_offset - 1
+            ] = hunk
+            # Extra lines from source added to the unified hunk, tipically removed lines
+            hunk_offset = len([1 for line in hunk if line.target_line_no is None])
+
+        # Normalize line numbers to be sequential
+        source_line_no = 0
+        target_line_no = 0
+        for line in unified_hunk:
+            if line.source_line_no is not None:
+                source_line_no += 1
+                line.source_line_no = source_line_no
+            if line.target_line_no is not None:
+                target_line_no += 1
+                line.target_line_no = target_line_no
+
+        # Adjust the source length to account for added and removed lines
+        unified_hunk.source_length -= unified_hunk.added - unified_hunk.removed
+
+        # Create a new patch file with the unified hunk
+        new_patch_file = PatchedFile(source=patch_file.source_file, target=patch_file.target_file)
+        new_patch_file.append(unified_hunk)
+        return new_patch_file
 
     def _get_line_info(self, position: NoteDiffPosition) -> dict:
         """
         Extract line information from position.
+
+        Args:
+            position: The position containing line information
+
+        Returns:
+            dict: The line information
         """
         side = "target" if position.type != NoteDiffPositionType.OLD else "source"
         line_no = position.new_line if side == "target" else position.old_line
-        return {"side": side, "line_no": line_no}
+        return {"side": side, "line_no": line_no, "new_line": position.new_line, "old_line": position.old_line}
 
     def _build_diff_content(self, patch_file: PatchedFile, start_info: dict, end_info: dict) -> str | None:
         """
         Build diff content from patch file based on note position.
+
+        Args:
+            patch_file: The patch file to extract content from
+            start_info: The start line information
+            end_info: The end line information
+
+        Returns:
+            str | None: The extracted diff content or None if extraction fails
         """
         for patch_hunk in patch_file:
-            start = getattr(patch_hunk, f"{start_info['side']}_start")
-            length = getattr(patch_hunk, f"{start_info['side']}_length")
+            diff_code_lines: list[Line] = []
 
-            if start <= start_info["line_no"] <= start + length:
-                diff_code_lines: list[Line] = []
+            for patch_line in patch_hunk:
+                start_side_line_no = getattr(patch_line, f"{start_info['side']}_line_no")
+                end_side_line_no = getattr(patch_line, f"{end_info['side']}_line_no")
 
-                for patch_line in patch_hunk:
-                    start_side_line_no = getattr(patch_line, f"{start_info['side']}_line_no")
-                    end_side_line_no = getattr(patch_line, f"{end_info['side']}_line_no")
+                if (start_side_line_no and start_side_line_no >= start_info["line_no"]) or (
+                    # we need to check diff_code_lines here to only check the end_line_no after we have
+                    # found the start_line_no.
+                    # Otherwise, we might end up with a line that is not part of the diff code lines.
+                    diff_code_lines
+                    and (end_side_line_no is None or end_side_line_no and end_side_line_no <= end_info["line_no"])
+                ):
+                    diff_code_lines.append(patch_line)
 
-                    if (start_side_line_no and start_side_line_no >= start_info["line_no"]) or (
-                        # we need to check diff_code_lines here to only check the end_line_no after we have
-                        # found the start_line_no.
-                        # Otherwise, we might end up with a line that is not part of the diff code lines.
-                        diff_code_lines
-                        and (end_side_line_no is None or end_side_line_no and end_side_line_no <= end_info["line_no"])
-                    ):
-                        diff_code_lines.append(patch_line)
+                if end_side_line_no and end_info["line_no"] == end_side_line_no:
+                    break
 
-                    if end_side_line_no and end_info["line_no"] == end_side_line_no:
-                        break
+            hunk = Hunk(
+                src_start=diff_code_lines[0].source_line_no or diff_code_lines[0].target_line_no,
+                src_len=len([line for line in diff_code_lines if line.is_context or line.is_removed]),
+                tgt_start=diff_code_lines[0].target_line_no or diff_code_lines[0].source_line_no,
+                tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
+            )
+            hunk.extend(diff_code_lines)
 
-                hunk = Hunk(
-                    src_start=diff_code_lines[0].source_line_no or diff_code_lines[0].target_line_no,
-                    src_len=len([line for line in diff_code_lines if line.is_context or line.is_removed]),
-                    tgt_start=diff_code_lines[0].target_line_no or diff_code_lines[0].source_line_no,
-                    tgt_len=len([line for line in diff_code_lines if line.is_context or line.is_added]),
-                )
-                hunk.extend(diff_code_lines)
-                # Extract the first two lines of the patch file to get the header
-                diff_header = "\n".join(str(patch_file).splitlines()[:2]) + "\n"
-                # Return the diff header and the new hunk
-                return diff_header + str(hunk)
+            # Extract the first two lines of the patch file to get the header
+            diff_header = "\n".join(str(patch_file).splitlines()[:2]) + "\n"
+
+            return diff_header + str(hunk)
         return None
 
 
@@ -160,7 +211,6 @@ class ReviewAddressorManager(BaseManager):
                 # If there is an error, we will not resolve the discussion but we will continue to process the next one,
                 # avoiding loosing the work done so far.
                 logger.exception("Error processing discussion: %s", context.discussion.id)
-
         if file_changes := manager._get_file_changes():
             manager._commit_changes(file_changes=file_changes)
 
@@ -181,8 +231,7 @@ class ReviewAddressorManager(BaseManager):
         thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
 
         config = RunnableConfig(
-            run_name="ReviewAddressor",
-            tags=["review_addressor", str(self.client.client_slug)],
+            tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
             metadata={"merge_request_id": self.merge_request_id, "discussion_id": context.discussion.id},
             configurable={"thread_id": thread_id, "source_repo_id": self.repo_id, "source_ref": self.ref},
         )
@@ -234,7 +283,6 @@ class ReviewAddressorManager(BaseManager):
                 patch_set_all.append(patch_set[0])
 
         merge_request_patches["__all__"] = patch_set_all
-
         return merge_request_patches
 
     def _process_discussions(self, merge_request_patches: dict[str, PatchedFile]) -> list[DiscussionReviewContext]:
@@ -268,9 +316,13 @@ class ReviewAddressorManager(BaseManager):
                         continue
 
                     if context.patch_file is None:
-                        # This logic assumes that all notes will have the same patch file and
+                        # This logic assumes that all notes will have the same patch file
                         context.patch_file = merge_request_patches[path]
-                        context.diff = self.note_processor.extract_diff(note, context.patch_file)
+                        file_content = self.client.get_repository_file(self.repo_id, path, self.ref)
+                        if not file_content:
+                            raise ValueError(f"File content '{path}' for note: {note.id} not found")
+                        context.diff = self.note_processor.extract_diff(note, context.patch_file, file_content)
+                        print(context.diff)  # noqa: T201
 
                 context.notes.append(note)
 

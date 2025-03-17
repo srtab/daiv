@@ -55,7 +55,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.set_entry_point("should_try_to_fix")
 
-        return workflow.compile(checkpointer=self.checkpointer, store=self.store)
+        return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     def should_try_to_fix(
         self, state: OverallState, config: RunnableConfig

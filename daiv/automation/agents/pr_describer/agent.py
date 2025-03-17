@@ -38,4 +38,4 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
             cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
                 PullRequestDescriberOutput
             )
-        ])
+        ]).with_config({"run_name": settings.NAME})
