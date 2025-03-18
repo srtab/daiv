@@ -11,7 +11,8 @@ class SnippetReplacerSettings(BaseSettings):
 
     NAME: str = Field(default="SnippetReplacer", description="Name of the snippet replacer agent.")
     MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for snippet replacer."
+        default=ModelName.CLAUDE_3_5_HAIKU_20241022,
+        description="Model name to be used for snippet replacer. This model is used for the LLM strategy.",
     )
     STRATEGY: Literal["llm", "find_and_replace"] = Field(
         default="find_and_replace",

@@ -38,10 +38,8 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             (
                 RunnableLambda(self._route, name="route_replacer")
                 | RunnableLambda(self._post_process, name="post_process_output")
-            )
-            .with_fallbacks([RunnableLambda(self._replace_content_snippet)])
-            .with_config({"run_name": settings.NAME})
-        )
+            ).with_fallbacks([RunnableLambda(self._replace_content_snippet)])
+        ).with_config({"run_name": settings.NAME})
 
     def _route(self, input_data: SnippetReplacerInput) -> Runnable:
         """
