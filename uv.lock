@@ -615,10 +615,10 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = "==2.1" },
     { name = "langchain-openai", specifier = "==0.3.9" },
     { name = "langchain-text-splitters", specifier = "==0.3.6" },
-    { name = "langgraph", specifier = "==0.3.11" },
+    { name = "langgraph", specifier = "==0.3.14" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.18" },
     { name = "langsmith", specifier = "==0.3.15" },
-    { name = "pgvector", specifier = "==0.4.0" },
+    { name = "pgvector", specifier = "==0.4" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.6" },
     { name = "pydantic", specifier = "==2.10.6" },
     { name = "pydantic-settings", specifier = "==2.8.1" },
@@ -1654,7 +1654,7 @@ wheels = [
 
 [[package]]
 name = "langgraph"
-version = "0.3.11"
+version = "0.3.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
@@ -1662,9 +1662,9 @@ dependencies = [
     { name = "langgraph-prebuilt" },
     { name = "langgraph-sdk" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/fc/4c124ae44327442678141141db163f77a454d164534bdc41fd1b943fb6c4/langgraph-0.3.11.tar.gz", hash = "sha256:bcbc78e7b4b584c858f42362734d2190802a7c75966faf1f603057f296f358bc", size = 111394 }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/a0/bfd58b346a5739e23c9a94a6c891a18c8e891f5676d662cb2fd50b6a9895/langgraph-0.3.14.tar.gz", hash = "sha256:7e67a182c31784a033ea73fea74ac2bea26ea5acc29a8817f775e5aa6cae6421", size = 111878 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/66/f456f1a4d01abbebaf8dc2b41123bc8c17806c4f61940a4bef424ca084c2/langgraph-0.3.11-py3-none-any.whl", hash = "sha256:b7b5b8a07ed37649d6b928b46462a06911b5bc89b5ee329d53a41ad2f33d56a8", size = 132510 },
+    { url = "https://files.pythonhosted.org/packages/d2/d2/15f85b34249ed8514dc5bc9a293efb82924bf1d051a3ddc5639e5af23169/langgraph-0.3.14-py3-none-any.whl", hash = "sha256:8dd1bd2e3805def79f86f78a74f3d502fa1e2aa664b4cf41bde05a6e5c211b8d", size = 132972 },
 ]
 
 [[package]]
@@ -3063,11 +3063,11 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "76.0.0"
+version = "76.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/32/d2/7b171caf085ba0d40d8391f54e1c75a1cda9255f542becf84575cfd8a732/setuptools-76.0.0.tar.gz", hash = "sha256:43b4ee60e10b0d0ee98ad11918e114c70701bc6051662a9a675a0496c1a158f4", size = 1349387 }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/2b/287ade3a580869e6178cb37d045f54272b1f006f2c0ff6fad08db258d027/setuptools-76.1.0.tar.gz", hash = "sha256:4959b9ad482ada2ba2320c8f1a8d8481d4d8d668908a7a1b84d987375cd7f5bd", size = 1350273 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/66/d2d7e6ad554f3a7c7297c3f8ef6e22643ad3d35ef5c63bf488bc89f32f31/setuptools-76.0.0-py3-none-any.whl", hash = "sha256:199466a166ff664970d0ee145839f5582cb9bca7a0a3a2e795b6a9cb2308e9c6", size = 1236106 },
+    { url = "https://files.pythonhosted.org/packages/62/fb/47dc84839f2743553075c80d08543b3d0f498f42329141b6717504abcdfd/setuptools-76.1.0-py3-none-any.whl", hash = "sha256:34750dcb17d046929f545dec9b8349fe42bf4ba13ddffee78428aec422dbfb73", size = 1236933 },
 ]
 
 [[package]]
