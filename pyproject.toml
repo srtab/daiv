@@ -33,12 +33,12 @@ dependencies = [
   "langchain-anthropic==0.3.10",
   "langchain-community==0.3.19",
   "langchain-google-genai==2.1",
-  "langchain-openai==0.3.8",
+  "langchain-openai==0.3.9",
   "langchain-text-splitters==0.3.6",
   "langgraph==0.3.11",
-  "langgraph-checkpoint-postgres==2.0.17",
+  "langgraph-checkpoint-postgres==2.0.18",
   "langsmith==0.3.15",
-  "pgvector==0.3.6",
+  "pgvector==0.4",
   "psycopg[pool]==3.2.6",
   "pydantic==2.10.6",
   "pydantic-settings==2.8.1",
@@ -46,7 +46,7 @@ dependencies = [
   "python-gitlab==5.6",
   "pyyaml==6.0.2",
   "redis==5.2.1",
-  "sentry-sdk==2.22",
+  "sentry-sdk==2.23.1",
   "tantivy==0.22",
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
@@ -59,7 +59,7 @@ urls.Repository = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.6.12",
+  "coverage==7.7",
   "jupyter==1.1.1",
   "mypy==1.15",
   "pre-commit==4.1",
