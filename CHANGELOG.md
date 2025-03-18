@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `PlanAndExecuteAgent` to streamline the creation of agents that need to plan and execute a task. This agent replaced all plan and execute flows on `IssueAddressorAgent`, `PipelineFixerAgent`, and `ReviewAddressorAgent`. The model used to plan and execute is `claude-3.7-sonnet` to leverage the reasoning capabilities of the models, improving the quality of the plans and executions.
 - Included support to expanded line range for `ReviewAddressorAgent` to allow the agent to address comments on lines that are not part of the original diff.
 - Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
+- Added `CONTRIBUTING.md` file to guide developers on how to contribute to the project.
 
 ### Changed
 
