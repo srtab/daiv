@@ -13,8 +13,8 @@ def determine_next_action(
     action: Plan | AskForClarification, tool_call_id: str
 ) -> Command[Literal["plan_approval", "__end__"]]:
     """
-    Determine the next action to take. Choose the appropriate action based on the feedback.
-    """
+    Use this tool to determine the next action to take, i.e. when you have a plan to share or when you need to ask for clarification.
+    """  # noqa: E501
     message = ToolMessage(content=[{"action": action.model_dump()}], tool_call_id=tool_call_id)
 
     if isinstance(action, AskForClarification):

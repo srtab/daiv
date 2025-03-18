@@ -32,10 +32,13 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
             branch_name_convention=None, extra_context=""
         )
-        return prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(
-            PullRequestDescriberOutput
-        ).with_fallbacks([
-            cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
-                PullRequestDescriberOutput
-            )
-        ])
+        return (
+            prompt
+            | self.get_model(model=settings.MODEL_NAME)
+            .with_structured_output(PullRequestDescriberOutput)
+            .with_fallbacks([
+                cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
+                    PullRequestDescriberOutput
+                )
+            ])
+        ).with_config({"run_name": settings.NAME})

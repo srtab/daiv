@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
 from automation.agents.codebase_chat.agent import CodebaseChatAgent
+from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
 from codebase.clients import RepoClient
 from core.constants import BOT_NAME
 
@@ -37,8 +38,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     codebase_chat = CodebaseChatAgent()
 
     config = RunnableConfig(
-        run_name="CodebaseChat",
-        tags=["codebase_chat", str(client.client_slug)],
+        tags=[codebase_chat_settings.NAME, str(client.client_slug)],
         metadata={"model_id": MODEL_ID, "chat_stream": payload.stream},
     )
 

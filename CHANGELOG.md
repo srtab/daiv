@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced Jupyter notebooks for `CodebaseChatAgent`, `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
 - Added support to thinking models from Anthropic: `claude-3.7-sonnet` and OpenAI: `o1` and `o3-mini`.
 - Added `PlanAndExecuteAgent` to streamline the creation of agents that need to plan and execute a task. This agent replaced all plan and execute flows on `IssueAddressorAgent`, `PipelineFixerAgent`, and `ReviewAddressorAgent`. The model used to plan and execute is `claude-3.7-sonnet` to leverage the reasoning capabilities of the models, improving the quality of the plans and executions.
+- Included support to expanded line range for `ReviewAddressorAgent` to allow the agent to address comments on lines that are not part of the original diff.
+- Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
 
 ### Changed
 
-- Added healthchecks to the docker-compose.yml file to ensure the services are running correctly and at the correct order.
 - Improved performance of `PostgresRetriever` by simplifying the query and take advantage of the `Hnsw` index. **Breaking change: run `update_index` with `--reset-all` to update all indexes.**
 - Grouped automation settings by agent to simplify setup and customization.
 - Replaced `REACTAgent` with `create_react_agent` from `langgraph.prebuilt` for streamlined ReAct agents creation.

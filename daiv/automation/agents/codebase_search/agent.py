@@ -64,4 +64,4 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
                 top_n=settings.TOP_N,
             ),
             base_retriever=base_retriever,
-        )
+        ).with_config({"run_name": settings.NAME})

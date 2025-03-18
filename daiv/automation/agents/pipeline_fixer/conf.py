@@ -12,6 +12,7 @@ class PipelineFixerSettings(BaseSettings):
 
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PIPELINE_FIXER_")
 
+    NAME: str = Field(default="PipelineFixer", description="Name of the pipeline fixer agent.")
     MAX_ITERATIONS: int = Field(default=20, description="Maximum number of retry iterations for pipeline fixer.")
     LOG_EVALUATOR_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for log evaluator."

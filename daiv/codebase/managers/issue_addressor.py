@@ -10,7 +10,8 @@ from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.types import Command
 
-from automation.agents.issue_addressor.agent import IssueAddressorAgent
+from automation.agents.issue_addressor import IssueAddressorAgent
+from automation.agents.issue_addressor.conf import settings as issue_addressor_settings
 from automation.agents.issue_addressor.templates import (
     ISSUE_MERGE_REQUEST_TEMPLATE,
     ISSUE_PLANNING_TEMPLATE,
@@ -22,8 +23,8 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
 )
-from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from automation.conf import settings
+from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.base import FileChange, Issue
 from codebase.clients import AllRepoClient, RepoClient
 from codebase.utils import notes_to_messages
@@ -108,15 +109,14 @@ class IssueAddressorManager(BaseManager):
             should_reset_plan: Whether to reset the plan.
         """
         config = RunnableConfig(
-            run_name="IssueAddressor",
-            recursion_limit=settings.RECURSION_LIMIT,
-            tags=["issue_addressor", str(self.client.client_slug)],
+            recursion_limit=issue_addressor_settings.RECURSION_LIMIT,
+            tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
             configurable={
                 "thread_id": self.thread_id,
                 "project_id": self.repository.pk,
                 "source_repo_id": self.repo_id,
                 "source_ref": self.ref,
-                "issue_id": cast("int", self.issue.iid),
+                "issue_id": self.issue.iid,
                 "repo_client": str(self.client.client_slug),
             },
         )
@@ -244,8 +244,7 @@ class IssueAddressorManager(BaseManager):
                 "branch_name_convention": self.repo_config.branch_name_convention,
             },
             config={
-                "run_name": "PullRequestDescriber",
-                "tags": ["pull_request_describer", str(self.client.client_slug)],
+                "tags": [pr_describer_settings.NAME, str(self.client.client_slug)],
                 "configurable": {"thread_id": thread_id},
             },
         )

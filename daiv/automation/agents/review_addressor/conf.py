@@ -7,6 +7,7 @@ from automation.agents.constants import ModelName
 class ReviewAddressorSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="REVIEW_ADDRESSOR_")
 
+    NAME: str = Field(default="ReviewAddressor", description="Name of the review addressor agent.")
     ASSESSMENT_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Model name to be used for review assessment."
     )

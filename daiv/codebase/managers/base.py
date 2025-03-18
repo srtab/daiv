@@ -3,6 +3,7 @@ from typing import cast
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
+from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import file_changes_namespace
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
@@ -82,8 +83,7 @@ class BaseManager:
         changes_description = pr_describer.agent.invoke(
             {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
             config={
-                "run_name": "PullRequestDescriber",
-                "tags": ["pull_request_describer", str(self.client.client_slug)],
+                "tags": [pr_describer_settings.NAME, str(self.client.client_slug)],
                 "configurable": {"thread_id": thread_id},
             },
         )

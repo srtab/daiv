@@ -35,8 +35,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
             CompiledGraph: The compiled graph.
         """
         index = CodebaseIndex(RepoClient.create_instance())
-
-        react_agent = create_react_agent(
+        return create_react_agent(
             self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
             tools=[SearchCodeSnippetsTool(api_wrapper=index)],
@@ -46,6 +45,5 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
                 current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
             ),
             version="v2",
-            name="codebase_chat_react_agent",
+            name=settings.NAME,
         )
-        return react_agent

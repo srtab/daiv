@@ -60,7 +60,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.set_entry_point("assessment")
 
-        return workflow.compile(checkpointer=self.checkpointer, store=self.store)
+        return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     def assessment(self, state: OverallState) -> Command[Literal["plan_and_execute", "reply_reviewer"]]:
         """
@@ -132,7 +132,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         plan_and_execute = PlanAndExecuteAgent(
-            plan_system_template=review_plan_system, store=store, human_in_the_loop=False, checkpointer=False
+            plan_system_template=review_plan_system, store=store, skip_approval=True, checkpointer=False
         )
 
         result = plan_and_execute.agent.invoke({
