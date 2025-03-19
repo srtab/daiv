@@ -239,6 +239,7 @@ class RunSandboxCodeTool(BaseTool):
     description: str = textwrap.dedent(
         """\
         Evaluates python code in a sandbox environment. The environment is long running and exists across multiple executions. You must send the whole script every time and print your outputs. Script should be pure python code that can be evaluated. It should be in python format NOT markdown. The code should NOT be wrapped in backticks.
+        Theres no state in the sandbox, so the code should be self-contained and not depend on variables from the previous code execution. Theres not persistence across multiple executions, changes on filesystem are not reflected.
 
         Use cases:
         - Running a script to do math calculations.
@@ -258,6 +259,7 @@ class RunSandboxCodeTool(BaseTool):
             code: The python code to run.
             dependencies: The dependencies to install before running the code.
             intent: A description of why you're running this code.
+            config: The config to use for the run.
 
         Returns:
             The results of the commands to feed the agent knowledge.
