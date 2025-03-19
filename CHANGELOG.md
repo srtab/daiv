@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor: Issue Addressor logic improved error handling to provide the end user with more contextualized error messages.
 - Improved observability data sent to the `langsmith` to track all agent executions.
 - Refactor: Renamed `CodebaseQAAgent` to `CodebaseChatAgent` to better reflect the agent's purpose. Now it uses a simple ReAct agent to answer questions. Improved the prompt to be more accurate and concise, and to output the thinking process of the agent.
+- Improved `RetrieveFileContentTool` to allow retrieving multiple files at once, improving the performance of the agent when retrieving multiple files.
+- Enabled `token-efficient-tools` on Anthropic models to reduce the number of tokens used and turn more likely parallel tool calls.
 
 ### Removed
 

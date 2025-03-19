@@ -38,8 +38,13 @@ class RetrieveFileContentInput(BaseModel):
     Get the content of a file from the repository.
     """
 
-    file_path: str = Field(..., description="The path to the file to retrieve (e.g., 'example/tests/test_admin.py').")
-    intent: str = Field(..., description=("A description of why you're obtaining this file"))
+    file_paths: list[str] = Field(
+        description=(
+            "The paths to the files to retrieve (e.g., 'example/tests/test_admin.py'). "
+            "You can provide multiple file paths to retrieve the content of multiple files at once. "
+        )
+    )
+    intent: str = Field(description="A description of why you're getting these files.")
     store: Annotated[Any, InjectedStore()]
 
 
