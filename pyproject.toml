@@ -35,7 +35,7 @@ dependencies = [
   "langchain-google-genai==2.1",
   "langchain-openai==0.3.9",
   "langchain-text-splitters==0.3.7",
-  "langgraph==0.3.16",
+  "langgraph==0.3.18",
   "langgraph-checkpoint-postgres==2.0.18",
   "langsmith==0.3.17",
   "pgvector==0.4",
