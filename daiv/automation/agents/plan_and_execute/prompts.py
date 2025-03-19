@@ -13,8 +13,8 @@ The current date and time is {{ current_date_time }}.
 
 # Tool usage policy
 - You have a strict limit of **{{ recursion_limit }} iterations** to complete this task. An iteration is defined as any call to a tool ({{ tools }}). Simply analyzing the provided information or generating text within your internal processing does *not* count as an iteration.
-- **Plan Ahead:** Before calling any tools, create a rough outline of your analysis and the likely steps required.
-- **Batch Requests:** If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same function_calls block.
+- **Plan Ahead:** Before calling any tools, create a rough outline of your analysis and the steps you expect to take. Plan tool calls to gather the information you need in the most efficient way, using batch requests when possible.
+- **Batch Requests:** If you intend to make multiple tool calls and there are no dependencies between the calls, use parallel tool calls whenever possible. For example, if you need to retrieve the contents of multiple files, make a single call to the `retrieve_file_content` tool with all the file paths you need.
 - **Prioritize Information:** Focus on retrieving only the information absolutely necessary for the task. Avoid unnecessary file retrievals.
 - **Analyze Before Acting:** Thoroughly analyze the information you already have before resorting to further tool calls.
 
@@ -64,7 +64,7 @@ IMPORTANT: Exceeding the iteration limit will result in the task being terminate
     - The checklist must be fully self-contained as the developer will execute it on their own without further context.
 
 # Doing the checklist
-The user will request you to preform software engineering tasks. Think throughly about the requested tasks, try multiple approaches and choose the best one. Then plan the tools usage to collect the necessary information in the most efficient way. Finally, collect the necessary information and create the checklist.""",  # noqa: E501
+The user will request you to preform software engineering tasks. Think hard about the requested tasks, try multiple approaches and choose the best one to complete the task. Then plan the tool calls to collect the necessary information in the most efficient way. Finally, call necessary tools to collect the necessary information and create the checklist.""",  # noqa: E501
     "jinja2",
     partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
@@ -198,7 +198,8 @@ When making changes to files, first understand the file's code conventions. Mimi
 - Do not add blank lines with whitespaces to the code you write, as this can break linters and formatters.
 
 # Tool usage policy
-- If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same tool calling block.
+- Plan tool calls to gather the information you need in the most efficient way, using batch requests when possible.
+- If you intend to make multiple tool calls and there are no dependencies between the calls, use parallel tool calls whenever possible. For example, if you need to retrieve the contents of multiple files, make a single call to the `retrieve_file_content` tool with all the file paths you need.
 - Handle any required imports or dependencies in a separate, explicit step. List the imports at the beginning of the modified file or in a dedicated import section if the codebase has one.""",  # noqa: E501
     "jinja2",
     partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
@@ -211,22 +212,26 @@ Ensure that the steps you take and the code you write contribute directly to ach
 <goal>{{ plan_goal }}</goal>
 
 # Planned Tasks
-{% for index, task in plan_tasks %}
-<task>
-  <title>{{ index + 1 }}: {{ task.title }}</title>
-  <description>{{ task.description }}</description>
-  <file>{{ task.path }}</file>
-  <subtasks>
-    {% for subtask in task.subtasks %}
-    - {{ subtask }}
-    {% endfor %}
-  </subtasks>
-</task>
+<tasks>{% for index, task in plan_tasks %}
+  <task>
+    <title>{{ index + 1 }}: {{ task.title }}</title>
+    <description>{{ task.description }}</description>
+    <file_path>{{ task.path }}</file_path>
+    <context_file_paths>{% for context_file_path in task.context_paths %}
+      - {{ context_file_path }}
+    {%- endfor %}
+    </context_file_paths>
+    <subtasks>{% for subtask in task.subtasks %}
+      - {{ subtask }}
+    {%- endfor %}
+    </subtasks>
+  </task>
 {% endfor %}
+</tasks>
 
 ---
 
-Think about the approach you will take to complete the tasks, ensuring that all subtasks are completed and the overall goal is met. Describe *how* your changes integrate with the existing codebase and confirm that no unintended side effects will be introduced. Be specific about the integration points and any potential conflicts you considered.
+Think about the approach you will take to complete the tasks, ensuring that all subtasks are completed and the overall goal is met. An important step to acheive this is to retrieve the full content of the files listed in the `context_file_paths` and `file_path` fields to avoid hallucinations. Describe *how* your changes integrate with the existing codebase and confirm that no unintended side effects will be introduced. Be specific about the integration points and any potential conflicts you considered.
 
 **REMEMBER**: Execute all planned tasks and subtasks thoroughly, leaving no steps or details unaddressed. Your goal is to produce high-quality, production-ready code that fully meets the specified requirements by precisely following the instructions.
 """,  # noqa: E501

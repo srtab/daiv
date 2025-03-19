@@ -11,7 +11,7 @@ from typing import Literal
 import httpx
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, ToolException
 from langgraph.store.memory import BaseStore  # noqa: TC002
 from pydantic import BaseModel, Field
 
@@ -239,13 +239,17 @@ class RunSandboxCodeTool(BaseTool):
     description: str = textwrap.dedent(
         """\
         Evaluates python code in a sandbox environment. The environment is long running and exists across multiple executions. You must send the whole script every time and print your outputs. Script should be pure python code that can be evaluated. It should be in python format NOT markdown. The code should NOT be wrapped in backticks.
+        Theres no state in the sandbox, so the code should be self-contained and not depend on variables from the previous code execution. Theres not persistence across multiple executions, changes on filesystem are not reflected.
 
         Use cases:
-        - Running a script to obtain current datetime.
-        - Running a script to do calculations.
+        - Running a script to do math calculations.
+        - Running a script to test approaches or outputs of an algorithm.
         """  # noqa: E501
     )
     args_schema: type[BaseModel] = RunCodeInput
+
+    handle_validation_error: bool = True
+    handle_tool_error: bool = True
 
     def _run(self, python_code: str, dependencies: list[str], intent: str, config: RunnableConfig) -> str:
         """
@@ -255,6 +259,7 @@ class RunSandboxCodeTool(BaseTool):
             code: The python code to run.
             dependencies: The dependencies to install before running the code.
             intent: A description of why you're running this code.
+            config: The config to use for the run.
 
         Returns:
             The results of the commands to feed the agent knowledge.
@@ -269,6 +274,9 @@ class RunSandboxCodeTool(BaseTool):
             headers={"X-API-KEY": settings.SANDBOX_API_KEY},
             timeout=settings.SANDBOX_TIMEOUT,
         )
+
+        if response.status_code == 400:
+            raise ToolException(response.json())
 
         response.raise_for_status()
         return response.json()["output"]

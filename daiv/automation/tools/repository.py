@@ -41,11 +41,12 @@ class SearchCodeSnippetsTool(BaseTool):
     name: str = SEARCH_CODE_SNIPPETS_NAME
     description: str = textwrap.dedent(
         """\
-        Search for code snippets in the repository based on a code-focused query.
+        Search for code snippets in the repository based on a code-focused query. Wildcard searches are not supported.
         Use when you do not know the exact file path. The returned value will include only partial pieces of code.
-        If you know the exact file path or need full content of the file, use '{retrieve_file_content_name}' instead.
+        If you know the exact file path and/or need full content of the file, use '{retrieve_file_content_name}' instead (if available).
         """  # noqa: E501
     ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
+
     args_schema: type[BaseModel] = SearchCodeSnippetsInput
     handle_validation_error: bool = True
 
@@ -74,7 +75,7 @@ class SearchCodeSnippetsTool(BaseTool):
             source_ref = repo_config.default_branch
 
         search_results_str = (
-            "The query your provided did not return any results. "
+            "The query you provided did not return any results. "
             "This means that the code/definition/paths you are looking for is not present/defined in the codebase."
         )
 
@@ -148,7 +149,8 @@ class RepositoryStructureTool(BaseTool):
     name: str = REPOSITORY_STRUCTURE_NAME
     description: str = textwrap.dedent(
         """\
-        Get the full file tree structure of the repository. You don't need to use this tool more than once per conversation, as the structure don't change from one iteration to another.
+        Get the full file tree structure of the repository. You don't need to use this tool more than once per conversation, as the structure doesn't change from one iteration to another.
+        Useful when you need to search for files by their extension too.
         """  # noqa: E501
     )
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
@@ -156,6 +158,12 @@ class RepositoryStructureTool(BaseTool):
     def _run(self, config: RunnableConfig) -> str:
         """
         Gets the full file tree structure of the repository.
+
+        Args:
+            config: The config to use for the retrieval.
+
+        Returns:
+            The full file tree structure of the repository.
         """
         return self.api_wrapper.extract_tree(
             config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
@@ -177,6 +185,9 @@ class BaseRepositoryTool(BaseTool):
 
         Args:
             file_path: The file path to get the content of.
+            store: The store to use for the retrieval.
+            source_repo_id: The ID of the repository to get the content from.
+            source_ref: The reference to the repository to get the content from.
 
         Returns:
             The content of the file.
@@ -197,44 +208,53 @@ class RetrieveFileContentTool(BaseRepositoryTool):
     name: str = RETRIEVE_FILE_CONTENT_NAME
     description: str = textwrap.dedent(
         """\
-        Retrieve the content of a specified file path from a repository. Use this tool to get the full content of a file, and not only a snippet.
-        The returned value will include full implementation, including used/declared imports.
+        Retrieve the full content of a specified file paths from the repository, not only code snippets.
+        The returned value will include full implementations, including used/declared imports.
         """  # noqa: E501
     )
-
-    return_not_found_message: bool = Field(
-        default=True, description="Whether to return a message if the file is not found. Otherwise, return None."
-    )
+    ignore_not_found: bool = False
 
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
-    def _run(self, file_path: str, intent: str, store: BaseStore, config: RunnableConfig) -> str | None:
+    def _run(self, file_paths: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
         """
-        Gets the content of a file from the repository.
+        Gets the content of a list of files from the repository.
 
         Args:
-            file_path: The file path to get the content of.
+            file_paths: The file paths to get the content of.
+            intent: The intent of the search query, why you are searching for this code.
+            store: The store to use for the retrieval.
+            config: The config to use for the retrieval.
 
         Returns:
-            The content of the file.
+            The content of the files.
         """
-        logger.debug("[%s] Getting file '%s' (intent: %s)", self.name, file_path, intent)
+        logger.debug("[%s] Getting files '%s' (intent: %s)", self.name, file_paths, intent)
 
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
-        content = self._get_file_content(file_path, store, source_repo_id, source_ref)
+        contents = []
+        not_found_files = []
 
-        if not content:
-            return f"error: File '{file_path}' not found." if self.return_not_found_message else None
+        for file_path in file_paths:
+            if not (content := self._get_file_content(file_path, store, source_repo_id, source_ref)):
+                not_found_files.append(file_path)
+            else:
+                contents.append(
+                    textwrap.dedent(
+                        """\
+                        <repository_file path="{file_path}">
+                        {content}
+                        </repository_file>
+                        """
+                    ).format(file_path=file_path, content=content)
+                )
 
-        return textwrap.dedent(
-            """\
-            <repository_file path="{file_path}">
-            {content}
-            </repository_file>
-            """
-        ).format(file_path=file_path, content=content)
+        if not_found_files and not self.ignore_not_found:
+            contents.append(f"warning: The following files were not found: {', '.join(not_found_files)}.")
+
+        return "\n".join(contents)
 
 
 class ReplaceSnippetInFileTool(BaseRepositoryTool):
@@ -244,9 +264,8 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
         Replace an exact matching snippet in a file with the provided replacement string. It should be used when you need to replace a specific code snippet in a file.
         For multiple replacements, call this tool multiple times.
         Do not alter indentation levels unless intentionally modifying code block structures.
-        Inspect the code beforehand to understand what exaclty needs to change.
 
-        IMPORTANT:
+        **IMPORTANT:**
         - Provide at least 3 lines before and 3 lines after the snippet you want to replace.
         - Include unique identifiers such as variable names or function calls that appear only once in the entire file.
         """  # noqa: E501

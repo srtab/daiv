@@ -102,6 +102,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                     _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_384}
             else:
                 _kwargs["max_tokens"] = 2_048
+
+            # Enable token efficient tools to reduce the number of tokens used and turn more likely parallel tool calls.
+            _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "token-efficient-tools-2025-02-19"}
         elif model_provider == ModelProvider.OPENAI:
             if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
                 _kwargs["temperature"] = 1

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-beta.1] - 2025-03-18
+
 ### Added
 
 - Introduced Jupyter notebooks for `CodebaseChatAgent`, `IssueAddressorAgent`, `PipelineFixerAgent`, `PRDescriberAgent`, and `ReviewAddressorAgent` to facilitate development and testing.
@@ -27,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor: Issue Addressor logic improved error handling to provide the end user with more contextualized error messages.
 - Improved observability data sent to the `langsmith` to track all agent executions.
 - Refactor: Renamed `CodebaseQAAgent` to `CodebaseChatAgent` to better reflect the agent's purpose. Now it uses a simple ReAct agent to answer questions. Improved the prompt to be more accurate and concise, and to output the thinking process of the agent.
+- Improved `RetrieveFileContentTool` to allow retrieving multiple files at once, improving the performance of the agent when retrieving multiple files.
+- Enabled `token-efficient-tools` on Anthropic models to reduce the number of tokens used and turn more likely parallel tool calls.
 
 ### Removed
 
@@ -459,7 +463,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.22...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.22...v0.1.0-beta.1
 [0.1.0-alpha.22]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.21...v0.1.0-alpha.22
 [0.1.0-alpha.21]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.20...v0.1.0-alpha.21
 [0.1.0-alpha.20]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.19...v0.1.0-alpha.20
