@@ -101,17 +101,14 @@ class RepositoryConfig(BaseModel):
     exclude_patterns: tuple[str, ...] = Field(
         default=(
             # files
-            "*Pipfile.lock",
             "*package-lock.json",
-            "*yarn.lock",
-            "*gemfile.lock",
-            "*composer.lock",
-            "*uv.lock",
+            "*.lock",
             "*.svg",
             "*.pyc",
             "*.log",
             "*.zip",
             "*.coverage",
+            "*.sql",
             # folders
             "**/.git/**",
             "**/.mypy_cache/**",

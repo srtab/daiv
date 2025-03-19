@@ -32,7 +32,7 @@ class WebSearchTool(BaseTool):
         Perform a web search to retrieve current information from the internet.
         Use this tool when you need to access up-to-date information that might not be available in the repository
         or when you need to verify or supplement your knowledge with current data.
-        The search results will include relevant snippets from web pages.
+        The search results will include relevant snippets from web pages from the most relevant to the least relevant.
         """
     )
     args_schema: type[BaseModel] = WebSearchInput
@@ -81,4 +81,5 @@ class WebSearchTool(BaseTool):
 
     def _get_tavily_results(self, query: str) -> list[str]:
         api_wrapper = TavilySearchAPIWrapper()
-        return [result["content"] for result in api_wrapper.results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS)]
+        results = api_wrapper.raw_results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True)
+        return [results["answer"]] + [result["content"] for result in results["results"]]

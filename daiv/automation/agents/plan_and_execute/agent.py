@@ -83,6 +83,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         if not self.skip_planning:
             workflow.set_entry_point("plan")
+            workflow.add_edge("plan", "plan_approval")
         else:
             workflow.set_entry_point("execute_plan")
 
