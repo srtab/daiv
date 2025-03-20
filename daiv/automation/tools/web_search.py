@@ -82,4 +82,7 @@ class WebSearchTool(BaseTool):
     def _get_tavily_results(self, query: str) -> list[str]:
         api_wrapper = TavilySearchAPIWrapper()
         results = api_wrapper.raw_results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True)
-        return [results["answer"]] + [result["content"] for result in results["results"]]
+        results_content = [result["content"] for result in results["results"]]
+        if results["answer"]:
+            return [results["answer"]] + results_content
+        return results_content

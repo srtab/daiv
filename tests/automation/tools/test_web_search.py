@@ -31,16 +31,17 @@ class TestWebSearchTool:
         mock_settings.WEB_SEARCH_MAX_RESULTS = 5
 
         # Mock search results
-        mock_results = [{"content": "Test tavily content"}]
+        mock_results = {"answer": "Test tavily answer", "results": [{"content": "Test tavily content"}]}
         mock_wrapper = MagicMock()
-        mock_wrapper.results.return_value = mock_results
+        mock_wrapper.raw_results.return_value = mock_results
         mock_wrapper_class.return_value = mock_wrapper
 
         tool = WebSearchTool()
         result = tool._run(query="test query", intent="Testing")
 
+        assert "Test tavily answer" in result
         assert "Test tavily content" in result
-        mock_wrapper.results.assert_called_once_with("test query", max_results=5)
+        mock_wrapper.raw_results.assert_called_once_with("test query", max_results=5, include_answer=True)
 
     @patch("automation.tools.web_search.settings")
     @patch("automation.tools.web_search.DuckDuckGoSearchAPIWrapper")
@@ -69,14 +70,13 @@ class TestWebSearchTool:
 
         # Mock empty search results
         mock_wrapper = MagicMock()
-        mock_wrapper.results.return_value = []
+        mock_wrapper.raw_results.return_value = {"answer": None, "results": []}
         mock_wrapper_class.return_value = mock_wrapper
 
         tool = WebSearchTool()
         result = tool._run(query="test query", intent="Testing")
 
         assert "No relevant results found" in result
-        mock_wrapper.results.assert_called_once_with("test query", max_results=5)
 
     @patch("automation.tools.web_search.settings")
     def test_invalid_search_engine(self, mock_settings):
