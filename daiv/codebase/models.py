@@ -89,6 +89,7 @@ class CodebaseDocument(TimeStampedModel):
     uuid = models.UUIDField(default=uuid4, editable=False, unique=True)
     namespace = models.ForeignKey(CodebaseNamespace, on_delete=models.CASCADE, related_name="documents")
     source = models.CharField(max_length=256)
+    description = models.TextField(blank=True)
     page_content = models.TextField()
     page_content_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
     is_default_branch = models.BooleanField(default=False)

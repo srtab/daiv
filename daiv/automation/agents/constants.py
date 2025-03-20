@@ -9,4 +9,5 @@ class ModelName(StrEnum):
     O1_2024_12_17 = "o1-2024-12-17"
     O3_MINI_2025_01_31 = "o3-mini-2025-01-31"
     GEMINI_2_0_FLASH = "gemini-2.0-flash"
+    GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite"
     GEMINI_2_0_PRO = "gemini-2.0-pro-exp-02-05"

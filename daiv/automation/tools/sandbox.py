@@ -240,10 +240,11 @@ class RunSandboxCodeTool(BaseTool):
         """\
         Evaluates python code in a sandbox environment. The environment is long running and exists across multiple executions. You must send the whole script every time and print your outputs. Script should be pure python code that can be evaluated. It should be in python format NOT markdown. The code should NOT be wrapped in backticks.
         Theres no state in the sandbox, so the code should be self-contained and not depend on variables from the previous code execution. Theres not persistence across multiple executions, changes on filesystem are not reflected.
+        **IMPORTANT**: Don't use it only to print stuff, use it to execute code.
 
-        Use cases:
+        Examples of use cases:
         - Running a script to do math calculations.
-        - Running a script to test approaches or outputs of an algorithm.
+        - Running a script to test approaches to solve a problem.
         """  # noqa: E501
     )
     args_schema: type[BaseModel] = RunCodeInput

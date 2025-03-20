@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `CodebaseDescriberAgent` to describe the code snippets and enrich the codebase index with contextualized information. This will improve the quality of the search results and the ability of `CodebaseChatAgent` to answer questions.
+
+### Changed
+
+- Improved `RunSandboxCodeTool` prompt to avoid using it only to print stuff.
+- An answer is now included on the `WebSearchTool` when using Tavily integration to provide a more concise answer to the user query.
+
+### Fixed
+
+- Fixed graph drawing of `IssueAddressorAgent`.
+
+### Removed
+
+- Removed `search_documents` command, as it's no longer used.
+
 ## [0.1.0-beta.1] - 2025-03-18
 
 ### Added

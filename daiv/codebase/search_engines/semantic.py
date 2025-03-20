@@ -30,7 +30,10 @@ class SemanticSearchEngine(SearchEngine):
     """
 
     def __init__(self):
+        from automation.agents.code_describer import CodeDescriberAgent
+
         self.embeddings = embeddings_function()
+        self.code_describer = CodeDescriberAgent().agent
 
     def add_documents(self, namespace: CodebaseNamespace, documents: list[Document]):
         """
@@ -43,30 +46,49 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             list[CodebaseDocument]: The created document records
         """
+
         documents = [document for document in documents if document.metadata.get("content_type") != "simplified_code"]
 
+        described_documents = self.code_describer.batch(
+            [
+                {
+                    "code": document.page_content,
+                    "filename": document.metadata.get("source", ""),
+                    "language": document.metadata.get("language", "Not specified"),
+                }
+                for document in documents
+            ],
+            config={"max_concurrency": 10},
+        )
+
+        zipped_documents = zip(documents, described_documents, strict=True)
+
         document_vectors = self.embeddings.embed_documents([
-            self._build_content_to_embed(document) for document in documents
+            self._build_content_to_embed(document, description) for document, description in zipped_documents
         ])
 
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
                 namespace=namespace,
                 source=document.metadata.get("source", ""),
+                description=description,
                 page_content=document.page_content,
                 page_content_vector=page_content_vector,
                 is_default_branch=document.metadata.get("default_branch") == document.metadata.get("ref"),
                 metadata=document.metadata,
             )
-            for document, page_content_vector in zip(documents, document_vectors, strict=True)
+            for document, description, page_content_vector in zip(
+                documents, described_documents, document_vectors, strict=True
+            )
         ])
 
-    def _build_content_to_embed(self, document: Document) -> str:
+    def _build_content_to_embed(self, document: Document, description: str) -> str:
         """
         Add contextual information to the content to embed.
 
         Args:
             document: Document to add contextual information to
+            description: Description of the document
 
         Returns:
             str: Content to embed
@@ -75,6 +97,7 @@ class SemanticSearchEngine(SearchEngine):
         return dedent(f"""\
             Repository: {document.metadata.get("repo_id", "")}
             FilePath: {document.metadata.get("source", "")}
+            Description: {description}
 
             {document.page_content}
         """)
