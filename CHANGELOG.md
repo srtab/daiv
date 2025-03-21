@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Chore
 
-- Migrated dependabot to use `uv` as package manager.
+- Migrated dependabot package-ecosystem from `pip` to `uv` (still in beta at the time of writing).
+- Added package-ecosystem `docker` and `github-actions` to the dependabot config to track docker images and github actions.
 
 ## [0.1.0-beta.1] - 2025-03-18
 
