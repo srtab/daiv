@@ -35,7 +35,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
     client = RepoClient.create_instance()
-    codebase_chat = CodebaseChatAgent()
+    codebase_chat = await CodebaseChatAgent().acompile()
 
     config = RunnableConfig(
         tags=[codebase_chat_settings.NAME, str(client.client_slug)],
@@ -47,7 +47,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             generate_stream(codebase_chat, input_data, MODEL_ID, config=config), content_type="text/event-stream"
         )
     try:
-        result = codebase_chat.agent.invoke(input_data, config=config)
+        result = await codebase_chat.ainvoke(input_data, config=config)
 
         return ChatCompletionResponse(
             id=str(uuid.uuid4()),

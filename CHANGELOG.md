@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Improved `CodebaseChatAgent` output of thinking process to indicate the repository name it's searching for.
+
+### Fixed
+
+- `CodebaseChatAgent` was not supporting async execution, leading to errors when using the chat API. Now it supports async execution.
+
 ## [0.1.0-beta.2] - 2025-03-21
 
 ### Added
