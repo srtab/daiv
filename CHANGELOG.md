@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed `search_documents` command, as it's no longer used.
 
+### Chore
+
+- Migrated dependabot to use `uv` as package manager.
+
 ## [0.1.0-beta.1] - 2025-03-18
 
 ### Added
