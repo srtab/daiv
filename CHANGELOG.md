@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0-beta.2] - 2025-03-21
+
 ### Added
 
 - Added `CodebaseDescriberAgent` to describe the code snippets and enrich the codebase index with contextualized information. This will improve the quality of the search results and the ability of `CodebaseChatAgent` to answer questions.
@@ -486,7 +488,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/srtab/daiv/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.22...v0.1.0-beta.1
 [0.1.0-alpha.22]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.21...v0.1.0-alpha.22
 [0.1.0-alpha.21]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.20...v0.1.0-alpha.21
