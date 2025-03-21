@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed graph drawing of `IssueAddressorAgent`.
+- Fixed error handling on `RunSandboxCodeTool` and `RunSandboxCommandsTool` to avoid raising an exception when the sandbox is unavailable causing the agent to stop.
 
 ### Removed
 

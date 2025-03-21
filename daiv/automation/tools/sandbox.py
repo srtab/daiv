@@ -36,8 +36,9 @@ class RunSandboxCommandsTool(BaseTool):
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
     args_schema: type[BaseModel] = RunCommandInput
-    handle_tool_error: bool = True
     response_format: Literal["content_and_artifact", "content"] = "content_and_artifact"
+    handle_validation_error: bool = True
+    handle_tool_error: bool = True
 
     def _run(
         self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig
@@ -49,7 +50,7 @@ class RunSandboxCommandsTool(BaseTool):
             commands: The commands to run in the sandbox.
             intent: A description of why you're running these commands.
             store: The store to save the file changes to.
-
+            config: The config to use for the run.
         Returns:
             The results of the commands to feed the agent knowledge.
         """
@@ -73,6 +74,7 @@ class RunSandboxCommandsTool(BaseTool):
                 logger.debug("[%s] Using original tar archive", self.name)
                 tar_archive = base64.b64encode(tarstream.getvalue()).decode()
 
+        try:
             response = httpx.post(
                 f"{settings.SANDBOX_URL}run/commands/",
                 json={
@@ -85,8 +87,12 @@ class RunSandboxCommandsTool(BaseTool):
                 headers={"X-API-KEY": settings.SANDBOX_API_KEY},
                 timeout=settings.SANDBOX_TIMEOUT,
             )
+        except httpx.RequestError as e:
+            raise ToolException(e) from e
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise ToolException(response.json())
+
         return self._treat_response(response, store, source_repo_id, source_ref)
 
     def _treat_response(
@@ -98,6 +104,8 @@ class RunSandboxCommandsTool(BaseTool):
         Args:
             response: The response from the sandbox.
             store: The store to save the file changes to.
+            source_repo_id: The repository ID to save the file changes to.
+            source_ref: The branch or commit to save the file changes to.
 
         Returns:
             The results of the commands to feed the agent knowledge.
@@ -183,9 +191,9 @@ class RunSandboxCommandsTool(BaseTool):
         Args:
             source_tar: The tar archive to copy and update.
             store: The store to get the file changes from.
+            workdir: The workdir to use in the sandbox.
             source_repo_id: The repository ID to get the file changes from.
             source_ref: The branch or commit to get the file changes from.
-            workdir: The workdir to use in the sandbox.
 
         Returns:
             The updated tar archive.
@@ -269,15 +277,22 @@ class RunSandboxCodeTool(BaseTool):
             "[%s] Running code in sandbox: %s (intent: %s) => %s", self.name, dependencies, intent, python_code
         )
 
-        response = httpx.post(
-            f"{settings.SANDBOX_URL}run/code/",
-            json={"run_id": str(uuid.uuid4()), "code": python_code, "dependencies": dependencies, "language": "python"},
-            headers={"X-API-KEY": settings.SANDBOX_API_KEY},
-            timeout=settings.SANDBOX_TIMEOUT,
-        )
+        try:
+            response = httpx.post(
+                f"{settings.SANDBOX_URL}run/code/",
+                json={
+                    "run_id": str(uuid.uuid4()),
+                    "code": python_code,
+                    "dependencies": dependencies,
+                    "language": "python",
+                },
+                headers={"X-API-KEY": settings.SANDBOX_API_KEY},
+                timeout=settings.SANDBOX_TIMEOUT,
+            )
+        except httpx.RequestError as e:
+            raise ToolException(e) from e
 
-        if response.status_code == 400:
+        if response.status_code != 200:
             raise ToolException(response.json())
 
-        response.raise_for_status()
         return response.json()["output"]
