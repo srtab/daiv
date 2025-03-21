@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from decimal import Decimal
 from enum import StrEnum
+from functools import cached_property
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -39,8 +38,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     Base agent class for creating agents that interact with a model.
     """
 
-    agent: T
-
     def __init__(
         self,
         *,
@@ -51,11 +48,28 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         self.usage_handler = usage_handler or OpenAICallbackHandler()
         self.checkpointer = checkpointer
         self.store = store
-        self.agent = self.compile()
+
+    @cached_property
+    def agent(self) -> T:
+        """
+        The compiled agent.
+        """
+        return self.compile()
 
     @abstractmethod
     def compile(self) -> T:
+        """
+        Compile the agent.
+
+        Tipically this method returns a Runnable or a CompiledGraph.
+        """
         pass
+
+    async def acompile(self) -> T:
+        """
+        Asynchronously support to compile.
+        """
+        raise NotImplementedError("This method should be implemented by the subclass.")
 
     def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
@@ -188,32 +202,3 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             raise ValueError(f"Unknown provider for model {model_name}")
 
         return model_provider
-
-
-class Usage(BaseModel):
-    completion_tokens: int = 0
-    """The number of tokens used for completion."""
-
-    prompt_tokens: int = 0
-    """The number of tokens used for the prompt."""
-
-    total_tokens: int = 0
-    """The total number of tokens used."""
-
-    prompt_cost: Decimal = Decimal(0.0)
-    """The cost of the prompt tokens."""
-
-    completion_cost: Decimal = Decimal(0.0)
-    """The cost of the completion tokens."""
-
-    total_cost: Decimal = Decimal(0.0)
-    """The total cost of the tokens."""
-
-    def __add__(self, other: Usage):
-        self.completion_tokens += other.completion_tokens
-        self.prompt_tokens += other.prompt_tokens
-        self.total_tokens += other.total_tokens
-        self.prompt_cost += other.prompt_cost
-        self.completion_cost += other.completion_cost
-        self.total_cost += other.total_cost
-        return self
