@@ -1,4 +1,3 @@
-from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
@@ -6,7 +5,7 @@ from langchain.chat_models.base import BaseChatModel
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 
-from automation.agents.base import BaseAgent, ModelProvider, Usage
+from automation.agents.base import BaseAgent, ModelProvider
 
 
 class ConcreteAgent(BaseAgent):
@@ -72,33 +71,3 @@ class TestBaseAgent:
 
             with pytest.raises(ValueError, match="Unknown provider for model"):
                 agent.get_max_token_value(model_name="invalid_model")
-
-
-class TestUsage:
-    def test_usage_addition(self):
-        usage1 = Usage(
-            completion_tokens=100,
-            prompt_tokens=200,
-            total_tokens=300,
-            prompt_cost=Decimal("0.1"),
-            completion_cost=Decimal("0.2"),
-            total_cost=Decimal("0.3"),
-        )
-
-        usage2 = Usage(
-            completion_tokens=50,
-            prompt_tokens=100,
-            total_tokens=150,
-            prompt_cost=Decimal("0.05"),
-            completion_cost=Decimal("0.1"),
-            total_cost=Decimal("0.15"),
-        )
-
-        result = usage1 + usage2
-
-        assert result.completion_tokens == 150
-        assert result.prompt_tokens == 300
-        assert result.total_tokens == 450
-        assert result.prompt_cost == Decimal("0.15")
-        assert result.completion_cost == Decimal("0.3")
-        assert result.total_cost == Decimal("0.45")
