@@ -34,6 +34,14 @@ class Command(BaseCommand):
             action="store_true",
             help="Reset all indexes for the repository, ignoring the reference branch.",
         )
+        parser.add_argument(
+            "--exclude-repo-id",
+            dest="exclude_repo_ids",
+            default=[],
+            type=str,
+            nargs="+",
+            help="Exclude specific repositories by slug or id. If repo-id is provided, this argument will be ignored.",
+        )
 
     def handle(self, *args, **options):
         repo_client = RepoClient.create_instance()
@@ -50,6 +58,11 @@ class Command(BaseCommand):
             repositories = repo_client.list_repositories(topics=options["topics"] or None, load_all=True)
 
         for repository in repositories:
+            if not options["repo_id"] and (
+                repository.slug in options["exclude_repo_ids"] or repository.pk in options["exclude_repo_ids"]
+            ):
+                continue
+
             if options["reset"] or options["reset_all"]:
                 indexer.delete(repo_id=repository.slug, ref=options["ref"], delete_all=options["reset_all"])
             indexer.update(repo_id=repository.slug, ref=options["ref"])

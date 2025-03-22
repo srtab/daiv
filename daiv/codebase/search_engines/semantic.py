@@ -1,4 +1,5 @@
 import functools
+import logging
 from textwrap import dedent
 
 from langchain_core.documents import Document
@@ -11,6 +12,8 @@ from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgres
 
 EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 EMBEDDING_CHUNK_SIZE = 500
+
+logger = logging.getLogger("daiv.indexes.semantic")
 
 
 @functools.cache
@@ -49,23 +52,25 @@ class SemanticSearchEngine(SearchEngine):
 
         documents = [document for document in documents if document.metadata.get("content_type") != "simplified_code"]
 
-        described_documents = self.code_describer.batch(
-            [
-                {
-                    "code": document.page_content,
-                    "filename": document.metadata.get("source", ""),
-                    "language": document.metadata.get("language", "Not specified"),
-                }
-                for document in documents
-            ],
-            config={"max_concurrency": 10},
-        )
+        logger.info("Augmenting context...")
+        described_documents = self.code_describer.batch([
+            {
+                "code": document.page_content,
+                "filename": document.metadata.get("source", ""),
+                "language": document.metadata.get("language", "Not specified"),
+            }
+            for document in documents
+        ])
 
         zipped_documents = zip(documents, described_documents, strict=True)
+
+        logger.info("Creating embeddings...")
 
         document_vectors = self.embeddings.embed_documents([
             self._build_content_to_embed(document, description) for document, description in zipped_documents
         ])
+
+        logger.info("Persisting documents...")
 
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
@@ -93,7 +98,6 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             str: Content to embed
         """
-        # TODO: add contextual information to the embedding to improve the search results
         return dedent(f"""\
             Repository: {document.metadata.get("repo_id", "")}
             FilePath: {document.metadata.get("source", "")}

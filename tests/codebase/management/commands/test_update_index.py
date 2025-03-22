@@ -121,6 +121,31 @@ def test_update_index_with_reset_all(mock_repo_client, mock_indexer):
     mock_indexer.update.assert_called_once_with(repo_id="repo1", ref=None)
 
 
+def test_update_index_with_exclude_repo_ids(mock_repo_client, mock_indexer):
+    """Test updating index while excluding specific repositories."""
+    # Mock repositories
+    mock_repo1 = Mock(slug="repo1")
+    mock_repo2 = Mock(slug="repo2")
+    mock_repo3 = Mock(slug="repo3")
+    mock_repo_client.list_repositories.return_value = [mock_repo1, mock_repo2, mock_repo3]
+
+    # Call the command with exclude_repo_ids
+    call_command("update_index", exclude_repo_ids=["repo2"])
+
+    # Verify repositories were listed with correct parameters
+    mock_repo_client.list_repositories.assert_called_once_with(topics=None, load_all=True)
+
+    # Verify index was updated only for non-excluded repositories
+    assert mock_indexer.update.call_count == 2
+    mock_indexer.update.assert_any_call(repo_id="repo1", ref=None)
+    mock_indexer.update.assert_any_call(repo_id="repo3", ref=None)
+
+    # Verify excluded repository was not updated
+    for call_args in mock_indexer.update.call_args_list:
+        args, kwargs = call_args
+        assert kwargs.get("repo_id") != "repo2"
+
+
 def test_update_index_repository_not_found(mock_repo_client, mock_indexer):
     """Test handling of non-existent repository."""
     # Mock GitlabGetError for non-existent repository
