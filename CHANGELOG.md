@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `exclude_repo_ids` to the `update_index` command to allow excluding specific repositories by slug or id.
+
 ### Changed
 
 - Improved `CodebaseChatAgent` output of thinking process to indicate the repository name it's searching for.
