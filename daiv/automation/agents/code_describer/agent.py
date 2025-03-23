@@ -27,8 +27,11 @@ class CodeSnippet(TypedDict):
 
 class CodeDescriberAgent(BaseAgent[Runnable[CodeSnippet, str]]):
     """
-    Agent to describe code snippets.
-    """
+    Agent for generating a description of code snippets that can be used to describe them in a human-readable format.
+
+    This can be useful for contextualization of code snippets embedded in a vector database, improving the accuracy of similarity search.
+    It can use a smaller LLM model, what's important is that it is fast and cheaper to run.
+    """  # noqa: E501
 
     def compile(self) -> Runnable:
         """
