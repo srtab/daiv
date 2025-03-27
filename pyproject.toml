@@ -31,7 +31,7 @@ dependencies = [
   "jinja2==3.1.6",
   "langchain[anthropic,community,google-genai,openai]==0.3.21",
   "langchain-text-splitters==0.3.7",
-  "langgraph==0.3.18",
+  "langgraph==0.3.21",
   "langgraph-checkpoint-postgres==2.0.19",
   "langsmith==0.3.18",
   "pgvector==0.4",
