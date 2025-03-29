@@ -10,6 +10,9 @@ from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
+from automation.conf import settings
+from core.constants import BOT_NAME
+
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
@@ -22,6 +25,7 @@ class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     GOOGLE_GENAI = "google_genai"
+    OPENROUTER = "openrouter"
 
 
 class ThinkingLevel(StrEnum):
@@ -78,10 +82,14 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs(model=model, thinking_level=thinking_level, **kwargs)
+        model_kwargs = self.get_model_kwargs(
+            model=model, model_provider=BaseAgent.get_model_provider(model), thinking_level=thinking_level, **kwargs
+        )
         return init_chat_model(**model_kwargs)
 
-    def get_model_kwargs(self, *, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
+    def get_model_kwargs(
+        self, *, model_provider: ModelProvider, thinking_level: ThinkingLevel | None = None, **kwargs
+    ) -> dict:
         """
         Get the keyword arguments to pass to the model.
 
@@ -93,28 +101,21 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             "callbacks": [self.usage_handler],
             "configurable_fields": ("temperature", "max_tokens"),
             "model_kwargs": {},
+            "model_provider": model_provider,
             **kwargs,
         }
 
-        model_provider = BaseAgent.get_model_provider(_kwargs["model"])
-
         if model_provider == ModelProvider.ANTHROPIC:
-            # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
-            # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
-            # If needed, we can increase this value using the configurable field.
             if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
+                max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
-                if thinking_level == ThinkingLevel.LOW:
-                    _kwargs["max_tokens"] = 4_096
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2_048}
-                elif thinking_level == ThinkingLevel.MEDIUM:
-                    _kwargs["max_tokens"] = 10_240
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 7_168}
-                elif thinking_level == ThinkingLevel.HIGH:
-                    _kwargs["max_tokens"] = 20_480
-                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16_384}
+                _kwargs["max_tokens"] = max_tokens
+                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
             else:
+                # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
+                # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
+                # If needed, we can increase this value using the configurable field.
                 _kwargs["max_tokens"] = 2_048
 
             if _kwargs["model"].startswith("claude-3-7-sonnet"):
@@ -125,10 +126,41 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
-        elif model_provider in [ModelProvider.GOOGLE_GENAI]:
-            # otherwise google_genai will be inferred as google_vertexai
-            _kwargs["model_provider"] = model_provider
+
+        elif model_provider == ModelProvider.OPENROUTER:
+            _kwargs["model"] = _kwargs["model"].split(":")[1]
+            # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
+            _kwargs["model_provider"] = ModelProvider.OPENAI
+            _kwargs["model_kwargs"]["extra_headers"] = {
+                "HTTP-Referer": "https://github.com/srtab/daiv",
+                "X-Title": BOT_NAME,
+            }
+            _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
+            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY
+
+            if _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
+                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
+
+            if thinking_level:
+                _kwargs["temperature"] = 1
+                _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
+
+            elif _kwargs["model"].startswith("anthropic"):
+                # Avoid rate limiting by setting a fair max_tokens value
+                _kwargs["max_tokens"] = 2_048
+
         return _kwargs
+
+    def _get_anthropic_thinking_tokens(self, *, thinking_level: ThinkingLevel) -> tuple[int, dict]:
+        """
+        Get the thinking tokens and max tokens for the model.
+        """
+        if thinking_level == ThinkingLevel.LOW:
+            return 4_096, {"type": "enabled", "budget_tokens": 2_048}
+        elif thinking_level == ThinkingLevel.MEDIUM:
+            return 32_768, {"type": "enabled", "budget_tokens": 25_600}
+        elif thinking_level == ThinkingLevel.HIGH:
+            return 64_000, {"type": "enabled", "budget_tokens": 55_808}
 
     def draw_mermaid(self):
         """
@@ -194,7 +226,10 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         model_provider: ModelProvider | None = None
 
         if model_name.startswith("gemini"):
+            # The _attempt_infer_model_provider will return google_vertexai instead of google_genai
             model_provider = ModelProvider.GOOGLE_GENAI
+        elif model_name.startswith("openrouter:"):
+            model_provider = ModelProvider.OPENROUTER
         else:
             model_provider = cast("ModelProvider | None", _attempt_infer_model_provider(model_name))
 

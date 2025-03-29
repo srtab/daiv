@@ -36,23 +36,19 @@ class TestBaseAgent:
         assert agent.checkpointer == checkpointer
 
     def test_get_model_kwargs_anthropic(self):
-        with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
-            mock_provider.return_value = ModelProvider.ANTHROPIC
-            agent = ConcreteAgent()
-            kwargs = agent.get_model_kwargs(model="claude-3-5-sonnet-20240229")
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(model_provider=ModelProvider.ANTHROPIC, model="claude-3-5-sonnet-20240229")
 
-            assert kwargs["temperature"] == 0
-            assert kwargs["max_tokens"] == 2048
+        assert kwargs["temperature"] == 0
+        assert kwargs["max_tokens"] == 2048
 
     def test_get_model_kwargs_openai(self):
-        with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
-            mock_provider.return_value = ModelProvider.OPENAI
-            agent = ConcreteAgent()
-            kwargs = agent.get_model_kwargs(model="gpt-4")
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(model_provider=ModelProvider.OPENAI, model="gpt-4")
 
-            assert kwargs["temperature"] == 0
-            assert "max_tokens" not in kwargs
-            assert not kwargs["model_kwargs"]
+        assert kwargs["temperature"] == 0
+        assert "max_tokens" not in kwargs
+        assert not kwargs["model_kwargs"]
 
     def test_get_max_token_value(self):
         with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:

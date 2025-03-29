@@ -13,7 +13,7 @@ class ImageURLExtractorSettings(BaseSettings):
 
     NAME: str = Field(default="ImageURLExtractor", description="Name of the image URL extractor agent.")
     MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used for image URL extractor."
+        default=ModelName.GPT_4O_MINI, description="Model name to be used for image URL extractor."
     )
 
 

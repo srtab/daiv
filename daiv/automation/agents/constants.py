@@ -2,12 +2,18 @@ from enum import StrEnum
 
 
 class ModelName(StrEnum):
-    CLAUDE_3_7_SONNET_20250219 = "claude-3-7-sonnet-20250219"
-    CLAUDE_3_5_HAIKU_20241022 = "claude-3-5-haiku-20241022"
-    GPT_4O_2024_11_20 = "gpt-4o-2024-11-20"
-    GPT_4O_MINI_2024_07_18 = "gpt-4o-mini-2024-07-18"
-    O1_2024_12_17 = "o1-2024-12-17"
-    O3_MINI_2025_01_31 = "o3-mini-2025-01-31"
-    GEMINI_2_0_FLASH = "gemini-2.0-flash"
-    GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite"
-    GEMINI_2_0_PRO = "gemini-2.0-pro-exp-02-05"
+    """
+    `openrouter` provider is the default provider to use any model that is supported by OpenRouter.
+
+    You can also use `anthropic`, `google` or `openai` model providers directly to use any model that is supported
+    by Anthropic, Google or OpenAI.
+    """
+
+    CLAUDE_3_7_SONNET = "openrouter:anthropic/claude-3-7-sonnet"
+    CLAUDE_3_5_HAIKU = "openrouter:anthropic/claude-3-5-haiku"
+    GPT_4O = "openrouter:openai/gpt-4o"
+    GPT_4O_MINI = "openrouter:openai/gpt-4o-mini"
+    O1 = "openrouter:openai/o1"
+    O3_MINI = "openrouter:openai/o3-mini"
+    GEMINI_2_0_FLASH = "openrouter:google/gemini-2.0-flash-001"
+    GEMINI_2_0_FLASH_LITE = "openrouter:google/gemini-2.0-flash-lite-001"
