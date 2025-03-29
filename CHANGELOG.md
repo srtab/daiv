@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Support for `OpenRouter` integration, unified API for LLM providers.
+- Support for `OpenRouter` integration, unified API for LLM providers. **Breaking change: this will be the default provider from now on as it's more reliable and has more models available.**
 
 ## [0.1.0-beta.3] - 2025-03-23
 
