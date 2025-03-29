@@ -106,16 +106,16 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         }
 
         if model_provider == ModelProvider.ANTHROPIC:
-            # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
-            # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
-            # If needed, we can increase this value using the configurable field.
             if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
-                max_tokens, thinking = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
+                max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
                 _kwargs["max_tokens"] = max_tokens
-                _kwargs["thinking"] = thinking
+                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
             else:
+                # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
+                # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
+                # If needed, we can increase this value using the configurable field.
                 _kwargs["max_tokens"] = 2_048
 
             if _kwargs["model"].startswith("claude-3-7-sonnet"):
@@ -128,26 +128,26 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["reasoning_effort"] = thinking_level
 
         elif model_provider == ModelProvider.OPENROUTER:
+            _kwargs["model"] = _kwargs["model"].split(":")[1]
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
-            _kwargs["model"] = _kwargs["model"].split(":")[1]
+            _kwargs["model_kwargs"]["extra_headers"] = {
+                "HTTP-Referer": "https://github.com/srtab/daiv",
+                "X-Title": BOT_NAME,
+            }
             _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
             _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY
-            _kwargs["default_headers"] = {"X-Title": BOT_NAME}
 
             if _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
-                _kwargs["default_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
+                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
 
             if thinking_level:
                 _kwargs["temperature"] = 1
+                _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
 
-                if _kwargs["model"].startswith(("openai/o1", "openai/o3")):
-                    _kwargs["reasoning_effort"] = thinking_level
-
-                elif _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
-                    max_tokens, thinking = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
-                    _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking["budget_tokens"]}}
+            elif _kwargs["model"].startswith("anthropic"):
+                # Avoid rate limiting by setting a fair max_tokens value
+                _kwargs["max_tokens"] = 2_048
 
         return _kwargs
 
