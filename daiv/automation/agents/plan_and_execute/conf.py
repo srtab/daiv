@@ -14,19 +14,19 @@ class PlanAndExecuteSettings(BaseSettings):
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
     PLANNING_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_7_SONNET_20250219, description="Model name to be used to plan tasks."
+        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to plan tasks."
     )
     PLANNING_THINKING_LEVEL: ThinkingLevel = Field(
         default=ThinkingLevel.MEDIUM, description="Thinking level to be used to plan tasks."
     )
     EXECUTION_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_7_SONNET_20250219, description="Model name to be used to execute tasks."
+        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to execute tasks."
     )
     EXECUTION_THINKING_LEVEL: ThinkingLevel = Field(
         default=ThinkingLevel.MEDIUM, description="Thinking level to be used to execute tasks."
     )
     PLAN_APPROVAL_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used to evaluate the plan approval."
+        default=ModelName.GPT_4O_MINI, description="Model name to be used to evaluate the plan approval."
     )
 
 

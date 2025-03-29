@@ -14,17 +14,16 @@ class CodebaseSearchSettings(BaseSettings):
     NAME: str = Field(default="CodebaseSearch", description="Name of the codebase search agent.")
     TOP_N: int = Field(default=10, description="Number of results to return from the codebase search.")
     REPHRASE_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used for codebase search."
+        default=ModelName.GPT_4O_MINI, description="Model name to be used for codebase search."
     )
     REPHRASE_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Fallback model name to be used for codebase search."
+        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for codebase search."
     )
     RERANKING_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used for listwise reranking."
+        default=ModelName.GPT_4O_MINI, description="Model name to be used for listwise reranking."
     )
     RERANKING_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU_20241022,
-        description="Fallback model name to be used for listwise reranking.",
+        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for listwise reranking."
     )
 
 

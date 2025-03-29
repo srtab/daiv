@@ -14,10 +14,10 @@ class IssueAddressorSettings(BaseSettings):
     NAME: str = Field(default="IssueAddressor", description="Name of the issue addressor agent.")
     RECURSION_LIMIT: int = Field(default=50, description="Recursion limit for the issue addressor agent.")
     ASSESSMENT_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI_2024_07_18, description="Model name to be used for issue assessment."
+        default=ModelName.GPT_4O_MINI, description="Model name to be used for issue assessment."
     )
     FALLBACK_ASSESSMENT_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU_20241022, description="Fallback model name to be used for issue assessment."
+        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for issue assessment."
     )
 
 
