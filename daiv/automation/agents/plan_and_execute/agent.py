@@ -4,10 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Literal, cast
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
-from langchain_core.runnables import (
-    RunnableConfig,  # noqa: TC002
-    RunnableLambda,
-)
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.runnables.config import DEFAULT_RECURSION_LIMIT
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
@@ -25,14 +22,10 @@ from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_approval_system, plan_system
 from .schemas import HumanApproval
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import determine_next_action
+from .tools import determine_next_action, think
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from langchain_core.messages import BaseMessage, SystemMessage
-    from langgraph.prebuilt.chat_agent_executor import AgentState
-
+    from langchain_core.messages import SystemMessage
 
 logger = logging.getLogger("daiv.agents")
 
@@ -102,28 +95,15 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         tools = (
             ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
-            + SandboxToolkit.create_instance().get_tools()
+            + [think, determine_next_action]
         )
 
-        tools_names = [tool.name for tool in tools]
-
-        def prompt(state: AgentState, config: RunnableConfig) -> Sequence[BaseMessage]:
-            system_message = cast(
-                "SystemMessage",
-                self.plan_system_template.format(
-                    tools=tools_names, recursion_limit=config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
-                ),
-            )
-            return [system_message] + cast("list[BaseMessage]", state["messages"])
-
         return create_react_agent(
-            # FIXME: Add fallback to generic performant model, now it's not possible because do to imcompatibility
-            # between reasoning models and non-reasoning models. Both models need to be reasoning models.
             self.get_model(model=settings.PLANNING_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL),
-            tools=tools + [determine_next_action],
+            tools=tools,
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
-            prompt=RunnableLambda(prompt),
+            prompt=cast("SystemMessage", self.plan_system_template.format()),
             name="Planner",
             version="v2",
         )

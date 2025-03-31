@@ -37,45 +37,23 @@ class AskForClarification(BaseModel):
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    questions: list[str] = Field(description="Questions phrased in the first person with clear and concise language.")
+    questions: list[str] = Field(description="Questions phrased in the same language as the user request.")
 
 
-class Task(BaseModel):
+class CodeChanges(BaseModel):
     """
-    A detailed task to be executed by the developer. REMEMBER: The developer will not have access to the user request.
+    A sorted list with the details of the changes to apply to a specific file on the codebase.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    title: str = Field(description="A title of the high-level task.")
-    description: str = Field(
+    path: str = Field(description="The path to the file where the changes should be applied.")
+    details: str = Field(
         description=dedent(
             """\
-            Detailed description to help the developer understand the logic and implementation decisions.
-            Dependencies / links between tasks should also be referenced here.
-            You can use multiple paragraphs if needed.
-            """  # noqa: E501
-        )
-    )
-    subtasks: list[str] = Field(
-        description=dedent(
-            """\
-            A list of subtasks to be executed in order. Be detailed and specific on what to do. The subtasks should be self-contained and executable on their own without further context. You can use multiple paragraphs.
-            - You should NOT add subtasks to manage files (open, save, find, etc). Bad examples: "Open CHANGES.md file", "Save changes to CHANGES.md file", "Open CHANGES.md file", "Save changes to CHANGES.md file", "Find line x in CHANGES.md file" or variations of these.
-            - You should NOT add subtasks to execute commands/tests. Bad examples: "Run the test suite", "Run tests to ensure coverage", "Run the linter...", "Run the formatter..." or variations of these.
-            """  # noqa: E501
-        )
-    )
-    path: str = Field(
-        description="The path to the file where the task should be executed (if applicable). Otherwise, leave empty."
-    )
-    context_paths: list[str] = Field(
-        description=dedent(
-            """\
-            A list of paths to files that are relevant to the task.
-            The developer will use these files to understand the task and implement it.
+            All the modifications details that need to be done to address the user request in the format of instructions.
             """  # noqa: E501
         )
     )
@@ -83,15 +61,15 @@ class Task(BaseModel):
 
 class Plan(BaseModel):
     """
-    Outline future tasks and the goal to be addressed by the developer.
+    Outline the goal to be addressed and the changes to apply to the codebase.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    tasks: list[Task] = Field(description="A sorted list of tasks to follow.")
     goal: str = Field(description="A detailed objective of the requested changes to be made.")
+    changes: list[CodeChanges] = Field(description="A sorted list of changes to apply to the codebase.")
 
 
 class DetermineNextAction(BaseModel):

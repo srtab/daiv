@@ -14,13 +14,12 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 <details>
 <summary>
 
-{{ plan_task.title }} - `{{ plan_task.path }}`
+{{ plan_task.path }}
 
 </summary>
 
-**{{ plan_task.context }}.**
-{% for subtask in plan_task.subtasks %}
-- [ ] {{ subtask }}{% endfor %}
+{% for detail in plan_task.details %}
+- [ ] {{ detail }}{% endfor %}
 
 ---
 </details>

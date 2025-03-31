@@ -128,7 +128,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["reasoning_effort"] = thinking_level
 
         elif model_provider == ModelProvider.OPENROUTER:
-            _kwargs["model"] = _kwargs["model"].split(":")[1]
+            _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
             _kwargs["model_kwargs"]["extra_headers"] = {

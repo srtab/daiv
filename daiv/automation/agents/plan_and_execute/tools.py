@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 
 from langchain_core.messages import ToolMessage
@@ -6,6 +7,8 @@ from langgraph.graph import END
 from langgraph.types import Command
 
 from .schemas import AskForClarification, DetermineNextAction, Plan
+
+logger = logging.getLogger("daiv.tools")
 
 
 @tool("determine_next_action", args_schema=DetermineNextAction)
@@ -23,6 +26,24 @@ def determine_next_action(
         )
     return Command(
         goto="plan_approval",
-        update={"plan_tasks": action.tasks, "plan_goal": action.goal, "messages": [message]},
+        update={"plan_tasks": action.changes, "plan_goal": action.goal, "messages": [message]},
         graph=Command.PARENT,
     )
+
+
+# https://www.anthropic.com/engineering/claude-think-tool
+
+
+@tool(parse_docstring=True)
+def think(thought: str):
+    """
+    Use the tool to think about the plan and the changes to apply to the codebase to address the user request. It will not obtain new information or make any changes, but just log the thought. Use it when complex reasoning or brainstorming is needed. Use it as a scratchpad.
+
+    Args:
+        thought: Your thoughts.
+
+    Returns:
+        A message indicating that the thought has been logged.
+    """  # noqa: E501
+    logger.info("[think] Thinking about: %s", thought)
+    return "Thought registered."
