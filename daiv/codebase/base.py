@@ -75,7 +75,7 @@ class FileChange(BaseModel):
             return f"Updated `{self.file_path}`"
         elif self.action == FileChangeAction.DELETE:
             return f"Deleted `{self.file_path}`"
-        elif self.action == FileChangeAction.MOVE:
+        elif self.action == FileChangeAction.MOVE:  # pragma: no cover
             return f"Renamed `{self.previous_path}` to `{self.file_path}`"
 
 

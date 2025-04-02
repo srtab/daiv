@@ -13,7 +13,7 @@ from automation.conf import settings
 
 from .schemas import WebSearchInput
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from langchain.callbacks.manager import CallbackManagerForToolRun
 
 logger = logging.getLogger("daiv.tools")

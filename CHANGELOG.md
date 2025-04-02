@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Increased `max_tokens` to `4096` for `Anthropic` models.
+- Improved `PlanAndExecuteAgent`:
+  - Introduced `think` tool on both planning and execution phases to improve the reasoning capabilities of the agent, even when using models without that capability (https://www.anthropic.com/engineering/claude-think-tool).
+  - Improved planning prompt to focus on the atual state of the codebase and design plans to be more self contained and actionable.
+  - Improved execution prompt to focus on the execution to strictly follow the plan.
+  - File paths included on the plan are now preloaded as messages on the execution to improve the speed of the execution and reduce the number of tool calls.
+
 ### Added
 
 - Support for `OpenRouter` integration, unified API for LLM providers. **Breaking change: this will be the default provider from now on as it's more reliable and has more models available.**
+
+### Fixed
+
+- Command parameter `base_url` on `setup_webhooks` was declared required with a default value, forcing to pass it on every call. Now it's not required and will use the value of `DAIV_EXTERNAL_URL` if not provided.
 
 ## [0.1.0-beta.3] - 2025-03-23
 
