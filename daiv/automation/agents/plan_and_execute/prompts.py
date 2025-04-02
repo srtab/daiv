@@ -1,5 +1,3 @@
-from django.utils import timezone
-
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
@@ -40,7 +38,6 @@ REMEMBER: You're the architect, so be detailed and specific about the changes th
 
 Outline a plan with the changes needed to satisfy all the user's requests.""",  # noqa: E501
     "jinja2",
-    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
@@ -184,9 +181,9 @@ You have tools at your disposal to apply the changes to the codebase. Follow the
  * Focus on retrieving only the information absolutely necessary to address the code changes. Avoid unnecessary file retrievals. Thoroughly analyze the information you already have before resorting to more tool calls, use the `think` tool for that.
  * Use the `think` tool to explore implementation approaches for more complex changes. Call it as many times as needed.
  * Handle any required imports or dependencies in a separate, explicit step. List the imports in dedicated import section if the codebase has one.
+{% if command_execution_enabled %} * Use the `run_command' tool to execute commands in the codebase ONLY when the user explicitly provides commands to be executed. Don't make up commands to run. If a given command doesn't exist, use the `think` tool to deliberate if you can clearly see that it's a simple typo in the command and try to fix it. Don't try to fix the command more than once.{% endif %}
 </tool_calling>""",  # noqa: E501
     "jinja2",
-    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
