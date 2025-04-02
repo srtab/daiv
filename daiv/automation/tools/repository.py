@@ -209,7 +209,8 @@ class RetrieveFileContentTool(BaseRepositoryTool):
     description: str = textwrap.dedent(
         """\
         Retrieve the full content of a specified file paths from the repository, not only code snippets.
-        The returned value will include full implementations, including used/declared imports.
+        The content will be surrounded by <repository_file> tag with the file path as the path attribute and the content with full implementation, including used/declared imports.
+        This tool can return multiple <repository_file> tags if multiple files paths are provided.
         """  # noqa: E501
     )
     ignore_not_found: bool = False
@@ -244,7 +245,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
                 contents.append(
                     textwrap.dedent(
                         """\
-                        <repository_file path="{file_path}">
+                        <repository_file file_path="{file_path}">
                         {content}
                         </repository_file>
                         """

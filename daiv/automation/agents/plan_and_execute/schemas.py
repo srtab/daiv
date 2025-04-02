@@ -40,9 +40,9 @@ class AskForClarification(BaseModel):
     questions: list[str] = Field(description="Questions phrased in the same language as the user request.")
 
 
-class CodeChanges(BaseModel):
+class ChangeInstructions(BaseModel):
     """
-    A sorted list with the details of the changes to apply to a specific file on the codebase.
+    Details of the changes to apply to a specific file on the codebase.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
@@ -53,7 +53,7 @@ class CodeChanges(BaseModel):
     details: str = Field(
         description=dedent(
             """\
-            All the modifications details that need to be done to address the user request in the format of instructions.
+            All the modifications details that need to be done to address the user request in the format of instructions. Never assu
             """  # noqa: E501
         )
     )
@@ -69,7 +69,7 @@ class Plan(BaseModel):
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     goal: str = Field(description="A detailed objective of the requested changes to be made.")
-    changes: list[CodeChanges] = Field(description="A sorted list of changes to apply to the codebase.")
+    changes: list[ChangeInstructions] = Field(description="A sorted list of changes to apply to the codebase.")
 
 
 class DetermineNextAction(BaseModel):

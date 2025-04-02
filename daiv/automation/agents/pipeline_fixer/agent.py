@@ -14,7 +14,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.schemas import CodeChanges, Plan
+from automation.agents.plan_and_execute.schemas import ChangeInstructions, Plan
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
@@ -211,7 +211,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         plan = Plan(
             goal="Bring the pipeline to a passing state by fixing the identified issues.",
             changes=[
-                CodeChanges(path=troubleshooting.file_path, details=troubleshooting.remediation_steps)
+                ChangeInstructions(path=troubleshooting.file_path, details=troubleshooting.remediation_steps)
                 for troubleshooting in state["troubleshooting"]
             ],
         )

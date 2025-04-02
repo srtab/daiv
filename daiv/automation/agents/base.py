@@ -116,7 +116,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
                 # If needed, we can increase this value using the configurable field.
-                _kwargs["max_tokens"] = 2_048
+                _kwargs["max_tokens"] = 4_096
 
             if _kwargs["model"].startswith("claude-3-7-sonnet"):
                 # Enable token efficient tools to reduce the number of tokens used and
@@ -147,7 +147,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
             elif _kwargs["model"].startswith("anthropic"):
                 # Avoid rate limiting by setting a fair max_tokens value
-                _kwargs["max_tokens"] = 2_048
+                _kwargs["max_tokens"] = 4_096
 
         return _kwargs
 
@@ -156,7 +156,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Get the thinking tokens and max tokens for the model.
         """
         if thinking_level == ThinkingLevel.LOW:
-            return 4_096, {"type": "enabled", "budget_tokens": 2_048}
+            return 8_192, {"type": "enabled", "budget_tokens": 4_096}
         elif thinking_level == ThinkingLevel.MEDIUM:
             return 32_768, {"type": "enabled", "budget_tokens": 25_600}
         elif thinking_level == ThinkingLevel.HIGH:

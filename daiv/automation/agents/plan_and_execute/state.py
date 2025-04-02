@@ -2,7 +2,7 @@ from langgraph.graph import MessagesState
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
 
-from .schemas import CodeChanges
+from .schemas import ChangeInstructions
 
 
 class PlanAndExecuteConfig(TypedDict):
@@ -36,7 +36,7 @@ class PlanAndExecuteState(MessagesState):
     The goal of the tasks to be executed.
     """
 
-    plan_tasks: list[CodeChanges]
+    plan_tasks: list[ChangeInstructions]
     """
     The code changes to be applied to the codebase.
     """
@@ -57,12 +57,7 @@ class ExecuteState(AgentState):
     The goal of the tasks to be executed.
     """
 
-    plan_tasks: list[CodeChanges]
+    plan_tasks: list[ChangeInstructions]
     """
     The code changes to be applied to the codebase.
-    """
-
-    current_date_time: str
-    """
-    The current date and time.
     """
