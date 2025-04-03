@@ -67,7 +67,7 @@ class PlanInstruction(BaseModel):
     details: str = Field(
         description=dedent(
             """\
-            It's important to share the algorithm you've thought of that should be followed, and to explain identified conventions that should be followed (don't just say: “follow the project's testing convention”, be specific).
+            It's important to share the algorithm you've thought of that should be followed, and to apply identified conventions on the details (don't just say: “follow the project's testing convention”, reflect them on the changes details).
             Use a human readable language, describing the changes to be made using natural language, not the code implementation. You can use multiple paragraphs to describe the changes to be made.
             """  # noqa: E501
         )
@@ -76,7 +76,7 @@ class PlanInstruction(BaseModel):
 
 class Plan(BaseModel):
     """
-    Outline the plan of instructions to apply to the codebase to address the user request.
+    Outline the plan of changes/instructions to apply to the codebase to address the user request.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
@@ -87,7 +87,7 @@ class Plan(BaseModel):
         description=dedent(
             """\
             A sorted list of instructions with the described changes required to meet the user request.
-            Group the instructions by file path if they are related to a specific file.
+            Group related changes by file_path whenever possible and applyable.
             """  # noqa: E501
         )
     )

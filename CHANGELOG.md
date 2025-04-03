@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Command parameter `base_url` on `setup_webhooks` was declared required with a default value, forcing to pass it on every call. Now it's not required and will use the value of `DAIV_EXTERNAL_URL` if not provided.
+- Date and time provided to prompts were defined at compilation time, leading to a fixed date and time on all prompts. Now it's defined at runtime to provide the correct date and time for each execution.
 
 ## [0.1.0-beta.3] - 2025-03-23
 
