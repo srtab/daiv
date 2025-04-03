@@ -211,13 +211,17 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         plan = Plan(
             goal="Bring the pipeline to a passing state by fixing the identified issues.",
             changes=[
-                ChangeInstructions(path=troubleshooting.file_path, details=troubleshooting.remediation_steps)
+                ChangeInstructions(
+                    file_path=troubleshooting.file_path,
+                    details="\n".join(troubleshooting.remediation_steps),
+                    relevant_files=[troubleshooting.file_path],
+                )
                 for troubleshooting in state["troubleshooting"]
             ],
         )
 
         plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
-        plan_and_execute.agent.invoke({"plan_goal": plan.goal, "plan_tasks": plan.changes})
+        plan_and_execute.agent.invoke({"plan_tasks": plan.changes})
 
         return Command(goto=END)
 

@@ -29,9 +29,7 @@ def determine_next_action(
             goto=END, update={"plan_questions": action.questions, "messages": [message]}, graph=Command.PARENT
         )
     return Command(
-        goto="plan_approval",
-        update={"plan_tasks": action.changes, "plan_goal": action.goal, "messages": [message]},
-        graph=Command.PARENT,
+        goto="plan_approval", update={"plan_tasks": action.changes, "messages": [message]}, graph=Command.PARENT
     )
 
 

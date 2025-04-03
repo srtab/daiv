@@ -31,11 +31,6 @@ class PlanAndExecuteState(MessagesState):
     The questions to be answered by the human to clarify it's intent.
     """
 
-    plan_goal: str
-    """
-    The goal of the tasks to be executed.
-    """
-
     plan_tasks: list[ChangeInstructions]
     """
     The code changes to be applied to the codebase.
@@ -50,11 +45,6 @@ class PlanAndExecuteState(MessagesState):
 class ExecuteState(AgentState):
     """
     The state of the execute plan agent.
-    """
-
-    plan_goal: str
-    """
-    The goal of the tasks to be executed.
     """
 
     plan_tasks: list[ChangeInstructions]

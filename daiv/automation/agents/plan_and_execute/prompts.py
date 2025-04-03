@@ -1,5 +1,3 @@
-from django.utils import timezone
-
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
@@ -40,7 +38,6 @@ REMEMBER: You're the architect, so be detailed and specific about the changes th
 
 Outline a plan with the changes needed to satisfy all the user's requests.""",  # noqa: E501
     "jinja2",
-    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
@@ -186,7 +183,6 @@ You have tools at your disposal to apply the changes to the codebase. Follow the
  * Handle any required imports or dependencies in a separate, explicit step. List the imports in dedicated import section if the codebase has one.
 </tool_calling>""",  # noqa: E501
     "jinja2",
-    partial_variables={"current_date_time": timezone.now().strftime("%d %B, %Y %H:%M")},
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
