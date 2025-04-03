@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added command execution to `PlanAndExecuteAgent` to allow running commands. This behavior can be disabled by setting `COMMAND_EXECUTION_ENABLED` to `False`.
+
 ### Changed
 
 - Increased `max_tokens` to `4096` for `Anthropic` models.

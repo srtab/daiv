@@ -123,17 +123,17 @@ class RunCommandResult(BaseModel):
 
 class RunCommandInput(BaseModel):
     """
-    Run a command in the sandbox.
+    Run a list of commands in the repository root directory.
     """
 
-    commands: list[str] = Field(..., description="The commands to run in the sandbox.")
-    intent: str = Field(..., description=("A description of why you're running these commands."))
+    commands: list[str] = Field(description="The commands to run in the repository root directory.")
+    intent: str = Field(description=("A description of why you're running these commands."))
     store: Annotated[Any, InjectedStore()]
 
 
 class RunCommandResponse(BaseModel):
     """
-    The response from running commands in the sandbox.
+    The response from running commands in the repository root directory.
     """
 
     results: list[RunCommandResult]

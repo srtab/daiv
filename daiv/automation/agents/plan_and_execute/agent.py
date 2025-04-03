@@ -139,7 +139,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["apply_format_code", "__end__"]]:
         """
-        Subgraph to execute the plan.
+        Execute the plan tasks.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
@@ -149,16 +149,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
+        tools = WriteRepositoryToolkit.create_instance().get_tools() + [think_plan_executer]
+
+        if settings.COMMAND_EXECUTION_ENABLED:
+            tools += [RunSandboxCommandsTool()]
+
         react_agent = create_react_agent(
             self.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
-            tools=WriteRepositoryToolkit.create_instance().get_tools() + [think_plan_executer],
+            tools=tools,
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,
                 execute_plan_human,
                 MessagesPlaceholder("messages"),
-            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                command_execution_enabled=settings.COMMAND_EXECUTION_ENABLED,
+            ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
             name="PlanExecuter",
             version="v2",
