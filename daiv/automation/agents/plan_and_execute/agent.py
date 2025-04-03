@@ -176,7 +176,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             {
                 "plan_tasks": state["plan_tasks"],
                 "messages": prepare_repository_files_as_messages(
-                    list({task.path for task in state["plan_tasks"]}),  # ensure unique paths
+                    list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
                     config["configurable"]["source_repo_id"],
                     config["configurable"]["source_ref"],
                     store,

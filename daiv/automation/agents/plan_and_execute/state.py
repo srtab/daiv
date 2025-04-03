@@ -2,7 +2,7 @@ from langgraph.graph import MessagesState
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
 
-from .schemas import ChangeInstructions
+from .schemas import PlanInstruction
 
 
 class PlanAndExecuteConfig(TypedDict):
@@ -31,12 +31,7 @@ class PlanAndExecuteState(MessagesState):
     The questions to be answered by the human to clarify it's intent.
     """
 
-    plan_goal: str
-    """
-    The goal of the tasks to be executed.
-    """
-
-    plan_tasks: list[ChangeInstructions]
+    plan_tasks: list[PlanInstruction]
     """
     The code changes to be applied to the codebase.
     """
@@ -52,12 +47,7 @@ class ExecuteState(AgentState):
     The state of the execute plan agent.
     """
 
-    plan_goal: str
-    """
-    The goal of the tasks to be executed.
-    """
-
-    plan_tasks: list[ChangeInstructions]
+    plan_tasks: list[PlanInstruction]
     """
     The code changes to be applied to the codebase.
     """

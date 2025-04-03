@@ -14,12 +14,14 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 <details>
 <summary>
 
-{{ plan_task.path }}
+Changes to apply {% if plan_task.file_path %}to `{{ plan_task.file_path }}`{% else %}to the repository{% endif %}
 
 </summary>
 
-{% for detail in plan_task.details %}
-- [ ] {{ detail }}{% endfor %}
+{{ plan_task.details }}
+
+Relevant files:{% for file in plan_task.relevant_files %}
+- `{{ file }}`{% endfor %}
 
 ---
 </details>

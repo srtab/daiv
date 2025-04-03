@@ -40,20 +40,35 @@ class AskForClarification(BaseModel):
     questions: list[str] = Field(description="Questions phrased in the same language as the user request.")
 
 
-class ChangeInstructions(BaseModel):
+class PlanInstruction(BaseModel):
     """
-    Details of the changes to apply to a specific file on the codebase.
+    Provide the instructions details.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    path: str = Field(description="The path to the file where the changes should be applied.")
+    relevant_files: list[str] = Field(
+        description=dedent(
+            """\
+            The paths to the files that are relevant to complete this instructions.
+            """  # noqa: E501
+        )
+    )
+    file_path: str = Field(
+        description=dedent(
+            """\
+            The path to the file where the instructions should be applied, if applicable.
+            If the instructions are not related to a specific file, leave this empty.
+            """  # noqa: E501
+        )
+    )
     details: str = Field(
         description=dedent(
             """\
-            All the modifications details that need to be done to address the user request in the format of instructions. Never assu
+            It's important to share the algorithm you've thought of that should be followed, and to explain identified conventions that should be followed (don't just say: “follow the project's testing convention”, be specific).
+            Use a human readable language, describing the changes to be made using natural language, not the code implementation. You can use multiple paragraphs to describe the changes to be made.
             """  # noqa: E501
         )
     )
@@ -61,15 +76,21 @@ class ChangeInstructions(BaseModel):
 
 class Plan(BaseModel):
     """
-    Outline the goal to be addressed and the changes to apply to the codebase.
+    Outline the plan of instructions to apply to the codebase to address the user request.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    goal: str = Field(description="A detailed objective of the requested changes to be made.")
-    changes: list[ChangeInstructions] = Field(description="A sorted list of changes to apply to the codebase.")
+    instructions: list[PlanInstruction] = Field(
+        description=dedent(
+            """\
+            A sorted list of instructions with the described changes required to meet the user request.
+            Group the instructions by file path if they are related to a specific file.
+            """  # noqa: E501
+        )
+    )
 
 
 class DetermineNextAction(BaseModel):

@@ -31,12 +31,12 @@ You have tools to search the codebase and read files. Follow these rules regardi
 </searching_and_reading>
 
 <making_the_plan>
-When creating the plan, you must ensure that changes are broken down so that they can be applied in parallel and independently. Each change SHOULD be self-contained and actionable, focusing only on the changes that need to be made to address the user request. Be sure to include all details and describe code locations by pattern. Do not include preambles or post-amble changes, focus only on the user request. When providing the plan only describe the changes to be made using natural language, don't implement the changes yourself, you're the architect, not the engineer.
+When creating the plan, you must ensure that changes are broken down so that they can be applied in parallel and independently. Each change SHOULD be self-contained and actionable, focusing only on the changes/instructions that need to be made to address the user request. Be sure to include all details and describe code locations by pattern. Do not include preambles or post-amble changes/instructions, focus only on the user request. When providing the plan only describe the changes/instructions to be made/applied using natural language, don't implement the changes/instructions yourself, you're the architect, not the software engineer.
 
-REMEMBER: You're the architect, so be detailed and specific about the changes that need to be made to ensure that user requirements are met and codebase quality is maintained; the engineer will be doing the actual implementation and writing of the code, and their success depends on the plan you provide.
+REMEMBER: You're the architect, so be detailed and specific about the changes/instructions that need to be made to ensure that user requirements are met and codebase quality is maintained; the software engineer will be doing the actual implementation and writing of the code, and their success depends on the plan you provide.
 </making_the_plan>
 
-Outline a plan with the changes needed to satisfy all the user's requests.""",  # noqa: E501
+Outline a plan with the changes/instructions needed to satisfy all the user's requests.""",  # noqa: E501
     "jinja2",
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )

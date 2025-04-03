@@ -14,7 +14,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.schemas import ChangeInstructions, Plan
+from automation.agents.plan_and_execute.schemas import Plan, PlanInstruction
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
@@ -209,15 +209,18 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["__end__"]]: The next step in the workflow.
         """
         plan = Plan(
-            goal="Bring the pipeline to a passing state by fixing the identified issues.",
-            changes=[
-                ChangeInstructions(path=troubleshooting.file_path, details=troubleshooting.remediation_steps)
+            instructions=[
+                PlanInstruction(
+                    relevant_files=[troubleshooting.file_path],
+                    file_path=troubleshooting.file_path,
+                    details="\n".join(troubleshooting.remediation_steps),
+                )
                 for troubleshooting in state["troubleshooting"]
-            ],
+            ]
         )
 
         plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
-        plan_and_execute.agent.invoke({"plan_goal": plan.goal, "plan_tasks": plan.changes})
+        plan_and_execute.agent.invoke({"plan_tasks": plan.instructions})
 
         return Command(goto=END)
 
