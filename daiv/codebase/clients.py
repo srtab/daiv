@@ -79,7 +79,7 @@ class RepoClient(abc.ABC):
         self,
         repo_id: str,
         url: str,
-        events: list[Literal["push_events", "merge_requests_events", "issues_events", "job_events", "note_events"]],
+        events: list[Literal["push_events", "issues_events", "note_events", "pipeline_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
     ) -> bool:
@@ -356,7 +356,7 @@ class GitLabClient(RepoClient):
         self,
         repo_id: str,
         url: str,
-        events: list[Literal["push_events", "merge_requests_events", "issues_events", "job_events", "note_events"]],
+        events: list[Literal["push_events", "issues_events", "note_events", "pipeline_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
     ) -> bool:

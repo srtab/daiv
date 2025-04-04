@@ -29,13 +29,6 @@ class OverallState(TypedDict):
     clarified by the reviewer.
     """
 
-    requested_changes: list[str]
-    """
-    The summarised requested changes stated by the reviewer.
-
-    This is used to feed the plan and execute node with the requested changes required by the reviewer.
-    """
-
 
 class ReplyAgentState(AgentState):
     """
