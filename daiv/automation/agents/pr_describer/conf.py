@@ -9,10 +9,7 @@ class PRDescriberSettings(BaseSettings):
 
     NAME: str = Field(default="PullRequestDescriber", description="Name of the PR describer agent.")
     MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for PR describer."
-    )
-    FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI, description="Fallback model name to be used for PR describer."
+        default=ModelName.GEMINI_2_0_FLASH_LITE, description="Model name to be used for PR describer."
     )
 
 

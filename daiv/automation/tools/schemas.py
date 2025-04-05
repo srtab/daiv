@@ -33,6 +33,14 @@ class SearchCodeSnippetsInput(BaseModel):
     intent: str = Field(..., description="A brief description of why you are searching for this code.")
 
 
+class RepositoryStructureInput(BaseModel):
+    """
+    Get the structure of the repository.
+    """
+
+    intent: str = Field(description="A brief description of why you are getting the repository structure.")
+
+
 class RetrieveFileContentInput(BaseModel):
     """
     Get the content of a file from the repository.

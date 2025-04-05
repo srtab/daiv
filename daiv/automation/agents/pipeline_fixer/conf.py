@@ -17,9 +17,6 @@ class PipelineFixerSettings(BaseSettings):
     LOG_EVALUATOR_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for log evaluator."
     )
-    LOG_EVALUATOR_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_7_SONNET, description="Fallback model name for log evaluator."
-    )
     TROUBLESHOOTING_MODEL_NAME: ModelName = Field(
         default=ModelName.O3_MINI, description="Model name to be used for pipeline fixer."
     )
@@ -28,9 +25,6 @@ class PipelineFixerSettings(BaseSettings):
     )
     LINT_EVALUATOR_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for lint evaluator."
-    )
-    LINT_EVALUATOR_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI, description="Fallback model name for lint evaluator."
     )
 
 

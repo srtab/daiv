@@ -25,7 +25,7 @@ class TroubleshootingDetail(BaseModel):
     file_path: str = Field(description="The path to the file that is causing the issue, if applicable.", default="")
     remediation_steps: list[str] = Field(
         description=(
-            "Outline actionable remediation steps to resolve the identified issues, "
+            "Outline actionable remediation steps with instructions to resolve the identified issues, "
             "including any code changes, configuration adjustments, or infrastructure interventions. "
             "Focus on actions that solve the identified issue directly."
         ),

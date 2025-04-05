@@ -14,7 +14,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.schemas import Plan, Task
+from automation.agents.plan_and_execute.schemas import ChangeInstructions, Plan
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
@@ -103,13 +103,9 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         evaluator = (
             ChatPromptTemplate.from_messages([error_log_evaluator_system, error_log_evaluator_human])
-            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME)
-            .bind_tools([ErrorLogEvaluation], tool_choice="auto")
-            .with_fallbacks([
-                self.get_model(model=settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME).bind_tools(
-                    [ErrorLogEvaluation], tool_choice="auto"
-                )
-            ])
+            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME).bind_tools(
+                [ErrorLogEvaluation], tool_choice="auto"
+            )
             | PydanticToolsParser(tools=[ErrorLogEvaluation], first_tool_only=True)
         )
 
@@ -210,20 +206,18 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         """
         plan = Plan(
             goal="Bring the pipeline to a passing state by fixing the identified issues.",
-            tasks=[
-                Task(
-                    title=troubleshooting.title,
-                    description=troubleshooting.details,
-                    path=troubleshooting.file_path,
-                    context_paths=[troubleshooting.file_path],
-                    subtasks=troubleshooting.remediation_steps,
+            changes=[
+                ChangeInstructions(
+                    file_path=troubleshooting.file_path,
+                    details="\n".join(troubleshooting.remediation_steps),
+                    relevant_files=[troubleshooting.file_path],
                 )
                 for troubleshooting in state["troubleshooting"]
             ],
         )
 
         plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
-        plan_and_execute.agent.invoke({"plan_goal": plan.goal, "plan_tasks": plan.tasks})
+        plan_and_execute.agent.invoke({"plan_tasks": plan.changes})
 
         return Command(goto=END)
 
@@ -274,11 +268,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # errors left.
         chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
             model=settings.LINT_EVALUATOR_MODEL_NAME
-        ).with_structured_output(CommandOutputResult).with_fallbacks([
-            self.get_model(model=settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME).with_structured_output(
-                CommandOutputResult
-            )
-        ])
+        ).with_structured_output(CommandOutputResult, method="function_calling")
 
         result = cast("CommandOutputResult", chain.invoke({"output": tool_message.artifact[-1].output}))
 

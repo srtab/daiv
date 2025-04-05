@@ -44,9 +44,7 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
                 llm=cast(
                     "BaseChatModel",
                     # this model shows better results for rephrasing
-                    self.get_model(model=settings.REPHRASE_MODEL_NAME).with_fallbacks([
-                        self.get_model(model=settings.REPHRASE_FALLBACK_MODEL_NAME)
-                    ]),
+                    self.get_model(model=settings.REPHRASE_MODEL_NAME),
                 ),
             )
         else:
@@ -57,9 +55,7 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
                 llm=cast(
                     "BaseChatModel",
                     # this model shows better results for listwise reranking
-                    self.get_model(model=settings.RERANKING_MODEL_NAME).with_fallbacks([
-                        self.get_model(model=settings.RERANKING_FALLBACK_MODEL_NAME)
-                    ]),
+                    self.get_model(model=settings.RERANKING_MODEL_NAME),
                 ),
                 top_n=settings.TOP_N,
             ),

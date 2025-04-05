@@ -40,7 +40,7 @@ class TestBaseAgent:
         kwargs = agent.get_model_kwargs(model_provider=ModelProvider.ANTHROPIC, model="claude-3-5-sonnet-20240229")
 
         assert kwargs["temperature"] == 0
-        assert kwargs["max_tokens"] == 2048
+        assert kwargs["max_tokens"] == 4_096
 
     def test_get_model_kwargs_openai(self):
         agent = ConcreteAgent()

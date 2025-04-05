@@ -11,14 +11,8 @@ class ReviewAddressorSettings(BaseSettings):
     ASSESSMENT_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for review assessment."
     )
-    FALLBACK_ASSESSMENT_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI, description="Fallback model name to be used for review assessment."
-    )
     REPLY_MODEL_NAME: ModelName = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for reply to comments or questions."
-    )
-    FALLBACK_REPLY_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI, description="Fallback model name for REPLY_MODEL_NAME."
     )
     REPLY_TEMPERATURE: float = Field(default=0.5, description="Temperature for the reply model.")
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
@@ -12,8 +12,6 @@ from .prompts import human, system
 from .schemas import PullRequestDescriberOutput
 
 if TYPE_CHECKING:
-    from langchain_core.language_models.chat_models import BaseChatModel
-
     from codebase.base import FileChange
 
 
@@ -34,11 +32,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         )
         return (
             prompt
-            | self.get_model(model=settings.MODEL_NAME)
-            .with_structured_output(PullRequestDescriberOutput)
-            .with_fallbacks([
-                cast("BaseChatModel", self.get_model(model=settings.FALLBACK_MODEL_NAME)).with_structured_output(
-                    PullRequestDescriberOutput
-                )
-            ])
+            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+                PullRequestDescriberOutput, method="function_calling"
+            )
         ).with_config({"run_name": settings.NAME})

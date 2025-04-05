@@ -64,10 +64,8 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         prompt = ChatPromptTemplate.from_messages([issue_assessment_system, issue_assessment_human])
 
         evaluator = prompt | self.get_model(model=settings.ASSESSMENT_MODEL_NAME).with_structured_output(
-            IssueAssessment
-        ).with_fallbacks([
-            self.get_model(model=settings.FALLBACK_ASSESSMENT_MODEL_NAME).with_structured_output(IssueAssessment)
-        ])
+            IssueAssessment, method="function_calling"
+        )
 
         response = cast(
             "IssueAssessment",
@@ -105,13 +103,14 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         return Command(
             goto="plan_and_execute",
             update={
+                "image_templates": extracted_images,
                 "messages": HumanMessagePromptTemplate.from_template(
-                    [issue_addressor_human, *extracted_images], "jinja2"
+                    [issue_addressor_human] + extracted_images, "jinja2"
                 ).format_messages(
                     issue_title=state["issue_title"],
                     issue_description=state["issue_description"],
                     project_description=repo_config.repository_description,
-                )
+                ),
             },
         )
 

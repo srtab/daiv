@@ -95,9 +95,8 @@ Begin your analysis of the issue above.""",  # noqa: E501
     "jinja2",
 )
 
-issue_addressor_human = """# Issue to implement
-<issue_title>{{ issue_title }}</issue_title>
-<issue_description>{{ issue_description }}</issue_description>
+issue_addressor_human = """# {{ issue_title }}
+{{ issue_description }}
 
 {% if project_description -%}
 # Project Context

@@ -17,7 +17,6 @@ class Command(BaseCommand):
             "--base-url",
             type=str,
             help="Base URL of DAIV webapp, i.e. https://app:8000",
-            required=True,
             default=core_settings.EXTERNAL_URL,
         )
         parser.add_argument(

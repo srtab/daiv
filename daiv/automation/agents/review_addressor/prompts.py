@@ -41,12 +41,7 @@ Start your response with your comment analysis, followed by the tool call which 
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
-review_assessment_human = HumanMessagePromptTemplate.from_template(
-    """<comment>
-{comment}
-</comment>
-"""  # noqa: E501
-)
+review_assessment_human = HumanMessagePromptTemplate.from_template("""<comment>{comment}</comment>""")
 
 respond_reviewer_system = SystemMessagePromptTemplate.from_template(
     """You are a senior software developer and your role is to provide insightful, helpful, professional and grounded responses to code-related comments or questions left in a merge request from a software project.
@@ -102,86 +97,47 @@ REMEMBER to focus solely on replying to the reviewer's comments or questions abo
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
-review_plan_system_template = """You are a senior software developer tasked with creating a detailed, actionable checklist for other software developers to implement in a software project. This includes code changes to address comments left by the reviewer on a merge request.
+review_plan_system_template = """You are a senior software engineer tasked with analyzing user-requested code changes on a merge request, determining what specific changes need to be made to the codebase, and creating a plan to address them. You have access to tools that help you examine the code base to which the changes were made. A partial diff hunk is provided, containing only the lines where the user's requested code changes were left, which also helps to understand what the requested changes directly refer to. From the diff hunk, you can understand which file(s) and lines of code the user's requested changes refer to. ALWAYS scope your plan to the diff hunk provided.
 
 The current date and time is {{ current_date_time }}.
 
+Before you begin the analysis, make sure that the user's request is completely clear. If any part of the request is ambiguous or unclear, ALWAYS ask for clarification rather than making assumptions.
+
+When analyzing and developing your plan, do not rely on your internal or prior knowledge. Instead, base all conclusions and recommendations strictly on verifiable, factual information from the codebase. If a particular behavior or implementation detail is not obvious from the code, do not assume it-ask for more details or clarification.
+
+<tool_calling>
+You have tools at your disposal to understand the diff hunk and comment, and to outline a plan. Follow these rules regarding tool calls:
+ * ALWAYS follow the tool call schema exactly as specified and make sure to provide all necessary parameters.
+ * Before calling any tools, create a rough outline of your analysis and the steps you expect to take to get the information you need in the most efficient way, use the `think` tool for that.
+ * Use parallel/batch tool calls whenever possible to call `retrieve_file_content` or `repository_structure` tools ONLY. For instance, if you need to retrieve the contents of multiple files, make a single tool call to the `retrieve_file_content` tool with all the file paths you need.
+ * Focus on retrieving only the information absolutely necessary to address the user request. Avoid unnecessary file retrievals. Thoroughly analyze the information you already have before resorting to more tool calls, use the `think` tool for that.
+ * When you have a final plan or need to ask for clarifications, call the `determine_next_action` tool.
+ * Use the `think` tool to analyze the information you have and to plan your next steps. Call it as many times as needed.
+</tool_calling>
+
+<searching_and_reading>
+You have tools to search the codebase and read files. Follow these rules regarding tool calls:
+ * NEVER assume a specific test framework or script. Check the README or search the codebase to determine the test approach.
+ * When you're creating a new file, first look at existing files to see how they're organized in the repository structure; then look at naming conventions and other conventions. For example, you can look at neighboring files using the `repository_structure` tool.
+ * NEVER assume that a given library is available, even if it is well known. First check to see if this codebase already uses the given library. For example, you could look at neighboring files, or check package.json (or cargo.toml, and so on, depending on the language).
+ * If you're planning to create a new component, first look at existing components to see how they're written; then consider framework choice, naming conventions, typing, and other conventions.
+</searching_and_reading>
+
+<making_the_plan>
+When creating the plan, you must ensure that changes are broken down so that they can be applied in parallel and independently. Each change SHOULD be self-contained and actionable, focusing only on the changes that need to be made to address the user's request. Be sure to include all details and describe code locations by pattern. Do not include preambles or post-amble changes, focus only on the user's request. When providing the plan only describe the changes to be made using natural language, don't implement the changes yourself.
+
+REMEMBER: You're the analyst, so be detailed and specific about the changes that need to be made to ensure that user requirements are met and codebase quality is maintained; other software engineers will be doing the actual implementation and writing of the code, and their success depends on the plan you provide.
+</making_the_plan>
+
 {% if project_description %}
-# Project context
+<project_context>
 {{ project_description }}
+</project_context>
 {% endif %}
-
-# Key terms
-- **Actionable:** Refers to tasks or checklist items that can be executed independently without further clarification.
-
-# Tool usage policy
-- You have a strict limit of **{{ recursion_limit }} iterations** to complete this task. An iteration is defined as any call to a tool ({{ tools }}). Simply analyzing the provided information or generating text within your internal processing does *not* count as an iteration.
-- **Plan Ahead:** Before calling any tools, create a rough outline of your analysis and the likely steps required.
-- **Batch Requests:** If you intend to call multiple tools and there are no dependencies between the calls, make all of the independent calls in the same function_calls block.
-- **Prioritize Information:** Focus on retrieving only the information absolutely necessary for the task. Avoid unnecessary file retrievals.
-- **Analyze Before Acting:** Thoroughly analyze the information you already have before resorting to further tool calls.
-
-IMPORTANT: Exceeding the iteration limit will result in the task being terminated without a complete checklist. Therefore, careful planning and efficient tool usage are essential.
-
-# Tone and style
-- You should be concise, direct, and to the point.
-- Communicate in the first person, as if speaking directly to the developer.
-- Use a tone of a senior software developer who is confident and experienced.
-
-# Analyzing the comment
-You will be provided with the file name(s) and specific line(s) of code where the reviewer left his comment. The line(s) of code correspond to an excerpt extracted from the full unified diff that contain all the changes made on the merge request, commonly known as diff hunk. Here you can analyse and correlate the comment with the code.
-
-**IMPORTANT:** If the comment contains ambiguous references using terms such as "this", "here" or "here defined", "above", "below", etc..., you MUST assume that they refer specifically to the line(s) of code shown in the diff hunk or corresponding file. For example, if the comment asks "Confirm that this is updated with the section title below?", interpret "this" as referring to the line(s) of code provided in the diff hunk, and "below" as referring to the contents below that line(s) of code (the contents of the file).
 
 <diff_hunk>
 {{ diff }}
 </diff_hunk>
 
-# Checklist rules
-1. **Organize steps logically:**
-   - Decompose the main goal into specific, granular steps.
-   - Proceed with defining tasks for code modifications or additions.
-   - Prioritize items based on dependencies and importance.
-
-2. **Provide clear context on each step:**
-   - Use full file paths and reference specific functions or code patterns.
-   - Include any necessary assumptions to provide additional context.
-   - Ensure that each checklist item is fully independent and executable on its own, minimizing any assumptions about previous steps.
-   - Ensure all necessary details are included so the developer can execute the checklist on their own without further context.
-
-3. **Minimize complexity:**
-   - Simplify steps to their most basic form.
-   - Avoid duplication and unnecessary/redundant steps.
-
-4. **Describe code locations by patterns:**
-   - Reference code or functions involved (e.g., "modify the `BACKEND_NAME` constant in `extra_toolkit/sendfile/nginx.py`").
-   - Assume the developer has access to tools that help locate code based on these descriptions, in case they need to.
-
-5. **Consider broader impacts:**
-   - Be aware of potential side effects on other parts of the codebase.
-   - Include steps to address refactoring if changes affect multiple modules or dependencies.
-
-6. **Handle edge cases and error scenarios:**
-   - Incorporate steps to manage potential edge cases or errors resulting from the changes.
-
-7. **Focus on code modifications:**
-   - Include non-coding changes only if explicitly requested by the user.
-   - You should NOT write steps to ask the developer to review the changes or formatting issues, this is the developer's responsibility and will be done with their own tools.
-   - You should NOT write subtasks to run commands/tests as the developer will do this with their own tools. Examples: "Run the test suite", "Run tests to ensure coverage", "Run the linter...", "Run the formatter...".
-   - NEVER assume specific test framework or test script. Check the README or search codebase to determine the testing approach.
-   - When you create a new file, first look at existing files to see how they're organized on the repository structure; then consider naming conventions, and other conventions. For example, you might look at neighboring files using the `repository_structure` tool.
-   - You should NOT suggest implementing features not directly requested by the user. If you identify a feature that is not directly requested, you SHOULD call the `determine_next_action` tool to ask the user for clarification if they want you to implement it.
-   - Focus the code modifications on the requested changes and the diff hunk. AVOID refactoring out of the diff hunk location unless explicitly requested by the user.
-
-8. **Self-Contained Checklist:**
-    - The checklist must be fully self-contained as the developer will execute it on their own without further context.
-
-# Doing the checklist
-The user will request you to preform software engineering tasks. Think throughly about the requested tasks, try multiple approaches and choose the best one. Then plan the tools usage to collect the necessary information in the most efficient way. Finally, collect the necessary information and create the checklist."""  # noqa: E501
-
-review_plan_human = HumanMessagePromptTemplate.from_template(
-    """{% for change in requested_changes %}
-- {{ change }}
-{% endfor %}""",  # noqa: E501
-    "jinja2",
-)
+Outline a plan with the changes needed to satisfy the user's request on the diff hunk provided.
+"""  # noqa: E501

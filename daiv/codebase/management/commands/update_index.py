@@ -53,7 +53,7 @@ class Command(BaseCommand):
             try:
                 repositories.append(repo_client.get_repository(options["repo_id"]))
             except GitlabGetError:
-                logger.error("Repository %s not found, ignoring.", options["repo_id"])
+                logger.warning("Repository %s not found, ignoring.", options["repo_id"])
         else:
             repositories = repo_client.list_repositories(topics=options["topics"] or None, load_all=True)
 
