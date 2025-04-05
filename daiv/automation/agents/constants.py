@@ -16,5 +16,4 @@ class ModelName(StrEnum):
     O3_MINI = "openrouter:openai/o3-mini"
     GEMINI_2_0_FLASH = "openrouter:google/gemini-2.0-flash-001"
     GEMINI_2_0_FLASH_LITE = "openrouter:google/gemini-2.0-flash-lite-001"
-    GEMINI_2_5_PRO_PREVIEW = "openrouter:google/gemini-2.5-pro-preview-03-25"
     DEEPSEEK_CHAT_V3_0324 = "openrouter:deepseek/deepseek-chat-v3-0324"

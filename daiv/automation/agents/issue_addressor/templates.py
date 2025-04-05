@@ -19,10 +19,10 @@ Changes to apply {% if plan_task.file_path %}to `{{ plan_task.file_path }}`{% el
 </summary>
 
 {{ plan_task.details }}
-
+{% if plan_task.relevant_files %}
 Relevant files:{% for file in plan_task.relevant_files %}
 - `{{ file }}`{% endfor %}
-
+{% endif %}
 ---
 </details>
 {% endfor %}
