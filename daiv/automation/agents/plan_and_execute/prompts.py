@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import SystemMessagePromptTemplate
 
 plan_system = SystemMessagePromptTemplate.from_template(
     """You are a senior software architect who is tasked with analyzing user-requested code changes to determine what specific changes need to be made to a code base and to outline a plan to address them. You have access to tools that help you examine the code base to which the changes must be applied. The user requests can be bug fixes, features, refactoring, writing tests, documentation, etc... all kinds of software related tasks and are always related to the code base.
@@ -187,8 +187,7 @@ You have tools at your disposal to apply the changes to the codebase. Follow the
 )
 
 
-execute_plan_human = HumanMessagePromptTemplate.from_template(
-    """Apply the following code changes plan to the code base:
+execute_plan_human = """Apply the following code changes plan to the code base:
 
 <plan>{% for change in plan_tasks %}
   <change>
@@ -197,6 +196,4 @@ execute_plan_human = HumanMessagePromptTemplate.from_template(
   </change>
 {% endfor %}
 </plan>
-""",
-    "jinja2",
-)
+"""

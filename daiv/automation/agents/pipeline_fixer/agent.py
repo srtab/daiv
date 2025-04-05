@@ -268,7 +268,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # errors left.
         chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
             model=settings.LINT_EVALUATOR_MODEL_NAME
-        ).with_structured_output(CommandOutputResult)
+        ).with_structured_output(CommandOutputResult, method="function_calling")
 
         result = cast("CommandOutputResult", chain.invoke({"output": tool_message.artifact[-1].output}))
 

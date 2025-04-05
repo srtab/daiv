@@ -31,5 +31,8 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
             branch_name_convention=None, extra_context=""
         )
         return (
-            prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestDescriberOutput)
+            prompt
+            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+                PullRequestDescriberOutput, method="function_calling"
+            )
         ).with_config({"run_name": settings.NAME})

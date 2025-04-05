@@ -26,6 +26,11 @@ class PlanAndExecuteState(MessagesState):
     The state of the overall plan and execute agent.
     """
 
+    image_templates: list[dict]
+    """
+    The image templates to be used in the plan and execute agent.
+    """
+
     plan_questions: list[str]
     """
     The questions to be answered by the human to clarify it's intent.

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from django.utils import timezone
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.runnables.config import DEFAULT_RECURSION_LIMIT
 from langgraph.graph import END, StateGraph
@@ -126,7 +126,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)
 
         plan_approval_evaluator = self.get_model(model=settings.PLAN_APPROVAL_MODEL_NAME).with_structured_output(
-            HumanApproval
+            HumanApproval, method="function_calling"
         )
 
         result = cast("HumanApproval", plan_approval_evaluator.invoke([plan_approval_system] + messages))
@@ -156,7 +156,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,
-                execute_plan_human,
+                HumanMessagePromptTemplate.from_template([execute_plan_human] + state["image_templates"], "jinja2"),
                 MessagesPlaceholder("messages"),
             ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
