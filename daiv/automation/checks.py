@@ -12,16 +12,11 @@ from automation.agents.plan_and_execute.conf import settings as plan_and_execute
 
 declared_model_names = {
     codebase_chat_settings.MODEL_NAME,
-    codebase_search_settings.REPHRASE_FALLBACK_MODEL_NAME,
     codebase_search_settings.REPHRASE_MODEL_NAME,
-    codebase_search_settings.RERANKING_FALLBACK_MODEL_NAME,
     codebase_search_settings.RERANKING_MODEL_NAME,
     image_url_extractor_settings.MODEL_NAME,
     issue_addressor_settings.ASSESSMENT_MODEL_NAME,
-    issue_addressor_settings.FALLBACK_ASSESSMENT_MODEL_NAME,
-    pipeline_fixer_settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME,
     pipeline_fixer_settings.LINT_EVALUATOR_MODEL_NAME,
-    pipeline_fixer_settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME,
     pipeline_fixer_settings.LOG_EVALUATOR_MODEL_NAME,
     pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
     pipeline_fixer_settings.TROUBLESHOOTING_THINKING_LEVEL,
@@ -58,6 +53,13 @@ def check_api_keys(app_configs, **kwargs):
                 Error(
                     f"No API key found for {model_name}. "
                     "Please set the API key using the environment variable ANTHROPIC_API_KEY."
+                )
+            )
+        elif model_provider == ModelProvider.OPENROUTER and not os.environ.get("OPENROUTER_API_KEY"):
+            errors.append(
+                Error(
+                    f"No API key found for {model_name}. "
+                    "Please set the API key using the environment variable OPENROUTER_API_KEY."
                 )
             )
     return errors

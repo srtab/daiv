@@ -16,14 +16,8 @@ class CodebaseSearchSettings(BaseSettings):
     REPHRASE_MODEL_NAME: ModelName = Field(
         default=ModelName.GPT_4O_MINI, description="Model name to be used for codebase search."
     )
-    REPHRASE_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for codebase search."
-    )
     RERANKING_MODEL_NAME: ModelName = Field(
         default=ModelName.GPT_4O_MINI, description="Model name to be used for listwise reranking."
-    )
-    RERANKING_FALLBACK_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for listwise reranking."
     )
 
 

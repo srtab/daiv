@@ -65,9 +65,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         evaluator = prompt | self.get_model(model=settings.ASSESSMENT_MODEL_NAME).with_structured_output(
             IssueAssessment
-        ).with_fallbacks([
-            self.get_model(model=settings.FALLBACK_ASSESSMENT_MODEL_NAME).with_structured_output(IssueAssessment)
-        ])
+        )
 
         response = cast(
             "IssueAssessment",

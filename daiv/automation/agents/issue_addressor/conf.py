@@ -16,9 +16,6 @@ class IssueAddressorSettings(BaseSettings):
     ASSESSMENT_MODEL_NAME: ModelName = Field(
         default=ModelName.GPT_4O_MINI, description="Model name to be used for issue assessment."
     )
-    FALLBACK_ASSESSMENT_MODEL_NAME: ModelName = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU, description="Fallback model name to be used for issue assessment."
-    )
 
 
 settings = IssueAddressorSettings()  # type: ignore

@@ -62,7 +62,7 @@ dev = [
   "pyopenssl==25",
   "pyproject-fmt==2.5.1",
   "pytest-asyncio==0.26",
-  "pytest-cov==6.1",
+  "pytest-cov==6.1.1",
   "pytest-django==4.11.1",
   "pytest-env==1.1.5",
   "pytest-mock==3.14",

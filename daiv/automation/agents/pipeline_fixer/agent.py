@@ -103,13 +103,9 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         evaluator = (
             ChatPromptTemplate.from_messages([error_log_evaluator_system, error_log_evaluator_human])
-            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME)
-            .bind_tools([ErrorLogEvaluation], tool_choice="auto")
-            .with_fallbacks([
-                self.get_model(model=settings.LOG_EVALUATOR_FALLBACK_MODEL_NAME).bind_tools(
-                    [ErrorLogEvaluation], tool_choice="auto"
-                )
-            ])
+            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME).bind_tools(
+                [ErrorLogEvaluation], tool_choice="auto"
+            )
             | PydanticToolsParser(tools=[ErrorLogEvaluation], first_tool_only=True)
         )
 
@@ -272,11 +268,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # errors left.
         chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
             model=settings.LINT_EVALUATOR_MODEL_NAME
-        ).with_structured_output(CommandOutputResult).with_fallbacks([
-            self.get_model(model=settings.LINT_EVALUATOR_FALLBACK_MODEL_NAME).with_structured_output(
-                CommandOutputResult
-            )
-        ])
+        ).with_structured_output(CommandOutputResult)
 
         result = cast("CommandOutputResult", chain.invoke({"output": tool_message.artifact[-1].output}))
 
