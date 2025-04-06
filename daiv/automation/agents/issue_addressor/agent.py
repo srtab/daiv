@@ -103,14 +103,13 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         return Command(
             goto="plan_and_execute",
             update={
-                "image_templates": extracted_images,
                 "messages": HumanMessagePromptTemplate.from_template(
                     [issue_addressor_human] + extracted_images, "jinja2"
                 ).format_messages(
                     issue_title=state["issue_title"],
                     issue_description=state["issue_description"],
                     project_description=repo_config.repository_description,
-                ),
+                )
             },
         )
 

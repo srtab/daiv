@@ -21,7 +21,7 @@ class ImageTemplate(BaseModel):
 
     @staticmethod
     def from_images(
-        images: list[Image], repo_client_slug: str | None = None, project_id: int | None = None
+        images: list[Image], repo_client_slug: ClientType | None = None, project_id: int | None = None
     ) -> list[dict]:
         """
         Create a list of image templates from a list of images.
@@ -47,7 +47,7 @@ class ImageTemplate(BaseModel):
                 and not parsed_url.scheme
                 and repo_client_slug == ClientType.GITLAB
                 and project_id
-                and parsed_url.path.startswith("uploads/")
+                and parsed_url.path.startswith(("/uploads/", "uploads/"))
             ):
                 _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
                 image_url = url_to_data_url(

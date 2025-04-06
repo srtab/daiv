@@ -156,7 +156,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,
-                HumanMessagePromptTemplate.from_template([execute_plan_human] + state["image_templates"], "jinja2"),
+                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
                 MessagesPlaceholder("messages"),
             ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
