@@ -16,8 +16,3 @@ class OverallState(MessagesState):
     """
     Whether the issue is a request for changes.
     """
-
-    image_templates: list[dict]
-    """
-    The image templates to be used in the issue addressor.
-    """

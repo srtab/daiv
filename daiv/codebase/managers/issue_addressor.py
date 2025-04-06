@@ -117,7 +117,7 @@ class IssueAddressorManager(BaseManager):
                 "source_repo_id": self.repo_id,
                 "source_ref": self.ref,
                 "issue_id": self.issue.iid,
-                "repo_client": str(self.client.client_slug),
+                "repo_client": self.client.client_slug,
             },
         )
 
