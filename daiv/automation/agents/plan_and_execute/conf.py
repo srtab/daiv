@@ -12,13 +12,13 @@ class PlanAndExecuteSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PLAN_AND_EXECUTE_")
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
-    PLANNING_MODEL_NAME: ModelName = Field(
+    PLANNING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to plan tasks."
     )
-    EXECUTION_MODEL_NAME: ModelName = Field(
+    EXECUTION_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to execute tasks."
     )
-    PLAN_APPROVAL_MODEL_NAME: ModelName = Field(
+    PLAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GEMINI_2_0_FLASH, description="Model name to be used to evaluate the plan approval."
     )
 

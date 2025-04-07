@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- PlanAndExecuteAgent: Plan prompt `<file_path>` was always empty.
+- Agent model configurations did not allow you to configure models that were not declared on the `ModelName` enum. Now you can pass arbitrary strings.
+
 ## [0.1.0-beta.4] - 2025-04-06
 
 ### Changed

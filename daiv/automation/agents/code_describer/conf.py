@@ -12,7 +12,7 @@ class CodeDescriberSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODE_DESCRIBER_")
 
     NAME: str = Field(default="CodeDescriber", description="Name of the code describer agent.")
-    MODEL_NAME: ModelName = Field(
+    MODEL_NAME: ModelName | str = Field(
         default=ModelName.GEMINI_2_0_FLASH_LITE, description="Model name to be used for code describer."
     )
 

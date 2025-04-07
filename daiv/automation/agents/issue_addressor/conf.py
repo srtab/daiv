@@ -13,7 +13,7 @@ class IssueAddressorSettings(BaseSettings):
 
     NAME: str = Field(default="IssueAddressor", description="Name of the issue addressor agent.")
     RECURSION_LIMIT: int = Field(default=50, description="Recursion limit for the issue addressor agent.")
-    ASSESSMENT_MODEL_NAME: ModelName = Field(
+    ASSESSMENT_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GEMINI_2_0_FLASH, description="Model name to be used for issue assessment."
     )
 

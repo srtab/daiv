@@ -14,16 +14,16 @@ class PipelineFixerSettings(BaseSettings):
 
     NAME: str = Field(default="PipelineFixer", description="Name of the pipeline fixer agent.")
     MAX_ITERATIONS: int = Field(default=20, description="Maximum number of retry iterations for pipeline fixer.")
-    LOG_EVALUATOR_MODEL_NAME: ModelName = Field(
+    LOG_EVALUATOR_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for log evaluator."
     )
-    TROUBLESHOOTING_MODEL_NAME: ModelName = Field(
+    TROUBLESHOOTING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.O3_MINI, description="Model name to be used for pipeline fixer."
     )
     TROUBLESHOOTING_THINKING_LEVEL: ThinkingLevel = Field(
         default=ThinkingLevel.HIGH, description="Thinking level to be used for pipeline fixer."
     )
-    LINT_EVALUATOR_MODEL_NAME: ModelName = Field(
+    LINT_EVALUATOR_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for lint evaluator."
     )
 
