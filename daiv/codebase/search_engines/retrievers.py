@@ -146,7 +146,6 @@ class PostgresRetriever(BaseRetriever):
         Returns:
             list[Document]: The relevant documents.
         """
-        # TODO: the embeddings call is slow, maybe use a local embedding model to speed up the process
         query_vector = self.embeddings.embed_query(query)
         queryset = (
             self._get_documents_queryset()

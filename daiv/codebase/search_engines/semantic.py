@@ -4,27 +4,42 @@ from textwrap import dedent
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 
-from codebase.models import VECTOR_DIMENSIONS, CodebaseDocument, CodebaseNamespace
+from codebase.conf import settings
+from codebase.models import CodebaseDocument, CodebaseNamespace
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgresRetriever
-
-EMBEDDING_MODEL_NAME = "text-embedding-3-large"
-EMBEDDING_CHUNK_SIZE = 500
+from daiv.settings.components import DATA_DIR
 
 logger = logging.getLogger("daiv.indexes.semantic")
 
+EMBEDDINGS_CACHE_FOLDER = DATA_DIR / "embeddings"
+
 
 @functools.cache
-def embeddings_function() -> OpenAIEmbeddings:
+def embeddings_function() -> OpenAIEmbeddings | HuggingFaceEmbeddings:
     """
     Creates and returns a cached OpenAI embeddings function.
 
     Returns:
         OpenAIEmbeddings: Configured embeddings model with optimized chunk size.
     """
-    return OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME, dimensions=VECTOR_DIMENSIONS, chunk_size=EMBEDDING_CHUNK_SIZE)
+
+    if settings.EMBEDDINGS_MODEL_NAME.startswith(("text-embedding-3", "text-embedding-ada-002")):
+        return OpenAIEmbeddings(
+            model=settings.EMBEDDINGS_MODEL_NAME,
+            dimensions=settings.EMBEDDINGS_DIMENSIONS,
+            chunk_size=settings.EMBEDDINGS_CHUNK_SIZE,
+        )
+    else:
+        return HuggingFaceEmbeddings(
+            model_name=settings.EMBEDDINGS_MODEL_NAME,
+            dimensions=settings.EMBEDDINGS_DIMENSIONS,
+            chunk_size=settings.EMBEDDINGS_CHUNK_SIZE,
+            cache_folder=EMBEDDINGS_CACHE_FOLDER,
+        )
 
 
 class SemanticSearchEngine(SearchEngine):

@@ -9,10 +9,10 @@ from django_extensions.db.models import TimeStampedModel
 from langchain_core.documents import Document
 from pgvector.django import HnswIndex, VectorField
 
-if TYPE_CHECKING:
-    from codebase.base import Repository
+from .conf import settings
 
-VECTOR_DIMENSIONS = 2000
+if TYPE_CHECKING:
+    from .base import Repository
 
 
 class ClientChoices(models.TextChoices):
@@ -91,7 +91,7 @@ class CodebaseDocument(TimeStampedModel):
     source = models.CharField(max_length=256)
     description = models.TextField(blank=True)
     page_content = models.TextField()
-    page_content_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
+    page_content_vector = VectorField(dimensions=settings.EMBEDDINGS_DIMENSIONS)
     is_default_branch = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict)
 
