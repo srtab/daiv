@@ -8,10 +8,10 @@ class ReviewAddressorSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="REVIEW_ADDRESSOR_")
 
     NAME: str = Field(default="ReviewAddressor", description="Name of the review addressor agent.")
-    ASSESSMENT_MODEL_NAME: ModelName = Field(
+    ASSESSMENT_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for review assessment."
     )
-    REPLY_MODEL_NAME: ModelName = Field(
+    REPLY_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for reply to comments or questions."
     )
     REPLY_TEMPERATURE: float = Field(default=0.5, description="Temperature for the reply model.")

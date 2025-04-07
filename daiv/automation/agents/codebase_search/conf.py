@@ -13,10 +13,10 @@ class CodebaseSearchSettings(BaseSettings):
 
     NAME: str = Field(default="CodebaseSearch", description="Name of the codebase search agent.")
     TOP_N: int = Field(default=10, description="Number of results to return from the codebase search.")
-    REPHRASE_MODEL_NAME: ModelName = Field(
+    REPHRASE_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4O_MINI, description="Model name to be used for codebase search."
     )
-    RERANKING_MODEL_NAME: ModelName = Field(
+    RERANKING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4O_MINI, description="Model name to be used for listwise reranking."
     )
 

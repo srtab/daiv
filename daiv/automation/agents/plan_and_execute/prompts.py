@@ -192,7 +192,7 @@ execute_plan_human = """Apply the following code changes plan to the code base:
 
 <plan>{% for change in plan_tasks %}
   <change>
-    <file_path>{{ change.path }}</file_path>
+    <file_path>{{ change.file_path }}</file_path>
     <details>{{ change.details }}</details>
   </change>
 {% endfor %}

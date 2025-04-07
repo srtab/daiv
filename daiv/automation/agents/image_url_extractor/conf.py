@@ -12,7 +12,7 @@ class ImageURLExtractorSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="IMAGE_URL_EXTRACTOR_")
 
     NAME: str = Field(default="ImageURLExtractor", description="Name of the image URL extractor agent.")
-    MODEL_NAME: ModelName = Field(
+    MODEL_NAME: ModelName | str = Field(
         default=ModelName.GEMINI_2_0_FLASH_LITE, description="Model name to be used for image URL extractor."
     )
 
