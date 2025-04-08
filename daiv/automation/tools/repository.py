@@ -22,6 +22,7 @@ from .schemas import (
     DeleteRepositoryFileInput,
     RenameRepositoryFileInput,
     ReplaceSnippetInFileInput,
+    RepositoryStructureInput,
     RetrieveFileContentInput,
     SearchCodeSnippetsInput,
 )
@@ -150,21 +151,25 @@ class RepositoryStructureTool(BaseTool):
     description: str = textwrap.dedent(
         """\
         Get the full file tree structure of the repository. You don't need to use this tool more than once per conversation, as the structure doesn't change from one iteration to another.
-        Useful when you need to search for files by their extension too.
+        Useful when you need to find files by their extension or by their path.
         """  # noqa: E501
     )
+    args_schema: type[BaseModel] = RepositoryStructureInput
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(self, config: RunnableConfig) -> str:
+    def _run(self, intent: str, config: RunnableConfig) -> str:
         """
         Gets the full file tree structure of the repository.
 
         Args:
+            intent: The intent of the search query, why you are searching for this code.
             config: The config to use for the retrieval.
 
         Returns:
             The full file tree structure of the repository.
         """
+        logger.debug("[%s] Getting repository structure (intent: %s)", self.name, intent)
+
         return self.api_wrapper.extract_tree(
             config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
         )

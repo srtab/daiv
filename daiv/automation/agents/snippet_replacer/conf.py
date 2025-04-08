@@ -10,7 +10,7 @@ class SnippetReplacerSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="SNIPPET_REPLACER_")
 
     NAME: str = Field(default="SnippetReplacer", description="Name of the snippet replacer agent.")
-    MODEL_NAME: ModelName = Field(
+    MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_5_HAIKU,
         description="Model name to be used for snippet replacer. This model is used for the LLM strategy.",
     )

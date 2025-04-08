@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- PlanAndExecuteAgent: Plan prompt `<file_path>` was always empty.
+- Agent model configurations did not allow you to configure models that were not declared on the `ModelName` enum. Now you can pass arbitrary strings.
+
+## [0.1.0-beta.4] - 2025-04-06
+
+### Changed
+
+- Increased `max_tokens` to `4096` for `Anthropic` models.
+- Removed fallback logic from all agents, as it's not needed with the new `OpenRouter` integration.
+- Improved `PlanAndExecuteAgent`:
+  - Introduced `think` tool on both planning and execution phases to improve the reasoning capabilities of the agent, even when using models without that capability (https://www.anthropic.com/engineering/claude-think-tool).
+  - Improved planning prompt to focus on the atual state of the codebase and design plans to be more self contained and actionable.
+  - Improved execution prompt to focus on the execution to strictly follow the plan.
+  - File paths included on the plan are now preloaded as messages on the execution to improve the speed of the execution and reduce the number of tool calls.
+- Improved `ReviewAddressorAgent`:
+  - Improved planning prompt to focus on the atual diff hunk without losing the context on the comments from the reviewer.
+- Improved `PipelineFixerAgent`:
+  - Improved troubleshooting prompt to focus on verifiable knowledge and to improve the quality of the remediation steps.
+
 ### Added
 
 - Added command execution to `PlanAndExecuteAgent` to allow running commands. This behavior can be disabled by setting `COMMAND_EXECUTION_ENABLED` to `False`.
@@ -28,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Command parameter `base_url` on `setup_webhooks` was declared required with a default value, forcing to pass it on every call. Now it's not required and will use the value of `DAIV_EXTERNAL_URL` if not provided.
 - Date and time provided to prompts were defined at compilation time, leading to a fixed date and time on all prompts. Now it's defined at runtime to provide the correct date and time for each execution.
+- CodebaseChat tool calls were being shown outside <thinking> tags on OpenWebUI, polluting the UI.
+- Images were not being extracted from the issue description, leading to hallucinations.
 
 ## [0.1.0-beta.3] - 2025-03-23
 
@@ -524,7 +547,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-beta.3...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/srtab/daiv/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/srtab/daiv/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/srtab/daiv/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/srtab/daiv/compare/v0.1.0-alpha.22...v0.1.0-beta.1

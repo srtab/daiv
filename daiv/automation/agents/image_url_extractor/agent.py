@@ -41,6 +41,8 @@ class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[dict]]]):
         prompt = ChatPromptTemplate.from_messages([system, human])
         return (
             prompt
-            | self.get_model(model=settings.MODEL_NAME).with_structured_output(ImageURLExtractorOutput)
+            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+                ImageURLExtractorOutput, method="function_calling"
+            )
             | RunnableLambda(_post_process, name="post_process_extracted_images")
         ).with_config({"run_name": settings.NAME})

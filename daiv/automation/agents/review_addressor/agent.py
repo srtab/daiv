@@ -16,7 +16,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.tools.toolkits import ReadRepositoryToolkit, SandboxToolkit, WebSearchToolkit
+from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
@@ -26,7 +26,6 @@ from .prompts import (
     respond_reviewer_system,
     review_assessment_human,
     review_assessment_system,
-    review_plan_human,
     review_plan_system_template,
 )
 from .schemas import ReviewAssessment
@@ -87,20 +86,14 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
             # a tool call without reasoning, which is crucial here to make the right decision.
             # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
-            | self.get_model(model=settings.ASSESSMENT_MODEL_NAME)
-            .bind_tools([ReviewAssessment], tool_choice="auto")
-            .with_fallbacks([
-                self.get_model(model=settings.FALLBACK_ASSESSMENT_MODEL_NAME).bind_tools(
-                    [ReviewAssessment], tool_choice="auto"
-                )
-            ])
+            | self.get_model(model=settings.ASSESSMENT_MODEL_NAME).bind_tools([ReviewAssessment], tool_choice="auto")
             | PydanticToolsParser(tools=[ReviewAssessment], first_tool_only=True)
         )
 
         response = cast("ReviewAssessment", evaluator.invoke({"messages": state["notes"]}))
 
         if response.request_for_changes:
-            return Command(goto="plan_and_execute", update={"requested_changes": response.requested_changes})
+            return Command(goto="plan_and_execute")
 
         return Command(goto="reply_reviewer")
 
@@ -135,9 +128,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             plan_system_template=review_plan_system, store=store, skip_approval=True, checkpointer=False
         )
 
-        result = plan_and_execute.agent.invoke({
-            "messages": [review_plan_human.format(requested_changes=state["requested_changes"])]
-        })
+        result = plan_and_execute.agent.invoke({"messages": state["notes"]})
 
         if plan_questions := result.get("plan_questions"):
             return Command(goto=END, update={"reply": "\n".join(plan_questions)})
@@ -157,16 +148,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        tools = (
-            ReadRepositoryToolkit.create_instance().get_tools()
-            + WebSearchToolkit.create_instance().get_tools()
-            + SandboxToolkit.create_instance().get_tools()
-        )
+        tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
 
         react_agent = create_react_agent(
-            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE).with_fallbacks([
-                self.get_model(model=settings.FALLBACK_REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE)
-            ]),
+            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
             tools=tools + [reply_reviewer_tool],
             store=store,

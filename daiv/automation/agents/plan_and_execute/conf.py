@@ -12,14 +12,14 @@ class PlanAndExecuteSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PLAN_AND_EXECUTE_")
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
-    PLANNING_MODEL_NAME: ModelName = Field(
-        default=ModelName.DEEPSEEK_CHAT_V3_0324, description="Model name to be used to plan tasks."
+    PLANNING_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to plan tasks."
     )
-    EXECUTION_MODEL_NAME: ModelName = Field(
-        default=ModelName.DEEPSEEK_CHAT_V3_0324, description="Model name to be used to execute tasks."
+    EXECUTION_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to execute tasks."
     )
-    PLAN_APPROVAL_MODEL_NAME: ModelName = Field(
-        default=ModelName.GPT_4O_MINI, description="Model name to be used to evaluate the plan approval."
+    PLAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.GEMINI_2_0_FLASH, description="Model name to be used to evaluate the plan approval."
     )
     COMMAND_EXECUTION_ENABLED: bool = Field(default=True, description="Whether to enable command execution.")
 
