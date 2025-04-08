@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Added command execution to `PlanAndExecuteAgent` to allow running commands. This behavior can be disabled by setting `COMMAND_EXECUTION_ENABLED` to `False`.
+
 ### Fixed
 
 - PlanAndExecuteAgent: Plan prompt `<file_path>` was always empty.
@@ -27,19 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved planning prompt to focus on the atual diff hunk without losing the context on the comments from the reviewer.
 - Improved `PipelineFixerAgent`:
   - Improved troubleshooting prompt to focus on verifiable knowledge and to improve the quality of the remediation steps.
-
-### Added
-
-- Added command execution to `PlanAndExecuteAgent` to allow running commands. This behavior can be disabled by setting `COMMAND_EXECUTION_ENABLED` to `False`.
-
-### Changed
-
-- Increased `max_tokens` to `4096` for `Anthropic` models.
-- Improved `PlanAndExecuteAgent`:
-  - Introduced `think` tool on both planning and execution phases to improve the reasoning capabilities of the agent, even when using models without that capability (https://www.anthropic.com/engineering/claude-think-tool).
-  - Improved planning prompt to focus on the atual state of the codebase and design plans to be more self contained and actionable.
-  - Improved execution prompt to focus on the execution to strictly follow the plan.
-  - File paths included on the plan are now preloaded as messages on the execution to improve the speed of the execution and reduce the number of tool calls.
 
 ### Added
 
