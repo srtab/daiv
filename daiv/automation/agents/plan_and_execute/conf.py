@@ -21,6 +21,7 @@ class PlanAndExecuteSettings(BaseSettings):
     PLAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GEMINI_2_0_FLASH, description="Model name to be used to evaluate the plan approval."
     )
+    COMMAND_EXECUTION_ENABLED: bool = Field(default=True, description="Whether to enable command execution.")
 
 
 settings = PlanAndExecuteSettings()  # type: ignore

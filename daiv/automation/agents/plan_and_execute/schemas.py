@@ -40,7 +40,7 @@ class AskForClarification(BaseModel):
     questions: list[str] = Field(description="Questions phrased in the same language as the user request.")
 
 
-class ChangeInstructions(BaseModel):
+class PlanInstruction(BaseModel):
     """
     Provide the instructions details.
     """
@@ -83,11 +83,11 @@ class Plan(BaseModel):
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    goal: str = Field(description="A detailed objective of the requested changes to be made.")
-    changes: list[ChangeInstructions] = Field(
+    instructions: list[PlanInstruction] = Field(
         description=dedent(
             """\
-            A sorted list of changes/instructions to apply to the codebase. Group related changes by file_path whenever possible and applyable.
+            A sorted list of instructions with the described changes required to meet the user request.
+            Group related changes by file_path whenever possible and applyable.
             """  # noqa: E501
         )
     )
