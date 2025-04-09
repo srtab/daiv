@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added support for `HuggingFace` and `VoyageAI` embeddings models.
+
+### Changed
+
+- Improved `README.md` to include information about how to setup a test project on local GitLab.
+- Command `update_index` now has a `--semantic-augmented-context` flag to conditionally generate semantic augmented context.
+
 ### Fixed
 
 - PlanAndExecuteAgent: Plan prompt `<file_path>` was always empty.

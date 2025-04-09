@@ -10,9 +10,7 @@ from langchain_core.documents import Document
 from pgvector.django import HnswIndex, VectorField
 
 if TYPE_CHECKING:
-    from codebase.base import Repository
-
-VECTOR_DIMENSIONS = 2000
+    from .base import Repository
 
 
 class ClientChoices(models.TextChoices):
@@ -91,7 +89,8 @@ class CodebaseDocument(TimeStampedModel):
     source = models.CharField(max_length=256)
     description = models.TextField(blank=True)
     page_content = models.TextField()
-    page_content_vector = VectorField(dimensions=VECTOR_DIMENSIONS)
+    # This will accept vectors of any dimension on first insert
+    page_content_vector = VectorField(dimensions=None)
     is_default_branch = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict)
 

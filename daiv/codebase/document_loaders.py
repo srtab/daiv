@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
-from langchain_community.document_loaders.parsers.language import LanguageParser
+from langchain_community.document_loaders.parsers.language.language_parser import LanguageParser
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
 if TYPE_CHECKING:
@@ -58,7 +58,7 @@ class GenericLanguageLoader(BaseLoader):
     A generic document loader that loads documents from a filesystem and splits them into chunks.
     """
 
-    chunk_size = 1000
+    chunk_size = 1500
     chunk_overlap = 200
 
     def __init__(

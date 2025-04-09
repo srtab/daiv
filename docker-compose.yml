@@ -12,7 +12,7 @@ x-app-defaults: &x_app_default
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
     - ./data/tantivy_index_v1:/home/app/data/tantivy_index_v1
-    - ./data/models:/home/app/.cache/huggingface/hub/
+    - ./data/embeddings:/home/app/data/embeddings
     - .:/home/app/src
   depends_on:
     db:
