@@ -18,6 +18,9 @@ x-app-defaults: &x_app_default
     db:
       condition: service_healthy
       restart: true
+    neo4j:
+      condition: service_healthy
+      restart: true
     redis:
       condition: service_healthy
       restart: true
@@ -65,6 +68,27 @@ services:
       db:
         condition: service_healthy
 
+  neo4j:
+    image: neo4j:2025.03
+    restart: unless-stopped
+    container_name: daiv-neo4j
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "localhost:7474", "||", "exit", "1"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    environment:
+      - NEO4J_AUTH=none
+      - NEO4J_PLUGINS=["graph-data-science"]
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/config:/config
+      - ./data/neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
   redis:
     image: redis:latest
     command: redis-server --save "" --appendonly no
@@ -96,9 +120,7 @@ services:
   gitlab:
     image: gitlab/gitlab-ce:latest
     container_name: daiv-gitlab
-    restart: on-failure
-    logging:
-      driver: "none"
+    restart: unless-stopped
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'http://127.0.0.1:8929'
