@@ -42,10 +42,20 @@ class Command(BaseCommand):
             nargs="+",
             help="Exclude specific repositories by slug or id. If repo-id is provided, this argument will be ignored.",
         )
+        parser.add_argument(
+            "--semantic-augmented-context",
+            action="store_true",
+            help=(
+                "Apply semantic augmented context for the index. "
+                "This will add a description to each code snippet in the index."
+            ),
+        )
 
     def handle(self, *args, **options):
         repo_client = RepoClient.create_instance()
-        indexer = CodebaseIndex(repo_client=repo_client)
+        indexer = CodebaseIndex(
+            repo_client=repo_client, semantic_augmented_context=options["semantic_augmented_context"]
+        )
 
         repositories = []
 

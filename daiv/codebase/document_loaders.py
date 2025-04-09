@@ -58,7 +58,7 @@ class GenericLanguageLoader(BaseLoader):
     A generic document loader that loads documents from a filesystem and splits them into chunks.
     """
 
-    chunk_size = 1000
+    chunk_size = 1500
     chunk_overlap = 200
 
     def __init__(

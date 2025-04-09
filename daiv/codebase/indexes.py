@@ -39,9 +39,9 @@ class CodebaseIndex(abc.ABC):
 
     repo_client: AllRepoClient
 
-    def __init__(self, repo_client: AllRepoClient):
+    def __init__(self, repo_client: AllRepoClient, semantic_augmented_context: bool = False):
         self.repo_client = repo_client
-        self.semantic_search_engine = SemanticSearchEngine()
+        self.semantic_search_engine = SemanticSearchEngine(augmented_context=semantic_augmented_context)
         self.lexical_search_engine = LexicalSearchEngine()
 
     def update(self, repo_id: str, ref: str | None = None):

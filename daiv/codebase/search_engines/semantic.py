@@ -3,9 +3,12 @@ import logging
 from textwrap import dedent
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
+from langchain_voyageai.embeddings import DEFAULT_VOYAGE_3_BATCH_SIZE, VoyageAIEmbeddings
+from pydantic import SecretStr
 
 from codebase.conf import settings
 from codebase.models import CodebaseDocument, CodebaseNamespace
@@ -15,31 +18,39 @@ from daiv.settings.components import DATA_DIR
 
 logger = logging.getLogger("daiv.indexes.semantic")
 
-EMBEDDINGS_CACHE_FOLDER = DATA_DIR / "embeddings"
-
 
 @functools.cache
-def embeddings_function() -> OpenAIEmbeddings | HuggingFaceEmbeddings:
+def embeddings_function() -> Embeddings:
     """
-    Creates and returns a cached OpenAI embeddings function.
+    Creates and returns a cached embeddings function.
 
     Returns:
-        OpenAIEmbeddings: Configured embeddings model with optimized chunk size.
+        Embeddings: Configured embeddings model with optimized chunk size.
     """
+    provider, model_name = settings.EMBEDDINGS_MODEL_NAME.split("/", 1)
 
-    if settings.EMBEDDINGS_MODEL_NAME.startswith(("text-embedding-3", "text-embedding-ada-002")):
+    common_kwargs = {}
+    if settings.EMBEDDINGS_API_KEY:
+        common_kwargs["api_key"] = SecretStr(settings.EMBEDDINGS_API_KEY)
+
+    if provider == "openai":
         return OpenAIEmbeddings(
-            model=settings.EMBEDDINGS_MODEL_NAME,
+            model=model_name,
             dimensions=settings.EMBEDDINGS_DIMENSIONS,
-            chunk_size=settings.EMBEDDINGS_CHUNK_SIZE,
+            chunk_size=settings.EMBEDDINGS_BATCH_SIZE,
+            **common_kwargs,
+        )
+    elif provider == "huggingface":
+        return HuggingFaceEmbeddings(model_name=model_name, cache_folder=str(DATA_DIR / "embeddings"))
+    elif provider == "voyageai":
+        return VoyageAIEmbeddings(
+            model=model_name,
+            output_dimension=settings.EMBEDDINGS_DIMENSIONS,
+            batch_size=DEFAULT_VOYAGE_3_BATCH_SIZE,
+            **common_kwargs,
         )
     else:
-        return HuggingFaceEmbeddings(
-            model_name=settings.EMBEDDINGS_MODEL_NAME,
-            dimensions=settings.EMBEDDINGS_DIMENSIONS,
-            chunk_size=settings.EMBEDDINGS_CHUNK_SIZE,
-            cache_folder=EMBEDDINGS_CACHE_FOLDER,
-        )
+        raise ValueError(f"Unsupported embeddings provider: {provider}")
 
 
 class SemanticSearchEngine(SearchEngine):
@@ -47,11 +58,12 @@ class SemanticSearchEngine(SearchEngine):
     Semantic search engine implementation using vector embeddings stored in Postgres.
     """
 
-    def __init__(self):
+    def __init__(self, augmented_context: bool = False):
         from automation.agents.code_describer import CodeDescriberAgent
 
         self.embeddings = embeddings_function()
         self.code_describer = CodeDescriberAgent().agent
+        self.augmented_context = augmented_context
 
     def add_documents(self, namespace: CodebaseNamespace, documents: list[Document]):
         """
@@ -67,26 +79,27 @@ class SemanticSearchEngine(SearchEngine):
 
         documents = [document for document in documents if document.metadata.get("content_type") != "simplified_code"]
 
-        logger.info("Augmenting context...")
-        described_documents = self.code_describer.batch([
-            {
-                "code": document.page_content,
-                "filename": document.metadata.get("source", ""),
-                "language": document.metadata.get("language", "Not specified"),
-            }
-            for document in documents
-        ])
+        if self.augmented_context:
+            logger.info("Augmenting context...")
+            described_documents = self.code_describer.batch([
+                {
+                    "code": document.page_content,
+                    "filename": document.metadata.get("source", ""),
+                    "language": document.metadata.get("language", "Not specified"),
+                }
+                for document in documents
+            ])
+        else:
+            described_documents = [""] * len(documents)
 
         zipped_documents = zip(documents, described_documents, strict=True)
 
         logger.info("Creating embeddings...")
-
         document_vectors = self.embeddings.embed_documents([
             self._build_content_to_embed(document, description) for document, description in zipped_documents
         ])
 
         logger.info("Persisting documents...")
-
         return CodebaseDocument.objects.bulk_create([
             CodebaseDocument(
                 namespace=namespace,
@@ -113,13 +126,21 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             str: Content to embed
         """
-        return dedent(f"""\
-            Repository: {document.metadata.get("repo_id", "")}
-            FilePath: {document.metadata.get("source", "")}
-            Description: {description}
+        if not description:
+            return dedent(f"""\
+                Repository: {document.metadata.get("repo_id", "")}
+                File Path: {document.metadata.get("source", "")}
 
-            {document.page_content}
-        """)
+                {document.page_content}
+            """)
+        else:
+            return dedent(f"""\
+                Repository: {document.metadata.get("repo_id", "")}
+                File Path: {document.metadata.get("source", "")}
+                Description: {description}
+
+                {document.page_content}
+            """)
 
     def delete_documents(self, namespace: CodebaseNamespace, source: str | list[str]):
         """
