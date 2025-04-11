@@ -32,7 +32,7 @@ dependencies = [
   "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.23",
   "langchain-text-splitters==0.3.8",
   "langchain-voyageai==0.1.4",
-  "langgraph==0.3.27",
+  "langgraph==0.3.29",
   "langgraph-checkpoint-postgres==2.0.19",
   "langsmith==0.3.28",
   "pgvector==0.4",
