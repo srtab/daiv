@@ -45,7 +45,7 @@ dependencies = [
   "redis==5.2.1",
   "sentry-sdk==2.26.1",
   "tantivy==0.22.2",
-  "tree-sitter==0.21.3",
+  "tree-sitter==0.24.0",
   "tree-sitter-languages==1.10.2",
   "unidiff==0.7.5",
   "uvicorn==0.34.1",
