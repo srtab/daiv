@@ -1,7 +1,7 @@
 from textwrap import dedent
 from typing import Literal
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,8 +14,11 @@ class CodebaseSettings(BaseSettings):
     GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")
     GITLAB_AUTH_TOKEN: str | None = Field(default=None, description="Authentication token for GitLab")
 
+    # Neo4j
+    NEO4J_URL: SecretStr = Field(default=SecretStr("bolt://:@neo4j:7687"), description="URL of the Neo4j instance")
+
     # Embeddings
-    EMBEDDINGS_API_KEY: str | None = Field(default=None, description="API key for the embeddings provider")
+    EMBEDDINGS_API_KEY: SecretStr | None = Field(default=None, description="API key for the embeddings provider")
     EMBEDDINGS_MODEL_NAME: str = Field(
         default="openai/text-embedding-3-large",
         description=dedent("""

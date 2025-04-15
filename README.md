@@ -78,6 +78,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    - PGAdmin (database management): http://localhost:8080
    - GitLab (test repository platform): http://localhost:8929
    - Sandbox (secure code execution): http://localhost:8888/docs
+   - Neo4j (graph database): http://localhost:7474
 
 5. **Run the tests** (optional):
    DAIV includes a comprehensive test suite. To run tests with coverage:
@@ -105,7 +106,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
       $ docker compose exec -it gitlab grep 'Password:' /etc/gitlab/initial_root_password
       ```
 
-   2. Then you need to configure a personal access token (you can use the root user or create a new user) and add it to the `docker/local/app/config.secrets.env` file.
+   2. Then you need to configure a personal access token with `api` scope (you can use the root user or create a new user) and add it to the `docker/local/app/config.secrets.env` file.
 
    3. Now you need to create a new project in GitLab and follow the instructions to push your testing code to it.
 
@@ -124,6 +125,8 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
    5. Finally, you can test DAIV by creating an issue in your repository, add `daiv` label to it and see how DAIV will automatically address it.
 
+   > [!NOTE]
+   > Enable repository url import in GitLab settings to be able to import easily repositories into GitLab for testing.
 
 ## Contributing
 
