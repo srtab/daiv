@@ -619,7 +619,7 @@ requires-dist = [
     { name = "langchain-text-splitters", specifier = "==0.3.8" },
     { name = "langchain-voyageai", specifier = "==0.1.4" },
     { name = "langgraph", specifier = "==0.3.30" },
-    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.19" },
+    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.20" },
     { name = "langsmith", specifier = "==0.3.31" },
     { name = "pgvector", specifier = "==0.4" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.6" },
@@ -1770,7 +1770,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint-postgres"
-version = "2.0.19"
+version = "2.0.20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
@@ -1778,9 +1778,9 @@ dependencies = [
     { name = "psycopg" },
     { name = "psycopg-pool" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/3c/2756de1b24344fbd49a57eaea7d1ab226660c6e7c24bd8b52f5c815c209d/langgraph_checkpoint_postgres-2.0.19.tar.gz", hash = "sha256:a4ccff1b07685774af58e6057b8516bd50cf7fa6df1271c2ec26b345f0dac2ed", size = 30557 }
+sdist = { url = "https://files.pythonhosted.org/packages/98/9e/45eefaf5b36f11d616ed95541115760e0429d8f2d270f93ef381fa20564d/langgraph_checkpoint_postgres-2.0.20.tar.gz", hash = "sha256:e38d698ac890c39c1a03d1c724db975dc996fe1ae1e4889a0699239d9f2bff6c", size = 30372 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/d0/b465db97df319364fa754bcd07d9258f5f2f75da9fd4a5ee18b290f3c90a/langgraph_checkpoint_postgres-2.0.19-py3-none-any.whl", hash = "sha256:62c08a21e9cd677469ca8f7bd94df782d8d9099cfe60e90ab828e479d62861e1", size = 39069 },
+    { url = "https://files.pythonhosted.org/packages/10/80/be362b05616fa2cc7fe766c12d4816a4beb19153b65ef7dfc37c7ef433d7/langgraph_checkpoint_postgres-2.0.20-py3-none-any.whl", hash = "sha256:fbba44c7a642a6f31cfaa91082d9193c8b0930db53c70f45b1f12fbb43576c18", size = 39439 },
 ]
 
 [[package]]
