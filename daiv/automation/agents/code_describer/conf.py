@@ -13,7 +13,7 @@ class CodeDescriberSettings(BaseSettings):
 
     NAME: str = Field(default="CodeDescriber", description="Name of the code describer agent.")
     MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GEMINI_2_0_FLASH_LITE, description="Model name to be used for code describer."
+        default=ModelName.GPT_4_1_NANO, description="Model name to be used for code describer."
     )
 
 

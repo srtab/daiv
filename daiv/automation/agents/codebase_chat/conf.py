@@ -13,7 +13,7 @@ class CodebaseChatSettings(BaseSettings):
 
     NAME: str = Field(default="CodebaseChat", description="Name of the codebase chat agent.")
     MODEL_NAME: ModelName | str = Field(
-        default=ModelName.CLAUDE_3_5_HAIKU, description="Model name to be used for codebase chat."
+        default=ModelName.GPT_4_1_MINI, description="Model name to be used for codebase chat."
     )
     TEMPERATURE: float = Field(default=0.5, description="Temperature to be used for codebase chat.")
 

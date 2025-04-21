@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+from django.utils import timezone
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
@@ -28,7 +30,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
 
     def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system, human]).partial(
-            branch_name_convention=None, extra_context=""
+            branch_name_convention=None, extra_context="", current_date_time=timezone.now().isoformat()
         )
         return (
             prompt

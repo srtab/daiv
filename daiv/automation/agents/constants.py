@@ -11,9 +11,8 @@ class ModelName(StrEnum):
 
     CLAUDE_3_7_SONNET = "openrouter:anthropic/claude-3-7-sonnet"
     CLAUDE_3_5_HAIKU = "openrouter:anthropic/claude-3-5-haiku"
-    GPT_4O = "openrouter:openai/gpt-4o"
-    GPT_4O_MINI = "openrouter:openai/gpt-4o-mini"
-    O3_MINI = "openrouter:openai/o3-mini"
-    GEMINI_2_0_FLASH = "openrouter:google/gemini-2.0-flash-001"
-    GEMINI_2_0_FLASH_LITE = "openrouter:google/gemini-2.0-flash-lite-001"
+    GPT_4_1 = "openrouter:openai/gpt-4.1"
+    GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
+    GPT_4_1_NANO = "openrouter:openai/gpt-4.1-nano"
+    O4_MINI = "openrouter:openai/o4-mini"
     DEEPSEEK_CHAT_V3_0324 = "openrouter:deepseek/deepseek-chat-v3-0324"

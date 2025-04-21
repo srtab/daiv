@@ -91,9 +91,14 @@ class RunSandboxCommandsTool(BaseTool):
             raise ToolException(e) from e
 
         if response.status_code != 200:
-            raise ToolException(response.json())
+            if response.headers.get("content-type") == "application/json":
+                raise ToolException(response.json())
+            raise ToolException(response.content)
 
-        return self._treat_response(response, store, source_repo_id, source_ref)
+        try:
+            return self._treat_response(response, store, source_repo_id, source_ref)
+        except Exception as e:
+            raise ToolException(e) from e
 
     def _treat_response(
         self, response: httpx.Response, store: BaseStore, source_repo_id: str, source_ref: str
@@ -293,6 +298,8 @@ class RunSandboxCodeTool(BaseTool):
             raise ToolException(e) from e
 
         if response.status_code != 200:
-            raise ToolException(response.json())
+            if response.headers.get("content-type") == "application/json":
+                raise ToolException(response.json())
+            raise ToolException(response.content)
 
         return response.json()["output"]
