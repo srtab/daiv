@@ -48,7 +48,7 @@ dependencies = [
   "tree-sitter==0.21.3",
   "tree-sitter-languages==1.10.2",
   "unidiff==0.7.5",
-  "uvicorn==0.34.1",
+  "uvicorn==0.34.2",
 ]
 
 urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
