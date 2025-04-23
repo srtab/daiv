@@ -14,7 +14,7 @@ class AgentInput(TypedDict):
     markdown_text: str
 
 
-def _post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> list[dict]:
+def _post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> list[ImageTemplate]:
     """
     Post-process the extracted images.
 
@@ -23,7 +23,7 @@ def _post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> li
         config (RunnableConfig): The configuration for the agent.
 
     Returns:
-        list[dict]: The processed images ready to be used on prompt templates.
+        list[ImageTemplate]: The processed images ready to be used on prompt templates.
     """
     return ImageTemplate.from_images(
         output.images,
@@ -32,15 +32,14 @@ def _post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> li
     )
 
 
-class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[dict]]]):
+class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[ImageTemplate]]]):
     """
     Agent to extract image URLs from a markdown text.
     """
 
     def compile(self) -> Runnable:
-        prompt = ChatPromptTemplate.from_messages([system, human])
         return (
-            prompt
+            ChatPromptTemplate.from_messages([system, human])
             | self.get_model(model=settings.MODEL_NAME).with_structured_output(
                 ImageURLExtractorOutput, method="function_calling"
             )

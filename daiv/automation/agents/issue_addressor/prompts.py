@@ -1,7 +1,7 @@
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import HumanMessagePromptTemplate
 
-issue_assessment_system = SystemMessage("""### Examples ###
+issue_evaluator_system = SystemMessage("""### Examples ###
 <examples>
 <example>
 <issue>
@@ -85,7 +85,7 @@ Remember:
 """)  # noqa: E501
 
 
-issue_assessment_human = HumanMessagePromptTemplate.from_template(
+issue_evaluator_human = HumanMessagePromptTemplate.from_template(
     """**Issue Title:** {{ issue_title }}
 
 **Issue Description:**

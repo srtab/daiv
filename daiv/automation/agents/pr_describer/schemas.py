@@ -1,7 +1,20 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, NotRequired, TypedDict
+
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from codebase.base import FileChange
 
-class PullRequestDescriberOutput(BaseModel):
+
+class PullRequestDescriberInput(TypedDict):
+    changes: list[FileChange]
+    extra_context: NotRequired[str]
+    branch_name_convention: NotRequired[str]
+
+
+class PullRequestMetadata(BaseModel):
     branch: str = Field(description=("The branch name associated with the changes."))
     title: str = Field(
         description="Create a self-explanatory title that describes what the pull request does.", max_length=72

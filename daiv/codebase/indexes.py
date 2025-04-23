@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-from gitlab import GitlabGetError
+from gitlab import GitlabGetError, GitlabListError
 from langchain.retrievers import EnsembleRetriever
 
 from codebase.document_loaders import GenericLanguageLoader
@@ -208,7 +208,7 @@ class CodebaseIndex(abc.ABC):
         )
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
-    def extract_tree(self, repo_id: str, ref: str) -> str:
+    def extract_tree(self, repo_id: str, ref: str) -> str | None:
         """
         Extract and return the file tree structure of a repository.
 
@@ -221,8 +221,12 @@ class CodebaseIndex(abc.ABC):
         """
         repo_config = RepositoryConfig.get_config(repo_id)
 
-        with self.repo_client.load_repo(repo_id, sha=ref) as repo_dir:
-            return analyze_repository(repo_dir, repo_config.combined_exclude_patterns)
+        try:
+            with self.repo_client.load_repo(repo_id, sha=ref) as repo_dir:
+                return analyze_repository(repo_dir, repo_config.combined_exclude_patterns)
+        except GitlabListError:
+            # If the repository is empty, the GitlabListError is raised.
+            return None
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
     def _get_codebase_namespace(

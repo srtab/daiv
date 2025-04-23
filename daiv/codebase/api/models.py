@@ -153,7 +153,7 @@ class Project(BaseModel):
 
     id: int
     path_with_namespace: str
-    default_branch: str
+    default_branch: str | None = None
 
 
 class User(BaseModel):

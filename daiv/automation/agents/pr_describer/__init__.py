@@ -1,4 +1,4 @@
 from .agent import PullRequestDescriberAgent
-from .schemas import PullRequestDescriberOutput
+from .schemas import PullRequestMetadata
 
-__all__ = ["PullRequestDescriberOutput", "PullRequestDescriberAgent"]
+__all__ = ["PullRequestMetadata", "PullRequestDescriberAgent"]

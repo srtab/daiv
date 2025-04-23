@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, TypedDict
-
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -11,19 +9,10 @@ from automation.agents import BaseAgent
 
 from .conf import settings
 from .prompts import human, system
-from .schemas import PullRequestDescriberOutput
-
-if TYPE_CHECKING:
-    from codebase.base import FileChange
+from .schemas import PullRequestDescriberInput, PullRequestMetadata
 
 
-class PullRequestDescriberInput(TypedDict):
-    changes: list[FileChange]
-    extra_context: NotRequired[str]
-    branch_name_convention: NotRequired[str]
-
-
-class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestDescriberOutput]]):
+class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestMetadata]]):
     """
     Agent to describe changes in a pull request.
     """
@@ -35,6 +24,6 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         return (
             prompt
             | self.get_model(model=settings.MODEL_NAME).with_structured_output(
-                PullRequestDescriberOutput, method="function_calling"
+                PullRequestMetadata, method="function_calling"
             )
         ).with_config({"run_name": settings.NAME})

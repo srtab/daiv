@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import (
+    Runnable,
+    RunnableConfig,  # noqa: TC002
+)
 from langchain_core.runnables.config import DEFAULT_RECURSION_LIMIT
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
@@ -21,8 +24,8 @@ from automation.utils import file_changes_namespace, prepare_repository_files_as
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import execute_plan_human, execute_plan_system, plan_approval_system, plan_system
-from .schemas import HumanApproval
+from .prompts import execute_plan_human, execute_plan_system, human_approval_system, plan_system
+from .schemas import HumanApprovalEvaluation, HumanApprovalInput
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action, think_plan, think_plan_executer
 
@@ -32,6 +35,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agents")
 
 INTERRUPT_AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
+
+
+class HumanApprovalEvaluator(BaseAgent[Runnable[HumanApprovalInput, HumanApprovalEvaluation]]):
+    """
+    Chain for evaluating the human approval of the plan.
+    """
+
+    def compile(self) -> Runnable:
+        return (
+            ChatPromptTemplate.from_messages([human_approval_system, MessagesPlaceholder("messages")])
+            | self.get_model(model=settings.HUMAN_APPROVAL_MODEL_NAME).with_structured_output(
+                HumanApprovalEvaluation, method="function_calling"
+            )
+        ).with_config({"run_name": "HumanApprovalEvaluator"})
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -125,11 +142,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)
 
-        plan_approval_evaluator = self.get_model(model=settings.PLAN_APPROVAL_MODEL_NAME).with_structured_output(
-            HumanApproval, method="function_calling"
-        )
-
-        result = cast("HumanApproval", plan_approval_evaluator.invoke([plan_approval_system] + messages))
+        result = HumanApprovalEvaluator().agent.invoke({"messages": messages})
 
         if result.is_unambiguous_approval:
             return Command(goto="execute_plan", update={"plan_approval_response": result.feedback})

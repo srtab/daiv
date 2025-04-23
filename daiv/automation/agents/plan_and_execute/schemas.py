@@ -1,13 +1,23 @@
 from textwrap import dedent
 from typing import Annotated
 
+from langchain_core.messages import AnyMessage
 from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import TypedDict
 
 DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
 
 
-class HumanApproval(BaseModel):
+class HumanApprovalInput(TypedDict):
+    """
+    Provide the input for the human approval analysis.
+    """
+
+    messages: list[AnyMessage]
+
+
+class HumanApprovalEvaluation(BaseModel):
     """
     Provide the result of the human approval analysis.
     """
@@ -18,9 +28,9 @@ class HumanApproval(BaseModel):
     feedback: str = Field(
         description=dedent(
             """\
-            Human friendly feedback to the developer about the approval.
+            Use the same language as the user approval feedback.
 
-            Examples:
+            Examples (don't use these exact phrases, just use the same meaning):
             - Thanks for the approval, I'll apply the plan straight away.
             - I can't proceed until a clear approval of the presented plan. Please reply with a clear approval to proceed, or change issue details if the plan doesn't match your expectations.
             """  # noqa: E501

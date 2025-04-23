@@ -1,7 +1,7 @@
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import HumanMessagePromptTemplate
 
-error_log_evaluator_system = SystemMessage(
+same_error_evaluator_system = SystemMessage(
     """You are tasked with comparing two error log outputs from a CI/CD pipeline to determine whether they represent the same error or are strictly related. **It is critical that even minor discrepancies in key error details result in the logs being classified as different.**
 
 **Instructions:**
@@ -35,7 +35,7 @@ error_log_evaluator_system = SystemMessage(
 """  # noqa: E501
 )
 
-error_log_evaluator_human = HumanMessagePromptTemplate.from_template(
+same_error_evaluator_human = HumanMessagePromptTemplate.from_template(
     """Here are the two error logs:
 <error_log_1>
 {{log_trace_1}}
@@ -95,7 +95,7 @@ Find out what caused the pipeline to fail. Use the extracted job output and try 
 )
 
 
-lint_evaluator_human = HumanMessagePromptTemplate.from_template(
+command_output_evaluator_human = HumanMessagePromptTemplate.from_template(
     """You will be analyzing a command output to determine if there are any errors present. Your task is to provide a simple True or False answer based on your analysis.
 
 Here is the command output to analyze:

@@ -22,7 +22,7 @@ class ImageTemplate(BaseModel):
     @staticmethod
     def from_images(
         images: list[Image], repo_client_slug: ClientType | None = None, project_id: int | None = None
-    ) -> list[dict]:
+    ) -> list[ImageTemplate]:
         """
         Create a list of image templates from a list of images.
 
@@ -31,7 +31,7 @@ class ImageTemplate(BaseModel):
             images (list[Image]): The list of images.
 
         Returns:
-            list[dict]: The list of image templates.
+            list[ImageTemplate]: The list of image templates.
         """
         image_templates = []
 

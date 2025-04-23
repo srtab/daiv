@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced `o3-mini` with the new reasoning OpenAI model `o4-mini`.
 - Replaced `gemini-2.0-flash` and `gemini-2.0-flash-lite-001` with `gpt-4.1-mini` and `gpt-4.1-nano` respectively.
 - Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader’s job—simpler and less error‑prone.
+- Migrated evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
 
 ### Fixed
 
 - Turned Sandbox tools more resilient and prevent failing the whole agent execution when the sandbox is unavailable.
+- Empty repositories case was not being considered on the repository structure tool, causing an not found error.
 
 ## [0.1.0-beta.5] - 2025-04-15
 
