@@ -618,7 +618,7 @@ requires-dist = [
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai", "huggingface"], specifier = "==0.3.23" },
     { name = "langchain-text-splitters", specifier = "==0.3.8" },
     { name = "langchain-voyageai", specifier = "==0.1.4" },
-    { name = "langgraph", specifier = "==0.3.31" },
+    { name = "langgraph", specifier = "==0.3.34" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.21" },
     { name = "langsmith", specifier = "==0.3.36" },
     { name = "pgvector", specifier = "==0.4" },
@@ -1741,7 +1741,7 @@ wheels = [
 
 [[package]]
 name = "langgraph"
-version = "0.3.31"
+version = "0.3.34"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
@@ -1750,9 +1750,9 @@ dependencies = [
     { name = "langgraph-sdk" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b5/49/f6814bc1b016fd8f403856e986a4a0b35fd9cc34671f2abf649753643194/langgraph-0.3.31.tar.gz", hash = "sha256:c76bbc8f26604929d6c2520d937b5602d5bb1dde2c0580398d015f7f6841f14c", size = 120379 }
+sdist = { url = "https://files.pythonhosted.org/packages/3a/85/147f69a6b7cd3f91cc9d6d981ed25698b4dfda67ef8d004d938e8b79ab00/langgraph-0.3.34.tar.gz", hash = "sha256:d4107b2101ee4a6f93f33b0fac1064d46ac3491f783200affac29f229ab0b93c", size = 122551 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/0f/c4802c26da60b84af1ee4a1d3013378da2354220aa2d0e766d07c5db1de2/langgraph-0.3.31-py3-none-any.whl", hash = "sha256:f42a6850d03696f2a54d3c833db39aa201cfda78217846a5b8936ad95fe41e6c", size = 145197 },
+    { url = "https://files.pythonhosted.org/packages/50/51/6a631ce322422b0b8944dac4d74c23bfa2ca52fbb3ee56c868c4ee033bdb/langgraph-0.3.34-py3-none-any.whl", hash = "sha256:4bf8af313ce7686e8a7597ca5441341ec89f9a9fe73ba1b07c116755efa3117d", size = 148191 },
 ]
 
 [[package]]
