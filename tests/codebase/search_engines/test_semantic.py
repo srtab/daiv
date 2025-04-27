@@ -59,7 +59,7 @@ def test_voyageai_embeddings(mock_settings):
         result = embeddings_function()
         mock_embeddings.assert_called_once_with(
             model="voyage-code-3",
-            output_dimension=1536,
+            output_dimension=1024,
             batch_size=DEFAULT_VOYAGE_3_BATCH_SIZE,
             api_key=SecretStr("test-api-key"),
         )
