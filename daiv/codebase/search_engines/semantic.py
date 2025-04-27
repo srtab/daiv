@@ -76,9 +76,6 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             list[CodebaseDocument]: The created document records
         """
-
-        documents = [document for document in documents if document.metadata.get("content_type") != "simplified_code"]
-
         if self.augmented_context:
             logger.info("Augmenting context...")
             described_documents = self.code_describer.batch([

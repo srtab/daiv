@@ -74,5 +74,5 @@ class Command(BaseCommand):
                 continue
 
             if options["reset"] or options["reset_all"]:
-                indexer.delete(repo_id=repository.slug, ref=options["ref"], delete_all=options["reset_all"])
+                indexer.delete(repo_id=repository.pk, ref=options["ref"], delete_all=options["reset_all"])
             indexer.update(repo_id=repository.slug, ref=options["ref"])

@@ -43,5 +43,15 @@ class CodebaseSettings(BaseSettings):
         default=500, description="Batch size for the embeddings. Only used for OpenAI models."
     )
 
+    # Chunking
+    CHUNK_SIZE: int = Field(
+        default=1500,
+        description=(
+            "Size of the chunks to split the documents into. "
+            "This value should not be higher than the max context length of the used embeddings model."
+        ),
+    )
+    CHUNK_OVERLAP: int = Field(default=150, description="Overlap between chunks. Only used for non code languages.")
+
 
 settings = CodebaseSettings()  # type: ignore
