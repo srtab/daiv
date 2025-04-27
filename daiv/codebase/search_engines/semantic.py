@@ -8,6 +8,7 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_voyageai.embeddings import DEFAULT_VOYAGE_3_BATCH_SIZE, VoyageAIEmbeddings
+from langsmith import tracing_context
 from pydantic import SecretStr
 
 from codebase.conf import settings
@@ -78,14 +79,17 @@ class SemanticSearchEngine(SearchEngine):
         """
         if self.augmented_context:
             logger.info("Augmenting context...")
-            described_documents = self.code_describer.batch([
-                {
-                    "code": document.page_content,
-                    "filename": document.metadata.get("source", ""),
-                    "language": document.metadata.get("language", "Not specified"),
-                }
-                for document in documents
-            ])
+
+            with tracing_context(enabled=False):
+                # Avoid tracing the code describer as it can be very overwhelming and fill up the trace store
+                described_documents = self.code_describer.batch([
+                    {
+                        "code": document.page_content,
+                        "filename": document.metadata.get("source", ""),
+                        "language": document.metadata.get("language", "Not specified"),
+                    }
+                    for document in documents
+                ])
         else:
             described_documents = [""] * len(documents)
 
