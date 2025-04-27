@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import Runnable, RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore  # noqa: TC002
@@ -16,15 +16,29 @@ from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import issue_addressor_human, issue_assessment_human, issue_assessment_system
-from .schemas import IssueAssessment
+from .prompts import issue_addressor_human, issue_evaluator_human, issue_evaluator_system
+from .schemas import IssueAssessmentEvaluation, IssueAssessmentInput
 from .state import OverallState
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.postgres.base import BasePostgresSaver
+    from langgraph.checkpoint.base import BaseCheckpointSaver
 
 
 logger = logging.getLogger("daiv.agents")
+
+
+class IssueEvaluator(BaseAgent[Runnable[IssueAssessmentInput, IssueAssessmentEvaluation]]):
+    """
+    Agent to evaluate the issue is a request for changes to the codebase.
+    """
+
+    def compile(self) -> Runnable:
+        return (
+            ChatPromptTemplate.from_messages([issue_evaluator_system, issue_evaluator_human])
+            | self.get_model(model=settings.ISSUE_EVALUATOR_MODEL_NAME).with_structured_output(
+                IssueAssessmentEvaluation, method="function_calling"
+            )
+        ).with_config({"run_name": "IssueEvaluator"})
 
 
 class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
@@ -61,16 +75,10 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["prepare_data", "__end__"]]: The next step in the workflow.
         """
-        prompt = ChatPromptTemplate.from_messages([issue_assessment_system, issue_assessment_human])
-
-        evaluator = prompt | self.get_model(model=settings.ASSESSMENT_MODEL_NAME).with_structured_output(
-            IssueAssessment, method="function_calling"
-        )
-
-        response = cast(
-            "IssueAssessment",
-            evaluator.invoke({"issue_title": state["issue_title"], "issue_description": state["issue_description"]}),
-        )
+        response = IssueEvaluator().agent.invoke({
+            "issue_title": state["issue_title"],
+            "issue_description": state["issue_description"],
+        })
 
         if response.request_for_changes:
             return Command(goto="prepare_data")
@@ -114,7 +122,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
     def plan_and_execute_subgraph(
-        self, checkpointer: BasePostgresSaver | None, store: BaseStore | None
+        self, checkpointer: BaseCheckpointSaver | None, store: BaseStore | None
     ) -> CompiledStateGraph:
         """
         Compile the subgraph for the plan and execute node that will be used to address the issue.

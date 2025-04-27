@@ -1,7 +1,13 @@
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 
-class ErrorLogEvaluation(BaseModel):
+class SameErrorInput(TypedDict):
+    log_trace_1: str
+    log_trace_2: str
+
+
+class SameErrorEvaluation(BaseModel):
     """
     Provide the output of the error log evaluator to determine if the two logs are the same error using this tool.
     """
@@ -51,7 +57,11 @@ class ActionPlanOutput(BaseModel):
     actions: list[ActionPlan] = Field(..., description="A list of actions to fix the issue.")
 
 
-class CommandOutputResult(BaseModel):
+class CommandOuputInput(TypedDict):
+    output: str
+
+
+class CommandOuputEvaluation(BaseModel):
     """
     Result of the command output analysis to determine if there are any errors, or indications of failures.
     """

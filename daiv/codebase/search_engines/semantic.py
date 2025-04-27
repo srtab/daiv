@@ -45,7 +45,7 @@ def embeddings_function() -> Embeddings:
     elif provider == "voyageai":
         return VoyageAIEmbeddings(
             model=model_name,
-            output_dimension=settings.EMBEDDINGS_DIMENSIONS,
+            output_dimension=settings.EMBEDDINGS_DIMENSIONS if settings.EMBEDDINGS_DIMENSIONS != 1536 else 1024,
             batch_size=DEFAULT_VOYAGE_3_BATCH_SIZE,
             **common_kwargs,
         )

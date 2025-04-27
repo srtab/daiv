@@ -6,7 +6,10 @@ from typing import Literal, cast
 
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import (
+    Runnable,
+    RunnableConfig,  # noqa: TC002
+)
 from langgraph.graph.state import END, CompiledStateGraph, StateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
@@ -21,17 +24,51 @@ from core.config import RepositoryConfig
 
 from .conf import settings
 from .prompts import (
-    error_log_evaluator_human,
-    error_log_evaluator_system,
-    lint_evaluator_human,
+    command_output_evaluator_human,
+    same_error_evaluator_human,
+    same_error_evaluator_system,
     troubleshoot_human,
     troubleshoot_system,
 )
-from .schemas import CommandOutputResult, ErrorLogEvaluation, TroubleshootingDetail
+from .schemas import (
+    CommandOuputEvaluation,
+    CommandOuputInput,
+    SameErrorEvaluation,
+    SameErrorInput,
+    TroubleshootingDetail,
+)
 from .state import OverallState, TroubleshootState
 from .tools import troubleshoot_analysis_result
 
 logger = logging.getLogger("daiv.agents")
+
+
+class SameErrorEvaluator(BaseAgent[Runnable[SameErrorInput, SameErrorEvaluation]]):
+    """
+    Chain for evaluating if two logs are the same error.
+    """
+
+    def compile(self) -> Runnable:
+        return (
+            ChatPromptTemplate.from_messages([same_error_evaluator_system, same_error_evaluator_human])
+            | self.get_model(model=settings.SAME_ERROR_MODEL_NAME).bind_tools([SameErrorEvaluation], tool_choice="auto")
+            | PydanticToolsParser(tools=[SameErrorEvaluation], first_tool_only=True)
+        ).with_config({"run_name": "SameErrorEvaluator"})
+
+
+class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputEvaluation]]):
+    """
+    Chain for evaluating the content of the output of a command to determine if there are any errors,
+    or indications of failures.
+    """
+
+    def compile(self) -> Runnable:
+        return (
+            ChatPromptTemplate.from_messages([command_output_evaluator_human])
+            | self.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
+                CommandOuputEvaluation, method="function_calling"
+            )
+        ).with_config({"run_name": "CommandOutputEvaluator"})
 
 
 class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
@@ -101,21 +138,10 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             # This means that it's the first time the agent is running, so we need to troubleshoot the issue.
             return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
-        evaluator = (
-            ChatPromptTemplate.from_messages([error_log_evaluator_system, error_log_evaluator_human])
-            | self.get_model(model=settings.LOG_EVALUATOR_MODEL_NAME).bind_tools(
-                [ErrorLogEvaluation], tool_choice="auto"
-            )
-            | PydanticToolsParser(tools=[ErrorLogEvaluation], first_tool_only=True)
-        )
-
-        result = cast(
-            "ErrorLogEvaluation",
-            evaluator.invoke({
-                "log_trace_1": cast("str", state["previous_job_logs"]),
-                "log_trace_2": state["job_logs"],
-            }),
-        )
+        result = SameErrorEvaluator().agent.invoke({
+            "log_trace_1": cast("str", state["previous_job_logs"]),
+            "log_trace_2": state["job_logs"],
+        })
 
         if result.is_same_error:
             logger.warning(
@@ -266,11 +292,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # We need to check if the command output contains more errors, or indications of failures.
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
-        chain = ChatPromptTemplate.from_messages([lint_evaluator_human]) | self.get_model(
-            model=settings.LINT_EVALUATOR_MODEL_NAME
-        ).with_structured_output(CommandOutputResult, method="function_calling")
-
-        result = cast("CommandOutputResult", chain.invoke({"output": tool_message.artifact[-1].output}))
+        result = CommandOutputEvaluator().agent.invoke({"output": tool_message.artifact[-1].output})
 
         if result.has_errors:
             # If there are still errors, we need to try to fix them by executing the remediation steps.

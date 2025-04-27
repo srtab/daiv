@@ -15,14 +15,13 @@ declared_model_names = {
     codebase_search_settings.REPHRASE_MODEL_NAME,
     codebase_search_settings.RERANKING_MODEL_NAME,
     image_url_extractor_settings.MODEL_NAME,
-    issue_addressor_settings.ASSESSMENT_MODEL_NAME,
-    pipeline_fixer_settings.LINT_EVALUATOR_MODEL_NAME,
-    pipeline_fixer_settings.LOG_EVALUATOR_MODEL_NAME,
+    issue_addressor_settings.ISSUE_EVALUATOR_MODEL_NAME,
+    pipeline_fixer_settings.COMMAND_OUTPUT_MODEL_NAME,
+    pipeline_fixer_settings.SAME_ERROR_MODEL_NAME,
     pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
-    pipeline_fixer_settings.TROUBLESHOOTING_THINKING_LEVEL,
     plan_and_execute_settings.EXECUTION_MODEL_NAME,
     plan_and_execute_settings.PLANNING_MODEL_NAME,
-    plan_and_execute_settings.PLAN_APPROVAL_MODEL_NAME,
+    plan_and_execute_settings.HUMAN_APPROVAL_MODEL_NAME,
 }
 
 
@@ -62,4 +61,6 @@ def check_api_keys(app_configs, **kwargs):
                     "Please set the API key using the environment variable OPENROUTER_API_KEY."
                 )
             )
+        else:
+            errors.append(Error(f"Model {model_name} is not supported. Please check the model name."))
     return errors

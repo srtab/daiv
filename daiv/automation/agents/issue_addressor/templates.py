@@ -40,9 +40,9 @@ I'm replanning the tasks with the new issue details.
 > ⚠️ ***Note:*** This may **take some time**. I'll leave you a message once the plan is ready.
 """  # noqa: E501
 
-ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Unable to define a plan***
+ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Clarification needed***
 
-I was unable to define a plan for this issue. To help me assist you better, please make adjustments to the issue description to **clarify the following questions**:
+I was unable to define a plan taking into account the information provided. To help me assist you better, please make adjustments to the issue description to **clarify the following questions**:
 
 {% for question in questions %}
 1. {{ question }}{% endfor %}

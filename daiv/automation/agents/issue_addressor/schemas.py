@@ -1,7 +1,17 @@
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 
-class IssueAssessment(BaseModel):
+class IssueAssessmentInput(TypedDict):
+    """
+    The input for the issue assessment.
+    """
+
+    issue_title: str
+    issue_description: str
+
+
+class IssueAssessmentEvaluation(BaseModel):
     """
     This tool is intended to be used to respond the result of the classification assessment whether a issue
     is a request for direct changes to the codebase, and provide the rationale behind that classification.

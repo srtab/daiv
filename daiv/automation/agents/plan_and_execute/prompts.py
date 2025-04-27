@@ -6,7 +6,7 @@ plan_system = SystemMessagePromptTemplate.from_template(
 
 Always reply to the user in the same language they are using.
 
-The current date and time is {{ current_date_time }}.
+_Current date & time: {{ current_date_time }}_
 
 Before you begin the analysis, make sure that the user's request is completely clear. If any part of the request is ambiguous or unclear, ALWAYS ask for clarification rather than making assumptions.
 
@@ -42,7 +42,7 @@ Outline a plan with the changes needed to satisfy all the user's requests.""",  
     additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
-plan_approval_system = SystemMessage("""### Examples ###
+human_approval_system = SystemMessage("""### Examples ###
 <examples>
 <example>
 <message>
@@ -155,7 +155,7 @@ execute_plan_system = SystemMessagePromptTemplate.from_template(
 
 IMPORTANT: You are not allowed to write code that is not part of the provided plan.
 
-The current date and time is {{ current_date_time }}.
+_Current date & time: {{ current_date_time }}_
 
 When analyzing and applying the changes, do not rely on your internal or prior knowledge. Instead, base all conclusions and recommendations strictly on verifiable, factual information from the codebase. If a particular behavior or implementation detail is not obvious from the code, do not assume it or make educated guesses.
 

@@ -18,8 +18,8 @@ class PlanAndExecuteSettings(BaseSettings):
     EXECUTION_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to execute tasks."
     )
-    PLAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GEMINI_2_0_FLASH, description="Model name to be used to evaluate the plan approval."
+    HUMAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.GPT_4_1_MINI, description="Model name to be used to evaluate the plan approval."
     )
 
 

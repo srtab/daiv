@@ -170,8 +170,11 @@ class RepositoryStructureTool(BaseTool):
         """
         logger.debug("[%s] Getting repository structure (intent: %s)", self.name, intent)
 
-        return self.api_wrapper.extract_tree(
-            config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
+        return (
+            self.api_wrapper.extract_tree(
+                config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
+            )
+            or "The repository is empty."
         )
 
 
