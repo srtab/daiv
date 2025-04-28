@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader’s job—simpler and less error‑prone.
 - Migrated all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
 - Parallelized `update_index` process to improve performance.
-- Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown, JSON and all languages supported by tree-sitter-language-pack using Chonkie package.
+- Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
 
 ### Fixed
 

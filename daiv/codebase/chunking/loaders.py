@@ -137,9 +137,6 @@ class GenericLanguageLoader(BaseLoader):
             return MarkdownHeaderTextSplitter(
                 headers_to_split_on=[("#", "Header 1"), ("##", "Header 2"), ("###", "Header 3")], strip_headers=False
             )
-        elif language == "json":
-            logger.debug("Using json splitter")
-            return RecursiveJsonSplitter()
         elif language:
             logger.debug("Using chonkie splitter")
             return ChonkieTextSplitter(language=language, chunk_size=settings.CHUNK_SIZE)
