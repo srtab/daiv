@@ -84,6 +84,7 @@ class GenericLanguageLoader(BaseLoader):
                         relative_path = Path(cast("str", blob.source)).relative_to(self.blob_loader.path)
                         doc.metadata.update(self.documents_metadata)
                         doc.metadata["source"] = relative_path.as_posix()
+                        doc.metadata["language"] = filename_to_lang(relative_path) or "text"
                         yield doc
 
     def load_and_split(self, text_splitter: TextSplitter | None = None) -> list[Document]:
@@ -93,7 +94,7 @@ class GenericLanguageLoader(BaseLoader):
         documents_to_split: dict[str | None, list[Document]] = {}
 
         for document in self.lazy_load():
-            language = document.metadata.get("language") or filename_to_lang(Path(document.metadata["source"]))
+            language = document.metadata["language"]
 
             if language not in documents_to_split:
                 documents_to_split[language] = []
@@ -112,15 +113,15 @@ class GenericLanguageLoader(BaseLoader):
             logger.info(
                 "Splitting %d %s documents from repo %s[%s]",
                 len(documents),
-                language or "text",
+                language,
                 self.documents_metadata.get("repo_id", "unknown"),
                 self.documents_metadata.get("ref", "unknown"),
             )
+
             text_splitter = self._get_text_splitter(language)
 
             for doc in split_documents(text_splitter, documents):
                 doc.id = str(uuid4().__str__())
-                doc.metadata["language"] = language
                 splitted_documents.append(doc)
 
         return splitted_documents
