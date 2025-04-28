@@ -248,4 +248,4 @@ def filename_to_lang(filename: Path) -> str | None:
         return LANGUAGE_BY_EXTENSION[filename.name]
 
     # If not found by full filename, check by extension
-    return LANGUAGE_BY_EXTENSION.get(filename.suffix)
+    return LANGUAGE_BY_EXTENSION.get(filename.suffix.lower())
