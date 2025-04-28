@@ -1,9 +1,12 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from gitlab import GitlabGetError
 
+from codebase.base import Repository
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
@@ -27,6 +30,15 @@ class Command(BaseCommand):
             nargs="+",
             help="Only update repositories with the given topics. "
             "If repo-id is provided, this argument will be ignored.",
+        )
+        parser.add_argument(
+            "--max-workers",
+            type=int,
+            default=None,
+            help=(
+                "The number of repositories to update in parallel. "
+                "If not provided, the number of available cores will be used."
+            ),
         )
         parser.add_argument("--reset", action="store_true", help="Reset the index before updating.")
         parser.add_argument(
@@ -67,12 +79,16 @@ class Command(BaseCommand):
         else:
             repositories = repo_client.list_repositories(topics=options["topics"] or None, load_all=True)
 
-        for repository in repositories:
-            if not options["repo_id"] and (
-                repository.slug in options["exclude_repo_ids"] or repository.pk in options["exclude_repo_ids"]
-            ):
-                continue
+        with ThreadPoolExecutor(max_workers=options["max_workers"]) as executor:
+            executor.map(lambda repository: self._update_repository(indexer, repository, options), repositories)
 
-            if options["reset"] or options["reset_all"]:
-                indexer.delete(repo_id=repository.slug, ref=options["ref"], delete_all=options["reset_all"])
-            indexer.update(repo_id=repository.slug, ref=options["ref"])
+    @transaction.atomic
+    def _update_repository(self, indexer: CodebaseIndex, repository: Repository, options: dict):
+        if not options["repo_id"] and (
+            repository.slug in options["exclude_repo_ids"] or repository.pk in options["exclude_repo_ids"]
+        ):
+            return
+
+        if options["reset"] or options["reset_all"]:
+            indexer.delete(repo_id=repository.pk, ref=options["ref"], delete_all=options["reset_all"])
+        indexer.update(repo_id=repository.slug, ref=options["ref"])

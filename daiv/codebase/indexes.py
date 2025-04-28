@@ -11,7 +11,7 @@ from django.db.models import Q, QuerySet
 from gitlab import GitlabGetError, GitlabListError
 from langchain.retrievers import EnsembleRetriever
 
-from codebase.document_loaders import GenericLanguageLoader
+from codebase.chunking.loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace, RepositoryInfo
 from codebase.search_engines.lexical import LexicalSearchEngine
 from codebase.search_engines.semantic import SemanticSearchEngine
@@ -160,7 +160,7 @@ class CodebaseIndex(abc.ABC):
         self.semantic_search_engine.delete_documents(namespace, source=source_files)
         self.lexical_search_engine.delete_documents(namespace, source=source_files)
 
-    def delete(self, repo_id: str, ref: str | None = None, delete_all: bool = False):
+    def delete(self, repo_id: int | str, ref: str | None = None, delete_all: bool = False):
         """
         Delete indexes for a repository.
 
@@ -176,7 +176,7 @@ class CodebaseIndex(abc.ABC):
             return
 
         for namespace in namespaces.iterator():
-            logger.info("Reseting repo %s[%s] index.", repo_id, namespace.tracking_ref)
+            logger.info("Reseting repo %s[%s] index.", namespace.repository_info.external_slug, namespace.tracking_ref)
 
             self.semantic_search_engine.delete(namespace)
             self.lexical_search_engine.delete(namespace)
@@ -230,7 +230,7 @@ class CodebaseIndex(abc.ABC):
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
     def _get_codebase_namespace(
-        self, repo_id: str, ref: str | None, ignore_ref: bool = False
+        self, repo_id: str | int, ref: str | None, ignore_ref: bool = False
     ) -> QuerySet[CodebaseNamespace]:
         """
         Retrieve the CodebaseNamespace object for a given repository.
@@ -245,7 +245,7 @@ class CodebaseIndex(abc.ABC):
         """
         qs = CodebaseNamespace.objects.filter(
             Q(repository_info__external_slug=repo_id) | Q(repository_info__external_id=repo_id)
-        )
+        ).select_related("repository_info")
 
         if ignore_ref:
             return qs

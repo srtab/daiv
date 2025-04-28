@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced `o3-mini` with the new reasoning OpenAI model `o4-mini`.
 - Replaced `gemini-2.0-flash` and `gemini-2.0-flash-lite-001` with `gpt-4.1-mini` and `gpt-4.1-nano` respectively.
 - Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader’s job—simpler and less error‑prone.
-- Migrated evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
+- Migrated all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
+- Parallelized `update_index` process to improve performance.
+- Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
 
 ### Fixed
 

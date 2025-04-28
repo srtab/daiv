@@ -75,9 +75,6 @@ class LexicalSearchEngine(SearchEngine):
         """
         writer = self.index.writer()
         for document in documents:
-            if document.metadata.get("content_type") == "simplified_code":
-                continue
-
             writer.add_document(
                 Document(
                     doc_id=document.id,

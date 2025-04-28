@@ -25,7 +25,10 @@ class CodebaseNamespaceManager(models.Manager):
         """
         Get or create a namespace for the given repository.
         """
-        repo_info, _created = RepositoryInfo.objects.get_or_create(
+        # We could use get_or_create here, but we want to ensure that the repository info is always updated
+        # with the latest information from the repository, in particular the external_slug that can change
+        # over time.
+        repo_info, _created = RepositoryInfo.objects.update_or_create(
             external_id=repository.pk, defaults={"client": repository.client, "external_slug": repository.slug}
         )
         try:
