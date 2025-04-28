@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveJsonSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def split_documents(
-    text_splitter: RecursiveJsonSplitter | MarkdownHeaderTextSplitter | TextSplitter, documents: Iterable[Document]
+    text_splitter: MarkdownHeaderTextSplitter | TextSplitter, documents: Iterable[Document]
 ) -> list[Document]:
     """
     Split documents into chunks.
@@ -27,9 +26,6 @@ def split_documents(
     for doc in documents:
         texts.append(doc.page_content)
         metadatas.append(doc.metadata)
-
-    if isinstance(text_splitter, RecursiveJsonSplitter):
-        return text_splitter.create_documents([json.loads(text) for text in texts], metadatas=metadatas)
 
     if isinstance(text_splitter, MarkdownHeaderTextSplitter):
         documents = []

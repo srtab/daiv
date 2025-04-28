@@ -10,12 +10,7 @@ from uuid import uuid4
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
 from langchain_community.document_loaders.parsers.language import LanguageParser
-from langchain_text_splitters import (
-    MarkdownHeaderTextSplitter,
-    RecursiveCharacterTextSplitter,
-    RecursiveJsonSplitter,
-    TextSplitter,
-)
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter, TextSplitter
 
 from codebase.conf import settings
 
@@ -126,9 +121,7 @@ class GenericLanguageLoader(BaseLoader):
 
         return splitted_documents
 
-    def _get_text_splitter(
-        self, language: str | None = None
-    ) -> TextSplitter | MarkdownHeaderTextSplitter | RecursiveJsonSplitter:
+    def _get_text_splitter(self, language: str | None = None) -> TextSplitter | MarkdownHeaderTextSplitter:
         """
         Get the text splitter for a given language.
         """
