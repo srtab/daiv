@@ -4,6 +4,6 @@ extend_exclude_patterns:
   - "*.ipynb"
 
 commands:
-  base_image: "ghcr.io/astral-sh/uv"
+  base_image: "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
   install_dependencies: "uv sync"
   format_code: "uv run ruff check . --fix; uv run ruff format .; uv run pyproject-fmt pyproject.toml"
