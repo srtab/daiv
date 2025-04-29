@@ -359,6 +359,7 @@ class GitLabClient(RepoClient):
         events: list[Literal["push_events", "issues_events", "note_events", "pipeline_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
+        secret_token: str | None = None,
     ) -> bool:
         """
         Set webhooks for a repository.
@@ -368,6 +369,9 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             url: The webhook URL.
             events: The list of events to trigger the webhook.
+            push_events_branch_filter: Filter to apply on branches for push events.
+            enable_ssl_verification: Whether to enable SSL verification.
+            secret_token: Secret token for webhook validation.
 
         Returns:
             True if the webhook was created, otherwise False.
@@ -386,6 +390,7 @@ class GitLabClient(RepoClient):
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
+            "token": secret_token,
         }
         if project_hook := self._get_repository_hook_by_name(repo_id, data["name"]):
             for key, value in data.items():
