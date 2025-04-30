@@ -1,9 +1,15 @@
-repository_description: "Django based project using pytest framework for testing. Check `pyproject.toml` to understand the pytest rules. Create classes to organize unittests. The imports shouldn't include `daiv.` as prefix."
 branch_name_convention: "Use 'feat/', 'fix/', or 'chore/' prefixes."
+
+# Exclude all ipynb files
 extend_exclude_patterns:
   - "*.ipynb"
 
 commands:
+  # Use the base image with uv installed
   base_image: "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
-  install_dependencies: "uv sync"
+
+  # Only install dev group dependencies, to format the code is what we need
+  install_dependencies: "uv sync --locked --group=dev"
+
+  # Fix linting and format the code with ruff and pyproject-fmt
   format_code: "uv run ruff check . --fix; uv run ruff format .; uv run pyproject-fmt pyproject.toml"
