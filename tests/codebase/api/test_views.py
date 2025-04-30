@@ -1,85 +1,86 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from django.test import Client
+from unittest.mock import patch
 
 import pytest
+from ninja.testing import TestAsyncClient
 
 from codebase.api.callbacks_gitlab import PushCallback
+from codebase.api.models import Project
+from daiv.api import api
+
+
+@pytest.fixture
+def client():
+    return TestAsyncClient(api)
+
+
+@pytest.fixture(autouse=True)
+def mock_settings():
+    """Fixture to mock the settings for testing."""
+    with patch("codebase.api.security.settings") as mock:
+        mock.WEBHOOK_SECRET_GITLAB = "test"  # noqa: S105
+        yield mock
 
 
 @pytest.fixture
 def mock_push_callback():
-    callback = MagicMock(spec=PushCallback)
-    callback.object_kind = "push"
-    callback.project = MagicMock()
-    callback.project.id = 123
-    callback.accept_callback.return_value = True
-    callback.process_callback = AsyncMock()
-    return callback
+    return PushCallback(
+        object_kind="push", project=Project(id=123, path_with_namespace="test/test"), checkout_sha="123", ref="main"
+    ).model_dump()
 
 
-@pytest.mark.django_db
 @pytest.mark.asyncio
-@patch("codebase.api.views.validate_gitlab_webhook")
-async def test_gitlab_callback_valid_webhook(mock_validate, mock_push_callback, client: Client):
-    """Test GitLab callback with valid webhook validation."""
-    # Setup
-    mock_validate.return_value = True
-
+async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback):
+    """Test GitLab callback with valid token."""
     # Execute
-    with patch(
-        "codebase.api.views.IssueCallback | NoteCallback | PushCallback | PipelineStatusCallback",
-        return_value=mock_push_callback,
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=True) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=True) as process_callback,
     ):
-        response = client.post("/api/codebase/callbacks/gitlab/", {}, content_type="application/json")
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test"}
+        )
 
     # Assert
     assert response.status_code == 204
-    mock_validate.assert_called_once()
-    mock_push_callback.accept_callback.assert_called_once()
-    mock_push_callback.process_callback.assert_called_once()
+    accept_callback.assert_called_once()
+    process_callback.assert_called_once()
 
 
-@pytest.mark.django_db
 @pytest.mark.asyncio
-@patch("codebase.api.views.validate_gitlab_webhook")
-async def test_gitlab_callback_invalid_webhook(mock_validate, mock_push_callback, client: Client):
-    """Test GitLab callback with invalid webhook validation."""
-    # Setup
-    mock_validate.return_value = False
-
+async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback):
+    """
+    Test GitLab callback with invalid token.
+    """
     # Execute
-    with patch(
-        "codebase.api.views.IssueCallback | NoteCallback | PushCallback | PipelineStatusCallback",
-        return_value=mock_push_callback,
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
     ):
-        response = client.post("/api/codebase/callbacks/gitlab/", {}, content_type="application/json")
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "invalid"}
+        )
 
     # Assert
     assert response.status_code == 401
-    mock_validate.assert_called_once()
-    mock_push_callback.accept_callback.assert_not_called()
-    mock_push_callback.process_callback.assert_not_called()
+    accept_callback.assert_not_called()
+    process_callback.assert_not_called()
 
 
-@pytest.mark.django_db
 @pytest.mark.asyncio
-@patch("codebase.api.views.validate_gitlab_webhook")
-async def test_gitlab_callback_not_accepted(mock_validate, mock_push_callback, client: Client):
-    """Test GitLab callback that is not accepted."""
-    # Setup
-    mock_validate.return_value = True
-    mock_push_callback.accept_callback.return_value = False
-
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback):
+    """
+    Test GitLab callback with not accepted webhook.
+    """
     # Execute
-    with patch(
-        "codebase.api.views.IssueCallback | NoteCallback | PushCallback | PipelineStatusCallback",
-        return_value=mock_push_callback,
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
     ):
-        response = client.post("/api/codebase/callbacks/gitlab/", {}, content_type="application/json")
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test"}
+        )
 
     # Assert
     assert response.status_code == 204
-    mock_validate.assert_called_once()
-    mock_push_callback.accept_callback.assert_called_once()
-    mock_push_callback.process_callback.assert_not_called()
+    accept_callback.assert_called_once()
+    process_callback.assert_not_called()
