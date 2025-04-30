@@ -10,15 +10,14 @@ maintainers = [
 authors = [
   { name = "Sandro Rodrigues", email = "srtabs@gmail.com" },
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "celery[redis]==5.5.2",
-  "chonkie==1.0.5",
+  "chonkie==1.0.6",
   "django==5.2",
   "django-extensions==4.1",
   "django-ninja==1.4.1",
@@ -28,23 +27,23 @@ dependencies = [
   "get-docker-secret==2",
   "gunicorn==23",
   "httpx==0.28.1",
-  "ipython==9.1",
+  "ipython==9.2",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.23",
+  "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.24",
   "langchain-text-splitters==0.3.8",
   "langchain-voyageai==0.1.4",
-  "langgraph==0.3.34",
+  "langgraph==0.4",
   "langgraph-checkpoint-postgres==2.0.21",
   "langsmith==0.3.38",
   "pgvector==0.4.1",
   "psycopg[pool]==3.2.6",
-  "pydantic==2.11.3",
+  "pydantic==2.11.4",
   "pydantic-settings==2.9.1",
   "python-decouple==3.8",
   "python-gitlab==5.6",
   "pyyaml==6.0.2",
   "redis==5.2.1",
-  "sentry-sdk==2.26.1",
+  "sentry-sdk==2.27",
   "tantivy==0.22.2",
   "tree-sitter==0.24",
   "tree-sitter-language-pack==0.7.2",
@@ -52,8 +51,10 @@ dependencies = [
   "uvicorn==0.34.2",
 ]
 
-urls."Bug Tracker" = "https://github.com/srtab/daiv/issues"
-urls.Repository = "https://github.com/srtab/daiv"
+urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
+
+urls.issues = "https://github.com/srtab/daiv/issues"
+urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
@@ -71,7 +72,7 @@ dev = [
   "pytest-xdist==3.6.1",
   "python-dotenv==1.0.1",
   "rich==14",
-  "ruff==0.11.5",
+  "ruff==0.11.7",
   "types-pyyaml==6.0.12.20250402",
   "watchfiles==1.0.5",
 ]
