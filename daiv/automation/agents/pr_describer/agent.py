@@ -8,7 +8,7 @@ from langchain_core.runnables import Runnable
 from automation.agents import BaseAgent
 
 from .conf import settings
-from .prompts import human, system
+from .prompts import system
 from .schemas import PullRequestDescriberInput, PullRequestMetadata
 
 
@@ -18,8 +18,10 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     """
 
     def compile(self) -> Runnable:
-        prompt = ChatPromptTemplate.from_messages([system, human]).partial(
-            branch_name_convention=None, extra_context="", current_date_time=timezone.now().isoformat()
+        prompt = ChatPromptTemplate.from_messages([system]).partial(
+            branch_name_convention=None,
+            extra_context="",
+            current_date_time=timezone.now().isoformat(timespec="minutes"),
         )
         return (
             prompt
