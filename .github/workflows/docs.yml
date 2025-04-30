@@ -1,0 +1,38 @@
+name: Publish Documentation
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - run: uv sync --group docs
+
+      - name: Set git credentials
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - run: uv run mike deploy dev --push
+        if: github.ref == 'refs/heads/main'
+
+      - run: uv run mike deploy ${{ github.ref_name }} latest --update-aliases --push
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
