@@ -131,6 +131,17 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    5. Finally, you can test DAIV by creating an issue in your repository, add `daiv` label to it and see how DAIV will automatically present a plan to address the issue.
 
 
+## Roadmap
+
+- [ ] 📚 Add documentation to the project.
+- [ ] 🌐 Add support to MCP servers: #274.
+- [ ] 🧩 Include knowledge graphs that collect and correlate information from the codebases. This will help DAIV to obtain structured context about the codebase.
+- [ ] 🚀 Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
+- [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
+- [ ] ⚡ Add support to quick actions on Merge Requests, such as Update Changelog, Add unittest, Update docs...
+- [ ] 🔍 Add support to automated code review.
+
+
 ## Contributing
 
 We welcome contributions! Whether you want to fix a bug, add a new feature, or improve documentation, please refer to the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information.

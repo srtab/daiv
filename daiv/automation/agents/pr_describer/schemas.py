@@ -15,14 +15,31 @@ class PullRequestDescriberInput(TypedDict):
 
 
 class PullRequestMetadata(BaseModel):
-    branch: str = Field(description=("The branch name associated with the changes."))
     title: str = Field(
-        description="Create a self-explanatory title that describes what the pull request does.", max_length=72
+        description=(
+            "Create a self-explanatory title that describes what the pull request does. "
+            "Derive solely from the supplied changes (no external context). "
+            "Sentence-case, imperative mood."
+        ),
+        max_length=72,
     )
-    description: str = Field(description="Detail what was changed, why it was changed, and how it was changed.")
+    branch: str = Field(
+        description="The branch name associated with the changes. If the input already contains a branch name, use it.",
+        pattern=r"[a-z0-9-_/]",
+    )
+    description: str = Field(
+        description=(
+            "Detail what was changed, why it was changed, and how it was changed. "
+            "Summarize functional impact **only from what is given**. "
+            "No speculation or inferred context."
+            "Refer always to the changes and never to the pull request."
+        )
+    )
     summary: list[str] = Field(
         description=(
             "Concise bulleted description of the pull request."
+            "Start each bullet with `Add`, `Update`, `Fix`, `Remove`, etc."
+            "Group similar operations; avoid redundancy; imperative mood."
             "Markdown format `variables`, `files`, and `directories` like this."
         )
     )
