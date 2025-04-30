@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added security check to the GitLab callback to validate the `X-Gitlab-Token` header: #93.
+
 ### Changed
 
 - Improved how to set up a test project on local GitLab in the README.md file.
