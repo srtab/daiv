@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
 - Parallelized `update_index` process to improve performance.
 - Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
+- Added Roadmap section to the README.md.
+- Updated project urls declared in `pyproject.toml` to use standard labels.
 
 ### Fixed
 
