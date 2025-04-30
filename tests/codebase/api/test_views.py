@@ -13,9 +13,9 @@ def client():
     return TestAsyncClient(api)
 
 
-@pytest.fixture(autouse=True)
-def mock_settings():
-    """Fixture to mock the settings for testing."""
+@pytest.fixture()
+def mock_secret_token():
+    """Fixture to mock the secret token for testing."""
     with patch("codebase.api.security.settings") as mock:
         mock.WEBHOOK_SECRET_GITLAB = "test"  # noqa: S105
         yield mock
@@ -29,7 +29,7 @@ def mock_push_callback():
 
 
 @pytest.mark.asyncio
-async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback):
+async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """Test GitLab callback with valid token."""
     # Execute
     with (
@@ -47,7 +47,7 @@ async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_ca
 
 
 @pytest.mark.asyncio
-async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback):
+async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """
     Test GitLab callback with invalid token.
     """
@@ -76,9 +76,7 @@ async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_c
         patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
         patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
     ):
-        response = await client.post(
-            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test"}
-        )
+        response = await client.post("/codebase/callbacks/gitlab/", json=mock_push_callback)
 
     # Assert
     assert response.status_code == 204
