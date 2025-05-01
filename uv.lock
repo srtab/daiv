@@ -576,7 +576,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.21" },
     { name = "langsmith", specifier = "==0.3.39" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "psycopg", extras = ["pool"], specifier = "==3.2.6" },
+    { name = "psycopg", extras = ["pool"], specifier = "==3.2.7" },
     { name = "pydantic", specifier = "==2.11.4" },
     { name = "pydantic-settings", specifier = "==2.9.1" },
     { name = "python-decouple", specifier = "==3.8" },
@@ -2420,15 +2420,15 @@ wheels = [
 
 [[package]]
 name = "psycopg"
-version = "3.2.6"
+version = "3.2.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/97/eea08f74f1c6dd2a02ee81b4ebfe5b558beb468ebbd11031adbf58d31be0/psycopg-3.2.6.tar.gz", hash = "sha256:16fa094efa2698f260f2af74f3710f781e4a6f226efe9d1fd0c37f384639ed8a", size = 156322, upload-time = "2025-03-12T20:43:12.228Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/16/ca27b38762a630b70243f51eb6a728f903a17cddc4961626fa540577aba6/psycopg-3.2.7.tar.gz", hash = "sha256:9afa609c7ebf139827a38c0bf61be9c024a3ed743f56443de9d38e1efc260bf3", size = 157238, upload-time = "2025-04-30T13:05:22.867Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/7d/0ba52deff71f65df8ec8038adad86ba09368c945424a9bd8145d679a2c6a/psycopg-3.2.6-py3-none-any.whl", hash = "sha256:f3ff5488525890abb0566c429146add66b329e20d6d4835662b920cbbf90ac58", size = 199077, upload-time = "2025-03-12T20:38:07.112Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/eb/6e32d259437125a17b0bc2624e06c86149c618501da1dcbc8539b2684f6f/psycopg-3.2.7-py3-none-any.whl", hash = "sha256:d39747d2d5b9658b69fa462ad21d31f1ba4a5722ad1d0cb952552bc0b4125451", size = 200028, upload-time = "2025-04-30T12:59:32.435Z" },
 ]
 
 [package.optional-dependencies]
