@@ -45,7 +45,15 @@ plugins:
   - search
 
 markdown_extensions:
+  - admonition
   - tables
+  - pymdownx.highlight:
+      linenums: true
+      anchor_linenums: true
+      auto_title: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
 
 extra:
   version:
@@ -53,11 +61,12 @@ extra:
 
 nav:
   - Home: index.md
-  - Get Started: get-started.md
+  - Getting Started: getting-started.md
   - Configurations: configurations.md
   - AI Agents:
-    - Issue Addressor: ai-agents/issue-addressor.md
-    - Code Review Addressor: ai-agents/code-review-addressor.md
-    - Pipeline Fixing: ai-agents/pipeline-fixing.md
-    - Codebase Chat: ai-agents/codebase-chat.md
+    - Supported Providers: ai-agents/supported-providers.md
+    - 🚀 Issue Addressor: ai-agents/issue-addressor.md
+    - 💬 Code Review Addressor: ai-agents/code-review-addressor.md
+    - 🔧 Pipeline Fixing: ai-agents/pipeline-fixing.md
+    - 🧠 Codebase Chat: ai-agents/codebase-chat.md
   - Community: community.md
