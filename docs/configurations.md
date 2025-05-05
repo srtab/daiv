@@ -1,15 +1,19 @@
 # Configurations
 
-DAIV can be customised on a per-repository basis using a `.daiv.yml` file in the repository root. This configuration file allows you to customise various aspects of DAIV behaviour, from feature toggles to code formatting commands.
+Customize DAIV for your repository using a `.daiv.yml` file.
+
+This file lets you control features, code formatting, and more.
 
 ## Example Configuration
 
-Here's a complete example configuration file:
+Below is a complete example of a `.daiv.yml` file.
+
+You can copy and modify this template for your repository.
 
 ```yaml
 # Repository settings
 default_branch: main
-repository_description: "Python web application using Django and React. Follows PEP8 standards and Airbnb style guide for JavaScript."
+repository_description: "Python web application using Django and React. Follows PEP 8 standards and the Airbnb style guide for JavaScript."
 branch_name_convention: "Use 'feat/' for features, 'fix/' for bugfixes, 'docs/' for documentation"
 
 # Feature toggles
@@ -32,117 +36,74 @@ commands:
   format_code: "ruff check --fix && ruff format"
 ```
 
-## Repository Settings
+## Configure Repository Settings
 
-### `default_branch`
-* _Description_: The branch that DAIV will use as the default branch.
-* _Type_: `str`
-* _Required_: `false`
-* _Default_: the repository's default branch will be used.
+Repository settings control the default branch, repository description, and branch naming convention.
 
-### `repository_description`
-* _Description_: A brief description of your repository to help DAIV better understand it.
-* _Type_: `str`
-* _Required_: `false`
-* _Maximum length_: 400 characters
-* _Default_: the repository's description will be used.
+| Option                   | Type   |  Default                | Description                                                                 |
+|--------------------------|--------|------------------------|-----------------------------------------------------------------------------|
+| `default_branch`         | `str | null`    | Repository default branch    | The branch DAIV uses by default to load the `.daiv.yml` file.            |
+| `repository_description` | `str`    | `""`       | A brief description to help agents understand your repository. Max 400 chars. |
+| `branch_name_convention` | `str`    | `"always start with 'daiv/' followed by a short description."`    | Naming convention for generating pull request branches.                                |
 
 !!! tip
-    DAIV will try to understan
-
-### `branch_name_convention`
-* _Description_: A convention for branch names. This is used to generate the branch name for the pull requests.
-* _Type_: `str`
-* _Required_: `false`
-* _Default_: the repository's default branch will be used.
-
-!!! tip
-    - Keep conventions simple and clear.
-    - Define prefixes that match your team's workflow.
+    - Use clear and simple branch-naming conventions.
+    - Keep descriptions concise and informative.
 
 
-## Feature Flags
+## Enable or Disable Features
 
-### `features`
-* _Description_: Control which DAIV features are enabled for the repository.
-* _Type_: `object`
-* _Required_: `false`
-* _Default_: all features are enabled.
+Control which DAIV features are active in your repository.
 
-### `features.auto_address_review_enabled`
-* _Description_: Enable [code review addressor agent](ai-agents/code-review-addressor.md).
-* _Type_: `boolean`
-* _Required_: `false`
-* _Default_: `true`
+Under your `.daiv.yml` file's `features:` section, configure the following keys:
 
-### `features.auto_address_issues_enabled`
-* _Description_: Enable [issue addressor agent](ai-agents/issue-addressor.md).
-* _Type_: `boolean`
-* _Required_: `false`
-* _Default_: `true`
-
-### `features.autofix_pipeline_enabled`
-* _Description_: Enable [pipeline fixing agent](ai-agents/pipeline-fixing.md).
-* _Type_: `boolean`
-* _Required_: `false`
-* _Default_: `true`
-
-## Code Indexing
-
-In order to provide better context to the AI agents, DAIV will index your codebase and persist the extracted code snippets.
-
-These are the available options to customize the code indexing process of the repository:
-
-### `extend_exclude_patterns`
-* _Description_: Extend the default exclude patterns. All the patterns will be ignored from the code indexing process.
-* _Default_: `[]`.
-* _Type_: `list[str]`
-* _Required_: `false`
+| Feature                          | Type    | Default | Description                                                      |
+|-----------------------------------|---------|---------|------------------------------------------------------------------|
+| `auto_address_review_enabled`     | `bool`    | `true`    | Enable the [code review addressor agent](ai-agents/code-review-addressor.md).                          |
+| `auto_address_issues_enabled`     | `bool`    | `true`    | Enable the [issue addressor agent](ai-agents/issue-addressor.md).                                |
+| `autofix_pipeline_enabled`        | `bool`    | `true`    | Enable the [pipeline fixing agent](ai-agents/pipeline-fixing.md).                                |
 
 !!! tip
-    - Always exclude sensitive files and directories
-    - Exclude build artifacts and cache directories
-    - Consider excluding test directories if they shouldn't be analyzed
+    Disable features you do not need to reduce noise and speed up processing.
+
+## Customize Code Indexing
+
+Control which files DAIV indexes for context.
 
 !!! warning
-    These affect directly the code indexing process. All the files that match the patterns will be excluded from the code indexing, so they **won't be available for the AI agents**.
+    Files excluded from indexing will not be available to DAIV's AI agents.
 
-### `exclude_patterns`
-* _Description_: Default exclude patterns. Don't include this option if you want to use the default exclude patterns. Use `extend_exclude_patterns` instead to add more patterns.
-* _Type_: `list[str]`
-* _Required_: `false`
-* _Default_: `["*package-lock.json", "*.lock", "*.svg", "*.pyc", "*.log", "*.zip", "*.coverage", "*.sql", "**/.git/**", "**/.mypy_cache/**", "**/.tox/**", "**/vendor/**", "**/venv/**", "**/.venv/**", "**/.env/**", "**/node_modules/**", "**/dist/**", "**/__pycache__/**", "**/data/**", "**/.idea/**", "**/.pytest_cache/**", "**/.ruff_cache/**"]`
-
-## Commands
-
-You can configure commands to be executed in the sandbox environment ([`daiv-sandbox`](https://github.com/srtab/daiv-sandbox)).
-
-### `commands`
-* _Description_: Configure commands to be executed in the sandbox environment.
-* _Type_: `object`
-* _Required_: `false`
-* _Default_: `{}`
-
-### `commands.base_image`
-* _Description_: The base Docker image to use for the sandbox environment.
-* _Type_: `str`
-* _Required_: `false`
-* _Default_: `null`
-
-!!! warning
-    The image need to be a distro image. Distroless images will not work.
+| Option                   | Type    | Default                | Description                                                                 |
+|--------------------------|---------|------------------------|-----------------------------------------------------------------------------|
+| `extend_exclude_patterns` | `list[str]` | `[]`                   | Add patterns to exclude more files from indexing.                          |
+| `exclude_patterns`         | `list[str]` | `["*package-lock.json", "*.lock", "*.svg", "*.pyc", "*.log", "*.zip", "*.coverage", "*.sql", "**/.git/**", "**/.mypy_cache/**", "**/.tox/**", "**/vendor/**", "**/venv/**", "**/.venv/**", "**/.env/**", "**/node_modules/**", "**/dist/**", "**/__pycache__/**", "**/data/**", "**/.idea/**", "**/.pytest_cache/**", "**/.ruff_cache/**"]`                   | Override the default exclude patterns.                                      |
 
 !!! tip
-    - Use specific versions in base images for reproducibility
+    Exclude sensitive files and build artifacts.
+    Prefer using `extend_exclude_patterns` to add more patterns.
 
-### `commands.install_dependencies`
-* _Description_: The command to install the project dependencies.
-* _Type_: `str`
-* _Required_: `false`
-* _Default_: `null`
+## Set Up Sandbox Commands
 
-### `commands.format_code`
-* _Description_: The command to format the code. This command will be executed before the code is committed to the repository in conjunction with the `install_dependencies` command.
-* _Type_: `str`
-* _Required_: `false`
-* _Default_: `null`
+To use sandbox commands, you must have a `daiv-sandbox` instance running (see the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for more information), and **all three options below (`base_image`, `install_dependencies`, and `format_code`) must be set**.
+
+Under your `.daiv.yml` file's `commands:` section, configure the following keys:
+
+| Option                | Type   | Default | Description                                               |
+|-----------------------|--------|---------|-----------------------------------------------------------|
+| `base_image`          | `str`    | `null`    | Docker image for the sandbox. Use distro images only.     |
+| `install_dependencies`| `str`    | `null`    | Command to install project dependencies.                  |
+| `format_code`         | `str`    | `null`    | Command to format code before committing.                |
+
+**Here's how it works:**
+
+Before **committing code generated by DAIV**, DAIV will call `daiv-sandbox` to:
+
+  - Create a container from the `base_image`.
+  - Execute the `install_dependencies` command in the container.
+  - Execute the `format_code` command in the container after the `install_dependencies` command executed successfully.
+
+!!! warning
+    If any of the commands fail, DAIV will commit the code as is to be manually fixed, if needed.
+
+!!! tip
+    Use specific image versions for reproducibility.
