@@ -1,0 +1,72 @@
+site_name: DAIV
+site_url: https://srtab.github.io/daiv/
+repo_url: https://github.com/srtab/daiv
+site_description: Documentation for DAIV
+site_author: Sandro Rodrigues
+strict: true
+
+theme:
+  name: material
+
+  features:
+    - search.highlight
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.preview
+    - navigation.instant.progress
+    - content.code.annotate
+    - content.code.copy
+
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.highlight:
+      linenums: true
+      anchor_linenums: true
+      auto_title: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+extra:
+  version:
+    provider: mike
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configurations: configurations.md
+  - AI Agents:
+    - Supported Providers: ai-agents/supported-providers.md
+    - 🚀 Issue Addressor: ai-agents/issue-addressor.md
+    - 💬 Code Review Addressor: ai-agents/code-review-addressor.md
+    - 🔧 Pipeline Fixing: ai-agents/pipeline-fixing.md
+    - 🧠 Codebase Chat: ai-agents/codebase-chat.md
+  - Community: community.md

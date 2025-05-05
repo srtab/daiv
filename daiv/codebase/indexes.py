@@ -83,10 +83,10 @@ class CodebaseIndex(abc.ABC):
 
         loader_limit_paths_to = []
 
-        try:
-            with transaction.atomic():
-                # For the default branch, the index is fully updated on the first run, otherwise,
-                # For other branches, the index is updated only with changed files.
+        with transaction.atomic():
+            try:
+                # If the namespace is new, the index is fully updated on the first run, after that,
+                # the index is updated only with changed files.
                 if not created and namespace.sha != repo_head_sha:
                     new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
                         namespace.repository_info.external_slug, namespace.sha, repo_head_sha
@@ -131,17 +131,17 @@ class CodebaseIndex(abc.ABC):
                 if documents:
                     self.semantic_search_engine.add_documents(namespace, documents)
                     self.lexical_search_engine.add_documents(namespace, documents)
-        except Exception:
-            logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
-            namespace.status = CodebaseNamespace.Status.FAILED
-            namespace.save(update_fields=["status", "modified"])
-        else:
-            namespace.status = CodebaseNamespace.Status.INDEXED
-            namespace.save(update_fields=["status", "modified"])
-            logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
-        finally:
-            # Clear the cache for the namespace retrieval as it might have changed
-            self._get_codebase_namespace.cache_clear()
+            except Exception:
+                logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
+                namespace.status = CodebaseNamespace.Status.FAILED
+                namespace.save(update_fields=["status", "modified"])
+            else:
+                namespace.status = CodebaseNamespace.Status.INDEXED
+                namespace.save(update_fields=["status", "modified"])
+                logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
+            finally:
+                # Clear the cache for the namespace retrieval as it might have changed
+                self._get_codebase_namespace.cache_clear()
 
     def _delete_documents(self, repo_id: str, ref: str, source_files: list[str]):
         """

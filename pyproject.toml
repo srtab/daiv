@@ -76,6 +76,11 @@ dev = [
   "types-pyyaml==6.0.12.20250402",
   "watchfiles==1.0.5",
 ]
+docs = [
+  "mike==2.1.3",
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.6.12",
+]
 
 [tool.ruff]
 target-version = "py312"
