@@ -1,6 +1,6 @@
 # Community
 
-DAIV is a community-driven open-source project that thrives on the contributions and engagement of its members. We believe that a strong community is essential to building robust, innovative software that meets real-world needs. Whether you're a developer, user, or enthusiast, your involvement is valuable and appreciated. This document outlines how you can participate in and contribute to the DAIV community.
+DAIV is an open-source project currently in its early community-building phase. While our contributor base is small, we're actively seeking to grow and welcome new members to help shape the project's future. We believe that a strong community is essential to building robust, innovative software that meets real-world needs. Whether you're a developer, user, or enthusiast, your involvement would be valuable and appreciated. This document outlines how you can participate in and contribute to the DAIV community.
 
 ## Contributing
 
