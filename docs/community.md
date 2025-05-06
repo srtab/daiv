@@ -9,7 +9,6 @@ There are many ways to contribute to DAIV, regardless of your technical backgrou
 - **Code Contributions**: Implement new features, fix bugs, or improve performance
 - **Documentation**: Help improve or translate documentation
 - **Testing**: Test the software and report bugs or suggest improvements
-- **Design**: Contribute to UI/UX design or create visual assets
 - **Community Support**: Help answer questions from other users
 - **Feedback**: Share your experience using DAIV and suggest improvements
 
@@ -64,7 +63,7 @@ The DAIV community is dedicated to providing a welcoming, inclusive, and harassm
 - Focus on what is best for the community
 - Show empathy towards other community members
 
-For more details on expected behavior and enforcement procedures, please refer to the Code of Conduct section in our [CONTRIBUTING.md](../CONTRIBUTING.md) document.
+For more details on expected behavior and enforcement procedures, please refer to the Code of Conduct section in our [CONTRIBUTING.md](https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md) document.
 
 ## Recognition
 
@@ -81,7 +80,7 @@ We believe in celebrating the work of our community members and ensuring that al
 The following resources are available to the DAIV community:
 
 - **GitHub Repository**: [https://github.com/srtab/daiv](https://github.com/srtab/daiv)
-- **Documentation**: Available in the docs directory of the repository
+- **Documentation**: Available at [https://srtab.github.io/daiv/dev/](https://srtab.github.io/daiv/dev/)
 - **Issue Tracker**: For bug reports, feature requests, and discussions
 - **README**: For an overview of DAIV's features and setup instructions
 - **CONTRIBUTING.md**: For detailed contribution guidelines
