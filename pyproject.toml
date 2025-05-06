@@ -34,7 +34,7 @@ dependencies = [
   "langchain-voyageai==0.1.4",
   "langgraph==0.4.1",
   "langgraph-checkpoint-postgres==2.0.21",
-  "langsmith==0.3.41",
+  "langsmith==0.3.42",
   "pgvector==0.4.1",
   "psycopg[pool]==3.2.7",
   "pydantic==2.11.4",
