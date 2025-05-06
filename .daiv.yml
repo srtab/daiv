@@ -12,4 +12,4 @@ commands:
   install_dependencies: "uv sync --locked --only-group=dev"
 
   # Fix linting and format the code with ruff and pyproject-fmt
-  format_code: "uv run ruff check . --fix; uv run ruff format .; uv run pyproject-fmt pyproject.toml"
+  format_code: "uv run --only-group=dev ruff check . --fix; uv run --only-group=dev ruff format .; uv run --only-group=dev pyproject-fmt pyproject.toml"

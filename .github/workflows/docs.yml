@@ -31,8 +31,8 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - run: uv run mike deploy dev --push
+      - run: uv run --only-group=docs mike deploy dev --push
         if: github.ref == 'refs/heads/main'
 
-      - run: uv run mike deploy ${{ github.ref_name }} latest --update-aliases --push
+      - run: uv run --only-group=docs mike deploy ${{ github.ref_name }} latest --update-aliases --push
         if: ${{ startsWith(github.ref, 'refs/tags/') }}

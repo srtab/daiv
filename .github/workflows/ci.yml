@@ -28,7 +28,7 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install the project
-        run: uv sync --locked
+        run: uv sync --locked --only-group=dev
 
       - name: Run linting
         run: make lint
