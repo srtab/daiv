@@ -13,7 +13,7 @@ There are many ways to contribute to DAIV, regardless of your technical backgrou
 - **Community Support**: Help answer questions from other users
 - **Feedback**: Share your experience using DAIV and suggest improvements
 
-For detailed technical contribution guidelines, including code style, testing requirements, and the pull request process, please refer to our [CONTRIBUTING.md](../CONTRIBUTING.md) document.
+For detailed technical contribution guidelines, including code style, testing requirements, and the pull request process, please refer to our [CONTRIBUTING.md](https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md) document.
 
 ## Communication Channels
 
