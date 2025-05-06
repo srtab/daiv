@@ -12,9 +12,9 @@ class ReviewAddressorSettings(BaseSettings):
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for review assessment."
     )
     REPLY_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_4_1_MINI, description="Model name to be used for reply to comments or questions."
+        default=ModelName.GPT_4_1, description="Model name to be used for reply to comments or questions."
     )
-    REPLY_TEMPERATURE: float = Field(default=0.5, description="Temperature for the reply model.")
+    REPLY_TEMPERATURE: float = Field(default=0.2, description="Temperature for the reply model.")
 
 
 settings = ReviewAddressorSettings()  # type: ignore

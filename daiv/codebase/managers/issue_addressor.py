@@ -8,6 +8,7 @@ from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.serde.types import INTERRUPT
 from langgraph.types import Command
 
 from automation.agents.issue_addressor import IssueAddressorAgent
@@ -139,14 +140,16 @@ class IssueAddressorManager(BaseManager):
             if should_reset_plan or (not current_state.next and current_state.created_at is None):
                 try:
                     result = issue_addressor.agent.invoke(
-                        {"issue_title": self.issue.title, "issue_description": self.issue.description},
-                        config,
-                        subgraphs=True,
+                        {"issue_title": self.issue.title, "issue_description": self.issue.description}, config
                     )
                 except Exception as e:
                     raise UnableToPlanIssueError("Error planning issue") from e
                 else:
-                    self._handle_initial_result(result[1])
+                    if result.get("request_for_changes") is False or INTERRUPT not in result:
+                        raise UnableToPlanIssueError("No plan was generated.")
+
+                    # The first task is the plan_and_execute node
+                    self._handle_initial_result(result[INTERRUPT][0].value)
 
             # if the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
             # we extract the note left by the human and resume the execution of the plan_and_execute node

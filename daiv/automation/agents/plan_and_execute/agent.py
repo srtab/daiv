@@ -34,8 +34,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.agents")
 
-INTERRUPT_AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
-
 
 class HumanApprovalEvaluator(BaseAgent[Runnable[HumanApprovalInput, HumanApprovalEvaluation]]):
     """
@@ -140,7 +138,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if self.skip_approval:
             return Command(goto="execute_plan")
 
-        messages = interrupt(INTERRUPT_AWAITING_PLAN_APPROVAL)
+        messages = interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
 
         result = HumanApprovalEvaluator().agent.invoke({"messages": messages})
 

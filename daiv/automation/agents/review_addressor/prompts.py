@@ -1,12 +1,12 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import SystemMessagePromptTemplate
 
 review_comment_system = SystemMessage(
     """You are an AI assistant that classifies **individual code-review comments**.
 
-Your single job: decide whether the comment *explicitly* asks for a change to the codebase (“Change Request”) or not (“Not a Change Request”), then report the result by calling the **ReviewAssessment** tool.
+Your single job: decide whether the comment *explicitly* asks for a change to the codebase (“Change Request”) or not (“Not a Change Request”), then report the result by calling the **ReviewCommentEvaluation** tool.
 
-### 1 How to decide
+### How to decide
 A comment is a **Change Request** when it contains a clear directive or suggestion to modify code, tests, architecture, performance, security, naming, style, etc.
 
 If the comment is *only*:
@@ -18,7 +18,7 @@ then classify it as **Not a Change Request**.
 > **When in doubt, choose “Not a Change Request.”**
 > Urgency by itself («ASAP», «high priority») does **not** make it a change request unless an actionable technical instruction is also present.
 
-### 2 What to examine in the comment
+### What to examine in the comment
 Use these lenses as needed (no need to list them verbatim):
 * Explicit directives, suggestions, or commands
 * Specific references to code, tests, patterns, or standards
@@ -26,7 +26,7 @@ Use these lenses as needed (no need to list them verbatim):
 * Tone and urgency *paired* with actionable content
 * Vague questions or observations that lack an explicit change
 
-### 3 Output format - *strict*
+### Output format - *strict*
 1. **Reasoning block**
    Output your reasoning inside `<comment_analysis> … </comment_analysis>` tags.
    Within the block include:
@@ -35,16 +35,14 @@ Use these lenses as needed (no need to list them verbatim):
    * **Your one-paragraph verdict** explaining which evidence is stronger.
 
 2. **Tool call**
-   Immediately after `</comment_analysis>`, output *nothing but* the tool call.
+   Call the `ReviewCommentEvaluation` tool with the verdict.
    Do **not** add any other fields or text after the tool call.
 
-### 4 Begin
-Read the next code-review comment and follow the steps above.
-""",  # noqa: E501
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
-)
+---
 
-review_comment_human = HumanMessagePromptTemplate.from_template("""<comment>{comment}</comment>""")
+Read the next code-review comments and follow the steps above.
+"""  # noqa: E501
+)
 
 respond_reviewer_system = SystemMessagePromptTemplate.from_template(
     """You are a senior software developer.
@@ -86,7 +84,7 @@ Wrap your deep-dive analysis inside **exactly one** pair of tags:
 ```
 
 ## 4 Final reply to the reviewer
-Immediately **after** `</analysis>` (or directly, when Step 2 triggered clarification), do single tool call.
+Call `reply_reviewer` tool immediately **after** your analysis (or directly, when Step 2 triggered clarification).
 
 * Use first-person (“I suggest…”, “I noticed…”).
 * Use the same language as the reviewer.
@@ -97,11 +95,11 @@ Immediately **after** `</analysis>` (or directly, when Step 2 triggered clarific
 * You may call other code-inspection tools if needed.
 * If you make multiple *independent* tool calls, place them together in one `function_calls` block.
 
-### Begin
+---
+
 Follow the steps above to reply to the reviewer's next comment or question.
-```""",  # noqa: E501
+""",  # noqa: E501
     "jinja2",
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
 review_plan_system_template = """You are a senior software engineer tasked with analyzing user-requested code changes on a merge request, determining what specific changes need to be made to the codebase, and creating a plan to address them. You have access to tools that help you examine the code base to which the changes were made. A partial diff hunk is provided, containing only the lines where the user's requested code changes were left, which also helps to understand what the requested changes directly refer to. From the diff hunk, you can understand which file(s) and lines of code the user's requested changes refer to. ALWAYS scope your plan to the diff hunk provided.

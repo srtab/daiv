@@ -9,7 +9,7 @@ commands:
   base_image: "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
 
   # Only install dev group dependencies, to format the code is what we need
-  install_dependencies: "uv sync --locked --group=dev"
+  install_dependencies: "uv sync --locked --only-group=dev"
 
   # Fix linting and format the code with ruff and pyproject-fmt
   format_code: "uv run ruff check . --fix; uv run ruff format .; uv run pyproject-fmt pyproject.toml"

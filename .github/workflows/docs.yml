@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - run: uv sync --group docs
+      - run: uv sync --locked --only-group=docs
 
       - name: Set git credentials
         run: |

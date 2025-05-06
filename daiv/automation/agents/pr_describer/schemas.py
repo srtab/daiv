@@ -19,9 +19,8 @@ class PullRequestMetadata(BaseModel):
         description=(
             "Create a self-explanatory title that describes what the pull request does. "
             "Derive solely from the supplied changes (no external context). "
-            "Sentence-case, imperative mood."
-        ),
-        max_length=72,
+            "Sentence-case, imperative mood. No more than 72 characters."
+        )
     )
     branch: str = Field(
         description="The branch name associated with the changes. If the input already contains a branch name, use it.",

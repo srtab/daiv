@@ -39,3 +39,8 @@ class ReplyAgentState(AgentState):
     """
     The unified diff of the merge request.
     """
+
+    current_date_time: str
+    """
+    The current date and time.
+    """

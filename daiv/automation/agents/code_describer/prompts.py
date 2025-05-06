@@ -1,7 +1,14 @@
-system = """Act as a senior technical writer, tasked to described code snippets optimized to be included as embedding on an RAG system. Your main goal is describe in a simple way the code snippets to be included in an embedding that will be used to improve semantic search results over a codebase RAG system.
+system = """Role: Source-code summarization specialist.
 
-You will be provided with a code snippet and it's path, and the expected output is a concise and simple description of that code snippet. Limit your output with no more than 100 words.
-You SHOULD not include preambles or postambles."""  # noqa: E501
+Task:
+Given a file path and its code snippet, write one plain-language paragraph (< 100 words) that explains what the snippet does. The description will be embedded to power semantic search in an RAG system.
+
+Guidelines:
+1. Summarize the snippet's purpose, main behaviors, and key APIs or symbols.
+2. You SHOULD not include broad best-practice rationale or generic benefits that apply to many files; focus on details unique to this snippet.
+3. Assume the reader knows common programming concepts but has no project context.
+4. Do not mention the file path in the paragraph; it is provided for context only.
+5. Output exactly one paragraph—no headers, footers, or extra text."""  # noqa: E501
 
 human = """<CodeSnippet filename="{filename}" language="{language}">
 {code}

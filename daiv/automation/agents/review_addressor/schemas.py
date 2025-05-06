@@ -9,7 +9,6 @@ class ReviewCommentInput(TypedDict):
     """
 
     messages: list[AnyMessage]
-    comment: str
 
 
 class ReviewCommentEvaluation(BaseModel):
