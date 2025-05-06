@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal, cast
+from typing import Literal
 
 from django.utils import timezone
 
-from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -22,7 +21,7 @@ from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import respond_reviewer_system, review_comment_human, review_comment_system, review_plan_system_template
+from .prompts import respond_reviewer_system, review_comment_system, review_plan_system_template
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
 from .state import OverallState, ReplyAgentState
 from .tools import reply_reviewer_tool
@@ -37,18 +36,8 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
 
     def compile(self) -> Runnable:
         return (
-            ChatPromptTemplate.from_messages([
-                review_comment_system,
-                MessagesPlaceholder("messages"),
-                review_comment_human,
-            ])
-            # We could use `with_structured_output` but it define tool_choice as "any", forcing the llm to respond with
-            # a tool call without reasoning, which is crucial here to make the right decision.
-            # Defining tool_choice as "auto" would let the llm to reason before calling the tool.
-            | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).bind_tools(
-                [ReviewCommentEvaluation], tool_choice="auto"
-            )
-            | PydanticToolsParser(tools=[ReviewCommentEvaluation], first_tool_only=True)
+            ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
+            | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(ReviewCommentEvaluation)
         ).with_config({"run_name": "ReviewCommentEvaluator"})
 
 
@@ -91,10 +80,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "reply_reviewer"]]: The next step in the workflow.
         """
-        response = ReviewCommentEvaluator().agent.invoke({
-            "messages": state["notes"][:-1],
-            "comment": cast("str", state["notes"][-1].content),
-        })
+        response = ReviewCommentEvaluator().agent.invoke({"messages": state["notes"]})
 
         if response.request_for_changes:
             return Command(goto="plan_and_execute")
