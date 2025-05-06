@@ -26,7 +26,7 @@ RUN uv venv .venv --relocatable
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-editable --no-group dev --no-install-project
+    uv sync --frozen --no-editable --no-default-groups --no-install-project
 
 #########################################################################################################
 # Python build image

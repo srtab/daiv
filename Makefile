@@ -18,19 +18,19 @@ test:
 lint: lint-check lint-format
 
 lint-check:
-	uv run ruff check .
+	uv run --only-group=dev ruff check .
 
 lint-format:
-	uv run ruff format . --check
-	uv run pyproject-fmt pyproject.toml --check
+	uv run --only-group=dev ruff format . --check
+	uv run --only-group=dev pyproject-fmt pyproject.toml --check
 
 lint-fix:
-	uv run ruff check . --fix
-	uv run ruff format .
-	uv run pyproject-fmt pyproject.toml
+	uv run --only-group=dev ruff check . --fix
+	uv run --only-group=dev ruff format .
+	uv run --only-group=dev pyproject-fmt pyproject.toml
 
 lint-typing:
-	uv run mypy daiv
+	uv run --only-group=dev mypy daiv
 
 lock:
 	uv lock
