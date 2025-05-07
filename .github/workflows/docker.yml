@@ -5,9 +5,13 @@ on:
     tags:
       - "v*.*.*"
   pull_request:
+    paths:
+      - 'docker/production/app/**'
+      - 'uv.lock'
+      - '.github/workflows/docker.yml'
 
 jobs:
-  docker:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Docker meta
