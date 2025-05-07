@@ -5,6 +5,10 @@ on:
     tags:
       - "v*.*.*"
   pull_request:
+    paths:
+      - 'docker/production/app/**'
+      - 'uv.lock'
+      - '.github/workflows/docker.yml'
 
 jobs:
   docker:
