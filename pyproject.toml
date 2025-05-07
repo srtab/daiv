@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.5.2",
-  "chonkie[code]==1.0.6",
+  "chonkie[code]==1.0.7",
   "django==5.2",
   "django-extensions==4.1",
   "django-ninja==1.4.1",
