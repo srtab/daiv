@@ -35,12 +35,6 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: Pull latest changes
-        run: |
-          git fetch origin gh-pages
-          git checkout gh-pages || git checkout -b gh-pages
-          git pull origin gh-pages
-
       - run: uv run --only-group=docs mike deploy dev --push
         if: github.ref == 'refs/heads/main'
 
