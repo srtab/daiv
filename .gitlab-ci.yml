@@ -1,0 +1,66 @@
+---
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_NAME !~ /^(release\/.*|dev|master|main)$/
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event" && $CI_COMMIT_REF_NAME =~ /^(release\/.*|dev|master|main)$/
+    - if: "$CI_COMMIT_TAG"
+
+image: python:3.12.7-bookworm
+stages:
+  - static
+  - test
+  - build
+
+lint:
+  stage: static
+  interruptible: true
+  before_script:
+    - uv sync --locked --all-extras
+  script:
+    - make lint
+
+unit:
+  stage: test
+  interruptible: true
+  coverage: "/\\d+.\\d+\\%\\s*$/"
+  variables:
+    POSTGRES_DB: postgres
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: dbpass
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_SSLMODE: prefer
+    DB_NAME: postgres
+    DB_USER: postgres
+    DB_PASSWORD: dbpass
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_SSLMODE: prefer
+  before_script:
+    - uv sync --locked --all-extras
+  script:
+    - make test
+  services:
+    - pgvector/pgvector:pg17
+  needs:
+    - lint
+
+docker:prebuild:
+  image: docker:latest
+  interruptible: true
+  stage: build
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+  script:
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - docker build --progress plain --build-arg VERSION=$CI_COMMIT_SHORT_SHA --build-arg BRANCH=$CI_COMMIT_REF_SLUG --cache-from $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:latest -f ./docker/production/app/Dockerfile .
+  after_script:
+    - docker rmi --force $(docker images $CI_REGISTRY_IMAGE -a -q)
+    - docker logout
+  needs:
+    - unit
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_NAME !~ /^(release\/.*|dev|master|main)$/
+      changes:
+        - docker/production/**/*
+        - uv.lock
