@@ -163,3 +163,4 @@ config.secrets.env
 state-snapshots.txt
 
 .ruff_cache/
+.cursor

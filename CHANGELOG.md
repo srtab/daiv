@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Turned Sandbox tools more resilient and prevent failing the whole agent execution when the sandbox is unavailable.
 - Empty repositories case was not being considered on the repository structure tool, causing an not found error.
+- Repository index was not updating the `sha` field on the `CodebaseIndex` model, causing the index to be considered as outdated even when it's not.
 
 ## [0.1.0-beta.5] - 2025-04-15
 

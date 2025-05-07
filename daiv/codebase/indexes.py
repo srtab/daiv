@@ -137,7 +137,8 @@ class CodebaseIndex(abc.ABC):
                 namespace.save(update_fields=["status", "modified"])
             else:
                 namespace.status = CodebaseNamespace.Status.INDEXED
-                namespace.save(update_fields=["status", "modified"])
+                namespace.sha = repo_head_sha
+                namespace.save(update_fields=["status", "modified", "sha"])
                 logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
             finally:
                 # Clear the cache for the namespace retrieval as it might have changed
