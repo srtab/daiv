@@ -11,7 +11,7 @@ on:
       - '.github/workflows/docker.yml'
 
 jobs:
-  docker:
+  build_and_push:
     runs-on: ubuntu-latest
     steps:
       - name: Docker meta
