@@ -5,7 +5,13 @@ on:
     branches:
       - main
     tags:
-      - '**'
+      - "v*.*.*"
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+
+  pull_request:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -35,8 +41,14 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - run: uv run --only-group=docs mike deploy dev --push
+      - name: Test build docs
+        run: uv run mkdocs build --clean --strict
+        if: github.event_name == 'pull_request'
+
+      - name: Deploy docs dev version
+        run: uv run --only-group=docs mike deploy dev --push
         if: github.ref == 'refs/heads/main'
 
-      - run: uv run --only-group=docs mike deploy ${{ github.ref_name }} latest --update-aliases --push
+      - name: Deploy docs release version
+        run: uv run --only-group=docs mike deploy ${{ github.ref_name }} latest --update-aliases --push
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
