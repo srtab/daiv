@@ -5,7 +5,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE != "merge_request_event" && $CI_COMMIT_REF_NAME =~ /^(release\/.*|dev|master|main)$/
     - if: "$CI_COMMIT_TAG"
 
-image: python:3.12.7-bookworm
+image: ghcr.io/astral-sh/uv:python3.12-bookworm
 stages:
   - static
   - test
@@ -15,7 +15,7 @@ lint:
   stage: static
   interruptible: true
   before_script:
-    - uv sync --locked --all-extras
+    - uv sync --locked --only-group=dev
   script:
     - make lint
 
@@ -41,7 +41,8 @@ unit:
   script:
     - make test
   services:
-    - pgvector/pgvector:pg17
+    - name: pgvector/pgvector:pg17
+      alias: postgres
   needs:
     - lint
 
