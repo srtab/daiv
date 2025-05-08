@@ -15,7 +15,7 @@ lint:
   stage: static
   interruptible: true
   before_script:
-    - uv sync --locked --all-extras
+    - uv sync --locked --only-group=dev
   script:
     - make lint
 
@@ -41,7 +41,8 @@ unit:
   script:
     - make test
   services:
-    - pgvector/pgvector:pg17
+    - name: pgvector/pgvector:pg17
+      alias: postgres
   needs:
     - lint
 
