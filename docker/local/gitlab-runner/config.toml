@@ -8,7 +8,7 @@ check_interval = 0
   name = "runner"
   url = "http://gitlab:8929"
   clone_url = "http://gitlab:8929"
-  token = "glrt-NZQ7tA4xb8qV8teErLSX"
+  token = "glrt-dDoxCnU6MTMUC4wWBv1Hq8KJeY5kJOgQ.0w1rm0xi5"
   executor = "docker"
   [runners.docker]
     network_mode = "daiv_default"

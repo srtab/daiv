@@ -1,6 +1,6 @@
-# Configurations
+# Repository Configurations
 
-Customize DAIV for your repository using a `.daiv.yml` file.
+Customize DAIV for your repository using a `.daiv.yml` file in the default branch and repository root.
 
 This file lets you control features, code formatting, and more.
 
@@ -22,7 +22,7 @@ features:
   auto_address_issues_enabled: true
   autofix_pipeline_enabled: true
 
-# Code management
+# Code indexing
 extend_exclude_patterns:
   - "**/tests/**"
   - "**/*.test.ts"
@@ -59,9 +59,9 @@ Under your `.daiv.yml` file's `features:` section, configure the following keys:
 
 | Feature                          | Type    | Default | Description                                                      |
 |-----------------------------------|---------|---------|------------------------------------------------------------------|
-| `auto_address_review_enabled`     | `bool`    | `true`    | Enable the [code review addressor agent](ai-agents/code-review-addressor.md).                          |
-| `auto_address_issues_enabled`     | `bool`    | `true`    | Enable the [issue addressor agent](ai-agents/issue-addressor.md).                                |
-| `autofix_pipeline_enabled`        | `bool`    | `true`    | Enable the [pipeline fixing agent](ai-agents/pipeline-fixing.md).                                |
+| `auto_address_review_enabled`     | `bool`    | `true`    | Enable the [code review addressor agent](../ai-agents/code-review-addressor.md).                          |
+| `auto_address_issues_enabled`     | `bool`    | `true`    | Enable the [issue addressor agent](../ai-agents/issue-addressor.md).                                |
+| `autofix_pipeline_enabled`        | `bool`    | `true`    | Enable the [pipeline fixing agent](../ai-agents/pipeline-fixing.md).                                |
 
 !!! tip
     Disable features you do not need to reduce noise and speed up processing.
