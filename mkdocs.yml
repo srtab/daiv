@@ -10,13 +10,12 @@ theme:
 
   features:
     - search.highlight
-    - navigation.tracking
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.instant.preview
     - navigation.instant.progress
+    - navigation.tracking
+    - navigation.path
     - content.code.annotate
     - content.code.copy
 
@@ -45,6 +44,7 @@ plugins:
   - search
 
 markdown_extensions:
+  - attr_list
   - admonition
   - tables
   - pymdownx.highlight:
@@ -54,6 +54,9 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 extra:
   version:
@@ -61,10 +64,12 @@ extra:
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Configurations: configurations.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Environment Variables: getting-started/environment-variables.md
+    - Repository Configurations: getting-started/repository-configurations.md
+    - Supported Providers: getting-started/supported-providers.md
   - AI Agents:
-    - Supported Providers: ai-agents/supported-providers.md
     - 🚀 Issue Addressor: ai-agents/issue-addressor.md
     - 💬 Code Review Addressor: ai-agents/code-review-addressor.md
     - 🔧 Pipeline Fixing: ai-agents/pipeline-fixing.md

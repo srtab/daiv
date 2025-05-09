@@ -132,7 +132,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
             _kwargs["model_kwargs"]["extra_headers"] = {
-                "HTTP-Referer": "https://github.com/srtab/daiv",
+                "HTTP-Referer": "https://srtab.github.io/daiv",
                 "X-Title": BOT_NAME,
             }
             _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
