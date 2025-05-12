@@ -607,7 +607,7 @@ requires-dist = [
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai", "huggingface"], specifier = "==0.3.24" },
     { name = "langchain-text-splitters", specifier = "==0.3.8" },
-    { name = "langchain-voyageai", specifier = "==0.1.4" },
+    { name = "langchain-voyageai", specifier = "==0.1.5" },
     { name = "langgraph", specifier = "==0.4.3" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.21" },
     { name = "langsmith", specifier = "==0.3.42" },
@@ -1717,16 +1717,16 @@ wheels = [
 
 [[package]]
 name = "langchain-voyageai"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "pydantic" },
     { name = "voyageai" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/78/44936a3620a64ee2efb45c81b185e320cb2cc0eaa446becfc0430dbbf506/langchain_voyageai-0.1.4.tar.gz", hash = "sha256:106d57af13f4e9e9797f8b92e78bba436ed568ccec02a33782c1c16f76c2b352", size = 4771, upload-time = "2025-01-06T20:25:16.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/04/fb0086d564a9a1af9a20b0e7d31e5403d5cb6cc0ebfa4c0d7556e4aa0fb8/langchain_voyageai-0.1.5.tar.gz", hash = "sha256:ce86281b16f5d44264f9071c533a8ce4ecd632639cc3c4ba4db78a24fed53917", size = 7059, upload-time = "2025-05-12T13:48:15.687Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/5c/f99f805e1abd0e14fb6336e3f05dd1b8f128121a7c96a3bbf27902fa5348/langchain_voyageai-0.1.4-py3-none-any.whl", hash = "sha256:4eb3bcd963f7aea3850e59f9949c819883420cee375e84c27f339f2d28c62dd5", size = 5734, upload-time = "2025-01-06T20:25:14.023Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/1e/2d6ee94a7a63ce5de756aaf4e9732e407d6894d78786a2c3567088637879/langchain_voyageai-0.1.5-py3-none-any.whl", hash = "sha256:f31653e0f0b493ea171f0a851e2053b0dff96a78dcaa97edd0bafb4d1b56abd4", size = 6002, upload-time = "2025-05-12T13:48:14.889Z" },
 ]
 
 [[package]]
