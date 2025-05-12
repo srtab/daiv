@@ -43,7 +43,7 @@ dependencies = [
   "python-gitlab==5.6",
   "pyyaml==6.0.2",
   "redis==5.2.1",
-  "sentry-sdk==2.27",
+  "sentry-sdk==2.28.0",
   "tantivy==0.22.2",
   "tree-sitter==0.24",
   "tree-sitter-language-pack==0.7.3",
