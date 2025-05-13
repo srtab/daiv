@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from django.http import HttpRequest
 
 import pytest
+from pydantic import SecretStr
 
 from codebase.api.security import validate_github_webhook, validate_gitlab_webhook, validate_webhook
 
@@ -28,7 +29,7 @@ def test_validate_gitlab_webhook(mock_request, secret_configured, token_header, 
     """Test GitLab webhook validation with various scenarios."""
     # Setup
     with patch("codebase.api.security.settings") as mock_settings:
-        mock_settings.WEBHOOK_SECRET_GITLAB = "test_secret" if secret_configured else None
+        mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if token_header:
             mock_request.headers["X-Gitlab-Token"] = "test_secret"
@@ -54,7 +55,7 @@ def test_validate_github_webhook(mock_request, secret_configured, signature_head
     """Test GitHub webhook validation with various scenarios."""
     # Setup
     with patch("codebase.api.security.settings") as mock_settings:
-        mock_settings.WEBHOOK_SECRET_GITHUB = "test_secret" if secret_configured else None
+        mock_settings.GITHUB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if signature_header:
             # For valid signature, we need to compute the actual HMAC

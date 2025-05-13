@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from pydantic import SecretStr
+
 from automation.agents.image_url_extractor.schemas import Image, ImageTemplate
 from codebase.base import ClientType
 
@@ -25,7 +27,7 @@ class TestImageTemplate:
         images = [Image(url="uploads/image.png", filename="image.png")]
         with patch("automation.agents.image_url_extractor.schemas.settings", autospec=True) as mock_settings:
             mock_settings.GITLAB_URL = "http://gitlab.com"
-            mock_settings.GITLAB_AUTH_TOKEN = "token123"  # noqa: S105
+            mock_settings.GITLAB_AUTH_TOKEN = SecretStr("token123")  # noqa: S105
 
             result = ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB, project_id=1)
 

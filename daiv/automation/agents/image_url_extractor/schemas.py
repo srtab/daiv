@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -49,9 +49,10 @@ class ImageTemplate(BaseModel):
                 and project_id
                 and parsed_url.path.startswith(("/uploads/", "uploads/"))
             ):
+                assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
                 _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
                 image_url = url_to_data_url(
-                    _repo_image_url, headers={"PRIVATE-TOKEN": cast("str", settings.GITLAB_AUTH_TOKEN)}
+                    _repo_image_url, headers={"PRIVATE-TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value()}
                 )
 
             if image_url:

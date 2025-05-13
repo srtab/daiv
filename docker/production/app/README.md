@@ -83,22 +83,13 @@ DAIV uses PostgreSQL with optional SSL and pgvector:
 
 ---
 
-## Gunicorn Settings (if using `start-app` script)
+## Uvicorn Settings (if using `start-app` script)
 
-- **`GUNICORN_BIND`** (default: `0.0.0.0`): The interface/port that Gunicorn will bind to.
-  _Example:_ `GUNICORN_BIND="0.0.0.0"`
+- **`UVICORN_HOST`** (default: `0.0.0.0`): The interface/port that Uvicorn will bind to.
+  _Example:_ `UVICORN_HOST="0.0.0.0"`
 
-- **`GUNICORN_PORT`** (default: `8000`): The port Gunicorn listens on.
-  _Example:_ `GUNICORN_PORT="8000"`
-
-- **`GUNICORN_TIMEOUT`** (default: `30`): Worker timeout in seconds.
-  _Example:_ `GUNICORN_TIMEOUT="60"`
-
-- **`GUNICORN_WORKERS`** (default: `1`): Number of Gunicorn worker processes.
-  _Example:_ `GUNICORN_WORKERS="4"`
-
-- **`GUNICORN_THREADS`** (default: `2`): Number of threads per worker.
-  _Example:_ `GUNICORN_THREADS="4"`
+- **`UVICORN_PORT`** (default: `8000`): The port Uvicorn listens on.
+  _Example:_ `UVICORN_PORT="8000"`
 
 ---
 

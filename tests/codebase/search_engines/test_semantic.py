@@ -26,7 +26,7 @@ def test_openai_embeddings(mock_settings):
     mock_settings.EMBEDDINGS_MODEL_NAME = "openai/text-embedding-3-large"
     mock_settings.EMBEDDINGS_DIMENSIONS = 1536
     mock_settings.EMBEDDINGS_BATCH_SIZE = 500
-    mock_settings.EMBEDDINGS_API_KEY = "test-api-key"
+    mock_settings.EMBEDDINGS_API_KEY = SecretStr("test-api-key")
 
     with patch("codebase.search_engines.semantic.OpenAIEmbeddings") as mock_embeddings:
         result = embeddings_function()
@@ -53,7 +53,7 @@ def test_voyageai_embeddings(mock_settings):
     """Test VoyageAI embeddings configuration."""
     mock_settings.EMBEDDINGS_MODEL_NAME = "voyageai/voyage-code-3"
     mock_settings.EMBEDDINGS_DIMENSIONS = 1536
-    mock_settings.EMBEDDINGS_API_KEY = "test-api-key"
+    mock_settings.EMBEDDINGS_API_KEY = SecretStr("test-api-key")
 
     with patch("codebase.search_engines.semantic.VoyageAIEmbeddings") as mock_embeddings:
         result = embeddings_function()

@@ -1,6 +1,6 @@
 # Supported Providers
 
-DAIV currently supports integration with the following AI providers:
+DAIV currently supports integration with the following LLM providers:
 
 - [OpenRouter](https://openrouter.ai)
 - [OpenAI](https://openai.com)
@@ -8,6 +8,8 @@ DAIV currently supports integration with the following AI providers:
 - [Gemini](https://gemini.google.com)
 
 A combination of providers may be configured. For example, you can use OpenAI provider for one agent and Gemini provider for another.
+
+---
 
 ## OpenRouter
 
@@ -30,6 +32,8 @@ openrouter:openai/gpt-4.1
 openrouter:anthropic/claude-3-7-sonnet
 ```
 
+---
+
 ## OpenAI
 
 **Setup:**
@@ -48,6 +52,8 @@ When declaring a model, use the model name provided by OpenAI. For example:
 gpt-4.1
 o4-mini
 ```
+
+---
 
 ## Anthropic
 
@@ -72,6 +78,8 @@ claude-3-5-sonnet
     We love Anthropic, but unfortunately their API is very unstable and often returns errors.
     Also, the rate limits could be exceeded very quickly.
 
+---
+
 ## Gemini
 
 **Setup:**
@@ -90,4 +98,3 @@ When declaring a model, use the model name provided by Gemini. For example:
 gemini-2.4-flash-preview-04-17
 gemini-2.5-pro-preview-05-06
 ```
-

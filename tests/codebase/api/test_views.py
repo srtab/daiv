@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from ninja.testing import TestAsyncClient
+from pydantic import SecretStr
 
 from codebase.api.callbacks_gitlab import PushCallback
 from codebase.api.models import Project
@@ -17,7 +18,7 @@ def client():
 def mock_secret_token():
     """Fixture to mock the secret token for testing."""
     with patch("codebase.api.security.settings") as mock:
-        mock.WEBHOOK_SECRET_GITLAB = "test"  # noqa: S105
+        mock.GITLAB_WEBHOOK_SECRET = SecretStr("test")  # noqa: S105
         yield mock
 
 

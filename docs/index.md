@@ -1,4 +1,4 @@
-# 🤖 DAIV: Development AI Assistant
+# **:material-robot-industrial-outline: DAIV** : Development AI Assistant
 
 ![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml)
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)

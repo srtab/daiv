@@ -106,6 +106,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         }
 
         if model_provider == ModelProvider.ANTHROPIC:
+            assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
+            _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
             if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
                 max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
                 # When using thinking the temperature need to be set to 1
@@ -123,11 +125,14 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 # turn more likely parallel tool calls.
                 _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "token-efficient-tools-2025-02-19"}
         elif model_provider == ModelProvider.OPENAI:
+            assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
+            _kwargs["api_key"] = settings.OPENAI_API_KEY.get_secret_value()
             if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
 
         elif model_provider == ModelProvider.OPENROUTER:
+            assert settings.OPENROUTER_API_KEY is not None, "OpenRouter API key is not set"
             _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
@@ -136,7 +141,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 "X-Title": BOT_NAME,
             }
             _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
-            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY
+            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
 
             if _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
                 _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
@@ -148,6 +153,10 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             elif _kwargs["model"].startswith("anthropic"):
                 # Avoid rate limiting by setting a fair max_tokens value
                 _kwargs["max_tokens"] = 4_096
+
+        elif model_provider == ModelProvider.GOOGLE_GENAI:
+            assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
+            _kwargs["api_key"] = settings.GOOGLE_API_KEY.get_secret_value()
 
         return _kwargs
 

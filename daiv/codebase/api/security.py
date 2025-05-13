@@ -19,7 +19,7 @@ def validate_gitlab_webhook(request: HttpRequest) -> bool:
     Returns:
         True if the webhook is valid, False otherwise
     """
-    if not settings.WEBHOOK_SECRET_GITLAB:
+    if not settings.GITLAB_WEBHOOK_SECRET:
         logger.warning("GitLab webhook validation skipped: No secret token configured")
         return True
 
@@ -29,7 +29,7 @@ def validate_gitlab_webhook(request: HttpRequest) -> bool:
         return False
 
     # Use constant-time comparison to prevent timing attacks
-    is_valid = hmac.compare_digest(token, settings.WEBHOOK_SECRET_GITLAB)
+    is_valid = hmac.compare_digest(token, settings.GITLAB_WEBHOOK_SECRET.get_secret_value())
 
     if is_valid:
         logger.debug("GitLab webhook validation successful")
@@ -50,7 +50,7 @@ def validate_github_webhook(request: HttpRequest) -> bool:
     Returns:
         True if the webhook is valid, False otherwise
     """
-    if not settings.WEBHOOK_SECRET_GITHUB:
+    if not settings.GITHUB_WEBHOOK_SECRET:
         logger.warning("GitHub webhook validation skipped: No secret token configured")
         return True
 
@@ -67,7 +67,7 @@ def validate_github_webhook(request: HttpRequest) -> bool:
     signature = signature[7:]
 
     # Compute the HMAC SHA256 hash of the request body
-    mac = hmac.new(settings.WEBHOOK_SECRET_GITHUB.encode(), msg=request.body, digestmod=sha256)
+    mac = hmac.new(settings.GITHUB_WEBHOOK_SECRET.get_secret_value().encode(), msg=request.body, digestmod=sha256)
     expected_signature = mac.hexdigest()
 
     # Use constant-time comparison to prevent timing attacks

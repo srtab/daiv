@@ -3,6 +3,7 @@ from unittest.mock import Mock, call, patch
 from django.core.management import call_command
 
 import pytest
+from pydantic import SecretStr
 
 from codebase.clients import RepoClient
 
@@ -134,7 +135,7 @@ def test_setup_webhooks_with_settings_token(mock_settings, mock_repo_client):
 
     # Configure mock settings
     mock_settings.CLIENT = "gitlab"
-    mock_settings.WEBHOOK_SECRET_GITLAB = "settings_secret"  # noqa: S105
+    mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("settings_secret")  # noqa: S105
 
     # Call the command without explicit secret token
     call_command("setup_webhooks", base_url="https://test.com")
