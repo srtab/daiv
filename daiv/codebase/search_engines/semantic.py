@@ -2,6 +2,7 @@ import functools
 import logging
 from textwrap import dedent
 
+from daiv.settings.components import DATA_DIR
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
@@ -14,7 +15,6 @@ from codebase.conf import settings
 from codebase.models import CodebaseDocument, CodebaseNamespace
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgresRetriever
-from daiv.settings.components import DATA_DIR
 
 logger = logging.getLogger("daiv.indexes.semantic")
 

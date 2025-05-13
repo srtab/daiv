@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
 import pytest
+from daiv.settings.components import DATA_DIR
 from langchain_voyageai.embeddings import DEFAULT_VOYAGE_3_BATCH_SIZE
 from pydantic import SecretStr
 
 from codebase.search_engines.semantic import embeddings_function
-from daiv.settings.components import DATA_DIR
 
 
 @pytest.fixture(autouse=True)
