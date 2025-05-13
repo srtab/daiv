@@ -140,6 +140,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 - [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
 - [ ] ⚡ Add support to quick actions on Merge Requests, such as Update Changelog, Add unittest, Update docs, Format code...
 - [ ] 🔍 Add support to automated code review.
+- [ ] 📊 Add an evaluation system to measure the quality of DAIV's agents.
 
 
 ## Contributing
