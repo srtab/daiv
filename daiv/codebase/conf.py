@@ -1,7 +1,7 @@
 from textwrap import dedent
 from typing import Literal
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,12 +12,16 @@ class CodebaseSettings(BaseSettings):
 
     # GitLab
     GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")
-    GITLAB_AUTH_TOKEN: str | None = Field(default=None, description="Authentication token for GitLab")
-    WEBHOOK_SECRET_GITLAB: str | None = Field(default=None, description="Secret token for GitLab webhook validation")
-    WEBHOOK_SECRET_GITHUB: str | None = Field(default=None, description="Secret token for GitHub webhook validation")
+    GITLAB_AUTH_TOKEN: SecretStr | None = Field(default=None, description="Authentication token for GitLab")
+    GITLAB_WEBHOOK_SECRET: SecretStr | None = Field(
+        default=None, description="Secret token for GitLab webhook validation"
+    )
+    GITHUB_WEBHOOK_SECRET: SecretStr | None = Field(
+        default=None, description="Secret token for GitHub webhook validation"
+    )
 
     # Embeddings
-    EMBEDDINGS_API_KEY: str | None = Field(default=None, description="API key for the embeddings provider")
+    EMBEDDINGS_API_KEY: SecretStr | None = Field(default=None, description="API key for the embeddings provider")
     EMBEDDINGS_MODEL_NAME: str = Field(
         default="openai/text-embedding-3-large",
         description=dedent("""

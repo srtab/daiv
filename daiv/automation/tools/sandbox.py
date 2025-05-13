@@ -59,6 +59,8 @@ class RunSandboxCommandsTool(BaseTool):
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
 
+        assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
+
         with (
             self.api_wrapper.get_repository_archive(source_repo_id, source_ref) as tarstream,
             tarfile.open(fileobj=tarstream, mode="r:*") as tar,
@@ -84,7 +86,7 @@ class RunSandboxCommandsTool(BaseTool):
                     "workdir": workdir,
                     "archive": tar_archive,
                 },
-                headers={"X-API-KEY": settings.SANDBOX_API_KEY},
+                headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
                 timeout=settings.SANDBOX_TIMEOUT,
             )
         except httpx.RequestError as e:
@@ -282,6 +284,8 @@ class RunSandboxCodeTool(BaseTool):
             "[%s] Running code in sandbox: %s (intent: %s) => %s", self.name, dependencies, intent, python_code
         )
 
+        assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
+
         try:
             response = httpx.post(
                 f"{settings.SANDBOX_URL}run/code/",
@@ -291,7 +295,7 @@ class RunSandboxCodeTool(BaseTool):
                     "dependencies": dependencies,
                     "language": "python",
                 },
-                headers={"X-API-KEY": settings.SANDBOX_API_KEY},
+                headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
                 timeout=settings.SANDBOX_TIMEOUT,
             )
         except httpx.RequestError as e:

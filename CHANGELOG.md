@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added security check to the GitLab callback to validate the `X-Gitlab-Token` header: #93.
+- Added posibility to configure `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `WEB_SEARCH_API_KEY` and `EMBEDDINGS_API_KEY` using docker secrets.
 
 ### Changed
 
@@ -23,12 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
 - Added Roadmap section to the README.md.
 - Updated project urls declared in `pyproject.toml` to use standard labels.
+- Updated sensible `pydantic` settings to use `SecretStr` to avoid exposing sensitive information.
 
 ### Fixed
 
 - Turned Sandbox tools more resilient and prevent failing the whole agent execution when the sandbox is unavailable.
 - Empty repositories case was not being considered on the repository structure tool, causing an not found error.
 - Repository index was not updating the `sha` field on the `CodebaseIndex` model, causing the index to be considered as outdated even when it's not.
+
+### Removed
+
+- Removed dependency on `gunicorn` and used `uvicorn` as the default server.
 
 ## [0.1.0-beta.5] - 2025-04-15
 

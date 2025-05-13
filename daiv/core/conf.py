@@ -1,4 +1,4 @@
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,7 +9,7 @@ class CoreSettings(BaseSettings):
 
     SANDBOX_URL: HttpUrl = Field(default=HttpUrl("http://sandbox:8000"), description="URL of the sandbox service")
     SANDBOX_TIMEOUT: float = Field(default=600, description="Timeout for sandbox requests in seconds")
-    SANDBOX_API_KEY: str = Field(default="", description="API key for sandbox requests")
+    SANDBOX_API_KEY: SecretStr | None = Field(default=None, description="API key for sandbox requests")
 
 
 settings = CoreSettings()  # type: ignore

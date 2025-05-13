@@ -5,6 +5,7 @@ from django.core.management import call_command
 import pytest
 
 from codebase.clients import RepoClient
+from codebase.conf import settings
 
 
 @pytest.fixture
@@ -36,14 +37,14 @@ def test_setup_webhooks_success(mock_repo_client):
             "https://test.com/api/codebase/callbacks/gitlab/",
             ["push_events", "issues_events", "note_events", "pipeline_events"],
             enable_ssl_verification=True,
-            secret_token=None,
+            secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
         ),
         call(
             "repo2",
             "https://test.com/api/codebase/callbacks/gitlab/",
             ["push_events", "issues_events", "note_events", "pipeline_events"],
             enable_ssl_verification=True,
-            secret_token=None,
+            secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
         ),
     ]
     assert mock_repo_client.set_repository_webhooks.call_count == 2
@@ -66,7 +67,7 @@ def test_setup_webhooks_with_ssl_disabled(mock_repo_client):
         "https://test.com/api/codebase/callbacks/gitlab/",
         ["push_events", "issues_events", "note_events", "pipeline_events"],
         enable_ssl_verification=False,
-        secret_token=None,
+        secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
     )
 
 
@@ -87,7 +88,7 @@ def test_setup_webhooks_update_existing(mock_repo_client):
         "https://test.com/api/codebase/callbacks/gitlab/",
         ["push_events", "issues_events", "note_events", "pipeline_events"],
         enable_ssl_verification=True,
-        secret_token=None,
+        secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
     )
 
 
@@ -121,29 +122,4 @@ def test_setup_webhooks_with_secret_token(mock_repo_client):
         ["push_events", "issues_events", "note_events", "pipeline_events"],
         enable_ssl_verification=True,
         secret_token="test_secret",  # noqa: S106
-    )
-
-
-@patch("codebase.management.commands.setup_webhooks.settings")
-def test_setup_webhooks_with_settings_token(mock_settings, mock_repo_client):
-    """Test webhook setup with secret token from settings."""
-    # Mock repository and settings
-    mock_repo = Mock(slug="repo1")
-    mock_repo_client.list_repositories.return_value = [mock_repo]
-    mock_repo_client.set_repository_webhooks.return_value = True
-
-    # Configure mock settings
-    mock_settings.CLIENT = "gitlab"
-    mock_settings.WEBHOOK_SECRET_GITLAB = "settings_secret"  # noqa: S105
-
-    # Call the command without explicit secret token
-    call_command("setup_webhooks", base_url="https://test.com")
-
-    # Verify set_repository_webhooks was called with the secret token from settings
-    mock_repo_client.set_repository_webhooks.assert_called_once_with(
-        "repo1",
-        "https://test.com/api/codebase/callbacks/gitlab/",
-        ["push_events", "issues_events", "note_events", "pipeline_events"],
-        enable_ssl_verification=True,
-        secret_token="settings_secret",  # noqa: S106
     )

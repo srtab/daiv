@@ -80,7 +80,9 @@ class WebSearchTool(BaseTool):
         return [result["snippet"] for result in api_wrapper.results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS)]
 
     def _get_tavily_results(self, query: str) -> list[str]:
-        api_wrapper = TavilySearchAPIWrapper()
+        assert settings.WEB_SEARCH_API_KEY is not None, "WEB_SEARCH_API_KEY is not set"
+
+        api_wrapper = TavilySearchAPIWrapper(tavily_api_key=settings.WEB_SEARCH_API_KEY)
         results = api_wrapper.raw_results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True)
         results_content = [result["content"] for result in results["results"]]
         if results["answer"]:

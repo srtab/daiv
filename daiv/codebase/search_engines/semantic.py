@@ -2,6 +2,7 @@ import functools
 import logging
 from textwrap import dedent
 
+from daiv.settings.components import DATA_DIR
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
@@ -9,13 +10,11 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_voyageai.embeddings import DEFAULT_VOYAGE_3_BATCH_SIZE, VoyageAIEmbeddings
 from langsmith import tracing_context
-from pydantic import SecretStr
 
 from codebase.conf import settings
 from codebase.models import CodebaseDocument, CodebaseNamespace
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import PostgresRetriever, ScopedPostgresRetriever
-from daiv.settings.components import DATA_DIR
 
 logger = logging.getLogger("daiv.indexes.semantic")
 
@@ -32,7 +31,7 @@ def embeddings_function() -> Embeddings:
 
     common_kwargs = {}
     if settings.EMBEDDINGS_API_KEY:
-        common_kwargs["api_key"] = SecretStr(settings.EMBEDDINGS_API_KEY)
+        common_kwargs["api_key"] = settings.EMBEDDINGS_API_KEY.get_secret_value()
 
     if provider == "openai":
         return OpenAIEmbeddings(

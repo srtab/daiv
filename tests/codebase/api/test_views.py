@@ -1,11 +1,12 @@
 from unittest.mock import patch
 
 import pytest
+from daiv.api import api
 from ninja.testing import TestAsyncClient
+from pydantic import SecretStr
 
 from codebase.api.callbacks_gitlab import PushCallback
 from codebase.api.models import Project
-from daiv.api import api
 
 
 @pytest.fixture
@@ -17,7 +18,7 @@ def client():
 def mock_secret_token():
     """Fixture to mock the secret token for testing."""
     with patch("codebase.api.security.settings") as mock:
-        mock.WEBHOOK_SECRET_GITLAB = "test"  # noqa: S105
+        mock.GITLAB_WEBHOOK_SECRET = SecretStr("test")  # noqa: S105
         yield mock
 
 
@@ -67,10 +68,11 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
 
 
 @pytest.mark.asyncio
-async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback):
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """
     Test GitLab callback with not accepted webhook.
     """
+    mock_secret_token.GITLAB_WEBHOOK_SECRET = None
     # Execute
     with (
         patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,

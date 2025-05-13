@@ -30,10 +30,10 @@ class Command(BaseCommand):
         repo_client = RepoClient.create_instance()
         # Use secret token from command line or from settings
         secret_token = options["secret_token"]
-        if not secret_token and settings.CLIENT == "gitlab" and settings.WEBHOOK_SECRET_GITLAB:
-            secret_token = settings.WEBHOOK_SECRET_GITLAB
-        elif not secret_token and settings.CLIENT == "github" and settings.WEBHOOK_SECRET_GITHUB:
-            secret_token = settings.WEBHOOK_SECRET_GITHUB
+        if not secret_token and settings.CLIENT == "gitlab" and settings.GITLAB_WEBHOOK_SECRET:
+            secret_token = settings.GITLAB_WEBHOOK_SECRET.get_secret_value()
+        elif not secret_token and settings.CLIENT == "github" and settings.GITHUB_WEBHOOK_SECRET:
+            secret_token = settings.GITHUB_WEBHOOK_SECRET.get_secret_value()
 
         for project in repo_client.list_repositories(load_all=True):
             created = repo_client.set_repository_webhooks(

@@ -1,11 +1,11 @@
 import pytest
+from daiv.api import api
 from ninja.testing import TestClient
 
 from accounts.models import APIKey, User
 from chat.api.security import AuthBearer
 from chat.api.views import MODEL_ID
 from core.constants import BOT_NAME
-from daiv.api import api
 
 
 @pytest.fixture

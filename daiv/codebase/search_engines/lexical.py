@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from daiv.settings.components import DATA_DIR
 from tantivy import Document, Index, SchemaBuilder
 
 from codebase.search_engines.base import SearchEngine
 from codebase.search_engines.retrievers import ScopedTantityRetriever, TantityRetriever
-from daiv.settings.components import DATA_DIR
 
 if TYPE_CHECKING:
     from langchain_core.documents import Document as LangDocument
