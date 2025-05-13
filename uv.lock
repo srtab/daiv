@@ -526,7 +526,7 @@ wheels = [
 
 [[package]]
 name = "daiv"
-version = "0.1.0b5"
+version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
@@ -619,7 +619,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "redis", specifier = "==5.2.1" },
     { name = "sentry-sdk", specifier = "==2.28" },
-    { name = "tantivy", specifier = "==0.24.0" },
+    { name = "tantivy", specifier = "==0.24" },
     { name = "tree-sitter", specifier = "==0.24" },
     { name = "tree-sitter-language-pack", specifier = "==0.7.3" },
     { name = "unidiff", specifier = "==0.7.5" },
