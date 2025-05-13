@@ -2,38 +2,42 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://srtab.github.io/daiv/dev/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/community/</loc>
-         <lastmod>2025-05-07</lastmod>
-    </url>
-    <url>
-         <loc>https://srtab.github.io/daiv/dev/configurations/</loc>
-         <lastmod>2025-05-07</lastmod>
-    </url>
-    <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/code-review-addressor/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/codebase-chat/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/issue-addressor/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/pipeline-fixing/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <lastmod>2025-05-13</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/ai-agents/supported-providers/</loc>
-         <lastmod>2025-05-07</lastmod>
+         <loc>https://srtab.github.io/daiv/dev/getting-started/environment-variables/</loc>
+         <lastmod>2025-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/getting-started/repository-configurations/</loc>
+         <lastmod>2025-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/getting-started/supported-providers/</loc>
+         <lastmod>2025-05-13</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/getting-started/up-and-running/</loc>
+         <lastmod>2025-05-13</lastmod>
     </url>
 </urlset>
