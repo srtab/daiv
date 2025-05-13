@@ -161,6 +161,9 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.pytest_env]
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 DJANGO_SECRET_KEY = "not-so-secret"
+ANTHROPIC_API_KEY = "anthropic-api-key"
+OPENAI_API_KEY = "openai-api-key"
+GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 NINJA_SKIP_REGISTRY = true
 
 [tool.mypy]
