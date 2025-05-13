@@ -31,7 +31,7 @@ def test_openai_embeddings(mock_settings):
     with patch("codebase.search_engines.semantic.OpenAIEmbeddings") as mock_embeddings:
         result = embeddings_function()
         mock_embeddings.assert_called_once_with(
-            model="text-embedding-3-large", dimensions=1536, chunk_size=500, api_key=SecretStr("test-api-key")
+            model="text-embedding-3-large", dimensions=1536, chunk_size=500, api_key="test-api-key"
         )
         assert result == mock_embeddings.return_value
 
@@ -58,10 +58,7 @@ def test_voyageai_embeddings(mock_settings):
     with patch("codebase.search_engines.semantic.VoyageAIEmbeddings") as mock_embeddings:
         result = embeddings_function()
         mock_embeddings.assert_called_once_with(
-            model="voyage-code-3",
-            output_dimension=1024,
-            batch_size=DEFAULT_VOYAGE_3_BATCH_SIZE,
-            api_key=SecretStr("test-api-key"),
+            model="voyage-code-3", output_dimension=1024, batch_size=DEFAULT_VOYAGE_3_BATCH_SIZE, api_key="test-api-key"
         )
         assert result == mock_embeddings.return_value
 

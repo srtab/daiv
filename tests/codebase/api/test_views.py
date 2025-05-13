@@ -68,10 +68,11 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
 
 
 @pytest.mark.asyncio
-async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback):
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """
     Test GitLab callback with not accepted webhook.
     """
+    mock_secret_token.GITLAB_WEBHOOK_SECRET = None
     # Execute
     with (
         patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
