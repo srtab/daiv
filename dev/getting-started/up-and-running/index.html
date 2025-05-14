@@ -1020,9 +1020,11 @@
 <h2 id="docker-swarm-recommended"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M16.358 1.216c-1.82.023-4.234 2.581-2.57 6.704.018.034.08.17.091.204h.003c5.172-2.298 4.45-6.287 3.112-6.8a1.7 1.7 0 0 0-.636-.108M4.001 2.768c-1.867.027-3.392.81-3.874 2.06-.91 2.365 3.07 7.996 12.229 3.93l.004-.003a6 6 0 0 1-.16-.362C10.193 4.303 6.73 2.728 4 2.768zM15.51 9.432l-.138.034a7.1 7.1 0 0 0-2.153.951c-.949.624-1.786 1.549-2.147 2.641-.097.295-.17.618-.194.928a9.15 9.15 0 0 0 .77 4.451 9.16 9.16 0 0 0 2.681 3.46c.686.544 1.92.887 2.93.887.949 0 1.884-.282 2.725-.71.262-.133.841-.494.879-.52a3.85 3.85 0 0 1-1.378-.663c-1.447-1.107-2.594-2.595-3.409-4.423-.826-1.854-1.163-3.73-1.002-5.575a3.8 3.8 0 0 1 .436-1.46zm3.498.026c-.868 0-1.704.722-1.783 1.623-.132 1.503.166 3.033.824 4.51.648 1.453 1.567 2.683 2.749 3.586a1.73 1.73 0 0 0 1.06.346c.677 0 1.353-.36 1.621-1.002a6.74 6.74 0 0 0-.068-5.356 6.75 6.75 0 0 0-3.891-3.618 1.5 1.5 0 0 0-.512-.089m-10.05 5.498a29 29 0 0 0-2.175 4.098c-.023.054-.378.932-.483 1.205a.676.676 0 0 0 .384.86c.273.107 1.164.43 1.22.449a29 29 0 0 0 4.453 1.12 11.2 11.2 0 0 1-2.442-3.48 11.1 11.1 0 0 1-.958-4.252z"/></svg></span> Docker Swarm (<em>Recommended</em>)</h2>
 <p>This guide will walk you through the steps to deploy a DAIV using Docker Swarm with minimal configuration. The guide only explains how to deploy the stack to a single server, if you want to deploy to multiple servers you can check the <a href="https://docs.docker.com/engine/swarm/swarm-tutorial/">Docker Swarm documentation</a> for more information.</p>
 <p>This guide assumes you have a basic understanding of Docker Swarm.</p>
-<p><strong>Prerequisites</strong>
- * <a href="https://docs.docker.com/engine/install/">Docker installed</a> with <a href="https://docs.docker.com/engine/swarm/swarm-tutorial/">Swarm enabled</a>.
- * Connection to the internet to pull the images.</p>
+<p><strong>Prerequisites</strong></p>
+<ul>
+<li><a href="https://docs.docker.com/engine/install/">Docker installed</a> with <a href="https://docs.docker.com/engine/swarm/swarm-tutorial/">Swarm enabled</a>.</li>
+<li>Connection to the internet to pull the images.</li>
+</ul>
 <h3 id="step-1-create-docker-secrets">Step 1: Create Docker Secrets</h3>
 <p>Before deploying the stack, the following secrets need to be created:</p>
 <ul>
@@ -1030,9 +1032,9 @@
 <li><code>db_password</code>: A random password for the database.</li>
 <li><code>codebase_gitlab_auth_token</code>: A personal access token with <code>api</code> scope from your GitLab instance. DAIV will use this token to access the codebase.</li>
 <li><code>codebase_gitlab_webhook_secret</code>: A random secret to be used as webhook secret for GitLab.</li>
+<li><code>codebase_embeddings_api_key</code>: An <a href="https://platform.openai.com/api-keys">API key</a> from OpenAI (default embeddings provider) with access to <code>text-embedding-3-large</code> model.</li>
 <li><code>daiv_sandbox_api_key</code>: A random API key to authenticate requests to the Sandbox service.</li>
-<li><code>openai_api_key</code>: An API key for OpenAI with access to <code>text-embedding-3-large</code> model. You can get one at https://platform.openai.com/api-keys.</li>
-<li><code>openrouter_api_key</code>: An API key for OpenRouter. You can get one at https://openrouter.ai/settings/keys.</li>
+<li><code>openrouter_api_key</code>: An <a href="https://openrouter.ai/settings/keys">API key</a> for OpenRouter.</li>
 </ul>
 <p>You can create the secrets using the following command (for more info, check the <a href="https://docs.docker.com/reference/cli/docker/secret/create/">Docker Secrets create documentation</a>):</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>django_secret_key<span class="w"> </span>&lt;secret_key&gt;
@@ -1216,7 +1218,7 @@
 <span class="normal"><a href="#__codelineno-1-165">165</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">x-app-environment-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;app_environment_defaults</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="c1"># DJANGO</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="nt">DJANGO_SETTINGS_MODULE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv.settings.production</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="nt">DJANGO_ALLOWED_HOSTS</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-hostname.com,webapp,127.0.0.1 (1)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="nt">DJANGO_ALLOWED_HOSTS</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-hostname.com,app,127.0.0.1 (1)</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="w">  </span><span class="nt">DJANGO_REDIS_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis://daiv_redis:6379/0</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="w">  </span><span class="nt">DJANGO_BROKER_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis://daiv_redis:6379/0</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="w">  </span><span class="nt">DAIV_EXTERNAL_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-hostname.com (2)</span>
@@ -1294,8 +1296,8 @@
 <a id="__codelineno-1-79" name="__codelineno-1-79"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db_password</span>
 <a id="__codelineno-1-80" name="__codelineno-1-80"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_auth_token</span>
 <a id="__codelineno-1-81" name="__codelineno-1-81"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_webhook_secret</span>
-<a id="__codelineno-1-82" name="__codelineno-1-82"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
-<a id="__codelineno-1-83" name="__codelineno-1-83"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai_api_key</span>
+<a id="__codelineno-1-82" name="__codelineno-1-82"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_embeddings_api_key</span>
+<a id="__codelineno-1-83" name="__codelineno-1-83"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
 <a id="__codelineno-1-84" name="__codelineno-1-84"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter_api_key</span>
 <a id="__codelineno-1-85" name="__codelineno-1-85"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
 <a id="__codelineno-1-86" name="__codelineno-1-86"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
@@ -1319,8 +1321,8 @@
 <a id="__codelineno-1-104" name="__codelineno-1-104"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db_password</span>
 <a id="__codelineno-1-105" name="__codelineno-1-105"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_auth_token</span>
 <a id="__codelineno-1-106" name="__codelineno-1-106"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_webhook_secret</span>
-<a id="__codelineno-1-107" name="__codelineno-1-107"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
-<a id="__codelineno-1-108" name="__codelineno-1-108"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai_api_key</span>
+<a id="__codelineno-1-107" name="__codelineno-1-107"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_embeddings_api_key</span>
+<a id="__codelineno-1-108" name="__codelineno-1-108"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
 <a id="__codelineno-1-109" name="__codelineno-1-109"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter_api_key</span>
 <a id="__codelineno-1-110" name="__codelineno-1-110"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
 <a id="__codelineno-1-111" name="__codelineno-1-111"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
@@ -1372,9 +1374,9 @@
 <a id="__codelineno-1-157" name="__codelineno-1-157"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <a id="__codelineno-1-158" name="__codelineno-1-158"></a><span class="w">  </span><span class="nt">codebase_gitlab_webhook_secret</span><span class="p">:</span>
 <a id="__codelineno-1-159" name="__codelineno-1-159"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-160" name="__codelineno-1-160"></a><span class="w">  </span><span class="nt">daiv_sandbox_api_key</span><span class="p">:</span>
+<a id="__codelineno-1-160" name="__codelineno-1-160"></a><span class="w">  </span><span class="nt">codebase_embeddings_api_key</span><span class="p">:</span>
 <a id="__codelineno-1-161" name="__codelineno-1-161"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-162" name="__codelineno-1-162"></a><span class="w">  </span><span class="nt">openai_api_key</span><span class="p">:</span>
+<a id="__codelineno-1-162" name="__codelineno-1-162"></a><span class="w">  </span><span class="nt">daiv_sandbox_api_key</span><span class="p">:</span>
 <a id="__codelineno-1-163" name="__codelineno-1-163"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <a id="__codelineno-1-164" name="__codelineno-1-164"></a><span class="w">  </span><span class="nt">openrouter_api_key</span><span class="p">:</span>
 <a id="__codelineno-1-165" name="__codelineno-1-165"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1422,9 +1424,11 @@
 <hr />
 <h2 id="docker-compose"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.983 11.078h2.119a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.119a.185.185 0 0 0-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 0 0 .186-.186V3.574a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 0 0 .186-.186V6.29a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 0 0 .184-.186V6.29a.185.185 0 0 0-.185-.185H8.1a.185.185 0 0 0-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 0 0 .185-.186V6.29a.185.185 0 0 0-.185-.185H5.136a.186.186 0 0 0-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 0 0 .185-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.186.186 0 0 0-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51q-.508.001-1.01.087c-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.75.75 0 0 0-.75.748 11.4 11.4 0 0 0 .692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137a15.7 15.7 0 0 0 2.93-.266 12.3 12.3 0 0 0 3.823-1.389 10.5 10.5 0 0 0 2.61-2.136c1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg></span> Docker Compose</h2>
 <p>This guide will walk you through the steps to deploy DAIV using Docker Compose.</p>
-<p><strong>Prerequisites</strong>
- * <a href="https://docs.docker.com/engine/install/">Docker installed</a> with <a href="https://docs.docker.com/compose/install/">Compose</a>.
- * Connection to the internet to pull the images.</p>
+<p><strong>Prerequisites</strong></p>
+<ul>
+<li><a href="https://docs.docker.com/engine/install/">Docker installed</a> with <a href="https://docs.docker.com/compose/install/">Compose</a>.</li>
+<li>Connection to the internet to pull the images.</li>
+</ul>
 <h3 id="step-1-create-docker-composeyml-file">Step 1: Create <code>docker-compose.yml</code> file</h3>
 <p>Here's an example of a <code>docker-compose.yml</code> file that can be used to run DAIV.</p>
 <div class="admonition info">
@@ -1532,112 +1536,122 @@
 <span class="normal"><a href="#__codelineno-6-98"> 98</a></span>
 <span class="normal"><a href="#__codelineno-6-99"> 99</a></span>
 <span class="normal"><a href="#__codelineno-6-100">100</a></span>
-<span class="normal"><a href="#__codelineno-6-101">101</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<span class="normal"><a href="#__codelineno-6-101">101</a></span>
+<span class="normal"><a href="#__codelineno-6-102">102</a></span>
+<span class="normal"><a href="#__codelineno-6-103">103</a></span>
+<span class="normal"><a href="#__codelineno-6-104">104</a></span>
+<span class="normal"><a href="#__codelineno-6-105">105</a></span>
+<span class="normal"><a href="#__codelineno-6-106">106</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DJANGO_SECRET_KEY=secret-key (1)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DJANGO_ALLOWED_HOSTS=* (2)</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DJANGO_REDIS_URL=redis://redis:6379/0</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DJANGO_BROKER_URL=redis://redis:6379/0</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="w">    </span><span class="c1"># Database settings</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_HOST=db</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_NAME=daiv</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_USER=daiv</span>
-<a id="__codelineno-6-13" name="__codelineno-6-13"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_PASSWORD=daivpass (3)</span>
-<a id="__codelineno-6-14" name="__codelineno-6-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_SSLMODE=prefer</span>
-<a id="__codelineno-6-15" name="__codelineno-6-15"></a><span class="w">    </span><span class="c1"># Codebase settings</span>
-<a id="__codelineno-6-16" name="__codelineno-6-16"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CODEBASE_CLIENT=gitlab</span>
-<a id="__codelineno-6-17" name="__codelineno-6-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CODEBASE_GITLAB_URL=http://gitlab:8929 (4)</span>
-<a id="__codelineno-6-18" name="__codelineno-6-18"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CODEBASE_GITLAB_AUTH_TOKEN=gitlab-auth-token (5)</span>
-<a id="__codelineno-6-19" name="__codelineno-6-19"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CODEBASE_GITLAB_WEBHOOK_SECRET=gitlab-webhook-secret (6)</span>
-<a id="__codelineno-6-20" name="__codelineno-6-20"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CODEBASE_EMBEDDINGS_API_KEY=openai-api-key (7)</span>
-<a id="__codelineno-6-21" name="__codelineno-6-21"></a><span class="w">    </span><span class="c1"># LLM Providers settings</span>
-<a id="__codelineno-6-22" name="__codelineno-6-22"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENROUTER_API_KEY=openrouter-api-key (8)</span>
-<a id="__codelineno-6-23" name="__codelineno-6-23"></a><span class="w">    </span><span class="c1"># Sandbox settings</span>
-<a id="__codelineno-6-24" name="__codelineno-6-24"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DAIV_SANDBOX_API_KEY=daiv-sandbox-api-key (9)</span>
-<a id="__codelineno-6-25" name="__codelineno-6-25"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-6-26" name="__codelineno-6-26"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/app/data/tantivy_index_v1</span>
-<a id="__codelineno-6-27" name="__codelineno-6-27"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/app/data/embeddings</span>
-<a id="__codelineno-6-28" name="__codelineno-6-28"></a><span class="w">  </span><span class="nt">depends_on</span><span class="p">:</span>
-<a id="__codelineno-6-29" name="__codelineno-6-29"></a><span class="w">    </span><span class="nt">db</span><span class="p">:</span>
-<a id="__codelineno-6-30" name="__codelineno-6-30"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-6-31" name="__codelineno-6-31"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-6-32" name="__codelineno-6-32"></a><span class="w">    </span><span class="nt">redis</span><span class="p">:</span>
-<a id="__codelineno-6-33" name="__codelineno-6-33"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-6-34" name="__codelineno-6-34"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-6-35" name="__codelineno-6-35"></a><span class="w">    </span><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-6-36" name="__codelineno-6-36"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-6-37" name="__codelineno-6-37"></a>
-<a id="__codelineno-6-38" name="__codelineno-6-38"></a><span class="nt">services</span><span class="p">:</span>
-<a id="__codelineno-6-39" name="__codelineno-6-39"></a><span class="w">  </span><span class="nt">db</span><span class="p">:</span>
-<a id="__codelineno-6-40" name="__codelineno-6-40"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pgvector/pgvector:pg17</span>
-<a id="__codelineno-6-41" name="__codelineno-6-41"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-db</span>
-<a id="__codelineno-6-42" name="__codelineno-6-42"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-<a id="__codelineno-6-43" name="__codelineno-6-43"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-6-44" name="__codelineno-6-44"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POSTGRES_DB=daiv</span>
-<a id="__codelineno-6-45" name="__codelineno-6-45"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POSTGRES_USER=daiv</span>
-<a id="__codelineno-6-46" name="__codelineno-6-46"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POSTGRES_PASSWORD=daivpass (11)</span>
-<a id="__codelineno-6-47" name="__codelineno-6-47"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-6-48" name="__codelineno-6-48"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db-volume:/var/lib/postgresql/data</span>
-<a id="__codelineno-6-49" name="__codelineno-6-49"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<a id="__codelineno-6-50" name="__codelineno-6-50"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;pg_isready</span><span class="nv"> </span><span class="s">-U</span><span class="nv"> </span><span class="s">daiv</span><span class="nv"> </span><span class="s">-d</span><span class="nv"> </span><span class="s">daiv&quot;</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-6-51" name="__codelineno-6-51"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-6-52" name="__codelineno-6-52"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-6-53" name="__codelineno-6-53"></a><span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
-<a id="__codelineno-6-54" name="__codelineno-6-54"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-6-55" name="__codelineno-6-55"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-6-56" name="__codelineno-6-56"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
-<a id="__codelineno-6-57" name="__codelineno-6-57"></a>
-<a id="__codelineno-6-58" name="__codelineno-6-58"></a><span class="w">  </span><span class="nt">redis</span><span class="p">:</span>
-<a id="__codelineno-6-59" name="__codelineno-6-59"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis:latest</span>
-<a id="__codelineno-6-60" name="__codelineno-6-60"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis-server --save &quot;&quot; --appendonly no</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">    </span><span class="nt">DJANGO_SECRET_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret-key (1)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">    </span><span class="nt">DJANGO_ALLOWED_HOSTS</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-hostname.com,app,127.0.0.1 (2)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">    </span><span class="nt">DJANGO_REDIS_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis://redis:6379/0</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="w">    </span><span class="nt">DJANGO_BROKER_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis://redis:6379/0</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="w">    </span><span class="nt">DAIV_EXTERNAL_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-hostname.com (12)</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10"></a><span class="w">    </span><span class="c1"># Database settings</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11"></a><span class="w">    </span><span class="nt">DB_HOST</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12"></a><span class="w">    </span><span class="nt">DB_NAME</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13"></a><span class="w">    </span><span class="nt">DB_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14"></a><span class="w">    </span><span class="nt">DB_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daivpass (3)</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15"></a><span class="w">    </span><span class="nt">DB_SSLMODE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prefer</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16"></a><span class="w">    </span><span class="c1"># Codebase settings</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17"></a><span class="w">    </span><span class="nt">CODEBASE_CLIENT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gitlab</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://gitlab.com (4)</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gitlab-auth-token (5)</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gitlab-webhook-secret (6)</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21"></a><span class="w">    </span><span class="nt">CODEBASE_EMBEDDINGS_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai-api-key (7)</span>
+<a id="__codelineno-6-22" name="__codelineno-6-22"></a><span class="w">    </span><span class="c1"># LLM Providers settings</span>
+<a id="__codelineno-6-23" name="__codelineno-6-23"></a><span class="w">    </span><span class="nt">OPENROUTER_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter-api-key (8)</span>
+<a id="__codelineno-6-24" name="__codelineno-6-24"></a><span class="w">    </span><span class="c1"># Sandbox settings</span>
+<a id="__codelineno-6-25" name="__codelineno-6-25"></a><span class="w">    </span><span class="nt">DAIV_SANDBOX_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox-api-key (9)</span>
+<a id="__codelineno-6-26" name="__codelineno-6-26"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-27" name="__codelineno-6-27"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/app/data/tantivy_index_v1</span>
+<a id="__codelineno-6-28" name="__codelineno-6-28"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/app/data/embeddings</span>
+<a id="__codelineno-6-29" name="__codelineno-6-29"></a><span class="w">  </span><span class="nt">depends_on</span><span class="p">:</span>
+<a id="__codelineno-6-30" name="__codelineno-6-30"></a><span class="w">    </span><span class="nt">db</span><span class="p">:</span>
+<a id="__codelineno-6-31" name="__codelineno-6-31"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-6-32" name="__codelineno-6-32"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-6-33" name="__codelineno-6-33"></a><span class="w">    </span><span class="nt">redis</span><span class="p">:</span>
+<a id="__codelineno-6-34" name="__codelineno-6-34"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-6-35" name="__codelineno-6-35"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-6-36" name="__codelineno-6-36"></a><span class="w">    </span><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-6-37" name="__codelineno-6-37"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-6-38" name="__codelineno-6-38"></a>
+<a id="__codelineno-6-39" name="__codelineno-6-39"></a><span class="nt">services</span><span class="p">:</span>
+<a id="__codelineno-6-40" name="__codelineno-6-40"></a><span class="w">  </span><span class="nt">db</span><span class="p">:</span>
+<a id="__codelineno-6-41" name="__codelineno-6-41"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pgvector/pgvector:pg17</span>
+<a id="__codelineno-6-42" name="__codelineno-6-42"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-db</span>
+<a id="__codelineno-6-43" name="__codelineno-6-43"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-6-44" name="__codelineno-6-44"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-6-45" name="__codelineno-6-45"></a><span class="w">      </span><span class="nt">POSTGRES_DB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-6-46" name="__codelineno-6-46"></a><span class="w">      </span><span class="nt">POSTGRES_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-6-47" name="__codelineno-6-47"></a><span class="w">      </span><span class="nt">POSTGRES_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daivpass (10)</span>
+<a id="__codelineno-6-48" name="__codelineno-6-48"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-49" name="__codelineno-6-49"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db-volume:/var/lib/postgresql/data</span>
+<a id="__codelineno-6-50" name="__codelineno-6-50"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-6-51" name="__codelineno-6-51"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;pg_isready</span><span class="nv"> </span><span class="s">-U</span><span class="nv"> </span><span class="s">daiv</span><span class="nv"> </span><span class="s">-d</span><span class="nv"> </span><span class="s">daiv&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-6-52" name="__codelineno-6-52"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-6-53" name="__codelineno-6-53"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-6-54" name="__codelineno-6-54"></a><span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+<a id="__codelineno-6-55" name="__codelineno-6-55"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-6-56" name="__codelineno-6-56"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-6-57" name="__codelineno-6-57"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
+<a id="__codelineno-6-58" name="__codelineno-6-58"></a>
+<a id="__codelineno-6-59" name="__codelineno-6-59"></a><span class="w">  </span><span class="nt">redis</span><span class="p">:</span>
+<a id="__codelineno-6-60" name="__codelineno-6-60"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis:latest</span>
 <a id="__codelineno-6-61" name="__codelineno-6-61"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
 <a id="__codelineno-6-62" name="__codelineno-6-62"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-redis</span>
-<a id="__codelineno-6-63" name="__codelineno-6-63"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<a id="__codelineno-6-64" name="__codelineno-6-64"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;redis-cli&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;ping&quot;</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-6-65" name="__codelineno-6-65"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-6-66" name="__codelineno-6-66"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
-<a id="__codelineno-6-67" name="__codelineno-6-67"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-6-68" name="__codelineno-6-68"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-6-69" name="__codelineno-6-69"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;6379:6379&quot;</span>
-<a id="__codelineno-6-70" name="__codelineno-6-70"></a>
-<a id="__codelineno-6-71" name="__codelineno-6-71"></a><span class="w">  </span><span class="nt">app</span><span class="p">:</span>
-<a id="__codelineno-6-72" name="__codelineno-6-72"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
-<a id="__codelineno-6-73" name="__codelineno-6-73"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-app</span>
-<a id="__codelineno-6-74" name="__codelineno-6-74"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-app</span>
-<a id="__codelineno-6-75" name="__codelineno-6-75"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-6-76" name="__codelineno-6-76"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
-<a id="__codelineno-6-77" name="__codelineno-6-77"></a>
-<a id="__codelineno-6-78" name="__codelineno-6-78"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
-<a id="__codelineno-6-79" name="__codelineno-6-79"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
-<a id="__codelineno-6-80" name="__codelineno-6-80"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-worker</span>
-<a id="__codelineno-6-81" name="__codelineno-6-81"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-worker</span>
-<a id="__codelineno-6-82" name="__codelineno-6-82"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-6-83" name="__codelineno-6-83"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">C_FORCE_ROOT=true</span>
-<a id="__codelineno-6-84" name="__codelineno-6-84"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-<a id="__codelineno-6-85" name="__codelineno-6-85"></a>
-<a id="__codelineno-6-86" name="__codelineno-6-86"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-6-87" name="__codelineno-6-87"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest</span>
-<a id="__codelineno-6-88" name="__codelineno-6-88"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-<a id="__codelineno-6-89" name="__codelineno-6-89"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox</span>
-<a id="__codelineno-6-90" name="__codelineno-6-90"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-6-91" name="__codelineno-6-91"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DAIV_SANDBOX_API_KEY=daiv-sandbox-api-key (10)</span>
-<a id="__codelineno-6-92" name="__codelineno-6-92"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-6-93" name="__codelineno-6-93"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock</span>
-<a id="__codelineno-6-94" name="__codelineno-6-94"></a>
-<a id="__codelineno-6-95" name="__codelineno-6-95"></a><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-6-96" name="__codelineno-6-96"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
-<a id="__codelineno-6-97" name="__codelineno-6-97"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-6-98" name="__codelineno-6-98"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
-<a id="__codelineno-6-99" name="__codelineno-6-99"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-6-100" name="__codelineno-6-100"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
-<a id="__codelineno-6-101" name="__codelineno-6-101"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-6-63" name="__codelineno-6-63"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-64" name="__codelineno-6-64"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis-volume:/data</span>
+<a id="__codelineno-6-65" name="__codelineno-6-65"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-6-66" name="__codelineno-6-66"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;redis-cli&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;ping&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-6-67" name="__codelineno-6-67"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-6-68" name="__codelineno-6-68"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
+<a id="__codelineno-6-69" name="__codelineno-6-69"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-6-70" name="__codelineno-6-70"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-6-71" name="__codelineno-6-71"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;6379:6379&quot;</span>
+<a id="__codelineno-6-72" name="__codelineno-6-72"></a>
+<a id="__codelineno-6-73" name="__codelineno-6-73"></a><span class="w">  </span><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-6-74" name="__codelineno-6-74"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
+<a id="__codelineno-6-75" name="__codelineno-6-75"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-app</span>
+<a id="__codelineno-6-76" name="__codelineno-6-76"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-app</span>
+<a id="__codelineno-6-77" name="__codelineno-6-77"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-6-78" name="__codelineno-6-78"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
+<a id="__codelineno-6-79" name="__codelineno-6-79"></a>
+<a id="__codelineno-6-80" name="__codelineno-6-80"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
+<a id="__codelineno-6-81" name="__codelineno-6-81"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
+<a id="__codelineno-6-82" name="__codelineno-6-82"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-worker</span>
+<a id="__codelineno-6-83" name="__codelineno-6-83"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-worker</span>
+<a id="__codelineno-6-84" name="__codelineno-6-84"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-6-85" name="__codelineno-6-85"></a><span class="w">      </span><span class="nt">C_FORCE_ROOT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-6-86" name="__codelineno-6-86"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-6-87" name="__codelineno-6-87"></a>
+<a id="__codelineno-6-88" name="__codelineno-6-88"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-6-89" name="__codelineno-6-89"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest</span>
+<a id="__codelineno-6-90" name="__codelineno-6-90"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-6-91" name="__codelineno-6-91"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox</span>
+<a id="__codelineno-6-92" name="__codelineno-6-92"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-6-93" name="__codelineno-6-93"></a><span class="w">      </span><span class="nt">DAIV_SANDBOX_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox-api-key (11)</span>
+<a id="__codelineno-6-94" name="__codelineno-6-94"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-95" name="__codelineno-6-95"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock</span>
+<a id="__codelineno-6-96" name="__codelineno-6-96"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.docker/config.json:/home/app/.docker/config.json</span>
+<a id="__codelineno-6-97" name="__codelineno-6-97"></a>
+<a id="__codelineno-6-98" name="__codelineno-6-98"></a><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-99" name="__codelineno-6-99"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
+<a id="__codelineno-6-100" name="__codelineno-6-100"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-6-101" name="__codelineno-6-101"></a><span class="w">  </span><span class="nt">redis-volume</span><span class="p">:</span>
+<a id="__codelineno-6-102" name="__codelineno-6-102"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-6-103" name="__codelineno-6-103"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
+<a id="__codelineno-6-104" name="__codelineno-6-104"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-6-105" name="__codelineno-6-105"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
+<a id="__codelineno-6-106" name="__codelineno-6-106"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
 </code></pre></div></td></tr></table></div>
 </div>
 <ol>
 <li><a href="https://djecrety.ir/">Generate a Django secret key</a>.</li>
-<li>Define your own hostname. Don't include the schema (e.g. <code>daiv.com</code>).</li>
+<li>Define the DAIV hostname. Don't include the schema (e.g. <code>daiv.com</code>).</li>
 <li>Generate a random password.</li>
 <li>Define with your GitLab instance URL (e.g. <code>https://gitlab.com</code>).</li>
 <li>Generate a personal access token with <code>api</code> scope from your GitLab instance.</li>
@@ -1647,6 +1661,7 @@
 <li>Generate a random Sandbox API key.</li>
 <li>Define with the same API key you generated for the app service.</li>
 <li>Define with the same password you generated for the database.</li>
+<li>Define with DAIV hostname, including the schema (e.g. <code>https://your-hostname.com</code>).</li>
 </ol>
 <h3 id="step-2-run-the-compose-file">Step 2: Run the compose file</h3>
 <p>To run the compose file, make sure you are at the directory containing the file and run the following command:</p>
@@ -1657,7 +1672,7 @@
 </code></pre></div></td></tr></table></div>
 <h3 id="step-3-setup-webhooks">Step 3: Setup Webhooks</h3>
 <p>Now that the stack is deployed, you need to setup the webhooks for your GitLab instance. You can do this by going to the <code>app</code> service and running the following command:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--base-url<span class="w"> </span>https://your-hostname.com
 </code></pre></div></td></tr></table></div>
 <h3 id="step-4-index-the-codebase">Step 4: Index the codebase</h3>
 <p>Finally, you need to index the codebase. DAIV will index all codebases it has access to.</p>
@@ -1808,7 +1823,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 14, 2025 09:00:27">May 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 14, 2025 22:19:26">May 14, 2025</span>
   </span>
 
     
@@ -1818,7 +1833,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 14, 2025 09:00:27">May 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 14, 2025 22:19:26">May 14, 2025</span>
   </span>
 
     
