@@ -22,6 +22,7 @@ This guide will walk you through the steps to deploy a DAIV using Docker Swarm w
 This guide assumes you have a basic understanding of Docker Swarm.
 
 **Prerequisites**
+
  * [Docker installed](https://docs.docker.com/engine/install/) with [Swarm enabled](https://docs.docker.com/engine/swarm/swarm-tutorial/).
  * Connection to the internet to pull the images.
 
@@ -33,9 +34,9 @@ Before deploying the stack, the following secrets need to be created:
 * `db_password`: A random password for the database.
 * `codebase_gitlab_auth_token`: A personal access token with `api` scope from your GitLab instance. DAIV will use this token to access the codebase.
 * `codebase_gitlab_webhook_secret`: A random secret to be used as webhook secret for GitLab.
+* `codebase_embeddings_api_key`: An [API key](https://platform.openai.com/api-keys) from OpenAI (default embeddings provider) with access to `text-embedding-3-large` model.
 * `daiv_sandbox_api_key`: A random API key to authenticate requests to the Sandbox service.
-* `openai_api_key`: An API key for OpenAI with access to `text-embedding-3-large` model. You can get one at https://platform.openai.com/api-keys.
-* `openrouter_api_key`: An API key for OpenRouter. You can get one at https://openrouter.ai/settings/keys.
+* `openrouter_api_key`: An [API key](https://openrouter.ai/settings/keys) for OpenRouter.
 
 You can create the secrets using the following command (for more info, check the [Docker Secrets create documentation](https://docs.docker.com/reference/cli/docker/secret/create/)):
 
@@ -61,7 +62,7 @@ Here's an example of a `stack.yml` file that can be used to deploy DAIV.
 x-app-environment-defaults: &app_environment_defaults
   # DJANGO
   DJANGO_SETTINGS_MODULE: daiv.settings.production
-  DJANGO_ALLOWED_HOSTS: your-hostname.com,webapp,127.0.0.1 (1)
+  DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
   DJANGO_REDIS_URL: redis://daiv_redis:6379/0
   DJANGO_BROKER_URL: redis://daiv_redis:6379/0
   DAIV_EXTERNAL_URL: https://your-hostname.com (2)
@@ -139,8 +140,8 @@ services:
       - db_password
       - codebase_gitlab_auth_token
       - codebase_gitlab_webhook_secret
+      - codebase_embeddings_api_key
       - daiv_sandbox_api_key
-      - openai_api_key
       - openrouter_api_key
     networks:
       - internal
@@ -164,8 +165,8 @@ services:
       - db_password
       - codebase_gitlab_auth_token
       - codebase_gitlab_webhook_secret
+      - codebase_embeddings_api_key
       - daiv_sandbox_api_key
-      - openai_api_key
       - openrouter_api_key
     networks:
       - internal
@@ -217,9 +218,9 @@ secrets:
     external: true
   codebase_gitlab_webhook_secret:
     external: true
-  daiv_sandbox_api_key:
+  codebase_embeddings_api_key:
     external: true
-  openai_api_key:
+  daiv_sandbox_api_key:
     external: true
   openrouter_api_key:
     external: true
@@ -290,6 +291,7 @@ Now that DAIV is running, check the [Reverse Proxy](#reverse-proxy) guide to hel
 This guide will walk you through the steps to deploy DAIV using Docker Compose.
 
 **Prerequisites**
+
  * [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/).
  * Connection to the internet to pull the images.
 
@@ -307,26 +309,27 @@ x-app-defaults: &x_app_default
   image: ghcr.io/srtab/daiv:latest
   restart: unless-stopped
   environment:
-    - DJANGO_SECRET_KEY=secret-key (1)
-    - DJANGO_ALLOWED_HOSTS=* (2)
-    - DJANGO_REDIS_URL=redis://redis:6379/0
-    - DJANGO_BROKER_URL=redis://redis:6379/0
+    DJANGO_SECRET_KEY: secret-key (1)
+    DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
+    DJANGO_REDIS_URL: redis://redis:6379/0
+    DJANGO_BROKER_URL: redis://redis:6379/0
+    DAIV_EXTERNAL_URL: https://your-hostname.com (12)
     # Database settings
-    - DB_HOST=db
-    - DB_NAME=daiv
-    - DB_USER=daiv
-    - DB_PASSWORD=daivpass (3)
-    - DB_SSLMODE=prefer
+    DB_HOST: db
+    DB_NAME: daiv
+    DB_USER: daiv
+    DB_PASSWORD: daivpass (3)
+    DB_SSLMODE: prefer
     # Codebase settings
-    - CODEBASE_CLIENT=gitlab
-    - CODEBASE_GITLAB_URL=http://gitlab:8929 (4)
-    - CODEBASE_GITLAB_AUTH_TOKEN=gitlab-auth-token (5)
-    - CODEBASE_GITLAB_WEBHOOK_SECRET=gitlab-webhook-secret (6)
-    - CODEBASE_EMBEDDINGS_API_KEY=openai-api-key (7)
+    CODEBASE_CLIENT: gitlab
+    CODEBASE_GITLAB_URL: https://gitlab.com (4)
+    CODEBASE_GITLAB_AUTH_TOKEN: gitlab-auth-token (5)
+    CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret (6)
+    CODEBASE_EMBEDDINGS_API_KEY: openai-api-key (7)
     # LLM Providers settings
-    - OPENROUTER_API_KEY=openrouter-api-key (8)
+    OPENROUTER_API_KEY: openrouter-api-key (8)
     # Sandbox settings
-    - DAIV_SANDBOX_API_KEY=daiv-sandbox-api-key (9)
+    DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
   volumes:
     - tantivy-volume:/home/app/data/tantivy_index_v1
     - embeddings-volume:/home/app/data/embeddings
@@ -346,9 +349,9 @@ services:
     container_name: daiv-db
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=daiv
-      - POSTGRES_USER=daiv
-      - POSTGRES_PASSWORD=daivpass (11)
+      POSTGRES_DB: daiv
+      POSTGRES_USER: daiv
+      POSTGRES_PASSWORD: daivpass (10)
     volumes:
       - db-volume:/var/lib/postgresql/data
     healthcheck:
@@ -362,9 +365,10 @@ services:
 
   redis:
     image: redis:latest
-    command: redis-server --save "" --appendonly no
     restart: unless-stopped
     container_name: daiv-redis
+    volumes:
+      - redis-volume:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -385,7 +389,7 @@ services:
     container_name: daiv-worker
     command: sh /home/app/docker/start-worker
     environment:
-      - C_FORCE_ROOT=true
+      C_FORCE_ROOT: true
     ports: []
 
   sandbox:
@@ -393,12 +397,15 @@ services:
     restart: unless-stopped
     container_name: daiv-sandbox
     environment:
-      - DAIV_SANDBOX_API_KEY=daiv-sandbox-api-key (10)
+      DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (11)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - $HOME/.docker/config.json:/home/app/.docker/config.json
 
 volumes:
   db-volume:
+    driver: local
+  redis-volume:
     driver: local
   tantivy-volume:
     driver: local
@@ -410,7 +417,7 @@ volumes:
 </div>
 
 1.   [Generate a Django secret key](https://djecrety.ir/).
-2.   Define your own hostname. Don't include the schema (e.g. `daiv.com`).
+2.   Define the DAIV hostname. Don't include the schema (e.g. `daiv.com`).
 3.   Generate a random password.
 4.   Define with your GitLab instance URL (e.g. `https://gitlab.com`).
 5.   Generate a personal access token with `api` scope from your GitLab instance.
@@ -420,6 +427,7 @@ volumes:
 9.   Generate a random Sandbox API key.
 10.  Define with the same API key you generated for the app service.
 11.  Define with the same password you generated for the database.
+12.  Define with DAIV hostname, including the schema (e.g. `https://your-hostname.com`).
 
 ### Step 2: Run the compose file
 
@@ -440,7 +448,7 @@ docker compose ps
 Now that the stack is deployed, you need to setup the webhooks for your GitLab instance. You can do this by going to the `app` service and running the following command:
 
 ```bash
-docker compose exec -it app django-admin setup_webhooks
+docker compose exec -it app django-admin setup_webhooks --base-url https://your-hostname.com
 ```
 
 ### Step 4: Index the codebase

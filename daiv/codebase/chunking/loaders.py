@@ -10,6 +10,7 @@ from uuid import uuid4
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import FileSystemBlobLoader as LangFileSystemBlobLoader
 from langchain_community.document_loaders.parsers.language import LanguageParser
+from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter, TextSplitter
 
 from codebase.conf import settings
@@ -20,8 +21,6 @@ from .utils import split_documents
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
-
-    from langchain_core.documents import Document
 
 
 logger = logging.getLogger("daiv.indexes")
@@ -73,11 +72,25 @@ class GenericLanguageLoader(BaseLoader):
         """
         for blob in self.blob_loader.yield_blobs():
             with suppress(UnicodeDecodeError):
-                for doc in self.blob_parser.lazy_parse(blob):
-                    # avoid documents without content
-                    if doc.page_content:
+                try:
+                    for doc in self.blob_parser.lazy_parse(blob):
+                        # avoid documents without content
+                        if doc.page_content:
+                            relative_path = Path(cast("str", blob.source)).relative_to(self.blob_loader.path)
+                            doc.metadata.update(self.documents_metadata)
+                            doc.metadata["source"] = relative_path.as_posix()
+                            doc.metadata["language"] = filename_to_lang(relative_path)
+                            yield doc
+                except ImportError as e:
+                    # This is a workaround to avoid the ImportError when the tree-sitter-languages library is
+                    # not installed. After langchain migrate to tree-sitter-languages-pack, we can remove this as we
+                    # can't have both tree-sitter-languages and tree-sitter-languages-pack installed at the same time.
+                    # First attempt: https://github.com/langchain-ai/langchain/pull/30514
+                    logger.warning("Error parsing blob %s: %s", blob.source, e)
+
+                    if content := blob.as_string():
                         relative_path = Path(cast("str", blob.source)).relative_to(self.blob_loader.path)
-                        doc.metadata.update(self.documents_metadata)
+                        doc = Document(page_content=content, metadata=self.documents_metadata)
                         doc.metadata["source"] = relative_path.as_posix()
                         doc.metadata["language"] = filename_to_lang(relative_path)
                         yield doc
