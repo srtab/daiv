@@ -25,7 +25,7 @@ OpenRouter is the **default provider for DAIV** due to its fallback mechanism an
 
 **Usage:**
 
-When declaring a model, use the model name provided by OpenRouter, prefixed with `openrouter:`. For example:
+When declaring a model, use the model name [provided by OpenRouter](https://openrouter.ai/models), prefixed with `openrouter:`. For example:
 
 ```
 openrouter:openai/gpt-4.1
@@ -46,7 +46,7 @@ openrouter:anthropic/claude-3-7-sonnet
 
 **Usage:**
 
-When declaring a model, use the model name provided by OpenAI. For example:
+When declaring a model, use the model name [provided by OpenAI](https://platform.openai.com/docs/models). For example:
 
 ```
 gpt-4.1
@@ -67,11 +67,11 @@ o4-mini
 
 **Usage:**
 
-When declaring a model, use the model name provided by Anthropic. For example:
+When declaring a model, use the model name [provided by Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names). For example:
 
 ```
-claude-3-7-sonnet
-claude-3-5-sonnet
+claude-3-7-sonnet-20250219
+claude-3-5-sonnet-20241022
 ```
 
 !!! warning
@@ -92,7 +92,7 @@ claude-3-5-sonnet
 
 **Usage:**
 
-When declaring a model, use the model name provided by Gemini. For example:
+When declaring a model, use the model name [provided by Gemini](https://ai.google.dev/gemini-api/docs/models). For example:
 
 ```
 gemini-2.4-flash-preview-04-17
