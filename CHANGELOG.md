@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.1] - 2025-05-14
+
 ### Fixed
 
 - Fixed `start-app` script passing iligal option `-o`.
@@ -580,7 +582,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release of the `daiv` project.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/srtab/daiv/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/srtab/daiv/compare/v0.1.0-beta.5...v0.1.0
 [0.1.0-beta.5]: https://github.com/srtab/daiv/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/srtab/daiv/compare/v0.1.0-beta.3...v0.1.0-beta.4
