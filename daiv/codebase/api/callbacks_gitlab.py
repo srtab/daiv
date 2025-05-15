@@ -153,14 +153,14 @@ class PushCallback(BaseCallback):
         """
         Accept the webhook if the push is to the default branch or to any branch with MR created.
         """
-        return self.ref.endswith(self.project.default_branch) or bool(self.related_merge_requests)
+        return self.ref.endswith(self.project.default_branch) or any(mr.is_daiv() for mr in self.related_merge_requests)
 
     async def process_callback(self):
         """
         Process the push webhook to update the codebase index and invalidate the cache for the
         repository configurations.
         """
-        if self.ref.endswith(self.project.default_branch):
+        if self.project.default_branch and self.ref.endswith(self.project.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
             await sync_to_async(
@@ -170,11 +170,12 @@ class PushCallback(BaseCallback):
             )()
 
         for merge_request in self.related_merge_requests:
-            await sync_to_async(
-                update_index_repository.si(
-                    repo_id=self.project.path_with_namespace, ref=merge_request.source_branch
-                ).delay
-            )()
+            if merge_request.is_daiv():
+                await sync_to_async(
+                    update_index_repository.si(
+                        repo_id=self.project.path_with_namespace, ref=merge_request.source_branch
+                    ).delay
+                )()
 
     @cached_property
     def related_merge_requests(self) -> list[BaseMergeRequest]:
