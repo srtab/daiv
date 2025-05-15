@@ -2,6 +2,30 @@
 
 set -euo pipefail
 
+# usage: file_env VAR [DEFAULT]
+#    ie: file_env 'XYZ_DB_PASSWORD' 'example'
+# (will allow for "$XYZ_DB_PASSWORD_FILE" to fill in the value of
+#  "$XYZ_DB_PASSWORD" from a file, especially for Docker's secrets feature)
+file_env() {
+	local var="$1"
+	local fileVar="${var}_FILE"
+	local def="${2:-}"
+	if [ "${!var:-}" ] && [ "${!fileVar:-}" ]; then
+        printf '%s [ERROR] [Entrypoint]: "Both %s and %s are set (but are exclusive)"\n' "$(date --rfc-3339=seconds)" $var $fileVar
+	fi
+	local val="$def"
+	if [ "${!var:-}" ]; then
+		val="${!var}"
+	elif [ "${!fileVar:-}" ]; then
+		val="$(< "${!fileVar}")"
+	fi
+	export "$var"="$val"
+	unset "$fileVar"
+}
+
+# Workaround for Langsmith API key not supporting docker secrets in the environment variables
+file_env 'LANGSMITH_API_KEY'
+
 postgres_ready() {
 python << END
 import sys

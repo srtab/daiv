@@ -1,4 +1,9 @@
 # Environment Variables
 
-!!! warning "Work in Progress"
-    This section is under construction.
+DAIV uses environment variables to configure the application. Here you can find a list of all the environment variables used in DAIV.
+
+## Core
+
+## Codebase
+
+## Automation

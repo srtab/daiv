@@ -51,19 +51,14 @@ class TestBaseAgent:
         assert not kwargs["model_kwargs"]
 
     def test_get_max_token_value(self):
-        with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
-            mock_provider.return_value = ModelProvider.ANTHROPIC
+        agent = ConcreteAgent()
+        assert agent.get_max_token_value(model_name="claude-3-5-sonnet-20240229") == 8192
 
-            agent = ConcreteAgent()
-            assert agent.get_max_token_value(model_name="claude-3-5-sonnet-20240229") == 8192
-
-            agent = ConcreteAgent()
-            assert agent.get_max_token_value(model_name="claude-3-opus-20240229") == 8192
+        agent = ConcreteAgent()
+        assert agent.get_max_token_value(model_name="claude-3-opus-20240229") == 8192
 
     def test_invalid_model_provider(self):
-        with patch("automation.agents.base._attempt_infer_model_provider") as mock_provider:
-            mock_provider.return_value = "invalid_provider"
-            agent = ConcreteAgent()
+        agent = ConcreteAgent()
 
-            with pytest.raises(ValueError, match="Unknown provider for model"):
-                agent.get_max_token_value(model_name="invalid_model")
+        with pytest.raises(ValueError, match="Unknown/Unsupported provider for model"):
+            agent.get_max_token_value(model_name="invalid_model")

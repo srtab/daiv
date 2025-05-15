@@ -5,7 +5,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
-from langchain.chat_models.base import _attempt_infer_model_provider, init_chat_model
+from langchain.chat_models.base import init_chat_model
 from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
@@ -232,17 +232,13 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             ModelProvider: The model provider
         """
-        model_provider: ModelProvider | None = None
-
-        if model_name.startswith("gemini"):
-            # The _attempt_infer_model_provider will return google_vertexai instead of google_genai
-            model_provider = ModelProvider.GOOGLE_GENAI
+        if any(model_name.startswith(pre) for pre in ("gpt-4", "o1", "o3", "o4")):
+            return ModelProvider.OPENAI
+        elif model_name.startswith("claude"):
+            return ModelProvider.ANTHROPIC
+        elif model_name.startswith("gemini"):
+            return ModelProvider.GOOGLE_GENAI
         elif model_name.startswith("openrouter:"):
-            model_provider = ModelProvider.OPENROUTER
+            return ModelProvider.OPENROUTER
         else:
-            model_provider = cast("ModelProvider | None", _attempt_infer_model_provider(model_name))
-
-        if model_provider is None:
-            raise ValueError(f"Unknown provider for model {model_name}")
-
-        return model_provider
+            raise ValueError(f"Unknown/Unsupported provider for model {model_name}")

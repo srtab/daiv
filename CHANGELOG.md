@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added support to `04-mini` model from OpenAI.
+- Added support to define `LANGSMITH_API_KEY` as docker secrets.
+
+### Changed
+
+- Improved plan comment template readability by adding a separator between the each step of the plan.
+- Normalized `WEB_SEARCH_API_KEY` to be `AUTOMATION_WEB_SEARCH_API_KEY` and followed the same pattern for other keys.
+
 ### Fixed
 
 - Fixed `ImportError` when `LanguageParser` try to parse a files with `tree-sitter-languages`, which is not installed.
-
+- Fixed system checks to verify if required environment variables or docker secrets are set up.
+- Fixed `PushCallback` to consider only merge requests created by DAIV to avoid indexing every merge request on the project.
 
 ## [0.1.1] - 2025-05-14
 

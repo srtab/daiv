@@ -35,9 +35,7 @@ class AutomationSettings(BaseSettings):
         ),
     )
     WEB_SEARCH_API_KEY: SecretStr | None = Field(
-        default=None,
-        description="Web search API key. Only applies if WEB_SEARCH_ENGINE is set to 'tavily'.",
-        alias="WEB_SEARCH_API_KEY",
+        default=None, description="Web search API key. Only applies if WEB_SEARCH_ENGINE is set to 'tavily'."
     )
 
 
