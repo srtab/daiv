@@ -233,6 +233,8 @@ LANGUAGE_BY_EXTENSION = {
     ".svg": "xml",
     ".xsl": "xml",
     # Y
+    ".yaml": "yaml",
+    ".yml": "yaml",
     ".yuck": "yuck",
     # Z
     ".zig": "zig",
