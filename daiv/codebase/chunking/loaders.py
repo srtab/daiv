@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.indexes")
 
 
+MARKDOWN_HEADER_1 = "header1"
+MARKDOWN_HEADER_2 = "header2"
+MARKDOWN_HEADER_3 = "header3"
+
+
 class FileSystemBlobLoader(LangFileSystemBlobLoader):
     """
     A filesystem blob loader that allows limiting the files to a specific set of paths.
@@ -141,7 +146,8 @@ class GenericLanguageLoader(BaseLoader):
         if language == "markdown":
             logger.debug("Using markdown header splitter")
             return MarkdownHeaderTextSplitter(
-                headers_to_split_on=[("#", "Header 1"), ("##", "Header 2"), ("###", "Header 3")], strip_headers=False
+                headers_to_split_on=[("#", MARKDOWN_HEADER_1), ("##", MARKDOWN_HEADER_2), ("###", MARKDOWN_HEADER_3)],
+                strip_headers=False,
             )
         elif language:
             logger.debug("Using chonkie splitter")

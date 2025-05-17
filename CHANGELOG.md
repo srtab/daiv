@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added mapping for `yaml` language for `.yaml` and `.yml` extensions.
+
+### Fixed
+
+- Temperature is being sent on `o4-mini` model, which is not supported.
+
 ## [0.1.2] - 2025-05-15
 
 ### Added
