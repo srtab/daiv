@@ -127,7 +127,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENAI:
             assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
             _kwargs["api_key"] = settings.OPENAI_API_KEY.get_secret_value()
-            if thinking_level and _kwargs["model"].startswith(("o1", "o3")):
+            if thinking_level and _kwargs["model"].startswith(("o1", "o3", "o4")):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
 
