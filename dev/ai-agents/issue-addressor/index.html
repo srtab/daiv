@@ -482,6 +482,19 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    🚀 Issue Addressor
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -493,6 +506,79 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-the-issue-addressor" class="md-nav__link">
+    <span class="md-ellipsis">
+      What is the Issue Addressor?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-issue-addressor-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How the Issue Addressor Works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-by-step-usage-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step-by-Step Usage Guide
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting-and-faqs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting and FAQs
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Additional Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -617,6 +703,68 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-the-issue-addressor" class="md-nav__link">
+    <span class="md-ellipsis">
+      What is the Issue Addressor?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-issue-addressor-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How the Issue Addressor Works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-by-step-usage-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step-by-Step Usage Guide
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting-and-faqs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting and FAQs
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Additional Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -640,7 +788,123 @@
 
 
 <h1 id="issue-addressor">🚀 Issue Addressor</h1>
-<p>The Issue Addressor is an AI agent that assists with issue implementation. It provides a step-by-step plan to address the issue. After the plan is approved, it can execute the code changes and open a merge request for you to review.</p>
+<h2 id="what-is-the-issue-addressor">What is the Issue Addressor?</h2>
+<p>The Issue Addressor is an AI agent that automates the process of addressing issues in your codebase. It generates a step-by-step plan to resolve an issue, executes the necessary code changes, and creates a merge request for review—all with minimal human intervention.</p>
+<h2 id="key-features">Key Features</h2>
+<ul>
+<li><strong>Automated issue analysis and planning</strong>: Generates a detailed plan to address the issue.</li>
+<li><strong>Support for images</strong>: The agent can process images in the issue description.</li>
+<li><strong>Approval workflow</strong>: Waits for human approval before executing the plan.</li>
+<li><strong>Automated code changes</strong>: Applies code changes as per the approved plan.</li>
+<li><strong>Merge request creation</strong>: Opens a merge request with the changes for easy review.</li>
+<li><strong>Error handling and feedback</strong>: Notifies users if planning or execution fails, and requests additional information if needed.</li>
+</ul>
+<h2 id="how-the-issue-addressor-works">How the Issue Addressor Works</h2>
+<div align="center">
+
+<pre class="mermaid"><code>---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+        __start__([&lt;p&gt;__start__&lt;/p&gt;]):::first
+        assessment(assessment)
+        prepare_data(prepare_data)
+        __end__([&lt;p&gt;__end__&lt;/p&gt;]):::last
+        __start__ --&gt; assessment;
+        assessment -.-&gt; __end__;
+        assessment -.-&gt; prepare_data;
+        prepare_data -.-&gt; plan_and_execute_plan;
+        plan_and_execute___end__ --&gt; __end__;
+        subgraph plan_and_execute
+        plan_and_execute_plan(plan)
+        plan_and_execute_plan_approval(plan_approval)
+        plan_and_execute_execute_plan(execute_plan)
+        plan_and_execute_apply_format_code(apply_format_code)
+        plan_and_execute___end__(&lt;p&gt;__end__&lt;/p&gt;)
+        plan_and_execute_apply_format_code -.-&gt; plan_and_execute___end__;
+        plan_and_execute_execute_plan -.-&gt; plan_and_execute___end__;
+        plan_and_execute_execute_plan -.-&gt; plan_and_execute_apply_format_code;
+        plan_and_execute_plan --&gt; plan_and_execute_plan_approval;
+        plan_and_execute_plan_approval -.-&gt; plan_and_execute_execute_plan;
+        plan_and_execute_plan_approval -.-&gt; plan_and_execute_plan_approval;
+        end
+        classDef default line-height:1.2
+        classDef first fill-opacity:0
+        classDef last fill-opacity:0</code></pre>
+
+</div>
+
+<ul>
+<li>The agent starts by assessing the issue, analyzing its title, description, and any attached images.</li>
+<li>It prepares the necessary data and context for addressing the issue.</li>
+<li>
+<p>The agent delegates to the plan and execute subgraph, which:</p>
+<ol>
+<li>Generates a detailed step-by-step plan;</li>
+<li>Presents the plan for user approval;</li>
+<li>If approved, executes the plan and applies code formatting;</li>
+<li>If not approved, returns to planning.</li>
+</ol>
+</li>
+<li>
+<p>After successful execution, the agent creates or updates a merge request with the changes.</p>
+</li>
+<li>
+<p>The agent provides feedback throughout the process:</p>
+<ul>
+<li>If planning fails, it requests clarification or error details;</li>
+<li>If execution fails, it provides error details;</li>
+<li>If successful, it notifies the user with the merge request link.</li>
+</ul>
+</li>
+</ul>
+<h2 id="step-by-step-usage-guide">Step-by-Step Usage Guide</h2>
+<ol>
+<li><strong>Create an Issue</strong>
+   Create a new issue in your repository with a title that starts with "DAIV:". For example, "DAIV: Fix login bug on mobile". The agent uses the issue's title and description to understand the problem.</li>
+<li><strong>Review the Proposed Plan</strong>
+   The agent analyzes the issue and generates a plan. This plan is posted as a comment for your review.</li>
+<li><strong>Approve or Edit the Plan</strong>
+   Review the plan. If it looks good, approve it. If not, edit the issue title and description to provide additional information and guide the agent to generate a new plan. The agent may also ask clarifying questions if the issue is ambiguous.</li>
+<li><strong>Execute the Plan</strong>
+   Once approved, the agent executes the plan, making the necessary code changes in your repository.</li>
+<li><strong>Review the Merge Request</strong>
+   The agent creates or updates a merge request with the changes. The agent will post a comment on the issue with the merge request link.</li>
+</ol>
+<h2 id="troubleshooting-and-faqs">Troubleshooting and FAQs</h2>
+<ul>
+<li>
+<p><strong>How do I know if the agent is working?</strong>
+  The agent will comment on the issue with a welcome message as soon as you create an issue with a title starting with 'DAIV:'.</p>
+</li>
+<li>
+<p><strong>What if no welcome message is posted?</strong>
+  Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and DAIV webhook is configured.</p>
+</li>
+<li>
+<p><strong>What if the agent cannot generate a plan?</strong>
+  The agent will notify you and may ask clarifying questions. Provide more details in the issue title and description.</p>
+</li>
+<li>
+<p><strong>What if the agent cannot execute the plan?</strong>
+  The agent will comment on the issue with an error message. You can update the issue title and description to try again.</p>
+</li>
+<li>
+<p><strong>Can I reset the plan?</strong>
+  Yes, you can trigger a plan reset if the initial plan is not satisfactory. You can do this by updating the issue title and description.</p>
+</li>
+<li>
+<p><strong>What if the agent already created a merge request and I updated the issue title and description?</strong>
+  The agent will create a new merge request and all previous commits will be discarded.</p>
+</li>
+</ul>
+<h2 id="additional-resources">Additional Resources</h2>
+<ul>
+<li><a href="../../getting-started/environment-variables/#issue-addressor">Issue Addressor Agent Configurations</a></li>
+<li><a href="../../getting-started/environment-variables/#plan-and-execute">Plan and Execute Agent Configurations</a></li>
+</ul>
 
 
 
@@ -663,7 +927,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 15, 2025 22:37:56">May 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 20, 2025 22:52:49">May 20, 2025</span>
   </span>
 
     
@@ -673,7 +937,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 15, 2025 22:37:56">May 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 20, 2025 22:52:49">May 20, 2025</span>
   </span>
 
     
