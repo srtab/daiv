@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Temperature is being sent on `o4-mini` model, which is not supported.
+- Large chunks were being indexed, causing errors on the embedding process. Now it will skip chunks that are too large (more than 2x the chunk size). #378
 
 ## [0.1.2] - 2025-05-15
 
