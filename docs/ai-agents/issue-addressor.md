@@ -55,17 +55,17 @@ graph TD;
  - It prepares the necessary data and context for addressing the issue.
  - The agent delegates to the plan and execute subgraph, which:
 
-    1. Generates a detailed step-by-step plan
-    2. Presents the plan for user approval
-    3. If approved, executes the plan and applies code formatting
-    4. If not approved, returns to planning
+    1. Generates a detailed step-by-step plan;
+    2. Presents the plan for user approval;
+    3. If approved, executes the plan and applies code formatting;
+    4. If not approved, returns to planning.
 
  - After successful execution, the agent creates or updates a merge request with the changes.
  - The agent provides feedback throughout the process:
 
-    * If planning fails, it requests clarification or error details
-    * If execution fails, it provides error details
-    * If successful, it notifies the user with the merge request link
+    * If planning fails, it requests clarification or error details;
+    * If execution fails, it provides error details;
+    * If successful, it notifies the user with the merge request link.
 
 ## Step-by-Step Usage Guide
 1. **Create an Issue**
@@ -84,7 +84,7 @@ graph TD;
   The agent will comment on the issue with a welcome message as soon as you create an issue with a title starting with 'DAIV:'.
 
 - **What if no welcome message is posted?**
-  Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and has the webhook configured to trigger the agent.
+  Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and DAIV webhook is configured.
 
 - **What if the agent cannot generate a plan?**
   The agent will notify you and may ask clarifying questions. Provide more details in the issue title and description.
