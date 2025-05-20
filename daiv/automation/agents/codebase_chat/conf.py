@@ -15,7 +15,7 @@ class CodebaseChatSettings(BaseSettings):
     MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for codebase chat."
     )
-    TEMPERATURE: float = Field(default=0.5, description="Temperature to be used for codebase chat.")
+    TEMPERATURE: float = Field(default=0.2, description="Temperature to be used for codebase chat.")
 
 
 settings = CodebaseChatSettings()  # type: ignore
