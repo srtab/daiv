@@ -11,9 +11,6 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 - **Pipeline Failures**: Monitoring CI/CD logs and applying fixes automatically when a pipeline fails.
 - **Codebase Chat**: A ChatGPT-like experience to chat with your codebase and get answers.
 
-> [!WARNING]
-> **Note:** DAIV is currently in a **beta** stage. It is **not recommended for production use** at this time. Bugs or performance issues are expected, and contributions are welcome!
-
 ## Key Features
 
 - 🚀 **Automated Issue Resolution**: When an issue is created in your repository, DAIV can parse the description, propose a step-by-step plan, and, after human approval, execute code changes and open a merge request for you to review.
