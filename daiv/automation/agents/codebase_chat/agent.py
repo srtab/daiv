@@ -39,7 +39,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
         return create_react_agent(
             self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index)],
+            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True)],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
                 repositories=index._get_all_repositories(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
@@ -60,7 +60,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
         return create_react_agent(
             self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index)],
+            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True)],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
                 repositories=await sync_to_async(index._get_all_repositories)(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,

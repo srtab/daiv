@@ -11,6 +11,7 @@ class ReviewAddressorSettings(BaseSettings):
     REVIEW_COMMENT_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for review assessment."
     )
+    REPLY_NAME: str = Field(default="ReplyReviewer", description="Name of the reply reviewer agent.")
     REPLY_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1, description="Model name to be used for reply to comments or questions."
     )

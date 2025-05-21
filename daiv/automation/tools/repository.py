@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import textwrap
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import BaseTool
@@ -19,6 +20,7 @@ from core.utils import build_uri
 
 from .schemas import (
     CreateNewRepositoryFileInput,
+    CrossSearchCodeSnippetsInput,
     DeleteRepositoryFileInput,
     RenameRepositoryFileInput,
     ReplaceSnippetInFileInput,
@@ -48,10 +50,16 @@ class SearchCodeSnippetsTool(BaseTool):
         """  # noqa: E501
     ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
 
-    args_schema: type[BaseModel] = SearchCodeSnippetsInput
     handle_validation_error: bool = True
 
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
+
+    def __init__(self, *, all_repositories: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if all_repositories:
+            self.args_schema = CrossSearchCodeSnippetsInput
+        else:
+            self.args_schema = SearchCodeSnippetsInput
 
     def _run(self, query: str, intent: str, config: RunnableConfig, repository: str | None = None) -> str:
         """
