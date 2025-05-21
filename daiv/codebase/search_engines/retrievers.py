@@ -155,7 +155,7 @@ class PostgresRetriever(BaseRetriever):
         )
         return [
             Document(
-                id=document.uuid,
+                id=str(document.uuid),
                 page_content=document.page_content,
                 metadata={
                     "id": str(document.uuid),

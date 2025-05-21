@@ -8,13 +8,14 @@ from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
-from langgraph.graph.state import CompiledStateGraph
+from langgraph.graph.state import CompiledGraph, CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.tools import think
 from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -24,7 +25,6 @@ from .conf import settings
 from .prompts import respond_reviewer_system, review_comment_system, review_plan_system_template
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
 from .state import OverallState, ReplyAgentState
-from .tools import reply_reviewer_tool
 
 logger = logging.getLogger("daiv.agents")
 
@@ -39,6 +39,28 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
             ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
             | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(ReviewCommentEvaluation)
         ).with_config({"run_name": "ReviewCommentEvaluator"})
+
+
+class ReplyReviewerAgent(BaseAgent[CompiledGraph]):
+    """
+    Agent to reply to reviewer's comments or questions.
+    """
+
+    def compile(self) -> CompiledGraph:
+        tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
+
+        return create_react_agent(
+            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
+            state_schema=ReplyAgentState,
+            tools=tools + [think],
+            store=self.store,
+            checkpointer=False,
+            prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")
+            ),
+            name=settings.REPLY_NAME,
+            version="v2",
+        )
 
 
 class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
@@ -138,26 +160,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
+        reply_reviewer_agent = ReplyReviewerAgent(store=store).agent
 
-        react_agent = create_react_agent(
-            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
-            state_schema=ReplyAgentState,
-            tools=tools + [reply_reviewer_tool],
-            store=store,
-            checkpointer=False,
-            # FIXME: Add diff hunk referenced file to the prompt to improve the agent's performance
-            prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]),
-            name="reply_reviewer_react_agent",
-            version="v2",
-        )
+        result = reply_reviewer_agent.invoke({"messages": state["notes"], "diff": state["diff"]})
 
-        result = react_agent.invoke({
-            "messages": state["notes"],
-            "diff": state["diff"],
-            "current_date_time": timezone.now().strftime("%d %B, %Y %H:%M"),
-        })
-
-        # The reply is updated in the state by the reply_reviewer tool.
-        # There's cases where the tool is not called, so we use the last message content as the reply.
         return Command(goto=END, update={"reply": result["messages"][-1].content})

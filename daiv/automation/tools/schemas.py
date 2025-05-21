@@ -23,6 +23,14 @@ class SearchCodeSnippetsInput(BaseModel):
             """  # noqa: E501
         ),
     )
+    intent: str = Field(..., description="A brief description of why you are searching for this code.")
+
+
+class CrossSearchCodeSnippetsInput(SearchCodeSnippetsInput):
+    """
+    Search for code snippets in specific repositories or all repositories.
+    """
+
     repository: str | None = Field(
         default=None,
         description=(
@@ -30,7 +38,6 @@ class SearchCodeSnippetsInput(BaseModel):
             "If not provided, the search will be performed in all repositories."
         ),
     )
-    intent: str = Field(..., description="A brief description of why you are searching for this code.")
 
 
 class RepositoryStructureInput(BaseModel):
