@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
+CLAUDE_THINKING_MODELS = ("claude-3-7-sonnet", "claude-sonnet-4", "claude-opus-4")
+
+
 class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
@@ -108,7 +111,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         if model_provider == ModelProvider.ANTHROPIC:
             assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
-            if thinking_level and _kwargs["model"].startswith("claude-3-7-sonnet"):
+            if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                 max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
@@ -123,6 +126,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             if _kwargs["model"].startswith("claude-3-7-sonnet"):
                 # Enable token efficient tools to reduce the number of tokens used and
                 # turn more likely parallel tool calls.
+                # Only claude-3-7-sonnet supports token efficient tools, claude-sonnet-4 and claude-opus-4 do not
+                # https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/token-efficient-tool-use
                 _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "token-efficient-tools-2025-02-19"}
         elif model_provider == ModelProvider.OPENAI:
             assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
@@ -144,6 +149,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
 
             if _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
+                # only claude-3-7-sonnet supports token efficient tools, claude-sonnet-4 and claude-opus-4 do not
                 _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
 
             if thinking_level:
