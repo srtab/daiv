@@ -9,8 +9,9 @@ class ModelName(StrEnum):
     by Anthropic, Google or OpenAI.
     """
 
+    CLAUDE_SONNET_4 = "openrouter:anthropic/claude-sonnet-4"
+    CLAUDE_OPUS_4 = "openrouter:anthropic/claude-opus-4"
     CLAUDE_3_7_SONNET = "openrouter:anthropic/claude-3-7-sonnet"
-    CLAUDE_3_5_HAIKU = "openrouter:anthropic/claude-3-5-haiku"
     GPT_4_1 = "openrouter:openai/gpt-4.1"
     GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
     GPT_4_1_NANO = "openrouter:openai/gpt-4.1-nano"

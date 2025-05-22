@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added support to `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
+
 ### Changed
 
 - Optimized `PullRequestDescriberAgent` prompt to improve the quality of the responses for a 0-shot agent.
 - Optimized `CodebaseChatAgent` prompts to improve the quality of the responses, reduce hallucinations, gatekeeping first and improve the reasoning capabilities of the agent.
+- Updated `PlanAndExecuteAgent` to use `claude-sonnet-4` as the default model for planning and execution.
 
 ### Fixed
 

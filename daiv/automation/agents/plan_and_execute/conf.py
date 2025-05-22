@@ -13,10 +13,10 @@ class PlanAndExecuteSettings(BaseSettings):
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
     PLANNING_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to plan tasks."
+        default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to plan tasks."
     )
     EXECUTION_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.CLAUDE_3_7_SONNET, description="Model name to be used to execute tasks."
+        default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to execute tasks."
     )
     HUMAN_APPROVAL_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used to evaluate the plan approval."
