@@ -29,17 +29,18 @@ class PullRequestMetadata(BaseModel):
     description: str = Field(
         description=(
             "Detail what was changed, why it was changed, and how it was changed. "
-            "Summarize functional impact **only from what is given**. "
-            "No speculation or inferred context."
+            "Summarize functional impact **only from what is given**. No speculation or inferred context."
             "Refer always to the changes and never to the pull request."
+            "Structure the description to be simple to understand and read. "
+            "Use markdown formatting to highlight important pieces of information, like bold, italic, code, etc."
         )
     )
     summary: list[str] = Field(
         description=(
-            "Concise bulleted description of the pull request."
+            "Concise bulleted description of the pull request, like a changelog."
             "Start each bullet with `Add`, `Update`, `Fix`, `Remove`, etc."
             "Group similar operations; avoid redundancy; imperative mood."
             "Markdown format `variables`, `files`, and `directories` like this."
         )
     )
-    commit_message: str = Field(description="Commit message, short and concise.")
+    commit_message: str = Field(description="Commit message, short and concise, on one sentence.")

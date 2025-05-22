@@ -9,6 +9,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 
 from automation.agents import BaseAgent
+from automation.tools import think
 from automation.tools.repository import SEARCH_CODE_SNIPPETS_NAME, SearchCodeSnippetsTool
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
@@ -39,7 +40,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
         return create_react_agent(
             self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True)],
+            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
                 repositories=index._get_all_repositories(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
@@ -60,7 +61,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
         return create_react_agent(
             self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True)],
+            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
                 repositories=await sync_to_async(index._get_all_repositories)(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
