@@ -370,15 +370,15 @@ wheels = [
 
 [[package]]
 name = "chonkie"
-version = "1.0.7"
+version = "1.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tokenizers" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/95/1c/1bdbe7ba0c2dd36a4d6be60b4947ea7b1656cc28721a51bf480809a766d2/chonkie-1.0.7.tar.gz", hash = "sha256:dddc29116aef3aa472632a98234ce37c697169adf045d2f9211f39aa512162dc", size = 85493, upload-time = "2025-05-06T00:06:25.451Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/bf/4a935e1945a5f31c0aa252554fa46c36f78e88e0b0cb27293bcfee315eb9/chonkie-1.0.8.tar.gz", hash = "sha256:d94fa83debedd92582a723cad2c0b4f80173623362e659090119aae4d93f3357", size = 90252, upload-time = "2025-05-22T11:19:27.119Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/6b/74e2765a489b97bb7269797eb9d0b8143ab54a26ed76110146b00dd47e40/chonkie-1.0.7-py3-none-any.whl", hash = "sha256:2cce530c765a8a525d6c34bdede81a0f174e8bfd6e0b7f25bb968c7b410c43d4", size = 109223, upload-time = "2025-05-06T00:06:23.099Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/bf/1af79e0b95896a3988699aa1f1088a954588739ed54a315e19462d64f2a1/chonkie-1.0.8-py3-none-any.whl", hash = "sha256:a6df118bcfa119c372e7934e1122b6ec0b5c711c45e5bc7bd2b92a05ffe1a043", size = 117701, upload-time = "2025-05-22T11:19:25.949Z" },
 ]
 
 [package.optional-dependencies]
@@ -593,7 +593,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = "==5.5.2" },
-    { name = "chonkie", extras = ["code"], specifier = "==1.0.7" },
+    { name = "chonkie", extras = ["code"], specifier = "==1.0.8" },
     { name = "django", specifier = "==5.2.1" },
     { name = "django-extensions", specifier = "==4.1" },
     { name = "django-ninja", specifier = "==1.4.1" },
