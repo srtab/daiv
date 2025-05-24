@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `cleanup_indexes` command to clean up outdated indexes and inaccessible repositories.
+
 ## [0.1.4] - 2025-05-22
 
 ### Added

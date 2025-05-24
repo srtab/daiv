@@ -27,6 +27,28 @@ def update_index_repository(repo_id: str, ref: str | None = None, reset: bool = 
 
 
 @shared_task
+@locked_task(key="cleanup_indexes")
+def cleanup_indexes_task(
+    repo_id: str | None = None, check_accessibility: bool = True, cleanup_old_branches: bool = True
+):
+    """
+    Clean up outdated indexes and inaccessible repositories.
+
+    Args:
+        repo_id (str | None): Limit cleanup to a specific repository by namespace, slug or id.
+        check_accessibility (bool): Check repository accessibility and remove indexes for inaccessible repositories.
+        cleanup_old_branches (bool): Clean up indexes from non-default branches older than the threshold.
+    """
+    call_command(
+        "cleanup_indexes",
+        check_accessibility=check_accessibility,
+        cleanup_old_branches=cleanup_old_branches,
+        repo_id=repo_id,
+        no_input=True,
+    )
+
+
+@shared_task
 @locked_task(key="{repo_id}:{issue_iid}")
 def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
     """

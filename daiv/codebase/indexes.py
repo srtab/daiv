@@ -251,10 +251,11 @@ class CodebaseIndex(abc.ABC):
         if ignore_ref:
             return qs
 
-        repo_config = RepositoryConfig.get_config(repo_id)
-        _ref = cast("str", ref or repo_config.default_branch)
+        if ref is None:
+            repo_config = RepositoryConfig.get_config(str(repo_id))
+            ref = cast("str", repo_config.default_branch)
 
-        return qs.filter(tracking_ref=_ref)
+        return qs.filter(tracking_ref=ref)
 
     @functools.lru_cache(maxsize=1)  # noqa: B019
     def _get_all_repositories(self) -> list[RepositoryInfo]:

@@ -59,5 +59,17 @@ class CodebaseSettings(BaseSettings):
     )
     CHUNK_OVERLAP: int = Field(default=150, description="Overlap between chunks. Only used for non code languages.")
 
+    # Cleanup
+    CLEANUP_CHECK_ACCESSIBILITY: bool = Field(
+        default=True,
+        description="Check repository accessibility and remove indexes for inaccessible repositories during cleanup",
+    )
+    CLEANUP_OLD_BRANCHES: bool = Field(
+        default=True, description="Clean up indexes from non-default branches older than the threshold during cleanup"
+    )
+    CLEANUP_OLD_BRANCH_AGE_DAYS: int = Field(
+        default=30, description="Age threshold in days for non-default branch indexes to be considered for cleanup"
+    )
+
 
 settings = CodebaseSettings()  # type: ignore
