@@ -59,10 +59,7 @@ class SemanticSearchEngine(SearchEngine):
     """
 
     def __init__(self, augmented_context: bool = False):
-        from automation.agents.code_describer import CodeDescriberAgent
-
         self.embeddings = embeddings_function()
-        self.code_describer = CodeDescriberAgent().agent
         self.augmented_context = augmented_context
 
     def add_documents(self, namespace: CodebaseNamespace, documents: list[Document]):
@@ -76,12 +73,17 @@ class SemanticSearchEngine(SearchEngine):
         Returns:
             list[CodebaseDocument]: The created document records
         """
+
         if self.augmented_context:
+            from automation.agents.code_describer import CodeDescriberAgent
+
+            code_describer = CodeDescriberAgent().agent
+
             logger.info("Augmenting context...")
 
             with tracing_context(enabled=False):
                 # Avoid tracing the code describer as it can be very overwhelming and fill up the trace store
-                described_documents = self.code_describer.batch([
+                described_documents = code_describer.batch([
                     {
                         "code": document.page_content,
                         "filename": document.metadata.get("source", ""),
