@@ -32,13 +32,7 @@ class Command(BaseCommand):
             "If repo-id is provided, this argument will be ignored.",
         )
         parser.add_argument(
-            "--max-workers",
-            type=int,
-            default=None,
-            help=(
-                "The number of repositories to update in parallel. "
-                "If not provided, the number of available cores will be used."
-            ),
+            "--max-workers", type=int, default=4, help="The number of repositories to update in parallel (default: 4)"
         )
         parser.add_argument("--reset", action="store_true", help="Reset the index before updating.")
         parser.add_argument(

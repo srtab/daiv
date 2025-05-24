@@ -29,7 +29,12 @@ class CodebaseNamespaceManager(models.Manager):
         # with the latest information from the repository, in particular the external_slug that can change
         # over time.
         repo_info, _created = RepositoryInfo.objects.update_or_create(
-            external_id=repository.pk, defaults={"client": repository.client, "external_slug": repository.slug}
+            external_id=repository.pk,
+            defaults={
+                "client": repository.client,
+                "external_slug": repository.slug,
+                "default_branch": repository.default_branch,
+            },
         )
         try:
             latest_namespace = self.filter(
@@ -51,6 +56,7 @@ class RepositoryInfo(TimeStampedModel):
     external_slug = models.CharField(max_length=256)
     external_id = models.CharField(max_length=256)
     client = models.CharField(max_length=16, choices=ClientChoices.choices)
+    default_branch = models.CharField(max_length=128, blank=True)
 
     def __str__(self) -> str:
         return self.external_slug
