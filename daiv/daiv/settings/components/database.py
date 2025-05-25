@@ -2,13 +2,15 @@ from urllib.parse import urlencode
 
 from decouple import Choices, config
 from get_docker_secret import get_docker_secret
+from psycopg_pool import ConnectionPool
 
 DATABASES_OPTIONS = {
     "sslmode": config(
         "DB_SSLMODE",
         default="require",
         cast=Choices(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]),
-    )
+    ),
+    "pool": {"max_size": config("DB_POOL_MAX_SIZE", default=15, cast=int), "check": ConnectionPool.check_connection},
 }
 
 DATABASES = {
