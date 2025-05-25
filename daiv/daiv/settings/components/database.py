@@ -8,7 +8,8 @@ DATABASES_OPTIONS = {
         "DB_SSLMODE",
         default="require",
         cast=Choices(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]),
-    )
+    ),
+    "pool": {"max_size": config("DB_POOL_MAX_SIZE", default=15, cast=int)},
 }
 
 DATABASES = {
@@ -20,6 +21,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default=5432, cast=int),
         "OPTIONS": DATABASES_OPTIONS,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
