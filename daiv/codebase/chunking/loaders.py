@@ -134,15 +134,17 @@ class GenericLanguageLoader(BaseLoader):
             text_splitter = self._get_text_splitter(language)
 
             for doc in split_documents(text_splitter, documents):
-                # skip chunks that are too large
-                if len(doc.page_content) > settings.CHUNK_SIZE * 2:
+                # Skip chunks that are too large.
+                # We multiply by 5 to try to convert (approximately) the number of tokens to the number of characters.
+                content_length = len(doc.page_content)
+                if content_length > settings.EMBEDDINGS_MAX_INPUT_TOKENS * 5:
                     logger.warning(
                         "Chunk is too large, skipping: %s. "
                         "Consider excluding it from being indexed on .daiv.yml. "
                         "Chunk size: %d, max allowed: %d",
                         doc.metadata["source"],
-                        len(doc.page_content),
-                        settings.CHUNK_SIZE * 2,
+                        content_length,
+                        settings.EMBEDDINGS_MAX_INPUT_TOKENS * 5,
                     )
                     continue
 
