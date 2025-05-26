@@ -2,6 +2,7 @@ import functools
 import logging
 from textwrap import dedent
 
+import tiktoken
 from daiv.settings.components import DATA_DIR
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -129,20 +130,33 @@ class SemanticSearchEngine(SearchEngine):
             str: Content to embed
         """
         if not description:
-            return dedent(f"""\
+            content = dedent(f"""\
                 Repository: {document.metadata.get("repo_id", "")}
                 File Path: {document.metadata.get("source", "")}
 
                 {document.page_content}
             """)
         else:
-            return dedent(f"""\
+            content = dedent(f"""\
                 Repository: {document.metadata.get("repo_id", "")}
                 File Path: {document.metadata.get("source", "")}
                 Description: {description}
 
                 {document.page_content}
             """)
+
+        count = self._embeddings_count_tokens(content)
+
+        if count > settings.EMBEDDINGS_MAX_INPUT_TOKENS:
+            logger.warning(
+                "Chunk is too large, truncating: %s. Chunk tokens: %d, max allowed: %d",
+                document.metadata["source"],
+                self._embeddings_count_tokens(content),
+                settings.EMBEDDINGS_MAX_INPUT_TOKENS,
+            )
+            return content[: settings.EMBEDDINGS_MAX_INPUT_TOKENS]
+
+        return content
 
     def delete_documents(self, namespace: CodebaseNamespace, source: str | list[str]):
         """
@@ -196,3 +210,15 @@ class SemanticSearchEngine(SearchEngine):
         if namespace is None:
             return PostgresRetriever(embeddings=self.embeddings, **kwargs)
         return ScopedPostgresRetriever(namespace=namespace, embeddings=self.embeddings, **kwargs)
+
+    def _embeddings_count_tokens(self, text: str) -> int:
+        """
+        Count the number of tokens in the text.
+        """
+        provider, model_name = settings.EMBEDDINGS_MODEL_NAME.split("/", 1)
+
+        if provider == "voyageai":
+            return self.embeddings._client.count_tokens([text], model=model_name)
+        elif provider == "openai":
+            return len(tiktoken.encoding_for_model(model_name).encode(text))
+        return len(tiktoken.get_encoding("cl100k_base").encode(text))

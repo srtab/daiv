@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed connection closed or lost on `ConnectionPool` by using `check_connection` to verify if the connection is still working.
+- Fixed chunks length check to use the correct number of tokens instead of the number of characters.
 
 ## [0.1.4] - 2025-05-22
 

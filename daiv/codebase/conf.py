@@ -48,6 +48,13 @@ class CodebaseSettings(BaseSettings):
     EMBEDDINGS_BATCH_SIZE: int = Field(
         default=500, description="Batch size for the embeddings. Only used for OpenAI models."
     )
+    EMBEDDINGS_MAX_INPUT_TOKENS: int = Field(
+        default=8192,
+        description=(
+            "Maximum number of tokens to embed. "
+            "A warning will be raised if the number of tokens is higher than this value and the chunk will be skipped."
+        ),
+    )
 
     # Chunking
     CHUNK_SIZE: int = Field(
