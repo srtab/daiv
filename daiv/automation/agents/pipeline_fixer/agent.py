@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Literal, cast
 
+from django.utils import timezone
+
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import (
@@ -166,7 +168,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
     def troubleshoot(
-        self, state: OverallState, store: BaseStore
+        self, state: OverallState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
         """
         Troubleshoot the issue based on the logs from the failed CI/CD pipeline.
@@ -176,6 +178,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
+            config (RunnableConfig): The config to use for the agent.
 
         Returns:
             Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]: The next step in
@@ -193,7 +196,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                 troubleshoot_system,
                 troubleshoot_human,
                 MessagesPlaceholder("messages"),
-            ]),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                repo_id=config["configurable"]["source_repo_id"],
+                job_name=config["configurable"]["job_name"],
+            ),
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid persisting the state in the store
             name="troubleshoot_react_agent",
@@ -231,7 +238,6 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["__end__"]]: The next step in the workflow.
         """
         plan = Plan(
-            goal="Bring the pipeline to a passing state by fixing the identified issues.",
             changes=[
                 ChangeInstructions(
                     file_path=troubleshooting.file_path,
@@ -239,7 +245,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                     relevant_files=[troubleshooting.file_path],
                 )
                 for troubleshooting in state["troubleshooting"]
-            ],
+            ]
         )
 
         plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
