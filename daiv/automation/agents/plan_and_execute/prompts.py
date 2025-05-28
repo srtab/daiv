@@ -8,17 +8,16 @@ plan_system = SystemMessagePromptTemplate.from_template(
 CURRENT DATE-TIME : {{ current_date_time }}
 
 AVAILABLE TOOLS
-  - repository_structure
-  - retrieve_file_content
-  - search_code_snippets
-  - web_search
-  - think                 - private chain-of-thought
-  - determine_next_action   - returns either Plan or AskForClarification
+  - `repository_structure`
+  - `retrieve_file_content`
+  - `search_code_snippets`
+  - `web_search`
+  - `think`                  - private reasoning only (never shown to the user)
+  - `determine_next_action`  - returns either Plan or AskForClarification
 (The exact signatures are supplied at runtime.)
 
 ────────────────────────────────────────────────────────
 GENERAL RULES
-- **Language** - always reply in the user's language.
 - **Evidence first** -
   1. Use general software knowledge (syntax, patterns, best-practices).
   2. Make *no repository-specific claim* unless you verified it in the code.
@@ -43,7 +42,7 @@ If the user supplied image(s), call `think` **again** to note only details relev
 
 ### Step 2 - Inspect the code
 Run the planned inspection tools:
-- Batch multiple paths in a single call.
+- Batch multiple paths in a `search_code_snippets` single call.
 - Download only what is strictly necessary.
 - Stop as soon as you have enough evidence to craft a plan (avoid full-repo scans).
 
@@ -185,7 +184,9 @@ Interact with the codebase **only** through the tool APIs listed below and follo
 
 ────────────────────────────────────────────────────────
 CURRENT DATE-TIME : {{ current_date_time }}
+
 INPUT: Change-plan markdown (paths + tasks)
+
 AVAILABLE TOOLS:
  - `repository_structure`
  - `retrieve_file_content`
@@ -201,10 +202,13 @@ AVAILABLE TOOLS:
 ────────────────────────────────────────────────────────
 WORKFLOW
 
-### Step 1 - Decide whether inspection is required
-Decide privately: "Can I implement directly from the plan?"
-- Yes ➜ skip to Step 2.
-- No ➜ batch-call inspection tools until you're confident. Group related paths/queries per call, and stop inspecting once enough context is gathered.
+### **Step 0 - Pre-flight context fetch (mandatory)**
+Parse the **relevant-files** list in the change-plan and **batch-call `retrieve_file_content`** to pull them *all* before anything else.
+
+### **Step 1 - Decide whether extra inspection is required**
+Privately ask: “With the change-plan *plus* the fetched relevant files, can I implement directly?”
+- **Yes** ➜ go straight to Step 2.
+- **No**  ➜ batch-call any additional inspection tools (group related paths/queries). Stop inspecting once you've gathered enough context.
 
 ### **Step 2 - Plan the edit (single `think` call)**
 Call `think` **once**. Summarize (≈250 words):
@@ -214,7 +218,7 @@ Call `think` **once**. Summarize (≈250 words):
  - Edge-cases, performance, maintainability.
  - Exact tool operations to perform.
 
-### Step 3 - Apply & verify
+### **Step 3 - Apply & verify**
 1. Emit file-editing tool calls. Use separate calls for distinct files or non-contiguous regions.
 2. After edits, call `think` again to verify the changes, note follow-ups, and decide whether further edits or tests are needed. Repeat Step 3 as required.
 
@@ -238,13 +242,25 @@ Follow this workflow for the incoming change-plan.""",  # noqa: E501
 
 execute_plan_human = """Apply the following code-change plan:
 
-<plan total_changes="{{ plan_tasks | length }}">
-{% for change in plan_tasks -%}
-<change id="{{ loop.index }}">
-<file_path>{{ change.file_path }}</file_path>
-<details>
-{{ change.details }}
-</details>
-</change>
-{% endfor -%}
+<plan
+    total_changes="{{ plan_tasks | length }}"
+    total_relevant_files="{{ relevant_files | length }}">
+
+  <!-- All files that must be fetched before deciding on further inspection -->
+  <relevant_files>
+  {% for path in relevant_files -%}
+    <file_path>{{ path }}</file_path>
+  {% endfor -%}
+  </relevant_files>
+
+  <!-- Individual change items -->
+  {% for change in plan_tasks -%}
+  <change id="{{ loop.index }}">
+    <file_path>{{ change.file_path }}</file_path>
+    <details>
+      {{ change.details | indent(6) }}
+    </details>
+  </change>
+  {% endfor -%}
+
 </plan>"""

@@ -20,7 +20,7 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
-from automation.utils import file_changes_namespace, prepare_repository_files_as_messages
+from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
 from .conf import settings
@@ -177,12 +177,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         react_agent.invoke(
             {
                 "plan_tasks": state["plan_tasks"],
-                "messages": prepare_repository_files_as_messages(
-                    list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
-                    config["configurable"]["source_repo_id"],
-                    config["configurable"]["source_ref"],
-                    store,
-                ),
+                "relevant_files": list({
+                    file_path for task in state["plan_tasks"] for file_path in task.relevant_files
+                }),
             },
             config={"recursion_limit": config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)},
         )

@@ -1,4 +1,10 @@
+import warnings
+
 from split_settings.tools import include
+
+warnings.filterwarnings(
+    "ignore", message=r'directory "/run/secrets" does not exist', module="pydantic_settings.sources.providers.secrets"
+)
 
 include(
     "components/common.py",
