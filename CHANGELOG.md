@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Improved `PlanAndExecuteAgent`:
+  - Completely rewrote planning system prompt to be more structured and concise with clear workflow steps and rules of thumb.
+  - Enhanced execution system prompt with better organization and clearer instructions for applying change plans.
+  - Simplified plan template format for better readability and reduced verbosity.
+  - Enhanced tools schema docstrings with more detailed field descriptions and usage guidelines.
+  - These improvements affect all agents that use `PlanAndExecuteAgent`: `ReviewAddressorAgent`, `IssueAddressorAgent`, and `PipelineFixerAgent`.
+- Improved `ReviewAddressorAgent`:
+  - Completely rewrote reviewer response prompt with structured workflow steps, better context handling, and improved reasoning with the `think` tool.
+  - Enhanced review planning prompt with clear workflow steps, better diff handling guidance, and structured reasoning process.
+  - Improved prompt organization with visual separators and clearer section headers for better readability.
+- Improved `PipelineFixerAgent`:
+  - Completely rewrote troubleshooting system prompt to be more structured and concise with clear workflow steps and rules of thumb.
+  - Enhanced troubleshooting human prompt with better context handling.
+  - Simplified troubleshooting template format for better readability and reduced verbosity.
+
 ## [0.1.5] - 2025-05-26
 
 ### Added
@@ -84,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced `gpt-4o` and `gpt-4o-mini` with the new OpenAI models `gpt-4.1` and `gpt-4.1-mini`.
 - Replaced `o3-mini` with the new reasoning OpenAI model `o4-mini`.
 - Replaced `gemini-2.0-flash` and `gemini-2.0-flash-lite-001` with `gpt-4.1-mini` and `gpt-4.1-nano` respectively.
-- Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader’s job—simpler and less error‑prone.
+- Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader's job—simpler and less error‑prone.
 - Migrated all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
 - Parallelized `update_index` process to improve performance.
 - Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
@@ -273,7 +290,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Rewriten lexical search engine to only have one index, allowing the agent to search for answers in multiple repositories at once.
+- Rewritten lexical search engine to only have one index, allowing the agent to search for answers in multiple repositories at once.
 - Rewritten `CodebaseSearchAgent` to improve the quality of search results by using techniques such as: generating multiple queries, rephrasing those queries and compressing documents with listwise reranking.
 - Simplified `CodebaseQAAgent` to use `CodebaseSearchAgent` to search for answers instead of binding tools to the agent.
 - Changed models url paths on Chat API from `api/v1/chat/models` -> `api/v1/models` to be more consistent with OpenAI API.

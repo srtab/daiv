@@ -40,19 +40,35 @@ class HumanApprovalEvaluation(BaseModel):
 
 class AskForClarification(BaseModel):
     """
-    Ask for clarification to the user if the user request is unclear, missing data or ambiguous.
+    Ask the user follow-up questions when their original request is ambiguous, incomplete, or self-contradictory.
+
+    Use this schema *only* when the agent cannot safely produce an implementation plan with the
+    information currently available.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    questions: list[str] = Field(description="Questions phrased in the same language as the user request.")
+    questions: list[str] = Field(
+        description=dedent(
+            """\
+            A list of targeted questions phrased **in the same language** as the user's request.
+             - Each question should resolve exactly one uncertainty
+             - Provide at least one question and no superfluous chit-chat
+             - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
+            """  # noqa: E501
+        )
+    )
 
 
 class ChangeInstructions(BaseModel):
     """
-    Provide the instructions details.
+    A single, self-contained description of what must change in the code-base.
+
+    Each instance represents one atomic piece of work that a developer can tackle independently.
+    If several edits are tightly coupled, group them in the same `ChangeInstructions` object and reference the
+    shared file with `file_path`.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
@@ -62,23 +78,26 @@ class ChangeInstructions(BaseModel):
     relevant_files: list[str] = Field(
         description=dedent(
             """\
-            The paths to the files that are relevant to complete this instructions.
+            Every file path that a developer should open to implement this change (implementation, helpers, tests, docs, configs...). Include *all* files that provide necessary context.
             """  # noqa: E501
         )
     )
     file_path: str = Field(
         description=dedent(
             """\
-            The path to the file where the instructions should be applied, if applicable.
-            If the instructions are not related to a specific file, leave this empty.
+            The primary file that will be modified.
+             - Use an empty string ("") if the instruction is repository-wide or not tied to a single file (e.g., “add GitHub Action”).
+             - Otherwise give the canonical path, relative to the repo root.
             """  # noqa: E501
         )
     )
     details: str = Field(
         description=dedent(
             """\
-            It's important to share the algorithm you've thought of that should be followed, and to apply identified conventions on the details (don't just say: “follow the project's testing convention”, reflect them on the changes details).
-            Use a human readable language, describing the changes to be made using natural language, not the code implementation. You can use multiple paragraphs to describe the changes to be made.
+            A clear, human-readable explanation of the required change—algorithms, naming conventions, edge cases, test approach, performance notes, etc.
+             - **Do NOT** write or paste a full diff / complete implementation you have invented.
+             - You **may** embed short illustrative snippets **or** verbatim user-supplied code **only if it is syntactically correct**.  If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code.
+             - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
             """  # noqa: E501
         )
     )
@@ -86,29 +105,36 @@ class ChangeInstructions(BaseModel):
 
 class Plan(BaseModel):
     """
-    Outline the plan of changes/instructions to apply to the codebase to address the user request.
+    A complete implementation plan that satisfies the user's request.
+
+    The plan must be an ordered list of granular `ChangeInstructions`.
+    Related instructions affecting the same file should appear in consecutive order to aid batching and review.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    goal: str = Field(description="A detailed objective of the requested changes to be made.")
-    changes: list[ChangeInstructions] = Field(
-        description=dedent(
-            """\
-            A sorted list of changes/instructions to apply to the codebase. Group related changes by file_path whenever possible and applyable.
-            """  # noqa: E501
-        )
-    )
+    changes: list[ChangeInstructions] = Field(description="Sorted so that related edits to the same file are adjacent.")
 
 
 class DetermineNextAction(BaseModel):
     """
-    Respond with the appropriate action.
+    Wrapper object that tells the orchestrator what should happen next.
+
+    Exactly one of the two possible actions must be provided:
+     - AskForClarification - when more information is required from the user.
+     - Plan                - when a full implementation plan is ready.
     """
 
     model_config = ConfigDict(title=DETERMINE_NEXT_ACTION_TOOL_NAME)
 
     tool_call_id: Annotated[str, InjectedToolCallId]
-    action: Plan | AskForClarification = Field(description="The next action to be taken.")
+    action: Plan | AskForClarification = Field(
+        description=dedent(
+            """\
+            The next step the agent proposes.
+            Supply *either* a populated `Plan` object *or* an `AskForClarification` object—not both, not neither.
+            """  # noqa: E501
+        )
+    )

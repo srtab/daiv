@@ -51,3 +51,8 @@ class ExecuteState(AgentState):
     """
     The code changes to be applied to the codebase.
     """
+
+    relevant_files: list[str]
+    """
+    The files that are relevant to the code changes.
+    """
