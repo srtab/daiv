@@ -22,6 +22,7 @@ from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
 from core.config import RepositoryConfig
 
+ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 PIPELINE_JOB_REF_SUFFIX = "refs/merge-requests/"
 
 logger = logging.getLogger("daiv.webhooks")
@@ -42,8 +43,8 @@ class IssueCallback(BaseCallback):
         return (
             RepositoryConfig.get_config(self.project.path_with_namespace).features.auto_address_issues_enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
-            # Only accept if there are changes in the title or description of the issue.
-            and (self.changes and "title" in self.changes or "description" in self.changes or "labels" in self.changes)
+            # Only accept if there are changes in the title, description, labels or state of the issue.
+            and bool(self.changes.keys() & ISSUE_CHANGE_FIELDS)
             # Only accept if the issue is a DAIV issue.
             and self.object_attributes.is_daiv()
             # When work_item is created without the parent issue, the object_kind=issue.

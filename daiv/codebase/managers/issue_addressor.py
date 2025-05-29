@@ -112,6 +112,7 @@ class IssueAddressorManager(BaseManager):
         config = RunnableConfig(
             recursion_limit=issue_addressor_settings.RECURSION_LIMIT,
             tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
+            metadata={"author": self.issue.author.username},
             configurable={
                 "thread_id": self.thread_id,
                 "project_id": self.repository.pk,
