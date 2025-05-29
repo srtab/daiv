@@ -162,8 +162,8 @@ class Issue(BaseModel):
     description: str | None = None
     state: str | None = None
     assignee: User | None = None
+    author: User
     issue_type: IssueType = IssueType.ISSUE
-    has_tasks: bool = False
     notes: list[Note] = Field(default_factory=list)
     related_merge_requests: list[MergeRequest] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)

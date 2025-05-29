@@ -232,7 +232,11 @@ class ReviewAddressorManager(BaseManager):
 
         config = RunnableConfig(
             tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
-            metadata={"merge_request_id": self.merge_request_id, "discussion_id": context.discussion.id},
+            metadata={
+                "merge_request_id": self.merge_request_id,
+                "discussion_id": context.discussion.id,
+                "author": context.notes[-1].author.username,
+            },
             configurable={"thread_id": thread_id, "source_repo_id": self.repo_id, "source_ref": self.ref},
         )
 
@@ -322,7 +326,6 @@ class ReviewAddressorManager(BaseManager):
                         if not file_content:
                             raise ValueError(f"File content '{path}' for note: {note.id} not found")
                         context.diff = self.note_processor.extract_diff(note, context.patch_file, file_content)
-                        print(context.diff)  # noqa: T201
 
                 context.notes.append(note)
 

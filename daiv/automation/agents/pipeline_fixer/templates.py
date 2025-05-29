@@ -1,6 +1,6 @@
 PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE = """### 🚫 **Pipeline Job `{{ job_name }}` Failed**
 
-Unfortunately, the pipeline job has failed and requires **manual intervention**.
+The pipeline job has failed and requires **manual intervention**.
 
 Here are the details to help you troubleshoot the issue:
 
@@ -8,17 +8,18 @@ Here are the details to help you troubleshoot the issue:
 <details>
 <summary>
 
-{{ troubleshooting.title }} - `{{ troubleshooting.file_path }}`
+**{{ troubleshooting.title }}{% if troubleshooting.file_path %} - `{{ troubleshooting.file_path }}`{% endif %}**
 
 </summary>
 
-**{{ troubleshooting.details }}**
+{{ troubleshooting.details }}
 
 {% for step in troubleshooting.remediation_steps %}
   - [ ] {{ step }}{% endfor %}
 
----
 </details>
+
+---
 {% endfor %}
 
 > ⚠️ {{ bot_name }} can make mistakes. Critical thinking is expected when interpreting the proposed remediation steps.

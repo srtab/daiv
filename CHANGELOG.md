@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `author` to metadata on `ReviewAddressorAgent` and `IssueAddressorAgent` to track the agent executions on the `langsmith` platform.
+
 ### Changed
 
 - Improved `PlanAndExecuteAgent`:
@@ -23,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Completely rewrote troubleshooting system prompt to be more structured and concise with clear workflow steps and rules of thumb.
   - Enhanced troubleshooting human prompt with better context handling.
   - Simplified troubleshooting template format for better readability and reduced verbosity.
+
+### Fixed
+
+- When changing the state of an Issue (from `closed` to `opened`), the webhook was being ignored by the GitLab callback.
 
 ## [0.1.5] - 2025-05-26
 
