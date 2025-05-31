@@ -78,6 +78,16 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def _update_repository(self, indexer: CodebaseIndex, repository: Repository, options: dict):
+        """
+        Update the index of a repository.
+
+        This method is synchronous because it uses Django's transaction.atomic, which doesn't support async mode yet.
+
+        Args:
+            indexer: The indexer to use.
+            repository: The repository to update.
+            options: The options for the update.
+        """
         if not options["repo_id"] and (
             repository.slug in options["exclude_repo_ids"] or repository.pk in options["exclude_repo_ids"]
         ):

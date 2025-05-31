@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph.state import CompiledGraph
 from langgraph.prebuilt import create_react_agent
@@ -29,7 +28,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
     Agent for answering questions about codebases.
     """
 
-    def compile(self) -> CompiledGraph:
+    async def compile(self) -> CompiledGraph:
         """
         Compile the graph for the agent.
 
@@ -42,28 +41,7 @@ class CodebaseChatAgent(BaseAgent[CompiledGraph]):
             state_schema=CodebaseChatAgentState,
             tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                repositories=index._get_all_repositories(),
-                search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
-            ),
-            version="v2",
-            name=settings.NAME,
-        )
-
-    async def acompile(self) -> CompiledGraph:
-        """
-        Compile the graph for the agent asynchronously.
-
-        Returns:
-            CompiledGraph: The compiled graph.
-        """
-        index = CodebaseIndex(RepoClient.create_instance())
-        return create_react_agent(
-            self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
-            state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
-            prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                repositories=await sync_to_async(index._get_all_repositories)(),
+                repositories=await index._get_all_repositories(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
                 current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
             ),

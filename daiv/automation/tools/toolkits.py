@@ -4,9 +4,7 @@ from abc import ABCMeta, abstractmethod
 
 from langchain_core.tools.base import BaseTool
 from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
-
-from automation.tools.sandbox import RunSandboxCodeTool
-from automation.tools.web_search import WebSearchTool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from .repository import (
     CreateNewRepositoryFileTool,
@@ -17,6 +15,8 @@ from .repository import (
     RetrieveFileContentTool,
     SearchCodeSnippetsTool,
 )
+from .sandbox import RunSandboxCodeTool
+from .web_search import WebSearchTool
 
 
 class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
@@ -78,3 +78,17 @@ class WebSearchToolkit(BaseToolkit):
     @classmethod
     def create_instance(cls) -> BaseToolkit:
         return cls(tools=[WebSearchTool()])
+
+
+class MCPToolkit(BaseToolkit):
+    """
+    Toolkit for using MCP servers.
+    """
+
+    @classmethod
+    async def create_instance(cls) -> BaseToolkit:
+        from .mcp.registry import mcp_registry
+
+        client = MultiServerMCPClient(mcp_registry.get_connections())
+        tools = await client.get_tools()
+        return cls(tools=tools)

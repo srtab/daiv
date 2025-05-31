@@ -16,3 +16,8 @@ class OverallState(MessagesState):
     """
     Whether the issue is a request for changes.
     """
+
+    plan_questions: list[str]
+    """
+    The questions to be answered by the human to clarify it's intent.
+    """

@@ -5,7 +5,7 @@ from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
@@ -27,7 +27,7 @@ class PipelineFixerManager(BaseManager):
         self.thread_id = kwargs["thread_id"]
 
     @classmethod
-    def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
+    async def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -45,9 +45,9 @@ class PipelineFixerManager(BaseManager):
         thread_id = generate_uuid(f"{repo_id}{merge_request_id}{job_name}")
 
         manager = cls(client, repo_id, ref, thread_id=thread_id)
-        manager._process_job(merge_request_id, job_id, job_name)
+        await manager._process_job(merge_request_id, job_id, job_name)
 
-    def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
+    async def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
         """
         Process pipeline fix for a job.
 
@@ -70,12 +70,12 @@ class PipelineFixerManager(BaseManager):
             },
         )
 
-        with PostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            pipeline_fixer = PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store)
+        async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+            pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
 
-            current_state = pipeline_fixer.agent.get_state(config)
+            current_state = await pipeline_fixer.aget_state(config)
 
-            result = pipeline_fixer.agent.invoke(
+            result = await pipeline_fixer.ainvoke(
                 {
                     "diff": self._merge_request_diffs_to_str(diffs),
                     "job_logs": log_trace,
@@ -86,8 +86,8 @@ class PipelineFixerManager(BaseManager):
                 config,
             )
 
-            if file_changes := self._get_file_changes():
-                self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
+            if file_changes := await self._get_file_changes():
+                await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
 
             elif result and result.get("need_manual_fix", False) and (troubleshooting := result.get("troubleshooting")):
                 self.client.comment_merge_request(
