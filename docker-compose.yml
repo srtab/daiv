@@ -25,6 +25,8 @@ x-app-defaults: &x_app_default
       condition: service_healthy
     sandbox:
       condition: service_healthy
+    mcp-proxy:
+      condition: service_started
 
 services:
   db:
@@ -45,25 +47,6 @@ services:
       retries: 5
     ports:
       - "5432:5432"
-
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    restart: unless-stopped
-    container_name: daiv-pgadmin
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=srtabs@gmail.com
-      - PGADMIN_DEFAULT_PASSWORD=password
-      - GUNICORN_ACCESS_LOGFILE=/dev/null
-    volumes:
-      - ./data/pgadmin:/root/.pgadmin
-      - ./docker/local/pgadmin/servers.json:/pgadmin4/servers.json
-    logging:
-      driver: none
-    ports:
-      - "8080:80"
-    depends_on:
-      db:
-        condition: service_healthy
 
   redis:
     image: redis:latest
@@ -137,3 +120,15 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
+
+  mcp-proxy:
+    image: ghcr.io/tbxark/mcp-proxy:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-proxy
+    env_file:
+      - ./docker/local/mcp-proxy/config.env
+      - ./docker/local/mcp-proxy/config.secrets.env
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/local/mcp-proxy/config.json:/config/config.json

@@ -35,7 +35,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
     client = RepoClient.create_instance()
-    codebase_chat = await CodebaseChatAgent().acompile()
+    codebase_chat = await CodebaseChatAgent().agent
 
     config = RunnableConfig(
         tags=[codebase_chat_settings.NAME, str(client.client_slug)],

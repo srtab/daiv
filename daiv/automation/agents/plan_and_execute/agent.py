@@ -19,7 +19,7 @@ from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.tools.sandbox import RunSandboxCommandsTool
-from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
@@ -40,7 +40,7 @@ class HumanApprovalEvaluator(BaseAgent[Runnable[HumanApprovalInput, HumanApprova
     Chain for evaluating the human approval of the plan.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([human_approval_system, MessagesPlaceholder("messages")])
             | self.get_model(model=settings.HUMAN_APPROVAL_MODEL_NAME).with_structured_output(
@@ -75,7 +75,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self.skip_approval = skip_approval
         super().__init__(**kwargs)
 
-    def compile(self) -> CompiledStateGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
 
@@ -85,7 +85,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
 
         if not self.skip_planning:
-            workflow.add_node("plan", self.plan_subgraph(self.store))
+            workflow.add_node("plan", await self.plan_subgraph(self.store))
             workflow.add_node("plan_approval", self.plan_approval)
 
         workflow.add_node("execute_plan", self.execute_plan)
@@ -98,7 +98,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    def plan_subgraph(self, store: BaseStore | None = None) -> CompiledGraph:
+    async def plan_subgraph(self, store: BaseStore | None = None) -> CompiledGraph:
         """
         Subgraph to plan the steps to follow.
 
@@ -113,6 +113,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             self.get_model(model=settings.PLANNING_MODEL_NAME),
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
+            + (await MCPToolkit.create_instance()).get_tools()
             + [think_plan, determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
@@ -124,7 +125,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             version="v2",
         )
 
-    def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan", "plan_approval"]]:
+    async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan", "plan_approval"]]:
         """
         Request human approval of the plan.
 
@@ -139,13 +140,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         messages = interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
 
-        result = HumanApprovalEvaluator().agent.invoke({"messages": messages})
+        human_approval_evaluator = await HumanApprovalEvaluator().agent
+        result = await human_approval_evaluator.ainvoke({"messages": messages})
 
         if result.is_unambiguous_approval:
             return Command(goto="execute_plan", update={"plan_approval_response": result.feedback})
         return Command(goto="plan_approval", update={"plan_approval_response": result.feedback})
 
-    def execute_plan(
+    async def execute_plan(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["apply_format_code", "__end__"]]:
         """
@@ -174,24 +176,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             version="v2",
         )
 
-        react_agent.invoke(
+        await react_agent.ainvoke(
             {
                 "plan_tasks": state["plan_tasks"],
                 "relevant_files": list({
                     file_path for task in state["plan_tasks"] for file_path in task.relevant_files
                 }),
             },
-            config={"recursion_limit": config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)},
+            config=RunnableConfig(recursion_limit=config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)),
         )
 
-        if store.search(
+        if await store.asearch(
             file_changes_namespace(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]),
             limit=1,
         ):
             return Command(goto="apply_format_code")
         return Command(goto=END)
 
-    def apply_format_code(
+    async def apply_format_code(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["__end__"]]:
         """
@@ -215,13 +217,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             return Command(goto=END)
 
         run_command_tool = RunSandboxCommandsTool()
-        run_command_tool.invoke(
+        await run_command_tool.ainvoke(
             {
                 "commands": [repo_config.commands.install_dependencies, repo_config.commands.format_code],
                 "intent": "[Manual call] Format code in the repository",
                 "store": store,
             },
-            config={"configurable": {"source_repo_id": source_repo_id, "source_ref": source_ref}},
+            config=RunnableConfig(configurable={"source_repo_id": source_repo_id, "source_ref": source_ref}),
         )
 
         return Command(goto=END)

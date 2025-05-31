@@ -1,0 +1,52 @@
+{
+  "mcpProxy": {
+    "baseURL": "http://mcp-proxy:9090",
+    "addr": ":9090",
+    "name": "MCP Proxy",
+    "version": "1.0.0",
+    "options": {
+      "panicIfInvalid": true,
+      "logEnabled": true
+    }
+  },
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch==2025.4.7"
+      ],
+      "options": {
+        "panicIfInvalid": false,
+        "logEnabled": true
+      }
+    },
+    "sentry": {
+      "command": "npx",
+      "args": [
+        "@sentry/mcp-server@0.10.0"
+      ],
+      "options": {
+        "panicIfInvalid": false,
+        "logEnabled": true,
+        "toolFilter": {
+          "mode": "block",
+          "list": [
+            "find_teams",
+            "find_projects",
+            "find_issues",
+            "find_releases",
+            "find_tags",
+            "find_errors",
+            "find_dsns",
+            "find_transactions",
+            "create_team",
+            "create_project",
+            "create_dsn",
+            "begin_seer_issue_fix",
+            "get_seer_issue_fix_status"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,7 @@ import logging
 
 from django.core.management import call_command
 
+from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from codebase.managers.issue_addressor import IssueAddressorManager
@@ -60,7 +61,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
+    async_to_sync(IssueAddressorManager.process_issue)(repo_id, issue_iid, ref, should_reset_plan)
 
 
 @shared_task

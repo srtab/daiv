@@ -6,11 +6,9 @@ import pytest
 from core.utils import (
     async_url_to_data_url,
     batch_async_url_to_data_url,
-    batch_url_to_data_url,
     build_uri,
     extract_image_mimetype_openai,
     is_valid_url,
-    url_to_data_url,
 )
 
 
@@ -59,111 +57,7 @@ class ExtractImageMimetypeOpenaiTest:
         assert extract_image_mimetype_openai("image.ico") is None  # image/x-icon is valid but not supported
 
 
-class UrlToDataUrlTest:
-    def test_successful_conversion(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.content = b"fake-image-data"
-        mock_response.raise_for_status.return_value = None
-        mock_client = mocker.patch("httpx.Client")
-        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
-
-        expected_data_url = f"data:image/jpeg;base64,{base64.b64encode(b'fake-image-data').decode('utf-8')}"
-        result = url_to_data_url("https://example.com/image.jpg")
-        assert result == expected_data_url
-
-    def test_failed_request(self, mocker):
-        mock_client = mocker.patch("httpx.Client")
-        mock_client.return_value.__enter__.return_value.get.side_effect = Exception("Request failed")
-
-        result = url_to_data_url("https://example.com/image.jpg")
-        assert result is None
-
-    def test_request_exception_handling(self, mocker):
-        """Test handling of various HTTP request exceptions."""
-        mock_client = mocker.patch("httpx.Client")
-        client = mock_client.return_value.__enter__.return_value
-
-        # Test different types of exceptions
-        exceptions = [
-            httpx.RequestError("Connection failed"),
-            httpx.TimeoutException("Request timed out"),
-            httpx.HTTPStatusError("404 Not Found", request=mocker.Mock(), response=mocker.Mock()),
-        ]
-
-        for exception in exceptions:
-            client.get.side_effect = exception
-            result = url_to_data_url("https://example.com/image.jpg")
-            assert result is None
-
-
-class BatchUrlToDataUrlTest:
-    def test_successful_batch_conversion(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.content = b"fake-image-data"
-        mock_response.raise_for_status.return_value = None
-        mock_client = mocker.patch("httpx.Client")
-        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
-
-        urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        expected_data_url = f"data:image/jpeg;base64,{base64.b64encode(b'fake-image-data').decode('utf-8')}"
-        result = batch_url_to_data_url(urls)
-        assert len(result) == 2
-        assert all(url in result for url in urls)
-        assert all(data_url == expected_data_url for data_url in result.values())
-
-    def test_partial_failed_requests(self, mocker):
-        mock_client = mocker.patch("httpx.Client")
-        client = mock_client.return_value.__enter__.return_value
-        # First request succeeds, second fails
-        mock_response_success = mocker.Mock()
-        mock_response_success.content = b"fake-image-data"
-        mock_response_success.raise_for_status.return_value = None
-
-        def get_side_effect(url):
-            if "1.jpg" in url:
-                return mock_response_success
-            raise Exception("Request failed")
-
-        client.get.side_effect = get_side_effect
-
-        urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        result = batch_url_to_data_url(urls)
-
-        assert len(result) == 1
-        assert "https://example.com/1.jpg" in result
-
-    def test_mixed_url_types_handling(self, mocker):
-        """Test handling of mixed valid and invalid URLs in batch processing."""
-        mock_client = mocker.patch("httpx.Client")
-        client = mock_client.return_value.__enter__.return_value
-
-        mock_response = mocker.Mock()
-        mock_response.content = b"fake-image-data"
-        mock_response.raise_for_status.return_value = None
-
-        def get_side_effect(url):
-            if "valid" in url:
-                return mock_response
-            raise httpx.HTTPError("Invalid URL")
-
-        client.get.side_effect = get_side_effect
-
-        urls = [
-            "https://example.com/valid.jpg",  # Valid image
-            "https://example.com/invalid.txt",  # Invalid mimetype
-            "https://example.com/valid2.jpg",  # Valid image
-            "not-a-url.jpg",  # Invalid URL
-        ]
-
-        result = batch_url_to_data_url(urls)
-        assert len(result) == 2
-        assert "https://example.com/valid.jpg" in result
-        assert "https://example.com/valid2.jpg" in result
-        assert "https://example.com/invalid.txt" not in result
-        assert "not-a-url.jpg" not in result
-
-
-class TestAsyncUrlToDataUrl:
+class AsyncUrlToDataUrlTest:
     @pytest.mark.asyncio
     async def test_successful_conversion(self, mocker):
         mock_response = mocker.Mock()

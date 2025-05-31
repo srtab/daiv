@@ -50,7 +50,7 @@ class SameErrorEvaluator(BaseAgent[Runnable[SameErrorInput, SameErrorEvaluation]
     Chain for evaluating if two logs are the same error.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([same_error_evaluator_system, same_error_evaluator_human])
             | self.get_model(model=settings.SAME_ERROR_MODEL_NAME).bind_tools([SameErrorEvaluation], tool_choice="auto")
@@ -64,7 +64,7 @@ class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputE
     or indications of failures.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([command_output_evaluator_human])
             | self.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
@@ -78,7 +78,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
     Agent for fixing pipeline failures.
     """
 
-    def compile(self) -> CompiledStateGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the state graph for the agent.
 
@@ -96,7 +96,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    def should_try_to_fix(
+    async def should_try_to_fix(
         self, state: OverallState, config: RunnableConfig
     ) -> Command[Literal["troubleshoot", "__end__"]]:
         """
@@ -140,7 +140,8 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             # This means that it's the first time the agent is running, so we need to troubleshoot the issue.
             return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
-        result = SameErrorEvaluator().agent.invoke({
+        same_error_evaluator = await SameErrorEvaluator().agent
+        result = await same_error_evaluator.ainvoke({
             "log_trace_1": cast("str", state["previous_job_logs"]),
             "log_trace_2": state["job_logs"],
         })
@@ -167,7 +168,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
-    def troubleshoot(
+    async def troubleshoot(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
         """
@@ -207,7 +208,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             version="v2",
         )
 
-        agent.invoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
+        await agent.ainvoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
 
         # At this stage, the agent has invoked the troubleshoot_analysis_result tool and next step is
         # already set in the tool call. If not, it means something went wrong and we need to fallback to a
@@ -226,7 +227,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             },
         )
 
-    def execute_remediation_steps(self, state: OverallState, store: BaseStore) -> Command[Literal["__end__"]]:
+    async def execute_remediation_steps(self, state: OverallState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
         Execute the remediation steps to fix the pipeline issue.
 
@@ -248,12 +249,14 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             ]
         )
 
-        plan_and_execute = PlanAndExecuteAgent(store=store, skip_planning=True, skip_approval=True, checkpointer=False)
-        plan_and_execute.agent.invoke({"plan_tasks": plan.changes})
+        plan_and_execute = await PlanAndExecuteAgent(
+            store=store, skip_planning=True, skip_approval=True, checkpointer=False
+        ).agent
+        await plan_and_execute.ainvoke({"plan_tasks": plan.changes})
 
         return Command(goto=END)
 
-    def apply_format_code(
+    async def apply_format_code(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["execute_remediation_steps", "__end__"]]:
         """
@@ -276,7 +279,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             # linting errors like whitespaces can be challenging to fix by an agent, or even impossible.
             return Command(goto="execute_remediation_steps")
 
-        tool_message = RunSandboxCommandsTool().invoke(
+        tool_message = await RunSandboxCommandsTool().ainvoke(
             {
                 "name": "run_sandbox_commands",
                 "args": {
@@ -287,18 +290,19 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                 "id": str(uuid.uuid4()),
                 "type": "tool_call",
             },
-            config={
-                "configurable": {
+            config=RunnableConfig(
+                configurable={
                     "source_repo_id": config["configurable"]["source_repo_id"],
                     "source_ref": config["configurable"]["source_ref"],
                 }
-            },
+            ),
         )
 
         # We need to check if the command output contains more errors, or indications of failures.
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
-        result = CommandOutputEvaluator().agent.invoke({"output": tool_message.artifact[-1].output})
+        command_output_evaluator = await CommandOutputEvaluator().agent
+        result = await command_output_evaluator.ainvoke({"output": tool_message.artifact[-1].output})
 
         if result.has_errors:
             # If there are still errors, we need to try to fix them by executing the remediation steps.

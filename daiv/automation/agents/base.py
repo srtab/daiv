@@ -57,26 +57,20 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         self.store = store
 
     @cached_property
-    def agent(self) -> T:
+    async def agent(self) -> T:
         """
         The compiled agent.
         """
-        return self.compile()
+        return await self.compile()
 
     @abstractmethod
-    def compile(self) -> T:
+    async def compile(self) -> T:
         """
         Compile the agent.
 
         Tipically this method returns a Runnable or a CompiledGraph.
         """
         pass
-
-    async def acompile(self) -> T:
-        """
-        Asynchronously support to compile.
-        """
-        raise NotImplementedError("This method should be implemented by the subclass.")
 
     def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
@@ -177,7 +171,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif thinking_level == ThinkingLevel.HIGH:
             return 64_000, {"type": "enabled", "budget_tokens": 55_808}
 
-    def draw_mermaid(self):
+    async def draw_mermaid(self) -> str:
         """
         Draw the graph in Mermaid format.
 
@@ -185,8 +179,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             str: The Mermaid graph
         """
         if isinstance(self.agent, CompiledStateGraph):
-            return self.agent.get_graph(xray=True).draw_mermaid_png()
-        return self.agent.get_graph().draw_mermaid_png()
+            return (await self.agent.aget_graph(xray=True)).draw_mermaid_png()
+        return (await self.agent.aget_graph()).draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """

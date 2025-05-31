@@ -9,6 +9,7 @@
     "eamodio.gitlens",
     "charliermarsh.ruff",
     "tamasfe.even-better-toml",
-    "ms-toolsai.jupyter"
+    "ms-toolsai.jupyter",
+    "ms-ossdata.vscode-pgsql",
   ]
 }

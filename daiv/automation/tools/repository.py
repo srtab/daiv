@@ -4,6 +4,7 @@ import logging
 import textwrap
 from typing import Any
 
+from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import BaseTool
 from langgraph.store.memory import BaseStore  # noqa: TC002
@@ -62,6 +63,10 @@ class SearchCodeSnippetsTool(BaseTool):
             self.args_schema = SearchCodeSnippetsInput
 
     def _run(self, query: str, intent: str, config: RunnableConfig, repository: str | None = None) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
+    async def _arun(self, query: str, intent: str, config: RunnableConfig, repository: str | None = None) -> str:
         """
         Searches the codebase for a given query.
 
@@ -92,13 +97,15 @@ class SearchCodeSnippetsTool(BaseTool):
             # we need to update the index before retrieving the documents
             # because the codebase search agent needs to search for the codebase changes
             # and we need to make sure the index is updated before the agent starts retrieving the documents
-            self.api_wrapper.update(source_repo_id, source_ref)
+            await sync_to_async(self.api_wrapper.update)(source_repo_id, source_ref)
 
         search = CodebaseSearchAgent(
-            retriever=self.api_wrapper.as_retriever(source_repo_id, source_ref), rephrase=False
+            retriever=await self.api_wrapper.as_retriever(source_repo_id, source_ref), rephrase=False
         )
 
-        if search_results := search.agent.invoke(query):
+        search_agent = await search.agent
+
+        if search_results := await search_agent.ainvoke(query):
             search_results_str = ""
             for document in search_results:
                 logger.debug("[%s] Found snippet in '%s'", self.name, document.metadata["source"])
@@ -195,7 +202,13 @@ class BaseRepositoryTool(BaseTool):
 
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
 
-    def _get_file_content(self, file_path: str, store: BaseStore, source_repo_id: str, source_ref: str) -> str | None:
+    def _run(self, *args, **kwargs) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
+    async def _get_file_content(
+        self, file_path: str, store: BaseStore, source_repo_id: str, source_ref: str
+    ) -> str | None:
         """
         Gets the content of a file to replace a snippet in.
 
@@ -209,7 +222,7 @@ class BaseRepositoryTool(BaseTool):
             The content of the file.
         """
 
-        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
+        if stored_item := await store.aget(file_changes_namespace(source_repo_id, source_ref), file_path):
             if stored_item.value["action"] == FileChangeAction.DELETE:
                 # act as if the file does not exist
                 return None
@@ -233,7 +246,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = RetrieveFileContentInput
 
-    def _run(self, file_paths: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
+    async def _arun(self, file_paths: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
         """
         Gets the content of a list of files from the repository.
 
@@ -255,7 +268,7 @@ class RetrieveFileContentTool(BaseRepositoryTool):
         not_found_files = []
 
         for file_path in file_paths:
-            if not (content := self._get_file_content(file_path, store, source_repo_id, source_ref)):
+            if not (content := await self._get_file_content(file_path, store, source_repo_id, source_ref)):
                 not_found_files.append(file_path)
             else:
                 contents.append(
@@ -290,7 +303,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = ReplaceSnippetInFileInput
 
-    def _run(
+    async def _arun(
         self,
         file_path: str,
         original_snippet: str,
@@ -317,12 +330,13 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
 
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
+        namespace = file_changes_namespace(source_repo_id, source_ref)
 
-        stored_item = store.get(file_changes_namespace(source_repo_id, source_ref), file_path)
+        stored_item = await store.aget(namespace, file_path)
 
         file_change: FileChange | None = stored_item.value["data"] if stored_item else None
 
-        if not (repo_file_content := self._get_file_content(file_path, store, source_repo_id, source_ref)):
+        if not (repo_file_content := await self._get_file_content(file_path, store, source_repo_id, source_ref)):
             return f"error: File {file_path} not found."
 
         if original_snippet == replacement_snippet:
@@ -331,7 +345,9 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
                 "No changes will be made. Make sure you're not missing any changes."
             )
 
-        result = SnippetReplacerAgent().agent.invoke({
+        snippet_replacer = await SnippetReplacerAgent().agent
+
+        result = await snippet_replacer.ainvoke({
             "original_snippet": original_snippet,
             "replacement_snippet": replacement_snippet,
             "content": repo_file_content,
@@ -352,11 +368,7 @@ class ReplaceSnippetInFileTool(BaseRepositoryTool):
                 commit_messages=[commit_message],
             )
 
-        store.put(
-            file_changes_namespace(source_repo_id, source_ref),
-            file_path,
-            {"data": file_change, "action": file_change.action},
-        )
+        await store.aput(namespace, file_path, {"data": file_change, "action": file_change.action})
 
         return "success: Snippet replaced."
 
@@ -371,7 +383,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = CreateNewRepositoryFileInput
 
-    def _run(
+    async def _arun(
         self, file_path: str, file_content: str, commit_message: str, store: BaseStore, config: RunnableConfig
     ) -> str:
         """
@@ -391,8 +403,9 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
 
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
+        namespace = file_changes_namespace(source_repo_id, source_ref)
 
-        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
+        if stored_item := await store.aget(namespace, file_path):
             file_change: FileChange = stored_item.value["data"]
 
             if stored_item.value["action"] == FileChangeAction.CREATE:
@@ -408,11 +421,7 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
                 file_change.action = FileChangeAction.UPDATE
                 # Reset the commit messages because all previous changes were undone.
                 file_change.commit_messages = [commit_message]
-                store.put(
-                    file_changes_namespace(source_repo_id, source_ref),
-                    file_path,
-                    {"data": file_change, "action": file_change.action},
-                )
+                await store.aput(namespace, file_path, {"data": file_change, "action": file_change.action})
                 return (
                     f"success: The file {file_path} had already been created earlier, so the content has been updated."
                 )
@@ -427,8 +436,8 @@ class CreateNewRepositoryFileTool(BaseRepositoryTool):
                 f"Use '{REPLACE_SNIPPET_IN_FILE_NAME}' to update the file instead."
             )
 
-        store.put(
-            file_changes_namespace(source_repo_id, source_ref),
+        await store.aput(
+            namespace,
             file_path,
             {
                 "data": FileChange(
@@ -454,7 +463,7 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = RenameRepositoryFileInput
 
-    def _run(
+    async def _arun(
         self, file_path: str, new_file_path: str, commit_message: str, store: BaseStore, config: RunnableConfig
     ) -> str:
         """
@@ -474,8 +483,9 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
 
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
+        namespace = file_changes_namespace(source_repo_id, source_ref)
 
-        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), new_file_path):
+        if stored_item := await store.aget(namespace, new_file_path):
             if stored_item.value["action"] == FileChangeAction.MOVE:
                 # The file is already marked for deletion, we don't need to do anything, just notify DAIV
                 return f"warning: File {new_file_path} is already marked for deletion. No need to rename it."
@@ -484,11 +494,7 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
                 # The file was previously created, but not committed yet, so we can just update the path.
                 file_change: FileChange = stored_item.value["data"]
                 file_change.file_path = new_file_path
-                store.put(
-                    file_changes_namespace(source_repo_id, source_ref),
-                    new_file_path,
-                    {"data": file_change, "action": file_change.action},
-                )
+                await store.aput(namespace, new_file_path, {"data": file_change, "action": file_change.action})
                 return f"success: Renamed file {file_path} to {new_file_path}."
 
             # All other actions can't be reverted, so we need to return an error.
@@ -498,8 +504,8 @@ class RenameRepositoryFileTool(BaseRepositoryTool):
         if self.api_wrapper.repository_file_exists(source_repo_id, new_file_path, source_ref):
             return f"error: File {new_file_path} already exists."
 
-        store.put(
-            file_changes_namespace(source_repo_id, source_ref),
+        await store.aput(
+            namespace,
             new_file_path,
             {
                 "data": FileChange(
@@ -525,7 +531,7 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
 
     args_schema: type[BaseModel] = DeleteRepositoryFileInput
 
-    def _run(self, file_path: str, commit_message: str, store: BaseStore, config: RunnableConfig) -> str:
+    async def _arun(self, file_path: str, commit_message: str, store: BaseStore, config: RunnableConfig) -> str:
         """
         Deletes a file in the repository.
 
@@ -542,15 +548,16 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
 
         source_repo_id = config["configurable"]["source_repo_id"]
         source_ref = config["configurable"]["source_ref"]
+        namespace = file_changes_namespace(source_repo_id, source_ref)
 
-        if stored_item := store.get(file_changes_namespace(source_repo_id, source_ref), file_path):
+        if stored_item := await store.aget(namespace, file_path):
             if stored_item.value["action"] == FileChangeAction.DELETE:
                 # The file is already marked for deletion, we don't need to do anything, just notify DAIV to
                 # try to avoid calling this tool multiple times.
                 return f"error: File {file_path} not found."
             elif stored_item.value["action"] == FileChangeAction.CREATE:
                 # The file was previously created, but not committed yet, so we need to delete it from the store.
-                store.delete(file_changes_namespace(source_repo_id, source_ref), file_path)
+                await store.adelete(namespace, file_path)
                 return f"success: Deleted file {file_path}."
 
             # All other actions can't be reverted, so we need to return an error.
@@ -560,8 +567,8 @@ class DeleteRepositoryFileTool(BaseRepositoryTool):
         if not self.api_wrapper.repository_file_exists(source_repo_id, file_path, source_ref):
             return f"error: File {file_path} not found."
 
-        store.put(
-            file_changes_namespace(source_repo_id, source_ref),
+        await store.aput(
+            namespace,
             file_path,
             {
                 "data": FileChange(

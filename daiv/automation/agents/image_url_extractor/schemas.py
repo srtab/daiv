@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from codebase.base import ClientType
 from codebase.conf import settings
-from core.utils import build_uri, is_valid_url, url_to_data_url
+from core.utils import async_url_to_data_url, build_uri, is_valid_url
 
 
 class ImageURLTemplate(BaseModel):
@@ -20,7 +20,7 @@ class ImageTemplate(BaseModel):
     image_url: ImageURLTemplate
 
     @staticmethod
-    def from_images(
+    async def from_images(
         images: list[Image], repo_client_slug: ClientType | None = None, project_id: int | None = None
     ) -> list[ImageTemplate]:
         """
@@ -51,7 +51,7 @@ class ImageTemplate(BaseModel):
             ):
                 assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
                 _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
-                image_url = url_to_data_url(
+                image_url = await async_url_to_data_url(
                     _repo_image_url, headers={"PRIVATE-TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value()}
                 )
 
