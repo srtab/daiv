@@ -2,6 +2,7 @@
 from functools import wraps
 
 from .base import MCPServer
+from .registry import mcp_registry
 
 
 def mcp_server(cls: type[MCPServer]) -> type[MCPServer]:
@@ -11,12 +12,11 @@ def mcp_server(cls: type[MCPServer]) -> type[MCPServer]:
     Returns:
         The MCP server class.
     """
-    from .registry import mcp_registry
 
     mcp_registry.register(cls)
 
     @wraps(cls)
-    def wrapper() -> type[MCPServer]:
-        return cls
+    def wrapper(*args, **kwargs) -> MCPServer:
+        return cls(*args, **kwargs)
 
     return wrapper
