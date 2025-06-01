@@ -1,3 +1,5 @@
+import asyncio
+
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable
 
@@ -39,23 +41,31 @@ Document {{loop.index}}: {{document}}
 
 
 class CodebaseSearchEvaluator(BaseAgent[Runnable[dict[str, str | list[str]], list[str]]]):
-    def compile(self):
+    async def compile(self):
         return ChatPromptTemplate.from_messages([codebase_search_evaluator_system]) | self.get_model(
             model=ModelName.GPT_4_1_MINI
         )
 
 
-def run_evaluations(rephrase: bool = False):
+async def evaluate(question, result):
+    codebase_search_evaluator = await CodebaseSearchEvaluator().agent
+
+    response = await codebase_search_evaluator.ainvoke({
+        "question": question,
+        "documents": [item.page_content for item in result],
+    })
+    return response.content
+
+
+async def run_evaluations(rephrase: bool = False):
     index = CodebaseIndex(RepoClient.create_instance())
 
-    codebase_search = CodebaseSearchAgent(retriever=index.as_retriever(), rephrase=rephrase)
-    codebase_search_evaluator = CodebaseSearchEvaluator().agent
+    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever(), rephrase=rephrase).agent
 
-    results = [codebase_search.agent.invoke(question) for question in questions]
+    results = await asyncio.gather(*[codebase_search.ainvoke(question) for question in questions])
 
-    for question, result in zip(questions, results, strict=True):
-        response = codebase_search_evaluator.invoke({
-            "question": question,
-            "documents": [item.page_content for item in result],
-        })
-        print(response.content)  # NOQA
+    evaluations = await asyncio.gather(*[
+        evaluate(question, result) for question, result in zip(questions, results, strict=True)
+    ])
+
+    return evaluations
