@@ -47,7 +47,7 @@ dependencies = [
   "tree-sitter==0.24",
   "tree-sitter-language-pack==0.7.3",
   "unidiff==0.7.5",
-  "uvicorn==0.34.2",
+  "uvicorn==0.34.3",
 ]
 
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
