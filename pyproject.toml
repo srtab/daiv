@@ -16,7 +16,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "celery[redis]==5.5.2",
+  "celery[redis]==5.5.3",
   "chonkie[code]==1.0.8",
   "django==5.2.1",
   "django-extensions==4.1",
