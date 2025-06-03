@@ -18,6 +18,7 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
+from automation.tools import think
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
@@ -27,7 +28,7 @@ from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, human_approval_system, plan_system
 from .schemas import HumanApprovalEvaluation, HumanApprovalInput
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import determine_next_action, think_plan, think_plan_executer
+from .tools import determine_next_action
 
 if TYPE_CHECKING:
     from langchain_core.prompts import SystemMessagePromptTemplate
@@ -114,7 +115,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
             + (await MCPToolkit.create_instance()).get_tools()
-            + [think_plan, determine_next_action],
+            + [think, determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([
@@ -164,7 +165,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         react_agent = create_react_agent(
             self.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
-            tools=WriteRepositoryToolkit.create_instance().get_tools() + [think_plan_executer],
+            tools=WriteRepositoryToolkit.create_instance().get_tools() + [think],
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,

@@ -4,3 +4,4 @@
 !static/
 !tantivy_index_v1/
 !embeddings/
+!mcp-proxy/

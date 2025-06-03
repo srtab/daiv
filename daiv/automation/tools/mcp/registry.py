@@ -8,6 +8,8 @@ from .base import MCPServer
 if TYPE_CHECKING:
     from langchain_mcp_adapters.sessions import Connection
 
+    from .schemas import SseMcpServer, StdioMcpServer, StreamableHttpMcpServer
+
 
 class MCPRegistry:
     """
@@ -26,12 +28,28 @@ class MCPRegistry:
         self._registry.append(server)
 
     def get_connections(self) -> dict[str, Connection]:
+        """
+        Get the connections to the MCP servers for the langchain mcp adapter.
+        """
         servers: dict[str, Connection] = {}
 
         for server_class in self._registry:
             server = server_class()
             if server.is_enabled():
-                servers[server.name] = server.connection
+                servers[server.name] = server.get_connection()
+
+        return servers
+
+    def get_mcp_servers_config(self) -> dict[str, StdioMcpServer | SseMcpServer | StreamableHttpMcpServer]:
+        """
+        Get the configuration for the MCP servers for the MCP proxy.
+        """
+        servers: dict[str, StdioMcpServer | SseMcpServer | StreamableHttpMcpServer] = {}
+
+        for server_class in self._registry:
+            server = server_class()
+            if server.is_enabled():
+                servers[server.name] = server.get_proxy_config()
 
         return servers
 

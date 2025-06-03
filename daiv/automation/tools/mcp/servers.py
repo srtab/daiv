@@ -1,14 +1,17 @@
-from langchain_mcp_adapters.sessions import SSEConnection
-
 from .base import MCPServer
 from .conf import settings
 from .decorator import mcp_server
+from .schemas import CommonOptions, StdioMcpServer, ToolFilter
 
 
 @mcp_server
 class FetchMCPServer(MCPServer):
     name = "fetch"
-    connection = SSEConnection(transport="sse", url="http://mcp-proxy:9090/fetch/sse")
+    proxy_config = StdioMcpServer(
+        command="uvx",
+        args=[f"mcp-server-fetch=={settings.FETCH_VERSION}"],
+        options=CommonOptions(panic_if_invalid=False, log_enabled=True),
+    )
 
     def is_enabled(self) -> bool:
         return settings.FETCH_ENABLED
@@ -17,7 +20,21 @@ class FetchMCPServer(MCPServer):
 @mcp_server
 class SentryMCPServer(MCPServer):
     name = "sentry"
-    connection = SSEConnection(transport="sse", url="http://mcp-proxy:9090/sentry/sse")
+    proxy_config = StdioMcpServer(
+        command="npx",
+        args=[f"@sentry/mcp-server@{settings.SENTRY_VERSION}"],
+        env={
+            "SENTRY_HOST": settings.SENTRY_HOST or "",
+            "SENTRY_ACCESS_TOKEN": settings.SENTRY_ACCESS_TOKEN
+            and settings.SENTRY_ACCESS_TOKEN.get_secret_value()
+            or "",
+        },
+        options=CommonOptions(
+            panic_if_invalid=False,
+            log_enabled=True,
+            tool_filter=ToolFilter(mode="allow", items=["find_organizations", "get_issue_details"]),
+        ),
+    )
 
     def is_enabled(self) -> bool:
-        return settings.SENTRY_ENABLED
+        return settings.SENTRY_ENABLED and settings.SENTRY_ACCESS_TOKEN is not None

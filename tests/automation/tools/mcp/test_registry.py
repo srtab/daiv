@@ -1,17 +1,17 @@
-from unittest.mock import Mock
-
 import pytest
-from langchain_mcp_adapters.sessions import Connection
 
 from automation.tools.mcp.base import MCPServer
 from automation.tools.mcp.registry import MCPRegistry
+from automation.tools.mcp.schemas import CommonOptions, StdioMcpServer
 
 
 class TestMCPServer(MCPServer):
     """Test MCP server for testing purposes."""
 
     name = "test_server"
-    connection = Mock(spec=Connection)
+    proxy_config = StdioMcpServer(
+        command="test-command", options=CommonOptions(panic_if_invalid=False, log_enabled=True)
+    )
 
     def is_enabled(self) -> bool:
         return True
@@ -21,7 +21,9 @@ class DisabledTestMCPServer(MCPServer):
     """Disabled test MCP server for testing purposes."""
 
     name = "disabled_test_server"
-    connection = Mock(spec=Connection)
+    proxy_config = StdioMcpServer(
+        command="disabled-command", options=CommonOptions(panic_if_invalid=False, log_enabled=True)
+    )
 
     def is_enabled(self) -> bool:
         return False
@@ -31,7 +33,9 @@ class AnotherTestMCPServer(MCPServer):
     """Another test MCP server for testing purposes."""
 
     name = "another_test_server"
-    connection = Mock(spec=Connection)
+    proxy_config = StdioMcpServer(
+        command="another-command", options=CommonOptions(panic_if_invalid=False, log_enabled=True)
+    )
 
     def is_enabled(self) -> bool:
         return True
@@ -109,8 +113,6 @@ class TestMCPRegistry:
         assert len(connections) == 2
         assert "test_server" in connections
         assert "another_test_server" in connections
-        assert connections["test_server"] == TestMCPServer.connection
-        assert connections["another_test_server"] == AnotherTestMCPServer.connection
 
     def test_get_connections_excludes_disabled_servers(self, registry):
         """Test that get_connections excludes disabled servers."""
@@ -136,7 +138,39 @@ class TestMCPRegistry:
         assert "another_test_server" in connections
         assert "disabled_test_server" not in connections
 
-    def test_registry_preserves_order(self, registry):
+    def test_get_mcp_servers_config_empty_registry(self, registry: MCPRegistry):
+        """Test getting server configs from an empty registry."""
+        configs = registry.get_mcp_servers_config()
+
+        assert configs == {}
+
+    def test_get_mcp_servers_config_with_enabled_servers(self, registry: MCPRegistry):
+        """Test getting server configs from registry with enabled servers."""
+        registry.register(TestMCPServer)
+        registry.register(AnotherTestMCPServer)
+
+        configs = registry.get_mcp_servers_config()
+
+        assert len(configs) == 2
+        assert "test_server" in configs
+        assert "another_test_server" in configs
+        assert isinstance(configs["test_server"], StdioMcpServer)
+        assert isinstance(configs["another_test_server"], StdioMcpServer)
+        assert configs["test_server"].command == "test-command"
+        assert configs["another_test_server"].command == "another-command"
+
+    def test_get_mcp_servers_config_excludes_disabled_servers(self, registry: MCPRegistry):
+        """Test that get_mcp_servers_config excludes disabled servers."""
+        registry.register(TestMCPServer)
+        registry.register(DisabledTestMCPServer)
+
+        configs = registry.get_mcp_servers_config()
+
+        assert len(configs) == 1
+        assert "test_server" in configs
+        assert "disabled_test_server" not in configs
+
+    def test_registry_preserves_order(self, registry: MCPRegistry):
         """Test that the registry preserves the order of registration."""
         registry.register(TestMCPServer)
         registry.register(AnotherTestMCPServer)

@@ -11,6 +11,7 @@ x-app-defaults: &x_app_default
   volumes:
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
+    - ./data/mcp-proxy:/home/app/data/mcp-proxy
     - ./data/tantivy_index_v1:/home/app/data/tantivy_index_v1
     - ./data/embeddings:/home/app/data/embeddings
     - .:/home/app/src
@@ -25,8 +26,6 @@ x-app-defaults: &x_app_default
       condition: service_healthy
     sandbox:
       condition: service_healthy
-    mcp-proxy:
-      condition: service_started
 
 services:
   db:
@@ -65,6 +64,11 @@ services:
     <<: *x_app_default
     container_name: daiv-app
     command: sh /home/app/docker/start-app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8000/-/alive/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "8000:8000"
 
@@ -125,10 +129,14 @@ services:
     image: ghcr.io/tbxark/mcp-proxy:latest
     restart: unless-stopped
     container_name: daiv-mcp-proxy
-    env_file:
-      - ./docker/local/mcp-proxy/config.env
-      - ./docker/local/mcp-proxy/config.secrets.env
+    environment:
+      NODE_ENV: development
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
+    volumes:
+      - ./data/mcp-proxy:/config
     ports:
       - "9090:9090"
-    volumes:
-      - ./docker/local/mcp-proxy/config.json:/config/config.json
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true

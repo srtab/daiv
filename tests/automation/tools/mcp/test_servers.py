@@ -4,12 +4,10 @@ from automation.tools.mcp.servers import FetchMCPServer, SentryMCPServer
 
 
 class TestFetchMCPServer:
-    def test_fetch_server_has_sse_connection(self):
-        """Test that FetchMCPServer has the correct SSEConnection configuration."""
-        connection = FetchMCPServer.connection
-
-        assert connection["transport"] == "sse"
-        assert connection["url"] == "http://mcp-proxy:9090/fetch/sse"
+    def test_fetch_server_has_correct_name(self):
+        """Test that FetchMCPServer has the correct name."""
+        server = FetchMCPServer()
+        assert server.name == "fetch"
 
     @patch("automation.tools.mcp.servers.settings")
     def test_fetch_server_is_enabled_when_setting_true(self, mock_settings):
@@ -29,17 +27,18 @@ class TestFetchMCPServer:
 
 
 class TestSentryMCPServer:
-    def test_sentry_server_has_sse_connection(self):
-        """Test that SentryMCPServer has the correct SSEConnection configuration."""
-        connection = SentryMCPServer.connection
-
-        assert connection["transport"] == "sse"
-        assert connection["url"] == "http://mcp-proxy:9090/sentry/sse"
+    def test_sentry_server_has_correct_name(self):
+        """Test that SentryMCPServer has the correct name."""
+        server = SentryMCPServer()
+        assert server.name == "sentry"
 
     @patch("automation.tools.mcp.servers.settings")
-    def test_sentry_server_is_enabled_when_setting_true(self, mock_settings):
-        """Test that SentryMCPServer is enabled when SENTRY_ENABLED is True."""
+    def test_sentry_server_is_enabled_when_settings_true_and_token_present(self, mock_settings):
+        """Test that SentryMCPServer is enabled when SENTRY_ENABLED is True and token is present."""
+        from pydantic import SecretStr
+
         mock_settings.SENTRY_ENABLED = True
+        mock_settings.SENTRY_ACCESS_TOKEN = SecretStr("test-token")
         server = SentryMCPServer()
 
         assert server.is_enabled() is True
@@ -47,7 +46,19 @@ class TestSentryMCPServer:
     @patch("automation.tools.mcp.servers.settings")
     def test_sentry_server_is_disabled_when_setting_false(self, mock_settings):
         """Test that SentryMCPServer is disabled when SENTRY_ENABLED is False."""
+        from pydantic import SecretStr
+
         mock_settings.SENTRY_ENABLED = False
+        mock_settings.SENTRY_ACCESS_TOKEN = SecretStr("test-token")
+        server = SentryMCPServer()
+
+        assert server.is_enabled() is False
+
+    @patch("automation.tools.mcp.servers.settings")
+    def test_sentry_server_is_disabled_when_no_token(self, mock_settings):
+        """Test that SentryMCPServer is disabled when no access token is provided."""
+        mock_settings.SENTRY_ENABLED = True
+        mock_settings.SENTRY_ACCESS_TOKEN = None
         server = SentryMCPServer()
 
         assert server.is_enabled() is False

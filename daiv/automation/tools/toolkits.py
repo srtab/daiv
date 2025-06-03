@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from abc import ABCMeta, abstractmethod
 
 from langchain_core.tools.base import BaseTool
@@ -18,6 +19,8 @@ from .repository import (
 from .sandbox import RunSandboxCodeTool
 from .web_search import WebSearchTool
 
+logger = logging.getLogger("daiv.tools")
+
 
 class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
     tools: list[BaseTool]
@@ -28,6 +31,9 @@ class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
         pass
 
     def get_tools(self) -> list[BaseTool]:
+        """
+        Get the tools for the toolkit.
+        """
         return self.tools
 
 
@@ -90,5 +96,11 @@ class MCPToolkit(BaseToolkit):
         from .mcp.registry import mcp_registry
 
         client = MultiServerMCPClient(mcp_registry.get_connections())
-        tools = await client.get_tools()
+
+        try:
+            tools = await client.get_tools()
+        except ExceptionGroup:
+            logger.warning("Error getting tools from MCP servers: Connection refused.")
+            tools = []
+
         return cls(tools=tools)
