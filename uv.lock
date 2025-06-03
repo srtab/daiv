@@ -285,7 +285,7 @@ wheels = [
 
 [[package]]
 name = "celery"
-version = "5.5.2"
+version = "5.5.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "billiard" },
@@ -297,14 +297,14 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "vine" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/03/5d9c6c449248958f1a5870e633a29d7419ff3724c452a98ffd22688a1a6a/celery-5.5.2.tar.gz", hash = "sha256:4d6930f354f9d29295425d7a37261245c74a32807c45d764bedc286afd0e724e", size = 1666892, upload-time = "2025-04-25T20:10:04.695Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/7d/6c289f407d219ba36d8b384b42489ebdd0c84ce9c413875a8aae0c85f35b/celery-5.5.3.tar.gz", hash = "sha256:6c972ae7968c2b5281227f01c3a3f984037d21c5129d07bf3550cc2afc6b10a5", size = 1667144, upload-time = "2025-06-01T11:08:12.563Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/94/8e825ac1cf59d45d20c4345d4461e6b5263ae475f708d047c3dad0ac6401/celery-5.5.2-py3-none-any.whl", hash = "sha256:54425a067afdc88b57cd8d94ed4af2ffaf13ab8c7680041ac2c4ac44357bdf4c", size = 438626, upload-time = "2025-04-25T20:10:01.383Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/af/0dcccc7fdcdf170f9a1585e5e96b6fb0ba1749ef6be8c89a6202284759bd/celery-5.5.3-py3-none-any.whl", hash = "sha256:0b5761a07057acee94694464ca482416b959568904c9dfa41ce8413a7d65d525", size = 438775, upload-time = "2025-06-01T11:08:09.94Z" },
 ]
 
 [package.optional-dependencies]
 redis = [
-    { name = "redis" },
+    { name = "kombu", extra = ["redis"] },
 ]
 
 [[package]]
@@ -595,7 +595,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "celery", extras = ["redis"], specifier = "==5.5.2" },
+    { name = "celery", extras = ["redis"], specifier = "==5.5.3" },
     { name = "chonkie", extras = ["code"], specifier = "==1.0.8" },
     { name = "django", specifier = "==5.2.1" },
     { name = "django-extensions", specifier = "==4.1" },
@@ -613,7 +613,7 @@ requires-dist = [
     { name = "langchain-voyageai", specifier = "==0.1.6" },
     { name = "langgraph", specifier = "==0.4.7" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.21" },
-    { name = "langsmith", specifier = "==0.3.43" },
+    { name = "langsmith", specifier = "==0.3.44" },
     { name = "pgvector", specifier = "==0.4.1" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.11.5" },
@@ -627,7 +627,7 @@ requires-dist = [
     { name = "tree-sitter", specifier = "==0.24" },
     { name = "tree-sitter-language-pack", specifier = "==0.7.3" },
     { name = "unidiff", specifier = "==0.7.5" },
-    { name = "uvicorn", specifier = "==0.34.2" },
+    { name = "uvicorn", specifier = "==0.34.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -1600,6 +1600,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/35/1407fb0b2f5b07b50cbaf97fce09ad87d3bfefbf64f7171a8651cd8d2f68/kombu-5.5.3-py3-none-any.whl", hash = "sha256:5b0dbceb4edee50aa464f59469d34b97864be09111338cfb224a10b6a163909b", size = 209921, upload-time = "2025-04-16T12:46:15.139Z" },
 ]
 
+[package.optional-dependencies]
+redis = [
+    { name = "redis" },
+]
+
 [[package]]
 name = "langchain"
 version = "0.3.25"
@@ -1847,7 +1852,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.3.43"
+version = "0.3.44"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1858,9 +1863,9 @@ dependencies = [
     { name = "requests-toolbelt" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/21/df84fe8b5c16971999650cbfc95a49f176d044a606e2b4eb957bbc122e1c/langsmith-0.3.43.tar.gz", hash = "sha256:7dab99b635859e24a1a252ad4f7e23170a45f4ea742567a10b4b26c50478ed43", size = 346328, upload-time = "2025-05-29T00:21:11.637Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/86/164bb61d8c8b4d79f6f148ca845d4f5d1aa0fc3529754b39e7858e2d9623/langsmith-0.3.44.tar.gz", hash = "sha256:0a72dfe87aa2f464ebbfb94937f57101bed9e0b1d6d26401d5e422b0e8867b40", size = 347182, upload-time = "2025-06-02T20:33:39.489Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/72/f5304de3e7e80e6dc266c161230aecb7895958f78b5af1541317d7615fc6/langsmith-0.3.43-py3-none-any.whl", hash = "sha256:2d4558068abf2eeb60ff80871187724e07f5e657d7d6be9e0c603df36c41140a", size = 361148, upload-time = "2025-05-29T00:21:08.759Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/7f/4138452823da8342757efa1c3d05d2b840024e57e5192f9b62d02f9d8b8f/langsmith-0.3.44-py3-none-any.whl", hash = "sha256:fa57afc1a3b1688f8970a5082dae8c271fdbd611cee013d412921eef926fcd78", size = 361995, upload-time = "2025-06-02T20:33:35.949Z" },
 ]
 
 [[package]]
@@ -3969,15 +3974,15 @@ wheels = [
 
 [[package]]
 name = "uvicorn"
-version = "0.34.2"
+version = "0.34.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/ae/9bbb19b9e1c450cf9ecaef06463e40234d98d95bf572fab11b4f19ae5ded/uvicorn-0.34.2.tar.gz", hash = "sha256:0e929828f6186353a80b58ea719861d2629d766293b6d19baf086ba31d4f3328", size = 76815, upload-time = "2025-04-19T06:02:50.101Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/ad/713be230bcda622eaa35c28f0d328c3675c371238470abdea52417f17a8e/uvicorn-0.34.3.tar.gz", hash = "sha256:35919a9a979d7a59334b6b10e05d77c1d0d574c50e0fc98b8b1a0f165708b55a", size = 76631, upload-time = "2025-06-01T07:48:17.531Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/4b/4cef6ce21a2aaca9d852a6e84ef4f135d99fcd74fa75105e2fc0c8308acd/uvicorn-0.34.2-py3-none-any.whl", hash = "sha256:deb49af569084536d269fe0a6d67e3754f104cf03aba7c11c40f01aadf33c403", size = 62483, upload-time = "2025-04-19T06:02:48.42Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/0d/8adfeaa62945f90d19ddc461c55f4a50c258af7662d34b6a3d5d1f8646f6/uvicorn-0.34.3-py3-none-any.whl", hash = "sha256:16246631db62bdfbf069b0645177d6e8a77ba950cfedbfd093acef9444e4d885", size = 62431, upload-time = "2025-06-01T07:48:15.664Z" },
 ]
 
 [[package]]
