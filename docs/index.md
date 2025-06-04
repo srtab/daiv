@@ -47,3 +47,25 @@ DAIV currently supports:
 
 !!! info "GitHub Support"
     :simple-github: GitHub is not supported yet, but it is planned for the future. Contributions are welcome!
+
+---
+
+## 🚀 Next Steps
+
+Ready to get started with DAIV? Here's what you need to do:
+
+### **1. Install and Setup**
+- **[Get DAIV running](getting-started/up-and-running.md)** - Follow our installation guide to set up DAIV in your environment
+- **[Configure your first repository](getting-started/configuration.md)** - Connect DAIV to your GitLab repository
+
+### **2. Start Using DAIV**
+- **Create an issue** in your connected repository to see DAIV generate an automatic plan
+- **Add a comment** with your approval to watch DAIV execute the plan and generate a PR with the changes
+
+### **3. Customize and Optimize**
+- **[Configure AI agents](ai-agents/overview.md)** - Learn about the different agents and how to customize their behavior
+- **[Review configuration options](getting-started/configuration.md#advanced-options)** - Fine-tune DAIV for your team's workflow
+
+### **4. Get Help**
+- **[Join our community](https://github.com/srtab/daiv/discussions)** - Ask questions and share feedback
+- **[Report issues](https://github.com/srtab/daiv/issues)** - Help us improve DAIV

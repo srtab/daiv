@@ -69,34 +69,49 @@ graph TD;
 
 ## Step-by-Step Usage Guide
 1. **Create an Issue**
-   Create a new issue in your repository with a title that starts with "DAIV:". For example, "DAIV: Fix login bug on mobile". The agent uses the issue's title and description to understand the problem.
+
+    Create a new issue in your repository with a title that starts with "DAIV:". For example, "DAIV: Fix login bug on mobile". The agent uses the issue's title and description to understand the problem.
+
 2. **Review the Proposed Plan**
-   The agent analyzes the issue and generates a plan. This plan is posted as a comment for your review.
+
+    The agent analyzes the issue and generates a plan. This plan is posted as a comment for your review.
+
 3. **Approve or Edit the Plan**
-   Review the plan. If it looks good, approve it. If not, edit the issue title and description to provide additional information and guide the agent to generate a new plan. The agent may also ask clarifying questions if the issue is ambiguous.
+
+    Review the plan. If it looks good, approve it. If not, edit the issue title and description to provide additional information and guide the agent to generate a new plan. The agent may also ask clarifying questions if the issue is ambiguous.
+
 4. **Execute the Plan**
-   Once approved, the agent executes the plan, making the necessary code changes in your repository.
+
+    Once approved, the agent executes the plan, making the necessary code changes in your repository.
+
 5. **Review the Merge Request**
-   The agent creates or updates a merge request with the changes. The agent will post a comment on the issue with the merge request link.
+
+    The agent creates or updates a merge request with the changes. The agent will post a comment on the issue with the merge request link.
 
 ## Troubleshooting and FAQs
 - **How do I know if the agent is working?**
-  The agent will comment on the issue with a welcome message as soon as you create an issue with a title starting with 'DAIV:'.
+
+    The agent will comment on the issue with a welcome message as soon as you create an issue with a title starting with 'DAIV:'.
 
 - **What if no welcome message is posted?**
-  Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and DAIV webhook is configured.
+
+    Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and DAIV webhook is configured.
 
 - **What if the agent cannot generate a plan?**
-  The agent will notify you and may ask clarifying questions. Provide more details in the issue title and description.
+
+    The agent will notify you and may ask clarifying questions. Provide more details in the issue title and description.
 
 - **What if the agent cannot execute the plan?**
-  The agent will comment on the issue with an error message. You can update the issue title and description to try again.
+
+    The agent will comment on the issue with an error message. You can update the issue title and description to try again.
 
 - **Can I reset the plan?**
-  Yes, you can trigger a plan reset if the initial plan is not satisfactory. You can do this by updating the issue title and description.
+
+    Yes, you can trigger a plan reset if the initial plan is not satisfactory. You can do this by updating the issue title and description.
 
 - **What if the agent already created a merge request and I updated the issue title and description?**
-  The agent will create a new merge request and all previous commits will be discarded.
+
+    The agent will create a new merge request and all previous commits will be discarded.
 
 ## Additional Resources
 - [Issue Addressor Agent Configurations](../getting-started/environment-variables.md#issue-addressor)

@@ -75,15 +75,7 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
         merge_request_id (int): The merge request id.
         merge_request_source_branch (str): The merge request source branch.
     """
-    try:
-        ReviewAddressorManager.process_review(repo_id, merge_request_id, ref=merge_request_source_branch)
-    except Exception:
-        logger.exception(
-            "Error addressing review of merge request '%s[%s]:%d'.",
-            repo_id,
-            merge_request_source_branch,
-            merge_request_id,
-        )
+    async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)
 
 
 @shared_task
@@ -99,7 +91,4 @@ def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id:
         job_id (int): The job id.
         job_name (str): The job name.
     """
-    try:
-        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id, job_name)
-    except Exception:
-        logger.exception("Error fixing pipeline job '%s[%d]:%d'.", repo_id, merge_request_id, job_id)
+    async_to_sync(PipelineFixerManager.process_job)(repo_id, ref, merge_request_id, job_id, job_name)

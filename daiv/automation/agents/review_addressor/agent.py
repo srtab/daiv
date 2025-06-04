@@ -72,7 +72,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         super().__init__(*args, **kwargs)
         self.codebase_index = CodebaseIndex(RepoClient.create_instance())
 
-    def compile(self) -> CompiledStateGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
 

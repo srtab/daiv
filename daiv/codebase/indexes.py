@@ -132,7 +132,7 @@ class CodebaseIndex(abc.ABC):
             )
 
             if documents_to_delete:
-                async_to_sync(self._delete_documents)(namespace.repository_info.external_slug, ref, documents_to_delete)
+                self._delete_documents(namespace.repository_info.external_slug, ref, documents_to_delete)
 
             if documents:
                 async_to_sync(self.semantic_search_engine.add_documents)(namespace, documents)

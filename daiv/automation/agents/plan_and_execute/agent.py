@@ -10,7 +10,6 @@ from langchain_core.runnables import (
     Runnable,
     RunnableConfig,  # noqa: TC002
 )
-from langchain_core.runnables.config import DEFAULT_RECURSION_LIMIT
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -111,7 +110,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
 
         return create_react_agent(
-            self.get_model(model=settings.PLANNING_MODEL_NAME),
+            self.get_model(model=settings.PLANNING_MODEL_NAME, max_tokens=8_192),
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
             + (await MCPToolkit.create_instance()).get_tools()
@@ -124,7 +123,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
             name="Planner",
             version="v2",
-        )
+        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
     async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan", "plan_approval"]]:
         """
@@ -175,17 +174,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
             name="PlanExecuter",
             version="v2",
-        )
+        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
-        await react_agent.ainvoke(
-            {
-                "plan_tasks": state["plan_tasks"],
-                "relevant_files": list({
-                    file_path for task in state["plan_tasks"] for file_path in task.relevant_files
-                }),
-            },
-            config=RunnableConfig(recursion_limit=config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)),
-        )
+        await react_agent.ainvoke({
+            "plan_tasks": state["plan_tasks"],
+            "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
+        })
 
         if await store.asearch(
             file_changes_namespace(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]),

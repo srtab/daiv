@@ -107,7 +107,7 @@ class Plan(BaseModel):
     """
     A complete implementation plan that satisfies the user's request.
 
-    The plan must be an ordered list of granular `ChangeInstructions`.
+    The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
     Related instructions affecting the same file should appear in consecutive order to aid batching and review.
     """
 

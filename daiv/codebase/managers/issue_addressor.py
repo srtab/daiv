@@ -50,8 +50,8 @@ class UnableToPlanIssueError(IssueAddressorError):
     """
 
     def __init__(self, *args, **kwargs):
+        self.soft = kwargs.pop("soft", False)
         super().__init__(*args, **kwargs)
-        self.soft = kwargs.get("soft", False)
 
 
 class UnableToAskForClarificationError(IssueAddressorError):
@@ -120,7 +120,6 @@ class IssueAddressorManager(BaseManager):
             should_reset_plan: Whether to reset the plan.
         """
         config = RunnableConfig(
-            recursion_limit=issue_addressor_settings.RECURSION_LIMIT,
             tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
             metadata={"author": self.issue.author.username},
             configurable={

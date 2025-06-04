@@ -1,3 +1,4 @@
+import logging
 import re
 from collections.abc import Iterable
 
@@ -15,6 +16,8 @@ from codebase.clients import AllRepoClient, RepoClient
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
+
+logger = logging.getLogger("daiv.managers")
 
 
 class PipelineFixerManager(BaseManager):
@@ -45,7 +48,10 @@ class PipelineFixerManager(BaseManager):
         thread_id = generate_uuid(f"{repo_id}{merge_request_id}{job_name}")
 
         manager = cls(client, repo_id, ref, thread_id=thread_id)
-        await manager._process_job(merge_request_id, job_id, job_name)
+        try:
+            await manager._process_job(merge_request_id, job_id, job_name)
+        except Exception:
+            logger.exception("Error processing pipeline fix for job '%s[%s]:%d'.", repo_id, ref, merge_request_id)
 
     async def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
         """
