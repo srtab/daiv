@@ -295,6 +295,6 @@ LANGCHAIN_TRACING_SAMPLE_RATE=0.5
 
 ---
 
-## Next Steps
+## ⏭️ Next Steps
 
 For more detailed information about LangSmith features, visit the [LangSmith documentation](https://docs.smith.langchain.com/).

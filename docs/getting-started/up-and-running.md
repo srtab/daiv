@@ -280,7 +280,7 @@ docker exec -it $(docker ps -qf "name=daiv_daiv") django-admin update_index
     After first run, the index will be **updated automatically** when a **new commit is pushed to the codebase**.
 
 
-### Step 6: Next steps
+### Step 6: ⏭️ Next steps
 
 Now that DAIV is running, check the [Reverse Proxy](#reverse-proxy) guide to help you configure a reverse proxy to access DAIV.
 
@@ -467,7 +467,7 @@ docker compose exec -it app django-admin update_index
     After first run, the index will be **updated automatically** when a **new commit is pushed to the codebase**.
 
 
-### Step 5: Next steps
+### Step 5: ⏭️ Next steps
 
 Now that DAIV is running, check the [Reverse Proxy](#reverse-proxy) guide to help you configure a reverse proxy to access DAIV.
 

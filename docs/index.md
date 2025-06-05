@@ -4,68 +4,112 @@
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
 [![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
 
-DAIV is an open-source automation assistant that enhances developer productivity using AI agents. It integrates with your repositories to streamline development by:
+Development teams spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI automation directly to your existing Git workflow.
 
-- 🚀 **Planning and executing** codebase changes based on issues.
-- 🔄 **Automatically responding** to reviewer comments, adjusting code, and improving pull requests.
-- 🔍 **Monitoring CI/CD logs** and applying fixes automatically when pipelines fail.
-- 💬 **Answering questions** about your codebase via chat using built-in RAG engine.
+**DAIV is an open-source AI assistant that automates development tasks using intelligent agents.** It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.
 
----
+## 🎯 What DAIV Does
 
-## 🛠️ How It Works
+DAIV automates four key development activities:
 
-DAIV is designed to integrate directly with GIT platforms without a separate interface. The goal is to allow you to continue using the workflow you're used to without having to worry about learning a new tool.
-
-Platform APIs and webhooks are used to monitor and automatically respond to key repository events. The most important events supported are:
-
-- ✨ Issue created
-- 📝 Issue updated
-- 💬 Comment added to issue
-- 💬 Comment added to merge request
-- 🚦 Pipeline status changed (success/failure)
-- 📤 Push to repository branch
-
-When an event is detected, DAIV takes action based on the event type and repository configuration. Here's an overview:
-
-| Event | Action |
-|:------|:-------|
-| ✨ Issue created | Generate a plan to address the new issue |
-| 📝 Issue updated | Replan if the title or description has changed |
-| 💬 Comment on an issue | Execute the plan after explicit approval |
-| 💬 Comment on a merge request | If changes are requested, update the codebase; otherwise, reply to the comment |
-| 🚦 Pipeline failed | Analyze logs, troubleshoot, and fix codebase issues if found; otherwise, suggest pipeline fixes in a comment |
-| 📤 Push to a repository branch | Re-index the codebase to reflect new changes |
+- 🚀 **Issue Resolution** - Converts issue descriptions into working code automatically
+- 🔄 **Code Review Response** - Addresses reviewer feedback and updates pull requests
+- 🔍 **Pipeline Repair** - Monitors CI/CD failures and applies fixes automatically
+- 💬 **Codebase Questions** - Answers questions about your code using built-in search
 
 ---
 
-## 🔌 Supported Git Platforms
+## 🛠️ How DAIV Works
 
-DAIV currently supports:
+**DAIV integrates directly with Git platforms using webhooks.** No separate interface required. You continue using your existing workflow while DAIV handles automation in the background.
 
-- [:simple-gitlab: GitLab](https://gitlab.com)
+### Workflow Overview
 
-!!! info "GitHub Support"
-    :simple-github: GitHub is not supported yet, but it is planned for the future. Contributions are welcome!
+```mermaid
+graph TD
+    A["👤 Developer"] --> B["📝 Creates Issue"]
+    B --> C["🤖 DAIV Agent"]
+    C --> D["📋 Generates Plan"]
+    D --> E["💬 Posts Plan Comment"]
+
+    A --> F["✅ Approves Plan"]
+    F --> C
+    C --> G["🔨 Executes Changes"]
+    G --> H["📤 Creates Pull Request"]
+
+    I["🚦 CI/CD Pipeline"] --> J["❌ Fails"]
+    J --> C
+    C --> K["🔍 Analyzes Logs"]
+    K --> L["🛠️ Applies Fixes"]
+
+    M["👥 Code Reviewer"] --> N["💬 Requests Changes"]
+    N --> C
+    C --> O["🔄 Updates Code"]
+    O --> H
+
+    P["📤 Code Push"] --> C
+    C --> Q["🗂️ Re-indexes Codebase"]
+```
+
+### Supported Events and Actions
+
+DAIV monitors these repository events and responds automatically:
+
+| Repository Event | DAIV Response | Example |
+|:------|:-------|:-------|
+| ✨ **Issue created** | Generates implementation plan | "Add user authentication" → detailed technical plan |
+| 📝 **Issue updated** | Updates plan if title/description changed | Issue scope changes → revised plan |
+| 💬 **Comment on issue** | Executes approved plan | Developer approves → creates pull request with code |
+| 💬 **Comment on merge request** | Addresses review feedback or answers questions | "Fix the bug in line 45" → updates code |
+| 🚦 **Pipeline failure** | Analyzes logs and applies fixes | Test failures → code fixes + updated tests |
+| 📤 **Repository push** | Updates codebase index for future queries | New commits → refreshed code understanding |
 
 ---
 
-## 🚀 Next Steps
+## 🔌 Supported Platforms
 
-Ready to get started with DAIV? Here's what you need to do:
+**Currently supported:**
 
-### **1. Install and Setup**
-- **[Get DAIV running](getting-started/up-and-running.md)** - Follow our installation guide to set up DAIV in your environment
-- **[Configure your first repository](getting-started/configuration.md)** - Connect DAIV to your GitLab repository
+- [:simple-gitlab: **GitLab**](https://gitlab.com) - Full feature support
 
-### **2. Start Using DAIV**
-- **Create an issue** in your connected repository to see DAIV generate an automatic plan
-- **Add a comment** with your approval to watch DAIV execute the plan and generate a PR with the changes
+**Coming soon:**
 
-### **3. Customize and Optimize**
-- **[Configure AI agents](ai-agents/overview.md)** - Learn about the different agents and how to customize their behavior
-- **[Review configuration options](getting-started/configuration.md#advanced-options)** - Fine-tune DAIV for your team's workflow
+- [:simple-github: **GitHub**](https://github.com) - Planned for future release
 
-### **4. Get Help**
-- **[Join our community](https://github.com/srtab/daiv/discussions)** - Ask questions and share feedback
-- **[Report issues](https://github.com/srtab/daiv/issues)** - Help us improve DAIV
+!!! info "Contributing"
+    Want GitHub support sooner? [Contributions are welcome!](https://github.com/srtab/daiv/discussions)
+
+---
+
+## ⏭️ Get Started
+
+### **Step 1: Installation**
+- **[Set up DAIV](getting-started/up-and-running.md)** - Install and configure DAIV in your environment
+- **[Connect your repository](getting-started/configuration.md)** - Link DAIV to your GitLab project
+
+### **Step 2: Try DAIV**
+- **Create a test issue** - Write "Add a hello world function" and watch DAIV generate a plan
+- **Approve the plan** - Comment "Go ahead" to see DAIV create a pull request with working code
+
+### **Step 3: Customize**
+- **[Configure agents](ai-agents/overview.md)** - Adjust how DAIV's AI agents behave for your codebase
+- **[Advanced settings](getting-started/configuration.md)** - Fine-tune DAIV for your team's needs
+
+### **Step 4: Learn More**
+- **[Join discussions](https://github.com/srtab/daiv/discussions)** - Ask questions and share experiences
+- **[Report bugs](https://github.com/srtab/daiv/issues)** - Help improve DAIV
+
+---
+
+## 💡 Quick Example
+
+Here's what a typical DAIV interaction looks like:
+
+1. **Developer creates issue:** "Add rate limiting to the API endpoints"
+2. **DAIV generates plan:** Analyzes codebase and posts detailed implementation steps
+3. **Developer approves:** Comments "Looks good, go ahead"
+4. **DAIV implements:** Creates pull request with rate limiting code, tests, and documentation
+5. **Reviewer requests changes:** "Use Redis instead of in-memory storage"
+6. **DAIV updates code:** Automatically modifies the implementation to use Redis
+
+**Result:** Feature implemented in minutes, not hours.

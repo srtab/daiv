@@ -54,12 +54,6 @@ class UnableToPlanIssueError(IssueAddressorError):
         super().__init__(*args, **kwargs)
 
 
-class UnableToAskForClarificationError(IssueAddressorError):
-    """
-    Exception raised when the agent is unable to ask for clarification.
-    """
-
-
 class UnableToExecutePlanError(IssueAddressorError):
     """
     Exception raised when the agent is unable to execute the plan.

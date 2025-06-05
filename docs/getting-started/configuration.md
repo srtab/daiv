@@ -192,7 +192,7 @@ Verify that DAIV is properly connected to your repository.
 
 ---
 
-## Next Steps
+## ⏭️ Next Steps
 
 With your repository configured, you can now:
 

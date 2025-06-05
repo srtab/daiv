@@ -39,7 +39,7 @@ graph TD
 
 ---
 
-## Main Available AI Agents
+## Core Available AI Agents
 
 ### 🚀 Issue Addressor Agent
 
@@ -270,7 +270,7 @@ Agents use **LangGraph** for sophisticated workflow management:
 
 ---
 
-## Next Steps
+## ⏭️ Next Steps
 
 Now that you understand how DAIV's agents work:
 

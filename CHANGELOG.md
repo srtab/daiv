@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - When changing the state of an Issue (from `closed` to `opened`), the webhook was being ignored by the GitLab callback.
+- Planning questions on Issue Addressor Agent were not being handled correctly.
+- Recursion limit was not being correctly passed to `PlanAndExecuteAgent`, limiting the agent to only 25 calls.
 
 ## [0.1.5] - 2025-05-26
 
