@@ -108,19 +108,21 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledGraph: The compiled subgraph.
         """
+        mcp_tools = (await MCPToolkit.create_instance()).get_tools()
+        mcp_tools_names = [tool.name for tool in mcp_tools]
 
         return create_react_agent(
             self.get_model(model=settings.PLANNING_MODEL_NAME, max_tokens=8_192),
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
-            + (await MCPToolkit.create_instance()).get_tools()
+            + mcp_tools
             + [think, determine_next_action],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([
                 self.plan_system_template,
                 MessagesPlaceholder("messages"),
-            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
+            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"), mcp_tools_names=mcp_tools_names),
             name="Planner",
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
