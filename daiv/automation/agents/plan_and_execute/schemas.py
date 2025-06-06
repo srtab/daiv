@@ -94,7 +94,7 @@ class ChangeInstructions(BaseModel):
     details: str = Field(
         description=dedent(
             """\
-            A clear, human-readable explanation of the required change—algorithms, naming conventions, edge cases, test approach, performance notes, etc.
+            A clear, human-readable explanation of the required change—algorithms, naming conventions, error handling, edge cases, test approach, performance notes, etc.
              - **Do NOT** write or paste a full diff / complete implementation you have invented.
              - You **may** embed short illustrative snippets **or** verbatim user-supplied code **only if it is syntactically correct**. If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code.
              - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
