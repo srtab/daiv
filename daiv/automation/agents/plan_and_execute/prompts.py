@@ -253,7 +253,7 @@ Privately ask: “With the change-plan *plus* the fetched relevant files, can I 
 - **No**  ➜ batch-call any additional inspection tools (group related paths/queries). Stop inspecting once you've gathered enough context.
 
 ### **Step 2 - Plan the edit (single `think` call)**
-Call `think` **once**. Summarize (≈250 words):
+Call `think` **once**. Summarize (≈300 words):
  - Which plan items map to which files/lines.
  - Dependency/library checks - confirm availability before use.
  - Security & privacy considerations (no secrets, no PII).
