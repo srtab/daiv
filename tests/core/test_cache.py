@@ -85,7 +85,6 @@ class RedisCacheTest:
         )
         assert lock == mock_cache_client.lock.return_value
 
-    @pytest.mark.asyncio
     async def test_alock_default_params(self, redis_cache, mock_cache_client):
         """Test async lock method with default parameters."""
         lock = await redis_cache.alock("test_key")
@@ -95,7 +94,6 @@ class RedisCacheTest:
         )
         assert lock == mock_cache_client.lock.return_value
 
-    @pytest.mark.asyncio
     async def test_alock_custom_params(self, redis_cache, mock_cache_client):
         """Test async lock method with custom parameters."""
         lock = await redis_cache.alock("test_key", timeout=10, sleep=0.5, blocking=False, blocking_timeout=5)

@@ -7,5 +7,5 @@ class HealthCheckView(View):
     Simple health check endpoint that returns 200 OK.
     """
 
-    def get(self, request, *args, **kwargs):
+    async def get(self, request, *args, **kwargs):
         return HttpResponse("OK", content_type="text/plain")

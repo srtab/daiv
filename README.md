@@ -47,10 +47,10 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    ```
 
 2. **Configure Environment**:
-   Copy `docker/local/app/config.secrets.example.env` to `docker/local/app/config.secrets.env` and update it with your GitLab token, OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
+   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your GitLab token, OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
 
    ```bash
-   cp docker/local/app/config.secrets.example.env docker/local/app/config.secrets.env
+   cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env
    ```
 
 3. **Install Dependencies** (optional):
@@ -131,7 +131,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 ## Roadmap
 
 - [ ] 📚 [WIP] Add documentation to the project: https://srtab.github.io/daiv/.
-- [ ] 🌐 Add support to MCP servers: #274.
+- [x] 🌐 Add support to MCP servers: #274.
 - [ ] 🧩 Include knowledge graphs that collect and correlate information from the codebases. This will help DAIV to obtain structured context about the codebase.
 - [ ] 🚀 Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
 - [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...

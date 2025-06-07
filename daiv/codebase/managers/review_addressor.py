@@ -194,7 +194,7 @@ class ReviewAddressorManager(BaseManager):
         self.note_processor = NoteProcessor()
 
     @classmethod
-    def process_review(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
+    async def process_review(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
         """
         Process code review for merge request.
         """
@@ -205,14 +205,15 @@ class ReviewAddressorManager(BaseManager):
 
         for context in manager._process_discussions(manager._extract_merge_request_diffs()):
             try:
-                if result := manager._process_discussion(context):
+                if result := await manager._process_discussion(context):
                     resolved_discussions.append(result)
             except Exception:
                 # If there is an error, we will not resolve the discussion but we will continue to process the next one,
                 # avoiding loosing the work done so far.
                 logger.exception("Error processing discussion: %s", context.discussion.id)
-        if file_changes := manager._get_file_changes():
-            manager._commit_changes(file_changes=file_changes)
+
+        if file_changes := await manager._get_file_changes():
+            await manager._commit_changes(file_changes=file_changes)
 
         for discussion_id, note_id in resolved_discussions:
             manager.client.update_merge_request_discussion_note(
@@ -220,7 +221,7 @@ class ReviewAddressorManager(BaseManager):
             )
             manager.client.resolve_merge_request_discussion(manager.repo_id, manager.merge_request_id, discussion_id)
 
-    def _process_discussion(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
+    async def _process_discussion(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
         """
         Process code review discussion.
 
@@ -243,16 +244,16 @@ class ReviewAddressorManager(BaseManager):
         # Create a new store for each discussion.
         file_changes_store = InMemoryStore()
         # Pre-populate the store with file changes that resulted from previous discussions resolution.
-        self._set_file_changes(self._get_file_changes(), store=file_changes_store)
+        await self._set_file_changes(await self._get_file_changes(), store=file_changes_store)
 
-        reviewer_addressor = ReviewAddressorAgent(store=file_changes_store)
+        reviewer_addressor = await ReviewAddressorAgent(store=file_changes_store).agent
 
         note_id = self.client.create_merge_request_discussion_note(
             self.repo_id, self.merge_request_id, START_TASK_MESSAGE, discussion_id=context.discussion.id
         )
 
         try:
-            result = reviewer_addressor.agent.invoke(
+            result = await reviewer_addressor.ainvoke(
                 {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff}, config
             )
         except Exception:
@@ -266,9 +267,9 @@ class ReviewAddressorManager(BaseManager):
             self.client.update_merge_request_discussion_note(
                 self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
             )
-        elif files_to_commit := self._get_file_changes(store=file_changes_store):
+        elif files_to_commit := await self._get_file_changes(store=file_changes_store):
             # Update the global file changes store with file changes that resulted from the discussion resolution.
-            self._set_file_changes(files_to_commit)
+            await self._set_file_changes(files_to_commit)
             return context.discussion.id, note_id
 
         return None

@@ -31,36 +31,3 @@ def determine_next_action(
     return Command(
         goto="plan_approval", update={"plan_tasks": action.changes, "messages": [message]}, graph=Command.PARENT
     )
-
-
-# https://www.anthropic.com/engineering/claude-think-tool
-
-
-@tool("think", parse_docstring=True)
-def think_plan(thought: str):
-    """
-    Use the tool to think about the plan and the changes to apply to the codebase to address the user request. It will not obtain new information or make any changes, but just log the thought. Use it when complex reasoning or brainstorming is needed. Use it as a scratchpad.
-
-    Args:
-        thought: Your thoughts.
-
-    Returns:
-        A message indicating that the thought has been logged.
-    """  # noqa: E501
-    logger.info("[think] Thinking about: %s", thought)
-    return "Thought registered."
-
-
-@tool("think", parse_docstring=True)
-def think_plan_executer(thought: str):
-    """
-    Use the tool to think about implementation approaches to apply code changes to the codebase or to plan the next steps. It will not obtain new information or make any changes, but just log the thought. Use it when complex reasoning or brainstorming is needed. Use it as a scratchpad.
-
-    Args:
-        thought: Your thoughts.
-
-    Returns:
-        A message indicating that the thought has been logged.
-    """  # noqa: E501
-    logger.info("[think] Thinking about: %s", thought)
-    return "Thought registered."

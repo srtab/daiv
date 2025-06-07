@@ -2,6 +2,7 @@ import logging
 
 from django.core.management import call_command
 
+from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from codebase.managers.issue_addressor import IssueAddressorManager
@@ -60,7 +61,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    IssueAddressorManager.process_issue(repo_id, issue_iid, ref, should_reset_plan)
+    async_to_sync(IssueAddressorManager.process_issue)(repo_id, issue_iid, ref, should_reset_plan)
 
 
 @shared_task
@@ -74,15 +75,7 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
         merge_request_id (int): The merge request id.
         merge_request_source_branch (str): The merge request source branch.
     """
-    try:
-        ReviewAddressorManager.process_review(repo_id, merge_request_id, ref=merge_request_source_branch)
-    except Exception:
-        logger.exception(
-            "Error addressing review of merge request '%s[%s]:%d'.",
-            repo_id,
-            merge_request_source_branch,
-            merge_request_id,
-        )
+    async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)
 
 
 @shared_task
@@ -98,7 +91,4 @@ def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id:
         job_id (int): The job id.
         job_name (str): The job name.
     """
-    try:
-        PipelineFixerManager.process_job(repo_id, ref, merge_request_id, job_id, job_name)
-    except Exception:
-        logger.exception("Error fixing pipeline job '%s[%d]:%d'.", repo_id, merge_request_id, job_id)
+    async_to_sync(PipelineFixerManager.process_job)(repo_id, ref, merge_request_id, job_id, job_name)

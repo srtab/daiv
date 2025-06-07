@@ -1,8 +1,6 @@
 from decouple import Csv, config
 from get_docker_secret import get_docker_secret
 
-from daiv.settings.components import DATA_DIR, PROJECT_DIR
-
 DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
 SECRET_KEY = get_docker_secret("DJANGO_SECRET_KEY", safe=False)
@@ -15,15 +13,7 @@ LOCAL_APPS = ["accounts", "automation", "codebase", "core"]
 
 THIRD_PARTY_APPS = ["django_extensions"]
 
-DJANGO_APPS = [
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.humanize",
-    "django.contrib.messages",
-    "django.contrib.sessions",
-    "django.contrib.sites",
-    "django.contrib.staticfiles",
-]
+DJANGO_APPS = ["django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions"]
 
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = LOCAL_APPS + THIRD_PARTY_APPS + DJANGO_APPS
@@ -33,47 +23,18 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 
 # TEMPLATE CONFIGURATION - https://docs.djangoproject.com/en/dev/ref/settings/#templates
 
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [PROJECT_DIR / "templates"],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "context_processors": [
-                "django.contrib.auth.context_processors.auth",
-                "django.template.context_processors.request",
-                "django.template.context_processors.media",
-                "django.template.context_processors.static",
-                "django.template.context_processors.csrf",
-                "django.template.context_processors.tz",
-                "django.template.context_processors.i18n",
-                "django.template.context_processors.debug",
-                "django.contrib.messages.context_processors.messages",
-            ]
-        },
-    }
-]
-
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True}]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 ROOT_URLCONF = "daiv.urls"
 
 WSGI_APPLICATION = "daiv.wsgi.application"
-
-STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-}
 
 
 # Password validation
@@ -91,11 +52,6 @@ AUTH_PASSWORD_VALIDATORS = [
 # Auth settings
 
 AUTH_USER_MODEL = "accounts.User"
-
-
-# MESSAGES
-
-MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 
 
 # SESSION
@@ -119,34 +75,3 @@ SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 # Use CSRF in session instead of cookie: https://docs.djangoproject.com/en/dev/ref/csrf/
 CSRF_USE_SESSIONS = True
 X_FRAME_OPTIONS = "DENY"
-
-
-# Static files (CSS, JavaScript, Images)
-
-STATIC_URL = "/static/"
-STATIC_ROOT = DATA_DIR / "static"
-STATICFILES_FINDERS = (
-    "django.contrib.staticfiles.finders.FileSystemFinder",
-    "django.contrib.staticfiles.finders.AppDirectoriesFinder",
-)
-
-
-# Media files
-MEDIA_ROOT = DATA_DIR / "media"
-MEDIA_URL = "/media/"
-
-FILE_UPLOAD_PERMISSIONS = 0o644
-
-
-# Email settings
-
-EMAIL_SUBJECT_PREFIX = "[DAIV]"
-SERVER_EMAIL = DEFAULT_FROM_EMAIL = "DAIV <dev@daiv.dev>"
-
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = config("DJANGO_EMAIL_HOST", default="localhost")
-EMAIL_HOST_USER = config("DJANGO_EMAIL_HOST_USER", default=None)
-EMAIL_HOST_PASSWORD = get_docker_secret("DJANGO_EMAIL_HOST_PASSWORD")
-EMAIL_PORT = config("DJANGO_EMAIL_PORT", default=25, cast=int)
-EMAIL_USE_TLS = config("DJANGO_EMAIL_USE_TLS", default=False, cast=bool)
-EMAIL_TIMEOUT = 15

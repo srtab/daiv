@@ -57,26 +57,20 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         self.store = store
 
     @cached_property
-    def agent(self) -> T:
+    async def agent(self) -> T:
         """
         The compiled agent.
         """
-        return self.compile()
+        return await self.compile()
 
     @abstractmethod
-    def compile(self) -> T:
+    async def compile(self) -> T:
         """
         Compile the agent.
 
         Tipically this method returns a Runnable or a CompiledGraph.
         """
         pass
-
-    async def acompile(self) -> T:
-        """
-        Asynchronously support to compile.
-        """
-        raise NotImplementedError("This method should be implemented by the subclass.")
 
     def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
@@ -110,14 +104,16 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         if model_provider == ModelProvider.ANTHROPIC:
             assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
+
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
+
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                 max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
                 _kwargs["max_tokens"] = max_tokens
                 _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
-            else:
+            elif "max_tokens" not in _kwargs:
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
                 # If needed, we can increase this value using the configurable field.
@@ -156,7 +152,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["temperature"] = 1
                 _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
 
-            elif _kwargs["model"].startswith("anthropic"):
+            elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
                 _kwargs["max_tokens"] = 4_096
 
@@ -177,7 +173,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif thinking_level == ThinkingLevel.HIGH:
             return 64_000, {"type": "enabled", "budget_tokens": 55_808}
 
-    def draw_mermaid(self):
+    async def draw_mermaid(self) -> str:
         """
         Draw the graph in Mermaid format.
 
@@ -185,8 +181,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             str: The Mermaid graph
         """
         if isinstance(self.agent, CompiledStateGraph):
-            return self.agent.get_graph(xray=True).draw_mermaid_png()
-        return self.agent.get_graph().draw_mermaid_png()
+            return (await self.agent.aget_graph(xray=True)).draw_mermaid_png()
+        return (await self.agent.aget_graph()).draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """

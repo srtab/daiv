@@ -35,8 +35,7 @@ Ask yourself: *“Can I answer confidently without reading code?”*
 • **If yes** → skip to Step 3.
 • **If no** →
   - Extract key search terms, file paths, languages, and concepts.
-  - Call the search tools (batch queries logically).
-  - Use `retrieve_file_content` only for files you must quote.
+  - Call the code search tools (batch queries logically).
   - Stop once you have enough evidence.
 
 ### Step 2 · Private reasoning
@@ -63,7 +62,6 @@ Format example:
 - [payment-service/src/Invoice.scala](external_link_1)
 - [webapp/pages/Login.vue](external_link_2)
 ```
-
 (Omit the section if you did not cite code.)
 
 ────────────────────────────────────────────────────────

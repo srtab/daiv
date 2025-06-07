@@ -14,8 +14,8 @@ def auth():
 
 
 @pytest.fixture
-def user():
-    return User.objects.create_user(
+async def user():
+    return await User.objects.acreate_user(
         username="testuser",
         email="test@example.com",
         password="testpass123",  # noqa: S106
@@ -23,46 +23,63 @@ def user():
 
 
 @pytest.fixture
-def api_key(user) -> tuple[APIKey, str]:
-    return APIKey.objects.create_key(user=user, name="Test Key")
+async def api_key() -> tuple[APIKey, str]:
+    user = await User.objects.acreate_user(
+        username="testuser",
+        email="test@example.com",
+        password="testpass123",  # noqa: S106
+    )
+    return await APIKey.objects.create_key(user=user, name="Test Key")
 
 
 @pytest.mark.django_db
-def test_authenticate_valid_key(auth: AuthBearer, user: User, api_key: tuple[APIKey, str]):
+async def test_authenticate_valid_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
     """Test authentication with a valid API key."""
-    authenticated_user = auth.authenticate(None, api_key[1])
-    assert authenticated_user == user
+    authenticated_user = await auth.authenticate(None, api_key[1])
+    assert authenticated_user == api_key[0].user
+    # Delete user and key to avoid conflicts with other tests. The teardown is not deleting the user and key.
+    # This only happens when running the tests with asyncio.
+    await api_key[0].user.adelete()
 
 
 @pytest.mark.django_db
-def test_authenticate_nonexistent_key(auth: AuthBearer):
+async def test_authenticate_nonexistent_key(auth: AuthBearer):
     """Test authentication with a non-existent API key."""
-    authenticated_user = auth.authenticate(None, "nonexistent_key")
+    authenticated_user = await auth.authenticate(None, "nonexistent_key")
     assert authenticated_user is None
 
 
 @pytest.mark.django_db
-def test_authenticate_revoked_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
+async def test_authenticate_revoked_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
     """Test authentication with a revoked API key."""
     api_key[0].revoked = True
-    api_key[0].save()
-    authenticated_user = auth.authenticate(None, api_key[1])
+    await api_key[0].asave()
+    authenticated_user = await auth.authenticate(None, api_key[1])
     assert authenticated_user is None
+    # Delete user and key to avoid conflicts with other tests. The teardown is not deleting the user and key.
+    # This only happens when running the tests with asyncio.
+    await api_key[0].user.adelete()
 
 
 @pytest.mark.django_db
-def test_authenticate_expired_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
+async def test_authenticate_expired_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
     """Test authentication with an expired API key."""
     api_key[0].expires_at = timezone.now() - timedelta(days=1)
-    api_key[0].save()
-    authenticated_user = auth.authenticate(None, api_key[1])
+    await api_key[0].asave()
+    authenticated_user = await auth.authenticate(None, api_key[1])
     assert authenticated_user is None
+    # Delete user and key to avoid conflicts with other tests. The teardown is not deleting the user and key.
+    # This only happens when running the tests with asyncio.
+    await api_key[0].user.adelete()
 
 
 @pytest.mark.django_db
-def test_authenticate_future_expiry_key(auth: AuthBearer, user: User, api_key: tuple[APIKey, str]):
+async def test_authenticate_future_expiry_key(auth: AuthBearer, api_key: tuple[APIKey, str]):
     """Test authentication with a key that expires in the future."""
     api_key[0].expires_at = timezone.now() + timedelta(days=1)
-    api_key[0].save()
-    authenticated_user = auth.authenticate(None, api_key[1])
-    assert authenticated_user == user
+    await api_key[0].asave()
+    authenticated_user = await auth.authenticate(None, api_key[1])
+    assert authenticated_user == api_key[0].user
+    # Delete user and key to avoid conflicts with other tests. The teardown is not deleting the user and key.
+    # This only happens when running the tests with asyncio.
+    await api_key[0].user.adelete()

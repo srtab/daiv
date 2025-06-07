@@ -63,7 +63,7 @@ class SemanticSearchEngine(SearchEngine):
         self.embeddings = embeddings_function()
         self.augmented_context = augmented_context
 
-    def add_documents(self, namespace: CodebaseNamespace, documents: list[Document]):
+    async def add_documents(self, namespace: CodebaseNamespace, documents: list[Document]):
         """
         Adds documents to the vector store after computing their embeddings.
 
@@ -78,13 +78,13 @@ class SemanticSearchEngine(SearchEngine):
         if self.augmented_context:
             from automation.agents.code_describer import CodeDescriberAgent
 
-            code_describer = CodeDescriberAgent().agent
+            code_describer = await CodeDescriberAgent().agent
 
             logger.info("Augmenting context...")
 
             with tracing_context(enabled=False):
                 # Avoid tracing the code describer as it can be very overwhelming and fill up the trace store
-                described_documents = code_describer.batch([
+                described_documents = await code_describer.abatch([
                     {
                         "code": document.page_content,
                         "filename": document.metadata.get("source", ""),
@@ -98,12 +98,12 @@ class SemanticSearchEngine(SearchEngine):
         zipped_documents = zip(documents, described_documents, strict=True)
 
         logger.info("Creating embeddings...")
-        document_vectors = self.embeddings.embed_documents([
+        document_vectors = await self.embeddings.aembed_documents([
             self._build_content_to_embed(document, description) for document, description in zipped_documents
         ])
 
         logger.info("Persisting documents...")
-        return CodebaseDocument.objects.bulk_create([
+        return await CodebaseDocument.objects.abulk_create([
             CodebaseDocument(
                 namespace=namespace,
                 source=document.metadata.get("source", ""),
@@ -171,7 +171,7 @@ class SemanticSearchEngine(SearchEngine):
 
         namespace.documents.filter(source__in=source).delete()
 
-    def get_documents(self, namespace: CodebaseNamespace, source: str | list[str]) -> list[Document]:
+    async def get_documents(self, namespace: CodebaseNamespace, source: str | list[str]) -> list[Document]:
         """
         Retrieves documents from the namespace matching the given source(s).
 
@@ -185,7 +185,7 @@ class SemanticSearchEngine(SearchEngine):
         if isinstance(source, str):
             source = [source]
 
-        return [document.as_document(document) for document in namespace.documents.filter(source__in=source)]
+        return [document.as_document(document) async for document in namespace.documents.filter(source__in=source)]
 
     def delete(self, namespace: CodebaseNamespace):
         """

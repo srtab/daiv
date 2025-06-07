@@ -22,15 +22,15 @@ class APIKeyManager(models.Manager, Generic[T]):  # noqa: UP046
 
     key_generator = KeyGenerator()
 
-    def create_key(self, user: User, name: str, expires_at: datetime | None = None) -> tuple[T, str]:
+    async def create_key(self, user: User, name: str, expires_at: datetime | None = None) -> tuple[T, str]:
         key, prefix, hashed_key = self.key_generator.generate()
-        obj = self.create(user=user, name=name, expires_at=expires_at, prefix=prefix, hashed_key=hashed_key)
+        obj = await self.acreate(user=user, name=name, expires_at=expires_at, prefix=prefix, hashed_key=hashed_key)
         return obj, key
 
-    def get_from_key(self, key: str) -> T:
+    async def get_from_key(self, key: str) -> T:
         prefix, _, _ = key.partition(".")
 
-        api_key = self.get_usable_keys().select_related("user").get(prefix=prefix)
+        api_key = await self.get_usable_keys().select_related("user").aget(prefix=prefix)
 
         if not self.key_generator.verify(key, api_key.hashed_key):
             raise self.model.DoesNotExist("Key is not valid.")

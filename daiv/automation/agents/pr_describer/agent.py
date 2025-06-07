@@ -17,7 +17,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
     Agent to describe changes in a pull request.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system]).partial(
             branch_name_convention=None,
             extra_context="",

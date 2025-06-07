@@ -1,60 +1,63 @@
 # Up and Running
 
-This guide will walk you through the process of deploying DAIV using different methods (Docker Swarm and Docker Compose). By following these instructions, you will have a fully functional DAIV instance connected to your codebase, ready to assist your team with code insights and automation.
+This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. **DAIV is an AI-powered development assistant** that helps teams with code insights, automated issue resolution, and development workflow automation. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
 
-DAIV is designed to be deployed using container orchestration tools like Docker Swarm or Docker Compose, making it easy to set up and maintain. To run a complete DAIV instance, you'll need to deploy the following core services:
+## What You'll Deploy
 
- * [PostgreSQL](https://www.postgresql.org/) with [pgvector](https://github.com/pgvector/pgvector) extension.
- * [Redis](https://redis.io/);
- * [DAIV Application](https://github.com/srtab/daiv);
- * [DAIV Worker](https://docs.celeryq.dev/);
+**DAIV requires several core services to function properly**. You'll deploy these services using container orchestration:
 
-Additionally, you can configure [DAIV Sandbox](https://github.com/srtab/daiv-sandbox) to allow DAIV to run arbitrary code or commands in an isolated environment:
+**Required Core Services:**
 
- * [DAIV Sandbox](https://github.com/srtab/daiv-sandbox).
+ * **[PostgreSQL](https://www.postgresql.org/)** with [pgvector](https://github.com/pgvector/pgvector) extension - Stores application data and vector embeddings
+ * **[Redis](https://redis.io/)** - Handles caching and message queueing
+ * **[DAIV Application](https://github.com/srtab/daiv)** - Main web interface and API
+ * **[DAIV Worker](https://docs.celeryq.dev/)** - Background task processor
+
+**Optional Service:**
+
+ * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary code
 
 ---
 
 ## :simple-swarm: Docker Swarm (*Recommended*)
 
-This guide will walk you through the steps to deploy a DAIV using Docker Swarm with minimal configuration. The guide only explains how to deploy the stack to a single server, if you want to deploy to multiple servers you can check the [Docker Swarm documentation](https://docs.docker.com/engine/swarm/swarm-tutorial/) for more information.
-
-This guide assumes you have a basic understanding of Docker Swarm.
+**Docker Swarm provides better production deployment capabilities** including service discovery, load balancing, and rolling updates. This guide covers single-server deployment, but you can extend it to multiple servers using the [Docker Swarm documentation](https://docs.docker.com/engine/swarm/swarm-tutorial/).
 
 **Prerequisites**
 
- * [Docker installed](https://docs.docker.com/engine/install/) with [Swarm enabled](https://docs.docker.com/engine/swarm/swarm-tutorial/).
- * Connection to the internet to pull the images.
+ * [Docker installed](https://docs.docker.com/engine/install/) with [Swarm enabled](https://docs.docker.com/engine/swarm/swarm-tutorial/)
+ * Internet connection to pull container images
+ * Basic understanding of Docker Swarm
 
 ### Step 1: Create Docker Secrets
 
-Before deploying the stack, the following secrets need to be created:
+**Before deploying, you must create these Docker secrets**. These secrets store sensitive configuration data securely:
 
-* `django_secret_key`: A random secret key for Django. [Generate a Django secret key](https://djecrety.ir/).
-* `db_password`: A random password for the database.
-* `codebase_gitlab_auth_token`: A personal access token with `api` scope from your GitLab instance. DAIV will use this token to access the codebase.
-* `codebase_gitlab_webhook_secret`: A random secret to be used as webhook secret for GitLab.
-* `codebase_embeddings_api_key`: An [API key](https://platform.openai.com/api-keys) from OpenAI (default embeddings provider) with access to `text-embedding-3-large` model.
-* `daiv_sandbox_api_key`: A random API key to authenticate requests to the Sandbox service.
-* `openrouter_api_key`: An [API key](https://openrouter.ai/settings/keys) for OpenRouter.
+**Required Secrets:**
 
-You can create the secrets using the following command (for more info, check the [Docker Secrets create documentation](https://docs.docker.com/reference/cli/docker/secret/create/)):
+* **`django_secret_key`** - Random secret key for Django ([generate one here](https://djecrety.ir/))
+* **`db_password`** - Random password for the PostgreSQL database
+* **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
+* **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
+* **`codebase_embeddings_api_key`** - [OpenAI API key](https://platform.openai.com/api-keys) with access to `text-embedding-3-large` model
+* **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
+* **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
+
+**Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
 ```bash
 docker secret create django_secret_key <secret_key>
 ```
 
-!!! warning
-    These are the minimal secrets required to run DAIV. Check the [Environment Variables](environment-variables.md) page for more information about secrets required for other services.
+!!! warning "Additional Secrets May Be Required"
+    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](environment-variables.md) page for additional secrets needed for specific features or services.
 
 ### Step 2: Create `stack.yml` file
 
-Here's an example of a `stack.yml` file that can be used to deploy DAIV.
+**Create your deployment configuration file**. This YAML file defines all services, networks, and volumes needed for DAIV.
 
-!!! warning
-    Remember to replace annotated environment variables with your own values.
-
-    Check the [Environment Variables](environment-variables.md) page for more information about all supported environment variables.
+!!! warning "Customize Environment Variables"
+    **Replace all annotated values with your own configuration**. See the [Environment Variables](environment-variables.md) page for complete configuration options.
 
 <div class="annotate" markdown>
 
@@ -228,79 +231,58 @@ secrets:
 
 </div>
 
-1.   Replace `your-hostname.com` with your own hostname. Don't include the schema (e.g. `daiv.com`). Leave `webapp` and `127.0.0.1` as is to allow the app to be accessed from other services on the same host.
-2.   Replace with your own hostname with schema included (e.g. `https://your-hostname.com`);
-3.   Define with your GitLab instance URL (e.g. `https://gitlab.com`);
-4.   This needs to point to the Sandbox service, if declared on the same stack define as `http://sandbox:8000`;
-5.   It's advisable to replace with a specific version.
-6.   Number of workers you want to run, this defines the number of parallel tasks that can be run at the same time.
-7.   For more information about this option, check the [DAIV Sandbox](https://github.com/srtab/daiv-sandbox) documentation.
-8.   Sandbox service needs access to the Docker socket to be able to create containers.
-9.   Docker configuration file to be able to pull images from a private registry. If you don't need it, you can remove the volume.
+1.   Replace `your-hostname.com` with your domain name. Don't include the schema (e.g., use `daiv.com` not `https://daiv.com`). Keep `app` and `127.0.0.1` for internal service communication.
+2.   Replace with your full domain URL including schema (e.g., `https://your-hostname.com`)
+3.   Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
+4.   Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
+5.   **Recommended**: Replace `latest` with a specific version tag for production deployments
+6.   Number of parallel worker processes. Adjust based on your server resources and expected workload
+7.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
+8.   **Required**: Sandbox needs Docker socket access to create isolated containers
+9.   **Optional**: Remove this volume if you don't need private registry access
 
 ### Step 3: Deploy the stack
 
-To deploy the stack, make sure you are at the directory containing the stack file and run the following command:
+**Deploy your DAIV stack** by running this command from the directory containing your `stack.yml` file:
 
 ```bash
 docker stack deploy -c stack.yml daiv
 ```
 
-To check the status of the stack, run the following command:
+**Monitor deployment progress** with these commands:
 
 ```bash
+# Check service status with full details
 docker stack ps daiv --no-trunc
-# or
+
+# Or check running containers
 docker ps
 ```
 
-It can take a while for all services to be running and healthy.
+!!! info "Deployment Time"
+    **Services may take several minutes to become fully healthy**, especially during the initial deployment when images are being pulled and databases are being initialized.
 
-### Step 4: Setup Webhooks
+### Step 4: ⏭️ Next steps
 
-Now that the stack is deployed, you need to setup the webhooks for your GitLab instance. You can do this by going to the `daiv_daiv` service and running the following command:
-
-```bash
-docker exec -it $(docker ps -qf "name=daiv_daiv") django-admin setup_webhooks
-```
-
-### Step 5: Index the codebase
-
-Finally, you need to index the codebase. DAIV will index all codebases it has access to.
-
-You can index the codebase by going to the `daiv_daiv` service and running the following command:
-
-```bash
-docker exec -it $(docker ps -qf "name=daiv_daiv") django-admin update_index
-```
-
-!!! note
-    You only need to run the `update_index` command on first deployment or when new codebases are added.
-
-    After first run, the index will be **updated automatically** when a **new commit is pushed to the codebase**.
-
-
-### Step 6: Next steps
-
-Now that DAIV is running, check the [Reverse Proxy](#reverse-proxy) guide to help you configure a reverse proxy to access DAIV.
+**Your DAIV deployment is now running!** Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to connect your first repository.
 
 ---
 
 ## :simple-docker: Docker Compose
 
-This guide will walk you through the steps to deploy DAIV using Docker Compose.
+**Docker Compose provides simpler deployment** suitable for development environments or smaller production setups. This method uses a single configuration file to manage all services.
 
 **Prerequisites**
 
- * [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/).
- * Connection to the internet to pull the images.
+ * [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/)
+ * Internet connection to pull container images
 
 ### Step 1: Create `docker-compose.yml` file
 
-Here's an example of a `docker-compose.yml` file that can be used to run DAIV.
+**Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
 
-!!! info
-    Remember to replace annotated environment variables with your own values. Check the [Environment Variables](environment-variables.md) page for more configuration options.
+!!! info "Environment Variable Configuration"
+    **Replace all annotated values with your specific configuration**. See the [Environment Variables](environment-variables.md) page for additional options.
 
 <div class="annotate" markdown>
 
@@ -416,81 +398,59 @@ volumes:
 
 </div>
 
-1.   [Generate a Django secret key](https://djecrety.ir/).
-2.   Define the DAIV hostname. Don't include the schema (e.g. `daiv.com`).
-3.   Generate a random password.
-4.   Define with your GitLab instance URL (e.g. `https://gitlab.com`).
-5.   Generate a personal access token with `api` scope from your GitLab instance.
-6.   Generate a random webhook secret.
-7.   Go to OpenAI and generate an API key with access to `text-embedding-3-large` model.
-8.   Go to OpenRouter and generate an API key.
-9.   Generate a random Sandbox API key.
-10.  Define with the same API key you generated for the app service.
-11.  Define with the same password you generated for the database.
-12.  Define with DAIV hostname, including the schema (e.g. `https://your-hostname.com`).
+1.   **[Generate a Django secret key](https://djecrety.ir/)** - Use a cryptographically secure random string
+2.   **Replace with your domain name** - Don't include schema (e.g., `daiv.com`)
+3.   **Generate a secure random password** for the database
+4.   **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
+5.   **Create a GitLab personal access token** with `api` scope permissions (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
+6.   **Generate a random webhook secret** for GitLab webhook validation
+7.   **Get an OpenAI API key** with access to `text-embedding-3-large` model
+8.   **Get an OpenRouter API key** for LLM model access
+9.   **Generate a random API key** for Sandbox service authentication
+10.  **Use the same password** as defined in annotation 3
+11.  **Use the same API key** as defined in annotation 9
+12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 
 ### Step 2: Run the compose file
 
-To run the compose file, make sure you are at the directory containing the file and run the following command:
+**Start all DAIV services** by running this command from the directory containing your `docker-compose.yml`:
 
 ```bash
 docker compose up -d
 ```
 
-To check the status of the services, run the following command:
+**Check service status** to ensure everything is running correctly:
 
 ```bash
 docker compose ps
 ```
 
-### Step 3: Setup Webhooks
+### Step 3: ⏭️ Next steps
 
-Now that the stack is deployed, you need to setup the webhooks for your GitLab instance. You can do this by going to the `app` service and running the following command:
-
-```bash
-docker compose exec -it app django-admin setup_webhooks --base-url https://your-hostname.com
-```
-
-### Step 4: Index the codebase
-
-Finally, you need to index the codebase. DAIV will index all codebases it has access to.
-
-You can index the codebase by going to the `app` service and running the following command:
-
-```bash
-docker compose exec -it app django-admin update_index
-```
-
-!!! note
-    You only need to run the `update_index` command on first deployment or when new codebases are added.
-
-    After first run, the index will be **updated automatically** when a **new commit is pushed to the codebase**.
-
-
-### Step 5: Next steps
-
-Now that DAIV is running, check the [Reverse Proxy](#reverse-proxy) guide to help you configure a reverse proxy to access DAIV.
+**Your DAIV instance is now operational!** Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to connect your first repository.
 
 ---
 
 ## :simple-nginx: Reverse Proxy
 
-This guide will walk you through the steps to configure Nginx as a reverse proxy for DAIV.
+**Configure a reverse proxy** to provide secure external access to your DAIV instance. This setup enables HTTPS access and proper domain routing.
 
-It's assumed you have a basic understanding of Nginx.
+**This guide covers Nginx configuration**. Basic Nginx knowledge is assumed.
 
-!!! info "Contributions welcome!"
-    Only the Nginx configuration is provided in this guide. Contributions to other reverse proxy configurations are welcome!
+!!! info "Contributions Welcome"
+    **Only Nginx configuration is provided currently**. Contributions for Apache, Traefik, and other reverse proxy configurations are welcome!
 
 **Prerequisites**
 
- * [Nginx installed](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-open-source/).
+ * [Nginx installed](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-open-source/)
+ * Valid SSL certificate for your domain
+ * Domain name pointing to your server
 
 ### Step 1: Configure Nginx
 
-Create a new configuration file for DAIV `/etc/nginx/conf.d/daiv.conf`. The path to the configuration may vary depending on the Operating System you are using.
+**Create a new Nginx configuration file** at `/etc/nginx/conf.d/daiv.conf` (path may vary by operating system).
 
-Add the following configuration and replace the values with your own:
+**Add this configuration and customize the annotated values**:
 
 <div class="annotate" markdown>
 
@@ -543,16 +503,68 @@ server {
 
 </div>
 
-1.   Define with the internal IP pointing to the service running DAIV. For instance, if you are running DAIV on the same server, you can use `localhost` or `127.0.0.1`.
-2.   Define with your own hostname.
-3.   Change to the path to your SSL certificate. The correct path depends on your operating system.
-4.   Change to the path to your SSL certificate key. The correct path depends on your operating system.
-
+1.   **Set the internal IP** of your DAIV instance. Use `localhost` or `127.0.0.1` if running on the same server
+2.   **Replace with your domain name** (e.g., `daiv.example.com`)
+3.   **Update the SSL certificate path** - Location varies by operating system
+4.   **Update the SSL certificate key path** - Location varies by operating system
 
 ### Step 2: Restart Nginx
 
-Restart Nginx to apply the changes.
+**Apply the configuration changes** by restarting Nginx:
 
 ```bash
 systemctl restart nginx
 ```
+
+**Verify the configuration** by accessing your domain in a web browser. You should see the DAIV interface.
+
+---
+
+## 🚀 Final Steps and Repository Configuration
+
+**Congratulations! Your DAIV instance is now running and accessible.** To start using DAIV with your repositories, follow these essential next steps:
+
+### 1. Connect Your First Repository
+
+**Your next step is connecting DAIV to your GitLab repositories**. This process involves:
+
+- Creating GitLab personal access tokens
+- Configuring repository webhooks
+- Indexing repository content
+- Setting up automated workflows\
+
+**📖 Follow the complete repository setup guide**: [Repository Configuration](configuration.md)
+
+### 2. What You Can Do After Configuration
+
+**Once your repository is connected, DAIV will automatically**:
+
+- **Respond to issues** - DAIV analyzes issues and suggests solutions or implementation plans
+- **Review pull requests** - Automated code review and suggestions for improvements
+- **Address pipeline failures** - Investigates CI/CD failures and proposes fixes
+- **Answer code questions** - Provides context-aware responses about your codebase
+
+### 3. Monitoring Your Instance
+
+**Keep track of your DAIV deployment**:
+
+```bash
+# Check service health (Docker Swarm)
+docker stack ps daiv
+
+# Check service health (Docker Compose)
+docker compose ps
+
+# View application logs
+docker logs <container_name>
+```
+
+### 4. Getting Help
+
+**If you encounter issues during setup**:
+
+- **Check the logs** for error messages and debugging information
+- **Review the [Environment Variables](environment-variables.md)** for configuration options
+- **Verify network connectivity** between services and external APIs
+- **Ensure all secrets and API keys** are valid and have proper permissions
+- **Ask for help** on the [GitHub Discussions](https://github.com/srtab/daiv/discussions)

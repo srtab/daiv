@@ -29,7 +29,6 @@ def mock_push_callback():
     ).model_dump()
 
 
-@pytest.mark.asyncio
 async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """Test GitLab callback with valid token."""
     # Execute
@@ -47,7 +46,6 @@ async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_ca
     process_callback.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """
     Test GitLab callback with invalid token.
@@ -67,7 +65,6 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
     process_callback.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_secret_token):
     """
     Test GitLab callback with not accepted webhook.

@@ -1,5 +1,6 @@
 from typing import cast
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
@@ -22,21 +23,23 @@ class BaseManager:
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
 
-    def _get_file_changes(self, *, store: InMemoryStore | None = None) -> list[FileChange]:
+    async def _get_file_changes(self, *, store: InMemoryStore | None = None) -> list[FileChange]:
         """
         Get the file changes from the store.
         """
         return [
             cast("FileChange", item.value["data"])
-            for item in (store or self._file_changes_store).search(file_changes_namespace(self.repo_id, self.ref))
+            for item in await (store or self._file_changes_store).asearch(
+                file_changes_namespace(self.repo_id, self.ref)
+            )
         ]
 
-    def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
+    async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
         """
         Set the file changes in the store.
         """
         for file_change in file_changes:
-            (store or self._file_changes_store).put(
+            await (store or self._file_changes_store).aput(
                 file_changes_namespace(self.repo_id, self.ref),
                 file_change.file_path,
                 {"data": file_change, "action": file_change.action},
@@ -70,7 +73,9 @@ class BaseManager:
 
         return branch_name
 
-    def _commit_changes(self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False):
+    async def _commit_changes(
+        self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False
+    ):
         """
         Commit changes to the merge request.
 
@@ -79,13 +84,12 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = PullRequestDescriberAgent()
-        changes_description = pr_describer.agent.invoke(
+        pr_describer = await PullRequestDescriberAgent().agent
+        changes_description = await pr_describer.ainvoke(
             {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
-            config={
-                "tags": [pr_describer_settings.NAME, str(self.client.client_slug)],
-                "configurable": {"thread_id": thread_id},
-            },
+            config=RunnableConfig(
+                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+            ),
         )
         commit_message = changes_description.commit_message
         if skip_ci:

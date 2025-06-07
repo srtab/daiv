@@ -11,6 +11,7 @@ x-app-defaults: &x_app_default
   volumes:
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
+    - ./data/mcp-proxy:/home/app/data/mcp-proxy
     - ./data/tantivy_index_v1:/home/app/data/tantivy_index_v1
     - ./data/embeddings:/home/app/data/embeddings
     - .:/home/app/src
@@ -46,25 +47,6 @@ services:
     ports:
       - "5432:5432"
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    restart: unless-stopped
-    container_name: daiv-pgadmin
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=srtabs@gmail.com
-      - PGADMIN_DEFAULT_PASSWORD=password
-      - GUNICORN_ACCESS_LOGFILE=/dev/null
-    volumes:
-      - ./data/pgadmin:/root/.pgadmin
-      - ./docker/local/pgadmin/servers.json:/pgadmin4/servers.json
-    logging:
-      driver: none
-    ports:
-      - "8080:80"
-    depends_on:
-      db:
-        condition: service_healthy
-
   redis:
     image: redis:latest
     command: redis-server --save "" --appendonly no
@@ -82,6 +64,11 @@ services:
     <<: *x_app_default
     container_name: daiv-app
     command: sh /home/app/docker/start-app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8000/-/alive/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "8000:8000"
 
@@ -137,3 +124,19 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
+
+  mcp-proxy:
+    image: ghcr.io/tbxark/mcp-proxy:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-proxy
+    environment:
+      NODE_ENV: development
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
+    volumes:
+      - ./data/mcp-proxy:/config
+    ports:
+      - "9090:9090"
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true

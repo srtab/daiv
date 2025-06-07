@@ -15,7 +15,3 @@ include(
     "components/debug.py",
     "components/celery.py",
 )
-
-
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_TASK_EAGER_PROPAGATES = True

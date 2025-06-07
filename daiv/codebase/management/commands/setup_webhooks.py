@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand
 from codebase.clients import RepoClient
 from codebase.conf import settings
 from core.conf import settings as core_settings
+from core.utils import build_uri
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -16,8 +17,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--base-url",
             type=str,
-            help="Base URL of DAIV webapp, i.e. https://app:8000",
-            default=core_settings.EXTERNAL_URL,
+            help=f"Base URL of DAIV webapp, i.e. {core_settings.EXTERNAL_URL.encoded_string()}",
+            default=core_settings.EXTERNAL_URL.encoded_string(),
         )
         parser.add_argument(
             "--disable-ssl-verification", action="store_true", help="Disable SSL verification for webhook"
@@ -38,7 +39,7 @@ class Command(BaseCommand):
         for project in repo_client.list_repositories(load_all=True):
             created = repo_client.set_repository_webhooks(
                 project.slug,
-                f"{options['base_url']}/api/codebase/callbacks/{settings.CLIENT}/",
+                build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/"),
                 ["push_events", "issues_events", "note_events", "pipeline_events"],
                 enable_ssl_verification=not options["disable_ssl_verification"],
                 secret_token=secret_token,

@@ -1,16 +1,12 @@
 import textwrap
-from itertools import chain
-from operator import itemgetter
 from typing import override
 
 from langchain.retrievers.multi_query import LineListOutputParser, MultiQueryRetriever
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import BasePromptTemplate, ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 DEFAULT_QUERY_PROMPT = PromptTemplate(
     input_variables=["question"],
@@ -84,19 +80,3 @@ class MultiQueryRephraseRetriever(MultiQueryRetriever):
         """
         unique_docs: dict[str | None, Document] = {doc.metadata.get("id"): doc for doc in documents}
         return list(unique_docs.values())
-
-    @override
-    def retrieve_documents(self, queries: list[str], run_manager: CallbackManagerForRetrieverRun) -> list[Document]:
-        """
-        Run all LLM generated queries in parallel and return the results as a list of documents.
-
-        Args:
-            queries: query list
-
-        Returns:
-            List of retrieved Documents
-        """
-        runnable = RunnableParallel({
-            f"query_{i}": itemgetter(i) | self.retriever for i, _q in enumerate(queries)
-        }) | RunnableLambda(lambda inputs: list(chain(*inputs.values())))
-        return runnable.invoke(queries, config={"callbacks": run_manager.get_child()})

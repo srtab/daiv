@@ -33,7 +33,7 @@ class CodeDescriberAgent(BaseAgent[Runnable[CodeSnippet, str]]):
     It can use a smaller LLM model, what's important is that it is fast and cheaper to run.
     """  # noqa: E501
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         """
         Compile the agent into a Runnable.
 

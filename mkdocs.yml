@@ -79,12 +79,16 @@ nav:
   - Home: index.md
   - Getting Started:
     - Up and Running: getting-started/up-and-running.md
+    - Configuration: getting-started/configuration.md
     - Environment Variables: getting-started/environment-variables.md
     - Repository Configurations: getting-started/repository-configurations.md
     - Supported Providers: getting-started/supported-providers.md
+    - Monitoring: getting-started/monitoring.md
   - AI Agents:
-    - 🚀 Issue Addressor: ai-agents/issue-addressor.md
-    - 💬 Code Review Addressor: ai-agents/code-review-addressor.md
-    - 🔧 Pipeline Fixing: ai-agents/pipeline-fixing.md
-    - 🧠 Codebase Chat: ai-agents/codebase-chat.md
+    - Overview: ai-agents/overview.md
+    - 🤖 Issue Addressor: ai-agents/issue-addressor.md
+    - 🤖 Code Review Addressor: ai-agents/code-review-addressor.md
+    - 🤖 Pipeline Fixing: ai-agents/pipeline-fixing.md
+    - 🤖 Codebase Chat: ai-agents/codebase-chat.md
+    - MCP Tools: ai-agents/mcp-tools.md
   - Community: community.md

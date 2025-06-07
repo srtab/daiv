@@ -12,6 +12,7 @@ class PlanAndExecuteSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PLAN_AND_EXECUTE_")
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
+    RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan and execute agent.")
     PLANNING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to plan tasks."
     )
