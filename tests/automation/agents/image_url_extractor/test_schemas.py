@@ -1,13 +1,11 @@
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from pydantic import SecretStr
 
 from automation.agents.image_url_extractor.schemas import Image, ImageTemplate
 from codebase.base import ClientType
 
 
-@pytest.mark.asyncio
 class TestImageTemplate:
     @patch("automation.agents.image_url_extractor.schemas.is_valid_url")
     async def test_from_images_valid_url(self, mock_is_valid_url):

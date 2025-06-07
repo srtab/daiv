@@ -1,11 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from automation.tools.web_search import WebSearchTool
 
 
-@pytest.mark.asyncio
 class TestWebSearchTool:
     @patch("automation.tools.web_search.settings")
     @patch("automation.tools.web_search.DuckDuckGoSearchAPIWrapper")

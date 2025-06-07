@@ -1,7 +1,6 @@
 import base64
 
 import httpx
-import pytest
 
 from core.utils import (
     async_url_to_data_url,
@@ -58,7 +57,6 @@ class ExtractImageMimetypeOpenaiTest:
 
 
 class AsyncUrlToDataUrlTest:
-    @pytest.mark.asyncio
     async def test_successful_conversion(self, mocker):
         mock_response = mocker.Mock()
         mock_response.content = b"fake-image-data"
@@ -70,7 +68,6 @@ class AsyncUrlToDataUrlTest:
         result = await async_url_to_data_url("https://example.com/image.jpg")
         assert result == expected_data_url
 
-    @pytest.mark.asyncio
     async def test_failed_request(self, mocker):
         mock_client = mocker.patch("httpx.AsyncClient")
         mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("Request failed")
@@ -80,7 +77,6 @@ class AsyncUrlToDataUrlTest:
 
 
 class BatchAsyncUrlToDataUrlTest:
-    @pytest.mark.asyncio
     async def test_successful_batch_conversion(self, mocker):
         mock_response = mocker.Mock()
         mock_response.content = b"fake-image-data"
@@ -95,7 +91,6 @@ class BatchAsyncUrlToDataUrlTest:
         assert all(url in result for url in urls)
         assert all(data_url == expected_data_url for data_url in result.values())
 
-    @pytest.mark.asyncio
     async def test_partial_failed_requests(self, mocker):
         mock_client = mocker.patch("httpx.AsyncClient")
         client = mock_client.return_value.__aenter__.return_value
@@ -117,7 +112,6 @@ class BatchAsyncUrlToDataUrlTest:
         assert len(result) == 1
         assert "https://example.com/1.jpg" in result
 
-    @pytest.mark.asyncio
     async def test_async_exception_handling(self, mocker):
         """Test handling of various async HTTP request exceptions."""
         mock_client = mocker.patch("httpx.AsyncClient")
