@@ -17,10 +17,12 @@ Before configuring monitoring, ensure you have:
 ## Step 1: Create LangSmith API Key
 
 1. **Sign in to LangSmith**:
+
    - Go to [smith.langchain.com](https://smith.langchain.com)
    - Sign in with your account or create a new one
 
 2. **Generate API Key**:
+
    - Navigate to **Settings** → **API Keys**
    - Click **Create API Key**
    - **Name**: `DAIV Integration`
@@ -42,24 +44,21 @@ Add your LangSmith configuration to DAIV's environment settings.
 
 ### For Docker Compose Setup
 
-Edit your environment files:
+Edit your `docker-compose.yml` file:
 
-**Main configuration** (`docker/local/app/config.env`):
-```bash
-# LangSmith Monitoring
-LANGSMITH_TRACING=true
-LANGSMITH_PROJECT=daiv-default
-```
-
-**Secrets configuration** (`docker/local/app/config.secrets.env`):
-```bash
-# LangSmith API Key
-LANGSMITH_API_KEY=lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy
+```yaml
+x-app-defaults: &x_app_default
+  # ...
+  environment:
+    LANGSMITH_TRACING: true
+    LANGSMITH_PROJECT: daiv-default
+    LANGSMITH_API_KEY: lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy
+  # ...
 ```
 
 ### For Docker Swarm Setup
 
-**Environment configuration** (`env_files/all/django.env`):
+**Environment configuration**:
 ```bash
 # LangSmith Monitoring
 LANGSMITH_TRACING=true
@@ -126,16 +125,19 @@ docker stack deploy -c stack.yml daiv
 Test that LangSmith monitoring is working correctly.
 
 1. **Generate Some Activity**:
+
    - Create a test issue in your repository with the `daiv` label
    - Wait for DAIV to process the issue
    - Or trigger any AI agent activity
 
 2. **Check LangSmith Dashboard**:
+
    - Go to [smith.langchain.com](https://smith.langchain.com)
    - Navigate to your project (e.g., `daiv-default`)
    - You should see traces appearing for agent executions
 
 3. **Verify Trace Details**:
+
    - Click on any trace to see detailed execution steps
    - Check for proper agent names, model calls, and timing information
 
@@ -235,20 +237,6 @@ Use these tags and metadata to create focused dashboards:
 - Monitor execution time by agent type
 - Track token usage patterns across different agents
 - Analyze success/failure rates by agent and repository
-
-### Other Metrics to Monitor
-
-**Performance Metrics**:
-- Agent execution time
-- Token usage per agent
-- Success/failure rates
-- API call latencies
-
-**Usage Metrics**:
-- Number of issues processed
-- Pull requests reviewed
-- Pipeline fixes applied
-- Agent utilization by type
 
 ### Setting Up Alerts
 
