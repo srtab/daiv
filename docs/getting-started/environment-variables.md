@@ -82,6 +82,19 @@ Variables marked with:
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DJANGO_LOGGING_LEVEL`  | Django logging level               | `INFO`         | `DEBUG`         |
 
+### Monitoring (LangSmith)
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `LANGSMITH_TRACING`     | Enable LangSmith tracing (alternative) | `False`    | `true`          |
+| `LANGSMITH_PROJECT`     | LangSmith project name (alternative) | `default`    | `daiv-production` |
+| `LANGSMITH_API_KEY` :material-lock:    | LangSmith API key (alternative)    | *(none)*       | `lsv2_pt_...`   |
+| `LANGSMITH_API_KEY_FILE` | Path to LangSmith API key file    | *(none)*       | `/run/secrets/langsmith_api_key` |
+| `LANGSMITH_ENDPOINT`    | LangSmith API endpoint             | `https://api.smith.langchain.com` | `https://eu.api.smith.langchain.com` |
+
+!!! note
+    LangSmith provides comprehensive monitoring and observability for AI agents. For detailed setup instructions, see [Monitoring Configuration](monitoring.md).
+
 ### Sandbox (client-side)
 
 | Variable                | Description                        | Default        | Example         |
@@ -180,6 +193,28 @@ Variables marked with:
 | `AUTOMATION_WEB_SEARCH_ENGINE`  | Web search engine to use (`duckduckgo`, `tavily`)              | `duckduckgo`   | `tavily`|
 | `AUTOMATION_WEB_SEARCH_API_KEY` :material-lock: | Web search API key (required if engine is `tavily`)            | *(none)*       |         |
 
+### MCP Tools
+
+MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality.
+
+| Variable                        | Description                                                    | Default                        | Example |
+|---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
+| `MCP_PROXY_HOST`                | Host URL for the MCP proxy server                             | `http://mcp-proxy:9090`        | `http://localhost:9090` |
+| `MCP_PROXY_ADDR`                | Address for the MCP proxy to listen on                        | `:9090`                        | `:9090` |
+| `MCP_PROXY_AUTH_TOKEN` :material-lock: | Authentication token for MCP proxy                             | *(none)*                       | `secure-auth-token` |
+| `MCP_FETCH_ENABLED`             | Enable/disable Fetch MCP server for web scraping              | `true`                         | `false` |
+| `MCP_FETCH_VERSION`             | Version of the Fetch MCP server                               | `2025.4.7`                     | `2025.4.7` |
+| `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server for error monitoring         | `true`                         | `false` |
+| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.10.0`                       | `0.10.0` |
+| `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                        | *(none)*                       | `sntryu_abc123...` |
+| `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
+
+!!! info
+    MCP tools are currently available in the **Plan and Execute** agent. The Fetch server provides web scraping capabilities, while the Sentry server enables error monitoring integration. For detailed configuration, see [MCP Tools](../ai-agents/mcp-tools.md).
+
+!!! note
+    Sentry MCP server requires both `MCP_SENTRY_ACCESS_TOKEN` and `MCP_SENTRY_HOST` to be configured for functionality.
+
 ---
 
 ## Automation: AI Agents
@@ -230,8 +265,9 @@ All the default models where chosen to be the most effective models. You can cha
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `PLAN_AND_EXECUTE_NAME` | Name of the plan and execute agent. | `PlanAndExecute` |
-| `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-3-7-sonnet` |
-| `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-3-7-sonnet` |
+| `PLAN_AND_EXECUTE_RECURSION_LIMIT` | Recursion limit for planning and execution steps each. | `100` |
+| `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4` |
+| `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4` |
 | `PLAN_AND_EXECUTE_HUMAN_APPROVAL_MODEL_NAME` | Model for plan approval evaluation. | `openrouter:openai/gpt-4-1-mini` |
 
 ### Issue Addressor
@@ -239,7 +275,6 @@ All the default models where chosen to be the most effective models. You can cha
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
 | `ISSUE_ADDRESSOR_NAME` | Name of the issue addressor agent. | `IssueAddressor` |
-| `ISSUE_ADDRESSOR_RECURSION_LIMIT` | Recursion limit for the agent. | `50` |
 | `ISSUE_ADDRESSOR_ISSUE_EVALUATOR_MODEL_NAME` | Model for issue evaluation. | `openrouter:openai/gpt-4-1-mini` |
 
 ### Snippet Replacer

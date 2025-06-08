@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from asgiref.sync import async_to_sync
 from gitlab import GitlabGetError, GitlabListError
 from langchain.retrievers import EnsembleRetriever
 
@@ -44,9 +45,12 @@ class CodebaseIndex(abc.ABC):
         self.semantic_search_engine = SemanticSearchEngine(augmented_context=semantic_augmented_context)
         self.lexical_search_engine = LexicalSearchEngine()
 
+    @transaction.atomic
     def update(self, repo_id: str, ref: str | None = None):
         """
         Update or create the index of a repository.
+
+        This method is synchronous because it uses Django's transaction.atomic, which doesn't support async mode yet.
 
         Args:
             repo_id (str): The repository identifier
@@ -78,71 +82,70 @@ class CodebaseIndex(abc.ABC):
             logger.info("Repo %s[%s] index already updated.", repo_id, ref)
             return
 
+        namespace = CodebaseNamespace.objects.select_for_update().get(pk=namespace.pk)
         namespace.status = CodebaseNamespace.Status.INDEXING
         namespace.save(update_fields=["status", "modified"])
 
         loader_limit_paths_to = []
+        documents_to_delete = []
 
-        with transaction.atomic():
-            try:
-                # If the namespace is new, the index is fully updated on the first run, after that,
-                # the index is updated only with changed files.
-                if not created and namespace.sha != repo_head_sha:
-                    new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
-                        namespace.repository_info.external_slug, namespace.sha, repo_head_sha
-                    )
-                    logger.info(
-                        "Updating repo %s[%s] index with %d new files, %d changed files and %d delete files.",
-                        repo_id,
-                        ref,
-                        len(new_files),
-                        len(changed_files),
-                        len(deleted_files),
-                    )
-
-                    if changed_files or deleted_files:
-                        self._delete_documents(
-                            namespace.repository_info.external_slug, ref, changed_files + deleted_files
-                        )
-
-                    loader_limit_paths_to = new_files + changed_files
-                else:
-                    logger.info("Creating repo %s[%s] full index.", repo_id, ref)
-
-                logger.debug("Extracting chunks from repo %s[%s]", namespace.repository_info.external_slug, ref)
-
-                with self.repo_client.load_repo(namespace.repository_info.external_slug, ref) as repo_dir:
-                    loader = GenericLanguageLoader.from_filesystem(
-                        repo_dir,
-                        limit_to=loader_limit_paths_to,
-                        exclude=repo_config.combined_exclude_patterns,
-                        documents_metadata={
-                            "repo_id": namespace.repository_info.external_slug,
-                            "ref": ref,
-                            "default_branch": cast("str", repo_config.default_branch),
-                        },
-                    )
-                    documents = loader.load_and_split()
-
+        try:
+            # If the namespace is new, the index is fully updated on the first run, after that,
+            # the index is updated only with changed files.
+            if not created and namespace.sha != repo_head_sha:
+                new_files, changed_files, deleted_files = self.repo_client.get_commit_changed_files(
+                    namespace.repository_info.external_slug, namespace.sha, repo_head_sha
+                )
                 logger.info(
-                    "Indexing %d chunks from repo %s[%s]", len(documents), namespace.repository_info.external_slug, ref
+                    "Updating repo %s[%s] index with %d new files, %d changed files and %d delete files.",
+                    repo_id,
+                    ref,
+                    len(new_files),
+                    len(changed_files),
+                    len(deleted_files),
                 )
 
-                if documents:
-                    self.semantic_search_engine.add_documents(namespace, documents)
-                    self.lexical_search_engine.add_documents(namespace, documents)
-            except Exception:
-                logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
-                namespace.status = CodebaseNamespace.Status.FAILED
-                namespace.save(update_fields=["status", "modified"])
+                if changed_files or deleted_files:
+                    documents_to_delete = changed_files + deleted_files
+
+                loader_limit_paths_to = new_files + changed_files
             else:
-                namespace.status = CodebaseNamespace.Status.INDEXED
-                namespace.sha = repo_head_sha
-                namespace.save(update_fields=["status", "modified", "sha"])
-                logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
-            finally:
-                # Clear the cache for the namespace retrieval as it might have changed
-                self._get_codebase_namespace.cache_clear()
+                logger.info("Creating repo %s[%s] full index.", repo_id, ref)
+
+            logger.debug("Extracting chunks from repo %s[%s]", namespace.repository_info.external_slug, ref)
+
+            with self.repo_client.load_repo(namespace.repository_info.external_slug, ref) as repo_dir:
+                loader = GenericLanguageLoader.from_filesystem(
+                    repo_dir,
+                    limit_to=loader_limit_paths_to,
+                    exclude=repo_config.combined_exclude_patterns,
+                    documents_metadata={
+                        "repo_id": namespace.repository_info.external_slug,
+                        "ref": ref,
+                        "default_branch": cast("str", repo_config.default_branch),
+                    },
+                )
+                documents = loader.load_and_split()
+
+            logger.info(
+                "Indexing %d chunks from repo %s[%s]", len(documents), namespace.repository_info.external_slug, ref
+            )
+
+            if documents_to_delete:
+                self._delete_documents(namespace.repository_info.external_slug, ref, documents_to_delete)
+
+            if documents:
+                async_to_sync(self.semantic_search_engine.add_documents)(namespace, documents)
+                self.lexical_search_engine.add_documents(namespace, documents)
+        except Exception:
+            logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
+            namespace.status = CodebaseNamespace.Status.FAILED
+            namespace.save(update_fields=["status", "modified"])
+        else:
+            namespace.status = CodebaseNamespace.Status.INDEXED
+            namespace.sha = repo_head_sha
+            namespace.save(update_fields=["status", "modified", "sha"])
+            logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
 
     def _delete_documents(self, repo_id: str, ref: str, source_files: list[str]):
         """
@@ -181,10 +184,9 @@ class CodebaseIndex(abc.ABC):
 
             self.semantic_search_engine.delete(namespace)
             self.lexical_search_engine.delete(namespace)
-
             namespace.delete()
 
-    def as_retriever(self, repo_id: str | None = None, ref: str | None = None) -> BaseRetriever:
+    async def as_retriever(self, repo_id: str | None = None, ref: str | None = None) -> BaseRetriever:
         """
         Get a retriever for the repository index.
 
@@ -195,7 +197,7 @@ class CodebaseIndex(abc.ABC):
         Returns:
             BaseRetriever: The retriever for the repository index
         """
-        namespace = self._get_codebase_namespace(repo_id, ref).first() if repo_id else None
+        namespace = await self._get_codebase_namespace(repo_id, ref).afirst() if repo_id else None
 
         if repo_id and namespace is None:
             raise ValueError(f"No namespace found for repo {repo_id} and ref {ref}.")
@@ -229,7 +231,6 @@ class CodebaseIndex(abc.ABC):
             # If the repository is empty, the GitlabListError is raised.
             return None
 
-    @functools.lru_cache(maxsize=32)  # noqa: B019
     def _get_codebase_namespace(
         self, repo_id: str | int, ref: str | None, ignore_ref: bool = False
     ) -> QuerySet[CodebaseNamespace]:
@@ -258,8 +259,8 @@ class CodebaseIndex(abc.ABC):
         return qs.filter(tracking_ref=ref)
 
     @functools.lru_cache(maxsize=1)  # noqa: B019
-    def _get_all_repositories(self) -> list[RepositoryInfo]:
+    async def _get_all_repositories(self) -> list[RepositoryInfo]:
         """
         Get all repositories from the codebase.
         """
-        return list(RepositoryInfo.objects.values_list("external_slug", flat=True))
+        return [repo async for repo in RepositoryInfo.objects.values_list("external_slug", flat=True)]

@@ -38,7 +38,11 @@ class WebSearchTool(BaseTool):
     args_schema: type[BaseModel] = WebSearchInput
     handle_validation_error: bool = True
 
-    def _run(self, query: str, intent: str = "", run_manager: CallbackManagerForToolRun | None = None) -> str:
+    def _run(self, *args, **kwargs) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
+    async def _arun(self, query: str, intent: str = "", run_manager: CallbackManagerForToolRun | None = None) -> str:
         """
         Performs a web search using DuckDuckGo and returns relevant results.
 
@@ -53,7 +57,7 @@ class WebSearchTool(BaseTool):
 
         logger.debug("[%s] Performing web search for '%s' (intent: %s)", self.name, query, intent)
 
-        if not (results := self._get_results(query)):
+        if not (results := await self._get_results(query)):
             return "No relevant results found for the given search query."
 
         return "\n".join([
@@ -67,11 +71,11 @@ class WebSearchTool(BaseTool):
             for result in results
         ])
 
-    def _get_results(self, query: str) -> list[str]:
+    async def _get_results(self, query: str) -> list[str]:
         if settings.WEB_SEARCH_ENGINE == "duckduckgo":
             return self._get_duckduckgo_results(query)
         elif settings.WEB_SEARCH_ENGINE == "tavily":
-            return self._get_tavily_results(query)
+            return await self._get_tavily_results(query)
         else:
             raise ValueError(f"Invalid web search engine: {settings.WEB_SEARCH_ENGINE}")
 
@@ -79,11 +83,13 @@ class WebSearchTool(BaseTool):
         api_wrapper = DuckDuckGoSearchAPIWrapper()
         return [result["snippet"] for result in api_wrapper.results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS)]
 
-    def _get_tavily_results(self, query: str) -> list[str]:
+    async def _get_tavily_results(self, query: str) -> list[str]:
         assert settings.WEB_SEARCH_API_KEY is not None, "WEB_SEARCH_API_KEY is not set"
 
         api_wrapper = TavilySearchAPIWrapper(tavily_api_key=settings.WEB_SEARCH_API_KEY)
-        results = api_wrapper.raw_results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True)
+        results = await api_wrapper.raw_results_async(
+            query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True
+        )
         results_content = [result["content"] for result in results["results"]]
         if results["answer"]:
             return [results["answer"]] + results_content

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig  # noqa: TC002
-from langgraph.graph import END, StateGraph
+from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
@@ -32,7 +32,7 @@ class IssueEvaluator(BaseAgent[Runnable[IssueAssessmentInput, IssueAssessmentEva
     Agent to evaluate the issue is a request for changes to the codebase.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([issue_evaluator_system, issue_evaluator_human])
             | self.get_model(model=settings.ISSUE_EVALUATOR_MODEL_NAME).with_structured_output(
@@ -46,7 +46,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
     Agent to address issues created by the reporter.
     """
 
-    def compile(self) -> CompiledStateGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
 
@@ -57,13 +57,13 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         workflow.add_node("assessment", self.assessment)
         workflow.add_node("prepare_data", self.prepare_data)
-        workflow.add_node("plan_and_execute", self.plan_and_execute_subgraph(self.checkpointer, self.store))
+        workflow.add_node("plan_and_execute", await self.plan_and_execute_subgraph(self.checkpointer, self.store))
 
         workflow.set_entry_point("assessment")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    def assessment(self, state: OverallState) -> Command[Literal["prepare_data", "__end__"]]:
+    async def assessment(self, state: OverallState) -> Command[Literal["prepare_data", "__end__"]]:
         """
         Assess the issue created by the reporter.
 
@@ -75,17 +75,18 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["prepare_data", "__end__"]]: The next step in the workflow.
         """
-        response = IssueEvaluator().agent.invoke({
+        evaluator = await IssueEvaluator().agent
+        response = await evaluator.ainvoke({
             "issue_title": state["issue_title"],
             "issue_description": state["issue_description"],
         })
 
         if response.request_for_changes:
-            return Command(goto="prepare_data")
+            return Command[Literal["prepare_data"]](goto="prepare_data")
         # TODO: ask for clarification if the issue is not a request for changes
-        return Command(goto=END, update={"request_for_changes": False})
+        return Command[Literal["__end__"]](goto="__end__", update={"request_for_changes": False})
 
-    def prepare_data(self, state: OverallState, config: RunnableConfig) -> Command[Literal["plan_and_execute"]]:
+    async def prepare_data(self, state: OverallState, config: RunnableConfig) -> Command[Literal["plan_and_execute"]]:
         """
         Prepare the data for the plan and execute node.
         This node will extract the images from the issue description.
@@ -98,7 +99,8 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
-        extracted_images = ImageURLExtractorAgent().agent.invoke(
+        extractor = await ImageURLExtractorAgent().agent
+        extracted_images = await extractor.ainvoke(
             {"markdown_text": state["issue_description"]},
             {
                 "configurable": {
@@ -108,12 +110,12 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             },
         )
 
-        return Command(
+        return Command[Literal["plan_and_execute"]](
             goto="plan_and_execute",
             update={
-                "messages": HumanMessagePromptTemplate.from_template(
+                "messages": await HumanMessagePromptTemplate.from_template(
                     [issue_addressor_human] + extracted_images, "jinja2"
-                ).format_messages(
+                ).aformat_messages(
                     issue_title=state["issue_title"],
                     issue_description=state["issue_description"],
                     project_description=repo_config.repository_description,
@@ -121,7 +123,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
             },
         )
 
-    def plan_and_execute_subgraph(
+    async def plan_and_execute_subgraph(
         self, checkpointer: BaseCheckpointSaver | None, store: BaseStore | None
     ) -> CompiledStateGraph:
         """
@@ -133,4 +135,4 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled subgraph.
         """
-        return PlanAndExecuteAgent(checkpointer=checkpointer, store=store).agent
+        return await PlanAndExecuteAgent(checkpointer=checkpointer, store=store).agent

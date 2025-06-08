@@ -53,47 +53,6 @@ def extract_image_mimetype_openai(image_url: str) -> str | None:
     return mimetype in SUPPORTED_MIMETYPES and mimetype or None
 
 
-def _url_to_data_url(client: httpx.Client, url: str) -> str | None:
-    """
-    Synchronously convert an image URL to a data URL.
-    Returns None if the URL is invalid or the request fails.
-    """
-    if not (content_type := extract_image_mimetype_openai(url)):
-        return None
-    try:
-        response = client.get(url)
-        response.raise_for_status()
-    except Exception:
-        logger.warning("Failed to fetch image from URL: %s", url)
-        return None
-    else:
-        base64_image = base64.b64encode(response.content).decode("utf-8")
-        return f"data:{content_type};base64,{base64_image}"
-
-
-def url_to_data_url(url: str, headers: dict[str, str] | None = None) -> str | None:
-    """
-    Synchronously convert an image URL to a data URL.
-    Returns None if the URL is invalid or the request fails.
-    """
-    with httpx.Client(timeout=10.0, headers=headers) as client:
-        return _url_to_data_url(client, url)
-
-
-def batch_url_to_data_url(urls: list[str], headers: dict[str, str] | None = None) -> dict[str, str]:
-    """
-    Convert multiple URLs to data URLs synchronously.
-    Returns a dictionary of URL to data URL mappings.
-    """
-    result = {}
-    # Using a single client for all requests
-    with httpx.Client(timeout=10.0, headers=headers) as client:
-        for url in urls:
-            if data_url := _url_to_data_url(client, url):
-                result[url] = data_url
-    return result
-
-
 async def _async_url_to_data_url(client: httpx.AsyncClient, url: str) -> str | None:
     """
     Asynchronously convert an image URL to a data URL.
@@ -111,29 +70,25 @@ async def _async_url_to_data_url(client: httpx.AsyncClient, url: str) -> str | N
         return f"data:{content_type};base64,{base64_image}"
 
 
-async def async_url_to_data_url(url: str) -> str | None:
+async def async_url_to_data_url(url: str, headers: dict[str, str] | None = None) -> str | None:
     """
     Asynchronously convert an image URL to a data URL.
     Returns None if the URL is invalid or the request fails.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
         return await _async_url_to_data_url(client, url)
 
 
-async def batch_async_url_to_data_url(urls: Iterable[str], headers: dict[str, str]) -> dict[str, str]:
+async def batch_async_url_to_data_url(urls: Iterable[str], headers: dict[str, str] | None = None) -> dict[str, str]:
     """
     Convert multiple URLs to data URLs asynchronously.
     Returns a dictionary of URL to data URL mappings.
     """
     result = {}
+
     # Using a single client for all requests
     async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-        tasks = []
-
-        for url in urls:
-            tasks.append(_async_url_to_data_url(client, url))
-
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        responses = await asyncio.gather(*[_async_url_to_data_url(client, url) for url in urls], return_exceptions=True)
 
         for url, response in zip(urls, responses, strict=False):
             if isinstance(response, Exception):

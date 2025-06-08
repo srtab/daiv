@@ -701,7 +701,6 @@ class GitLabClient(RepoClient):
             title=issue.title,
             description=issue.description,
             state=issue.state,
-            has_tasks=issue.has_tasks,
             notes=self.get_issue_notes(repo_id, issue_id),
             labels=issue.labels,
             assignee=User(
@@ -709,6 +708,9 @@ class GitLabClient(RepoClient):
             )
             if issue.assignee
             else None,
+            author=User(
+                id=issue.author.get("id"), username=issue.author.get("username"), name=issue.author.get("name")
+            ),
             related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
         )
 

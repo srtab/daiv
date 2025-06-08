@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `author` to metadata on `ReviewAddressorAgent` and `IssueAddressorAgent` to track the agent executions on the `langsmith` platform.
+- Added MCP tools support to allow the agent to use external tools through MCP servers: #274.
 
 ### Changed
 
@@ -27,10 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Completely rewrote troubleshooting system prompt to be more structured and concise with clear workflow steps and rules of thumb.
   - Enhanced troubleshooting human prompt with better context handling.
   - Simplified troubleshooting template format for better readability and reduced verbosity.
+- Migrated project to be async by default.
 
 ### Fixed
 
 - When changing the state of an Issue (from `closed` to `opened`), the webhook was being ignored by the GitLab callback.
+- Planning questions on Issue Addressor Agent were not being handled correctly.
+- Recursion limit was not being correctly passed to `PlanAndExecuteAgent`, limiting the agent to only 25 calls.
 
 ## [0.1.5] - 2025-05-26
 

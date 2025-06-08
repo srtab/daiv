@@ -13,7 +13,7 @@ from codebase.clients import RepoClient
 from core.constants import BOT_NAME
 
 from .schemas import ChatCompletionRequest, ChatCompletionResponse, ModelListSchema, ModelSchema
-from .security import AsyncAuthBearer, AuthBearer
+from .security import AuthBearer
 from .utils import generate_stream
 
 logger = logging.getLogger("daiv.chat")
@@ -21,7 +21,7 @@ logger = logging.getLogger("daiv.chat")
 MODEL_ID = "DAIV"
 
 
-chat_router = Router(auth=AsyncAuthBearer(), tags=["chat"])
+chat_router = Router(auth=AuthBearer(), tags=["chat"])
 models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
@@ -35,7 +35,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
 
     client = RepoClient.create_instance()
-    codebase_chat = await CodebaseChatAgent().acompile()
+    codebase_chat = await CodebaseChatAgent().agent
 
     config = RunnableConfig(
         tags=[codebase_chat_settings.NAME, str(client.client_slug)],
@@ -65,15 +65,15 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
 
 
 @models_router.get("", response={200: ModelListSchema})
-def get_models(request: HttpRequest):
+async def get_models(request: HttpRequest):
     """
     This endpoint is used to get the list of models available for the chat completion.
     """
-    return ModelListSchema(object="list", data=[get_model(request, MODEL_ID)])
+    return ModelListSchema(object="list", data=[await get_model(request, MODEL_ID)])
 
 
 @models_router.get("/{model_id}", response={200: ModelSchema})
-def get_model(request: HttpRequest, model_id: str):
+async def get_model(request: HttpRequest, model_id: str):
     """
     This endpoint is used to get the model information.
     """

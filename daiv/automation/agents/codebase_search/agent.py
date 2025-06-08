@@ -31,7 +31,7 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         self.rephrase = rephrase
         super().__init__(*args, **kwargs)
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         """
         Compile the agent into a Runnable.
 

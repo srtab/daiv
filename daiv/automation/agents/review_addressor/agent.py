@@ -34,7 +34,7 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
     Agent to evaluate if a review comment is a request for changes to the codebase.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
             | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(ReviewCommentEvaluation)
@@ -46,7 +46,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledGraph]):
     Agent to reply to reviewer's comments or questions.
     """
 
-    def compile(self) -> CompiledGraph:
+    async def compile(self) -> CompiledGraph:
         tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
 
         return create_react_agent(
@@ -72,7 +72,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         super().__init__(*args, **kwargs)
         self.codebase_index = CodebaseIndex(RepoClient.create_instance())
 
-    def compile(self) -> CompiledStateGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the workflow for the agent.
 
@@ -89,7 +89,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    def assessment(self, state: OverallState) -> Command[Literal["plan_and_execute", "reply_reviewer"]]:
+    async def assessment(self, state: OverallState) -> Command[Literal["plan_and_execute", "reply_reviewer"]]:
         """
         Assess the feedback provided by the reviewer.
 
@@ -102,14 +102,15 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "reply_reviewer"]]: The next step in the workflow.
         """
-        response = ReviewCommentEvaluator().agent.invoke({"messages": state["notes"]})
+        review_comment_evaluator = await ReviewCommentEvaluator().agent
+        response = await review_comment_evaluator.ainvoke({"messages": state["notes"]})
 
         if response.request_for_changes:
             return Command(goto="plan_and_execute")
 
         return Command(goto="reply_reviewer")
 
-    def plan_and_execute(
+    async def plan_and_execute(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["__end__"]]:
         """
@@ -136,21 +137,21 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             additional_kwargs={"cache-control": {"type": "ephemeral"}},
         )
 
-        plan_and_execute = PlanAndExecuteAgent(
+        plan_and_execute = await PlanAndExecuteAgent(
             plan_system_template=review_plan_system, store=store, skip_approval=True, checkpointer=False
-        )
+        ).agent
 
-        result = plan_and_execute.agent.invoke({"messages": state["notes"]})
+        result = await plan_and_execute.ainvoke({"messages": state["notes"]})
 
         if plan_questions := result.get("plan_questions"):
             return Command(goto=END, update={"reply": "\n".join(plan_questions)})
         return Command(goto=END)
 
-    def reply_reviewer(
+    async def reply_reviewer(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["__end__"]]:
         """
-        Compile the subgraph to reply to reviewer's comments or questions.
+        Reply to reviewer's comments or questions.
 
         Args:
             state (OverallState): The state of the agent.
@@ -160,8 +161,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        reply_reviewer_agent = ReplyReviewerAgent(store=store).agent
+        reply_reviewer_agent = await ReplyReviewerAgent(store=store).agent
 
-        result = reply_reviewer_agent.invoke({"messages": state["notes"], "diff": state["diff"]})
+        result = await reply_reviewer_agent.ainvoke({"messages": state["notes"], "diff": state["diff"]})
 
         return Command(goto=END, update={"reply": result["messages"][-1].content})

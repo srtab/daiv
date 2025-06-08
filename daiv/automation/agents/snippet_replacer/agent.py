@@ -27,7 +27,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
     Agent to replace a code snippet in a codebase.
     """
 
-    def compile(self) -> Runnable:
+    async def compile(self) -> Runnable:
         """
         Compile the agent.
 
@@ -41,7 +41,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             ).with_fallbacks([RunnableLambda(self._replace_content_snippet)])
         ).with_config({"run_name": settings.NAME})
 
-    def _route(self, input_data: SnippetReplacerInput) -> Runnable:
+    async def _route(self, input_data: SnippetReplacerInput) -> Runnable:
         """
         Route the input data to the appropriate method.
 
@@ -51,7 +51,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
         Returns:
             Runnable: The appropriate method
         """
-        if settings.STRATEGY == "llm" and self.validate_max_token_not_exceeded(input_data):
+        if settings.STRATEGY == "llm" and await self.validate_max_token_not_exceeded(input_data):
             return self._prompt | self.get_model(model=settings.MODEL_NAME).with_structured_output(
                 SnippetReplacerOutput, method="function_calling"
             )
@@ -96,7 +96,7 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             output.content += "\n"
         return output
 
-    def validate_max_token_not_exceeded(self, input_data: SnippetReplacerInput) -> bool:  # noqa: A002
+    async def validate_max_token_not_exceeded(self, input_data: SnippetReplacerInput) -> bool:  # noqa: A002
         """
         Validate that the messages does not exceed the maximum token value of the model.
 
@@ -107,8 +107,8 @@ class SnippetReplacerAgent(BaseAgent[Runnable[SnippetReplacerInput, SnippetRepla
             bool: True if the text does not exceed the maximum token value, False otherwise
         """
         prompt = self._prompt
-        filled_messages = prompt.invoke(input_data).to_messages()
-        empty_messages = prompt.invoke({"original_snippet": "", "replacement_snippet": "", "content": ""}).to_messages()
+        filled_messages = await prompt.aformat_messages(**input_data)
+        empty_messages = await prompt.aformat_messages(original_snippet="", replacement_snippet="", content="")
         # try to anticipate the number of tokens needed for the output
         estimated_needed_tokens = self.get_num_tokens_from_messages(
             filled_messages, settings.MODEL_NAME
