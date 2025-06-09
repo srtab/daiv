@@ -41,21 +41,17 @@ class HumanApprovalEvaluation(BaseModel):
 class AskForClarification(BaseModel):
     """
     Ask the user follow-up questions when their original request is ambiguous, incomplete, or self-contradictory.
-
-    Use this schema *only* when the agent cannot safely produce an implementation plan with the
-    information currently available.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    questions: list[str] = Field(
+    questions: str = Field(
         description=dedent(
             """\
-            A list of targeted questions phrased **in the same language** as the user's request.
-             - Each question should resolve exactly one uncertainty
-             - Provide at least one question and no superfluous chit-chat
+            The question(s) should be targeted and phrased **in the same language** as the user's request.
+             - Provide at least one question and no superfluous chit-chat.
              - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
             """  # noqa: E501
         )

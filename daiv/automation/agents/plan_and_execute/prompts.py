@@ -248,7 +248,7 @@ WORKFLOW
 Parse the **relevant-files** list in the change-plan and **batch-call `retrieve_file_content`** to pull them *all* before anything else.
 
 ### **Step 1 - Decide whether extra inspection is required**
-Privately ask: “With the change-plan *plus* the fetched relevant files, can I implement directly?”
+Privately ask: "With the change-plan *plus* the fetched relevant files, can I implement directly?"
 - **Yes** ➜ go straight to Step 2.
 - **No**  ➜ batch-call any additional inspection tools (group related paths/queries). Stop inspecting once you've gathered enough context.
 

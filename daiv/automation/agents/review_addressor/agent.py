@@ -144,7 +144,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         result = await plan_and_execute.ainvoke({"messages": state["notes"]})
 
         if plan_questions := result.get("plan_questions"):
-            return Command(goto=END, update={"reply": "\n".join(plan_questions)})
+            return Command(goto=END, update={"reply": plan_questions})
         return Command(goto=END)
 
     async def reply_reviewer(

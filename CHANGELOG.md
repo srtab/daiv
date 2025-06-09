@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced troubleshooting human prompt with better context handling.
   - Simplified troubleshooting template format for better readability and reduced verbosity.
 - Migrated project to be async by default.
+- Updated project dependencies.
 
 ### Fixed
 
