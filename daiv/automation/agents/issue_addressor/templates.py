@@ -20,7 +20,7 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 {{ plan_task.details }}
 {% if plan_task.relevant_files %}
-Relevant files:{% for file in plan_task.relevant_files %}
+#### Relevant files:{% for file in plan_task.relevant_files %}
 - `{{ file }}`{% endfor %}
 {% endif %}
 
@@ -47,8 +47,7 @@ ISSUE_QUESTIONS_TEMPLATE = """### ❓ ***Clarification needed***
 
 I was unable to define a plan taking into account the information provided. To help me assist you better, please make adjustments to the issue description to **clarify the following questions**:
 
-{% for question in questions %}
-1. {{ question }}{% endfor %}
+{{ questions }}
 
 💡 **Next Steps:**
 

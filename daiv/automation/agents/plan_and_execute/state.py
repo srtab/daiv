@@ -26,7 +26,7 @@ class PlanAndExecuteState(MessagesState):
     The state of the overall plan and execute agent.
     """
 
-    plan_questions: list[str]
+    plan_questions: str
     """
     The questions to be answered by the human to clarify it's intent.
     """
