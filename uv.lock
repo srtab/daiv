@@ -626,7 +626,7 @@ requires-dist = [
     { name = "sentry-sdk", specifier = "==2.29.1" },
     { name = "tantivy", specifier = "==0.24" },
     { name = "tree-sitter", specifier = "==0.24" },
-    { name = "tree-sitter-language-pack", specifier = "==0.7.3" },
+    { name = "tree-sitter-language-pack", specifier = "==0.8.0" },
     { name = "unidiff", specifier = "==0.7.5" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.34.3" },
 ]
@@ -3861,7 +3861,7 @@ wheels = [
 
 [[package]]
 name = "tree-sitter-language-pack"
-version = "0.7.3"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tree-sitter" },
@@ -3869,12 +3869,12 @@ dependencies = [
     { name = "tree-sitter-embedded-template" },
     { name = "tree-sitter-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/ce/bc64ed55b2b8ffd4f599108be44f3fb9da8c00767502701a067be7b62c89/tree_sitter_language_pack-0.7.3.tar.gz", hash = "sha256:49139cb607d81352d33ad18e57520fc1057a009955c9ccced56607cc18e6a3fd", size = 59296297, upload-time = "2025-05-07T07:49:44.259Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/b7/1272925d5cccd0c7a79df85fdc1a728a9cd9536adca10c473a86ea6a1022/tree_sitter_language_pack-0.8.0.tar.gz", hash = "sha256:49aafe322eb59ef4d4457577210fb20c18c5535b1a42b8e753aa699ed3bf9eed", size = 43693098, upload-time = "2025-06-08T13:19:05.653Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/2c/07e297ddf680e8220f4c12d220762176a5837ba8d7835712051f8344e7a5/tree_sitter_language_pack-0.7.3-cp39-abi3-macosx_10_13_universal2.whl", hash = "sha256:6c4e1a48b83d8bab8d54f1d8012ae7d5a816b3972359e3fb4fe19477a6b18658", size = 28163123, upload-time = "2025-05-07T07:49:30.028Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/88/8761fecb761eb7b7acd6b9dc8e987813f9b58195895c437c3a7a416813da/tree_sitter_language_pack-0.7.3-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:0be05f63cd1da06bd277570bbb6cd37c9652ddd1d2ee63ff71da20a66ce36cd8", size = 17593772, upload-time = "2025-05-07T07:49:33.287Z" },
-    { url = "https://files.pythonhosted.org/packages/23/15/22f731997285a7e0d68934881ffc374f2575a9e3f800af9b86af44d928a0/tree_sitter_language_pack-0.7.3-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:fd6481b0501ae3a957f673d235bdd68bc7095899f3d58882be7e31fa8e06bd66", size = 17449045, upload-time = "2025-05-07T07:49:36.053Z" },
-    { url = "https://files.pythonhosted.org/packages/c7/a0/82ee17141c5d4b4b99445ba442f397f3e783b6dc2b48fa49570f89397cdf/tree_sitter_language_pack-0.7.3-cp39-abi3-win_amd64.whl", hash = "sha256:5c0078532d839d45af0477b1b2e5b1a168e88ca3544e94b27dcba6ddbadb6511", size = 14331659, upload-time = "2025-05-07T07:49:39.957Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/44/f7d3c4c5e075de1b3ad9e7d006f2057d65d39d5a573d6ee72b1a7f3f6cd1/tree_sitter_language_pack-0.8.0-cp39-abi3-macosx_10_13_universal2.whl", hash = "sha256:7ab5dd0e4383bd0c845c153f65da62df035591fc79759a5f6efd5b27aaa551c5", size = 28609869, upload-time = "2025-06-08T13:18:54.966Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/24/86f32fae7eaaf829cfd0013f8173fb0f3e75f6e0a8bc58bd165c821e17de/tree_sitter_language_pack-0.8.0-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:1757c04af8350ffdfd5509951fb7874dc1947604d6d9f16a2f88a0cd4fcc54cb", size = 17871704, upload-time = "2025-06-08T13:18:58.17Z" },
+    { url = "https://files.pythonhosted.org/packages/00/7d/9356ecb8d5fcc16e39154821226d0dc3662393b9f46326f539e3e71dc384/tree_sitter_language_pack-0.8.0-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:81aac45ddde6c7e9ac222d0157af03648b1382d4de3af321d1b913af96b796f0", size = 17729371, upload-time = "2025-06-08T13:19:00.421Z" },
+    { url = "https://files.pythonhosted.org/packages/19/49/cfe141b0be9e08aeb9e20f3a182e58b7af12a28f46949403005e5483afc6/tree_sitter_language_pack-0.8.0-cp39-abi3-win_amd64.whl", hash = "sha256:e870a3cc067352b249393e887710dae4918c6454f7fd41e43108f3621a5f41f8", size = 14552212, upload-time = "2025-06-08T13:19:03.119Z" },
 ]
 
 [[package]]
