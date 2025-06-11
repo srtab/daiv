@@ -32,9 +32,13 @@ class MCPServer(ABC):
         Returns:
             SSEConnection: The SSE connection to the MCP proxy.
         """
-        return SSEConnection(
-            transport="sse", url=build_uri(settings.MCP_PROXY_HOST.encoded_string(), f"{self.name}/sse")
-        )
+        url = build_uri(settings.MCP_PROXY_HOST.encoded_string(), f"{self.name}/sse")
+        headers = None
+        if settings.MCP_PROXY_AUTH_TOKEN:
+            token = settings.MCP_PROXY_AUTH_TOKEN.get_secret_value()
+            headers = {"Authorization": f"Bearer {token}"}
+
+        return SSEConnection(transport="sse", url=url, headers=headers)
 
     def get_proxy_config(self) -> StdioMcpServer | SseMcpServer | StreamableHttpMcpServer:
         """
