@@ -1,4 +1,5 @@
 import logging
+import re
 from functools import cached_property
 from typing import Any, Literal
 
@@ -89,6 +90,31 @@ class NoteCallback(BaseCallback):
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
 
+    def _should_address_merge_request_review(self) -> bool:
+        """
+        Check if the merge request review should be addressed based on:
+        1. The comment body contains a mention/reference to the DAIV user
+        2. OR the discussion thread already contains notes from the DAIV user
+        """
+        client = RepoClient.create_instance()
+        daiv_user = client.current_user
+
+        # Check if the note body contains @{daiv_username}
+        mention_pattern = f"@{re.escape(daiv_user.username)}"
+        if re.search(mention_pattern, self.object_attributes.note, re.IGNORECASE):
+            return True
+
+        # Check if the discussion thread already contains notes from DAIV user
+        if self.merge_request:
+            discussions = client.get_merge_request_discussions(self.project.path_with_namespace, self.merge_request.iid)
+
+            for discussion in discussions:
+                for note in discussion.notes:
+                    if note.author.id == daiv_user.id:
+                        return True
+
+        return False
+
     def accept_callback(self) -> bool:
         """
         Accept the webhook if the note is a review feedback for a merge request.
@@ -107,7 +133,7 @@ class NoteCallback(BaseCallback):
                     and self.merge_request
                     and not self.merge_request.work_in_progress
                     and self.merge_request.state == "opened"
-                    and self.merge_request.is_daiv()
+                    and self._should_address_merge_request_review()
                 )
                 or (
                     self.object_attributes.noteable_type == NoteableType.ISSUE
