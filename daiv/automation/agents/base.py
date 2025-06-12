@@ -21,10 +21,10 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_THINKING_MODELS = ("claude-sonnet-4", "claude-opus-4")
+CLAUDE_THINKING_MODELS = ("claude-sonnet-4", "claude-opus-4", "anthropic/claude-sonnet-4", "anthropic/claude-opus-4")
 CLAUDE_MAX_TOKENS = 4_096
 
-OPENAI_THINKING_MODELS = ("o1", "o3", "o4")
+OPENAI_THINKING_MODELS = ("o1", "o3", "o4", "openai/o1", "openai/o3", "openai/o4")
 
 
 class ModelProvider(StrEnum):
@@ -145,7 +145,15 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
             if thinking_level:
                 _kwargs["temperature"] = 1
-                _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
+
+                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
+                    max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
+                        thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens")
+                    )
+                    _kwargs["max_tokens"] = max_tokens
+                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens["budget_tokens"]}}
+                else:
+                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
