@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Changed default model for `CodebaseChatAgent` to `gpt-4.1`.
-- Changed `PlanAndExecuteAgent` planning phase to use `low` thinking level by default.
+- Changed `PlanAndExecuteAgent` planning phase to use `medium` thinking level by default.
 - Updated deployment documentation to include information about the MCP proxy.
 
 ### Fixed

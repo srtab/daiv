@@ -49,7 +49,4 @@ COPY --chown=app:app pyproject.toml uv.lock ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN uv sync \
-    && chmod +x /home/app/docker/entrypoint \
     && mkdir -p /home/app/data
-
-ENTRYPOINT ["/home/app/docker/entrypoint"]

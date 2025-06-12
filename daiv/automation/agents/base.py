@@ -148,12 +148,12 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                     max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens")
+                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens")
                     )
                     _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens["budget_tokens"]}}
+                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
                 else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
+                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
@@ -167,16 +167,16 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
     def _get_anthropic_thinking_tokens(
         self, *, thinking_level: ThinkingLevel, max_tokens: int = CLAUDE_MAX_TOKENS
-    ) -> tuple[int, dict]:
+    ) -> tuple[int, int]:
         """
         Get the thinking tokens and max tokens for the model.
         """
         if thinking_level == ThinkingLevel.LOW:
-            return max_tokens + 4_096, {"type": "enabled", "budget_tokens": 4_096}
+            return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
-            return max_tokens + 25_600, {"type": "enabled", "budget_tokens": 25_600}
+            return max_tokens + 25_600, 25_600
         elif thinking_level == ThinkingLevel.HIGH:
-            return 64_000, {"type": "enabled", "budget_tokens": 64_000 - max_tokens}
+            return 64_000, 64_000 - max_tokens
 
     async def draw_mermaid(self) -> str:
         """
