@@ -8,14 +8,15 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 **Required Core Services:**
 
- * **[PostgreSQL](https://www.postgresql.org/)** with [pgvector](https://github.com/pgvector/pgvector) extension - Stores application data and vector embeddings
- * **[Redis](https://redis.io/)** - Handles caching and message queueing
- * **[DAIV Application](https://github.com/srtab/daiv)** - Main web interface and API
- * **[DAIV Worker](https://docs.celeryq.dev/)** - Background task processor
+ * **[PostgreSQL](https://www.postgresql.org/)** with [pgvector](https://github.com/pgvector/pgvector) extension - Stores application data and vector embeddings;
+ * **[Redis](https://redis.io/)** - Handles caching and message queueing;
+ * **[DAIV Application](https://github.com/srtab/daiv)** - Main API;
+ * **[DAIV Worker](https://docs.celeryq.dev/)** - Background task processor.
 
 **Optional Service:**
 
- * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary code
+ * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary code;
+ * **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** - Proxy MCP server to run other MCP servers inside a container.
 
 ---
 
@@ -42,6 +43,7 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 * **`codebase_embeddings_api_key`** - [OpenAI API key](https://platform.openai.com/api-keys) with access to `text-embedding-3-large` model
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
+* **`mcp_proxy_auth_token`** - Random API key for MCP Proxy service authentication
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -146,6 +148,7 @@ services:
       - codebase_embeddings_api_key
       - daiv_sandbox_api_key
       - openrouter_api_key
+      - mcp_proxy_auth_token
     networks:
       - internal
       - external
@@ -154,6 +157,7 @@ services:
     volumes:
       - tantivy-volume:/home/daiv/data/tantivy_index_v1
       - embeddings-volume:/home/daiv/data/embeddings
+      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
 
@@ -171,11 +175,13 @@ services:
       - codebase_embeddings_api_key
       - daiv_sandbox_api_key
       - openrouter_api_key
+      - mcp_proxy_auth_token
     networks:
       - internal
     volumes:
       - tantivy-volume:/home/daiv/data/tantivy_index_v1
       - embeddings-volume:/home/daiv/data/embeddings
+      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     healthcheck:
       test: celery -A daiv inspect ping
       interval: 10s
@@ -196,6 +202,16 @@ services:
     deploy:
       <<: *deploy_defaults
 
+  mcp-proxy:
+    image: ghcr.io/tbxark/mcp-proxy:latest
+    networks:
+      - internal
+    volumes:
+      - mcp-proxy-volume:/config
+    deploy:
+      <<: *deploy_defaults
+
+
 networks:
   internal:
     driver: overlay
@@ -210,6 +226,8 @@ volumes:
   tantivy-volume:
     driver: local
   embeddings-volume:
+    driver: local
+  mcp-proxy-volume:
     driver: local
 
 secrets:
@@ -226,6 +244,8 @@ secrets:
   daiv_sandbox_api_key:
     external: true
   openrouter_api_key:
+    external: true
+  mcp_proxy_auth_token:
     external: true
 ```
 
@@ -312,18 +332,12 @@ x-app-defaults: &x_app_default
     OPENROUTER_API_KEY: openrouter-api-key (8)
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
+    # MCP Proxy settings
+    MCP_PROXY_AUTH_TOKEN: mcp-proxy-auth-token (13)
   volumes:
     - tantivy-volume:/home/app/data/tantivy_index_v1
     - embeddings-volume:/home/app/data/embeddings
-  depends_on:
-    db:
-      condition: service_healthy
-      restart: true
-    redis:
-      condition: service_healthy
-      restart: true
-    sandbox:
-      condition: service_healthy
+    - mcp-proxy-volume:/home/app/data/mcp-proxy
 
 services:
   db:
@@ -365,6 +379,15 @@ services:
     command: sh /home/app/docker/start-app
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+      sandbox:
+        condition: service_healthy
 
   worker:
     <<: *x_app_default
@@ -373,6 +396,10 @@ services:
     environment:
       C_FORCE_ROOT: true
     ports: []
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
 
   sandbox:
     image: ghcr.io/srtab/daiv-sandbox:latest
@@ -384,6 +411,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - $HOME/.docker/config.json:/home/app/.docker/config.json
 
+  mcp-proxy:
+    image: ghcr.io/tbxark/mcp-proxy:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-proxy
+    volumes:
+      - mcp-proxy-volume:/config
+    ports:
+      - "9090:9090"
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+
 volumes:
   db-volume:
     driver: local
@@ -393,7 +433,8 @@ volumes:
     driver: local
   embeddings-volume:
     driver: local
-
+  mcp-proxy-volume:
+    driver: local
 ```
 
 </div>
@@ -410,6 +451,7 @@ volumes:
 10.  **Use the same password** as defined in annotation 3
 11.  **Use the same API key** as defined in annotation 9
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
+13.  **Generate a random API key** for MCP Proxy service authentication
 
 ### Step 2: Run the compose file
 

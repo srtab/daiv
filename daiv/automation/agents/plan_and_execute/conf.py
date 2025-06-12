@@ -1,6 +1,7 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from automation.agents.base import ThinkingLevel
 from automation.agents.constants import ModelName
 
 
@@ -15,6 +16,9 @@ class PlanAndExecuteSettings(BaseSettings):
     RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan and execute agent.")
     PLANNING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to plan tasks."
+    )
+    PLANNING_THINKING_LEVEL: ThinkingLevel = Field(
+        default=ThinkingLevel.LOW, description="Thinking level to be used for planning."
     )
     EXECUTION_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to execute tasks."

@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added support to `o3` model from OpenAI.
+
+### Changed
+
+- Changed default model for `CodebaseChatAgent` to `gpt-4.1`.
+- Changed `PlanAndExecuteAgent` planning phase to use `low` thinking level by default.
+- Updated deployment documentation to include information about the MCP proxy.
+
 ### Fixed
 
 - `MCPServer.get_connection` now attaches an `Authorization: Bearer` header when `MCP_PROXY_AUTH_TOKEN` secret is configured, ensuring authenticated requests to the MCP proxy. (#419)
+
+### Removed
+
+- Support to `claude-3-7-sonnet` model from Anthropic.
 
 ## [0.2.0] - 2025-06-09
 
