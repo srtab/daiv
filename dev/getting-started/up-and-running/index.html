@@ -1149,14 +1149,15 @@
 <p><strong>DAIV requires several core services to function properly</strong>. You'll deploy these services using container orchestration:</p>
 <p><strong>Required Core Services:</strong></p>
 <ul>
-<li><strong><a href="https://www.postgresql.org/">PostgreSQL</a></strong> with <a href="https://github.com/pgvector/pgvector">pgvector</a> extension - Stores application data and vector embeddings</li>
-<li><strong><a href="https://redis.io/">Redis</a></strong> - Handles caching and message queueing</li>
-<li><strong><a href="https://github.com/srtab/daiv">DAIV Application</a></strong> - Main web interface and API</li>
-<li><strong><a href="https://docs.celeryq.dev/">DAIV Worker</a></strong> - Background task processor</li>
+<li><strong><a href="https://www.postgresql.org/">PostgreSQL</a></strong> with <a href="https://github.com/pgvector/pgvector">pgvector</a> extension - Stores application data and vector embeddings;</li>
+<li><strong><a href="https://redis.io/">Redis</a></strong> - Handles caching and message queueing;</li>
+<li><strong><a href="https://github.com/srtab/daiv">DAIV Application</a></strong> - Main API;</li>
+<li><strong><a href="https://docs.celeryq.dev/">DAIV Worker</a></strong> - Background task processor.</li>
 </ul>
 <p><strong>Optional Service:</strong></p>
 <ul>
-<li><strong><a href="https://github.com/srtab/daiv-sandbox">DAIV Sandbox</a></strong> - Isolated environment for running arbitrary code</li>
+<li><strong><a href="https://github.com/srtab/daiv-sandbox">DAIV Sandbox</a></strong> - Isolated environment for running arbitrary code;</li>
+<li><strong><a href="https://github.com/TBXark/mcp-proxy/">MCP Proxy</a></strong> - Proxy MCP server to run other MCP servers inside a container.</li>
 </ul>
 <hr />
 <h2 id="docker-swarm-recommended"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M16.358 1.216c-1.82.023-4.234 2.581-2.57 6.704.018.034.08.17.091.204h.003c5.172-2.298 4.45-6.287 3.112-6.8a1.7 1.7 0 0 0-.636-.108M4.001 2.768c-1.867.027-3.392.81-3.874 2.06-.91 2.365 3.07 7.996 12.229 3.93l.004-.003a6 6 0 0 1-.16-.362C10.193 4.303 6.73 2.728 4 2.768zM15.51 9.432l-.138.034a7.1 7.1 0 0 0-2.153.951c-.949.624-1.786 1.549-2.147 2.641-.097.295-.17.618-.194.928a9.15 9.15 0 0 0 .77 4.451 9.16 9.16 0 0 0 2.681 3.46c.686.544 1.92.887 2.93.887.949 0 1.884-.282 2.725-.71.262-.133.841-.494.879-.52a3.85 3.85 0 0 1-1.378-.663c-1.447-1.107-2.594-2.595-3.409-4.423-.826-1.854-1.163-3.73-1.002-5.575a3.8 3.8 0 0 1 .436-1.46zm3.498.026c-.868 0-1.704.722-1.783 1.623-.132 1.503.166 3.033.824 4.51.648 1.453 1.567 2.683 2.749 3.586a1.73 1.73 0 0 0 1.06.346c.677 0 1.353-.36 1.621-1.002a6.74 6.74 0 0 0-.068-5.356 6.75 6.75 0 0 0-3.891-3.618 1.5 1.5 0 0 0-.512-.089m-10.05 5.498a29 29 0 0 0-2.175 4.098c-.023.054-.378.932-.483 1.205a.676.676 0 0 0 .384.86c.273.107 1.164.43 1.22.449a29 29 0 0 0 4.453 1.12 11.2 11.2 0 0 1-2.442-3.48 11.1 11.1 0 0 1-.958-4.252z"/></svg></span> Docker Swarm (<em>Recommended</em>)</h2>
@@ -1178,6 +1179,7 @@
 <li><strong><code>codebase_embeddings_api_key</code></strong> - <a href="https://platform.openai.com/api-keys">OpenAI API key</a> with access to <code>text-embedding-3-large</code> model</li>
 <li><strong><code>daiv_sandbox_api_key</code></strong> - Random API key for Sandbox service authentication</li>
 <li><strong><code>openrouter_api_key</code></strong> - <a href="https://openrouter.ai/settings/keys">OpenRouter API key</a> for LLM access</li>
+<li><strong><code>mcp_proxy_auth_token</code></strong> - Random API key for MCP Proxy service authentication</li>
 </ul>
 <p><strong>Create each secret using this command</strong> (see <a href="https://docs.docker.com/reference/cli/docker/secret/create/">Docker Secrets documentation</a> for more details):</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>django_secret_key<span class="w"> </span>&lt;secret_key&gt;
@@ -1357,7 +1359,25 @@
 <span class="normal"><a href="#__codelineno-1-162">162</a></span>
 <span class="normal"><a href="#__codelineno-1-163">163</a></span>
 <span class="normal"><a href="#__codelineno-1-164">164</a></span>
-<span class="normal"><a href="#__codelineno-1-165">165</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">x-app-environment-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;app_environment_defaults</span>
+<span class="normal"><a href="#__codelineno-1-165">165</a></span>
+<span class="normal"><a href="#__codelineno-1-166">166</a></span>
+<span class="normal"><a href="#__codelineno-1-167">167</a></span>
+<span class="normal"><a href="#__codelineno-1-168">168</a></span>
+<span class="normal"><a href="#__codelineno-1-169">169</a></span>
+<span class="normal"><a href="#__codelineno-1-170">170</a></span>
+<span class="normal"><a href="#__codelineno-1-171">171</a></span>
+<span class="normal"><a href="#__codelineno-1-172">172</a></span>
+<span class="normal"><a href="#__codelineno-1-173">173</a></span>
+<span class="normal"><a href="#__codelineno-1-174">174</a></span>
+<span class="normal"><a href="#__codelineno-1-175">175</a></span>
+<span class="normal"><a href="#__codelineno-1-176">176</a></span>
+<span class="normal"><a href="#__codelineno-1-177">177</a></span>
+<span class="normal"><a href="#__codelineno-1-178">178</a></span>
+<span class="normal"><a href="#__codelineno-1-179">179</a></span>
+<span class="normal"><a href="#__codelineno-1-180">180</a></span>
+<span class="normal"><a href="#__codelineno-1-181">181</a></span>
+<span class="normal"><a href="#__codelineno-1-182">182</a></span>
+<span class="normal"><a href="#__codelineno-1-183">183</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">x-app-environment-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;app_environment_defaults</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="c1"># DJANGO</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="nt">DJANGO_SETTINGS_MODULE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv.settings.production</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="nt">DJANGO_ALLOWED_HOSTS</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-hostname.com,app,127.0.0.1 (1)</span>
@@ -1441,87 +1461,105 @@
 <a id="__codelineno-1-82" name="__codelineno-1-82"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_embeddings_api_key</span>
 <a id="__codelineno-1-83" name="__codelineno-1-83"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
 <a id="__codelineno-1-84" name="__codelineno-1-84"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter_api_key</span>
-<a id="__codelineno-1-85" name="__codelineno-1-85"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-1-86" name="__codelineno-1-86"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
-<a id="__codelineno-1-87" name="__codelineno-1-87"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external</span>
-<a id="__codelineno-1-88" name="__codelineno-1-88"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-1-89" name="__codelineno-1-89"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
-<a id="__codelineno-1-90" name="__codelineno-1-90"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-1-91" name="__codelineno-1-91"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/daiv/data/tantivy_index_v1</span>
-<a id="__codelineno-1-92" name="__codelineno-1-92"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/daiv/data/embeddings</span>
-<a id="__codelineno-1-93" name="__codelineno-1-93"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
-<a id="__codelineno-1-94" name="__codelineno-1-94"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
-<a id="__codelineno-1-95" name="__codelineno-1-95"></a>
-<a id="__codelineno-1-96" name="__codelineno-1-96"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
-<a id="__codelineno-1-97" name="__codelineno-1-97"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest (5)</span>
-<a id="__codelineno-1-98" name="__codelineno-1-98"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/daiv/start-worker</span>
-<a id="__codelineno-1-99" name="__codelineno-1-99"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-1-100" name="__codelineno-1-100"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*app_environment_defaults</span>
-<a id="__codelineno-1-101" name="__codelineno-1-101"></a><span class="w">      </span><span class="nt">CELERY_CONCURRENCY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2 (6)</span>
-<a id="__codelineno-1-102" name="__codelineno-1-102"></a><span class="w">    </span><span class="nt">secrets</span><span class="p">:</span>
-<a id="__codelineno-1-103" name="__codelineno-1-103"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">django_secret_key</span>
-<a id="__codelineno-1-104" name="__codelineno-1-104"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db_password</span>
-<a id="__codelineno-1-105" name="__codelineno-1-105"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_auth_token</span>
-<a id="__codelineno-1-106" name="__codelineno-1-106"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_webhook_secret</span>
-<a id="__codelineno-1-107" name="__codelineno-1-107"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_embeddings_api_key</span>
-<a id="__codelineno-1-108" name="__codelineno-1-108"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
-<a id="__codelineno-1-109" name="__codelineno-1-109"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter_api_key</span>
-<a id="__codelineno-1-110" name="__codelineno-1-110"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-1-111" name="__codelineno-1-111"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
-<a id="__codelineno-1-112" name="__codelineno-1-112"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-1-113" name="__codelineno-1-113"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/daiv/data/tantivy_index_v1</span>
-<a id="__codelineno-1-114" name="__codelineno-1-114"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/daiv/data/embeddings</span>
-<a id="__codelineno-1-115" name="__codelineno-1-115"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<a id="__codelineno-1-116" name="__codelineno-1-116"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">celery -A daiv inspect ping</span>
-<a id="__codelineno-1-117" name="__codelineno-1-117"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-1-118" name="__codelineno-1-118"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
-<a id="__codelineno-1-119" name="__codelineno-1-119"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
-<a id="__codelineno-1-120" name="__codelineno-1-120"></a>
-<a id="__codelineno-1-121" name="__codelineno-1-121"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-1-122" name="__codelineno-1-122"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest (5)</span>
-<a id="__codelineno-1-123" name="__codelineno-1-123"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-1-124" name="__codelineno-1-124"></a><span class="w">      </span><span class="nt">DAIV_SANDBOX_KEEP_TEMPLATE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true (7)</span>
-<a id="__codelineno-1-125" name="__codelineno-1-125"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-1-126" name="__codelineno-1-126"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
-<a id="__codelineno-1-127" name="__codelineno-1-127"></a><span class="w">    </span><span class="nt">secrets</span><span class="p">:</span>
-<a id="__codelineno-1-128" name="__codelineno-1-128"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
-<a id="__codelineno-1-129" name="__codelineno-1-129"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-1-130" name="__codelineno-1-130"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock (8)</span>
-<a id="__codelineno-1-131" name="__codelineno-1-131"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.docker/config.json:/home/app/.docker/config.json (9)</span>
-<a id="__codelineno-1-132" name="__codelineno-1-132"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
-<a id="__codelineno-1-133" name="__codelineno-1-133"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
-<a id="__codelineno-1-134" name="__codelineno-1-134"></a>
-<a id="__codelineno-1-135" name="__codelineno-1-135"></a><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-1-136" name="__codelineno-1-136"></a><span class="w">  </span><span class="nt">internal</span><span class="p">:</span>
-<a id="__codelineno-1-137" name="__codelineno-1-137"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">overlay</span>
-<a id="__codelineno-1-138" name="__codelineno-1-138"></a><span class="w">  </span><span class="nt">external</span><span class="p">:</span>
-<a id="__codelineno-1-139" name="__codelineno-1-139"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">overlay</span>
-<a id="__codelineno-1-140" name="__codelineno-1-140"></a>
-<a id="__codelineno-1-141" name="__codelineno-1-141"></a><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-1-142" name="__codelineno-1-142"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
-<a id="__codelineno-1-143" name="__codelineno-1-143"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-1-144" name="__codelineno-1-144"></a><span class="w">  </span><span class="nt">redis-volume</span><span class="p">:</span>
-<a id="__codelineno-1-145" name="__codelineno-1-145"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-1-146" name="__codelineno-1-146"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
-<a id="__codelineno-1-147" name="__codelineno-1-147"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-1-148" name="__codelineno-1-148"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
-<a id="__codelineno-1-149" name="__codelineno-1-149"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-1-150" name="__codelineno-1-150"></a>
-<a id="__codelineno-1-151" name="__codelineno-1-151"></a><span class="nt">secrets</span><span class="p">:</span>
-<a id="__codelineno-1-152" name="__codelineno-1-152"></a><span class="w">  </span><span class="nt">django_secret_key</span><span class="p">:</span>
-<a id="__codelineno-1-153" name="__codelineno-1-153"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-154" name="__codelineno-1-154"></a><span class="w">  </span><span class="nt">db_password</span><span class="p">:</span>
-<a id="__codelineno-1-155" name="__codelineno-1-155"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-156" name="__codelineno-1-156"></a><span class="w">  </span><span class="nt">codebase_gitlab_auth_token</span><span class="p">:</span>
-<a id="__codelineno-1-157" name="__codelineno-1-157"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-158" name="__codelineno-1-158"></a><span class="w">  </span><span class="nt">codebase_gitlab_webhook_secret</span><span class="p">:</span>
-<a id="__codelineno-1-159" name="__codelineno-1-159"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-160" name="__codelineno-1-160"></a><span class="w">  </span><span class="nt">codebase_embeddings_api_key</span><span class="p">:</span>
-<a id="__codelineno-1-161" name="__codelineno-1-161"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-162" name="__codelineno-1-162"></a><span class="w">  </span><span class="nt">daiv_sandbox_api_key</span><span class="p">:</span>
-<a id="__codelineno-1-163" name="__codelineno-1-163"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-164" name="__codelineno-1-164"></a><span class="w">  </span><span class="nt">openrouter_api_key</span><span class="p">:</span>
-<a id="__codelineno-1-165" name="__codelineno-1-165"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-85" name="__codelineno-1-85"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_proxy_auth_token</span>
+<a id="__codelineno-1-86" name="__codelineno-1-86"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-1-87" name="__codelineno-1-87"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
+<a id="__codelineno-1-88" name="__codelineno-1-88"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external</span>
+<a id="__codelineno-1-89" name="__codelineno-1-89"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-1-90" name="__codelineno-1-90"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
+<a id="__codelineno-1-91" name="__codelineno-1-91"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-1-92" name="__codelineno-1-92"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/daiv/data/tantivy_index_v1</span>
+<a id="__codelineno-1-93" name="__codelineno-1-93"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/daiv/data/embeddings</span>
+<a id="__codelineno-1-94" name="__codelineno-1-94"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-volume:/home/daiv/data/mcp-proxy</span>
+<a id="__codelineno-1-95" name="__codelineno-1-95"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-1-96" name="__codelineno-1-96"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
+<a id="__codelineno-1-97" name="__codelineno-1-97"></a>
+<a id="__codelineno-1-98" name="__codelineno-1-98"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
+<a id="__codelineno-1-99" name="__codelineno-1-99"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest (5)</span>
+<a id="__codelineno-1-100" name="__codelineno-1-100"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/daiv/start-worker</span>
+<a id="__codelineno-1-101" name="__codelineno-1-101"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-1-102" name="__codelineno-1-102"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*app_environment_defaults</span>
+<a id="__codelineno-1-103" name="__codelineno-1-103"></a><span class="w">      </span><span class="nt">CELERY_CONCURRENCY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2 (6)</span>
+<a id="__codelineno-1-104" name="__codelineno-1-104"></a><span class="w">    </span><span class="nt">secrets</span><span class="p">:</span>
+<a id="__codelineno-1-105" name="__codelineno-1-105"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">django_secret_key</span>
+<a id="__codelineno-1-106" name="__codelineno-1-106"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db_password</span>
+<a id="__codelineno-1-107" name="__codelineno-1-107"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_auth_token</span>
+<a id="__codelineno-1-108" name="__codelineno-1-108"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_gitlab_webhook_secret</span>
+<a id="__codelineno-1-109" name="__codelineno-1-109"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codebase_embeddings_api_key</span>
+<a id="__codelineno-1-110" name="__codelineno-1-110"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
+<a id="__codelineno-1-111" name="__codelineno-1-111"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter_api_key</span>
+<a id="__codelineno-1-112" name="__codelineno-1-112"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_proxy_auth_token</span>
+<a id="__codelineno-1-113" name="__codelineno-1-113"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-1-114" name="__codelineno-1-114"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
+<a id="__codelineno-1-115" name="__codelineno-1-115"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-1-116" name="__codelineno-1-116"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/daiv/data/tantivy_index_v1</span>
+<a id="__codelineno-1-117" name="__codelineno-1-117"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/daiv/data/embeddings</span>
+<a id="__codelineno-1-118" name="__codelineno-1-118"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-volume:/home/daiv/data/mcp-proxy</span>
+<a id="__codelineno-1-119" name="__codelineno-1-119"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-1-120" name="__codelineno-1-120"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">celery -A daiv inspect ping</span>
+<a id="__codelineno-1-121" name="__codelineno-1-121"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-1-122" name="__codelineno-1-122"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-1-123" name="__codelineno-1-123"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
+<a id="__codelineno-1-124" name="__codelineno-1-124"></a>
+<a id="__codelineno-1-125" name="__codelineno-1-125"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-1-126" name="__codelineno-1-126"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest (5)</span>
+<a id="__codelineno-1-127" name="__codelineno-1-127"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-1-128" name="__codelineno-1-128"></a><span class="w">      </span><span class="nt">DAIV_SANDBOX_KEEP_TEMPLATE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true (7)</span>
+<a id="__codelineno-1-129" name="__codelineno-1-129"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-1-130" name="__codelineno-1-130"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
+<a id="__codelineno-1-131" name="__codelineno-1-131"></a><span class="w">    </span><span class="nt">secrets</span><span class="p">:</span>
+<a id="__codelineno-1-132" name="__codelineno-1-132"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv_sandbox_api_key</span>
+<a id="__codelineno-1-133" name="__codelineno-1-133"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-1-134" name="__codelineno-1-134"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock (8)</span>
+<a id="__codelineno-1-135" name="__codelineno-1-135"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.docker/config.json:/home/app/.docker/config.json (9)</span>
+<a id="__codelineno-1-136" name="__codelineno-1-136"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-1-137" name="__codelineno-1-137"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
+<a id="__codelineno-1-138" name="__codelineno-1-138"></a>
+<a id="__codelineno-1-139" name="__codelineno-1-139"></a><span class="w">  </span><span class="nt">mcp-proxy</span><span class="p">:</span>
+<a id="__codelineno-1-140" name="__codelineno-1-140"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/tbxark/mcp-proxy:latest</span>
+<a id="__codelineno-1-141" name="__codelineno-1-141"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-1-142" name="__codelineno-1-142"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">internal</span>
+<a id="__codelineno-1-143" name="__codelineno-1-143"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-1-144" name="__codelineno-1-144"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-volume:/config</span>
+<a id="__codelineno-1-145" name="__codelineno-1-145"></a><span class="w">    </span><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-1-146" name="__codelineno-1-146"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
+<a id="__codelineno-1-147" name="__codelineno-1-147"></a>
+<a id="__codelineno-1-148" name="__codelineno-1-148"></a>
+<a id="__codelineno-1-149" name="__codelineno-1-149"></a><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-1-150" name="__codelineno-1-150"></a><span class="w">  </span><span class="nt">internal</span><span class="p">:</span>
+<a id="__codelineno-1-151" name="__codelineno-1-151"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">overlay</span>
+<a id="__codelineno-1-152" name="__codelineno-1-152"></a><span class="w">  </span><span class="nt">external</span><span class="p">:</span>
+<a id="__codelineno-1-153" name="__codelineno-1-153"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">overlay</span>
+<a id="__codelineno-1-154" name="__codelineno-1-154"></a>
+<a id="__codelineno-1-155" name="__codelineno-1-155"></a><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-1-156" name="__codelineno-1-156"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
+<a id="__codelineno-1-157" name="__codelineno-1-157"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-1-158" name="__codelineno-1-158"></a><span class="w">  </span><span class="nt">redis-volume</span><span class="p">:</span>
+<a id="__codelineno-1-159" name="__codelineno-1-159"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-1-160" name="__codelineno-1-160"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
+<a id="__codelineno-1-161" name="__codelineno-1-161"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-1-162" name="__codelineno-1-162"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
+<a id="__codelineno-1-163" name="__codelineno-1-163"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-1-164" name="__codelineno-1-164"></a><span class="w">  </span><span class="nt">mcp-proxy-volume</span><span class="p">:</span>
+<a id="__codelineno-1-165" name="__codelineno-1-165"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-1-166" name="__codelineno-1-166"></a>
+<a id="__codelineno-1-167" name="__codelineno-1-167"></a><span class="nt">secrets</span><span class="p">:</span>
+<a id="__codelineno-1-168" name="__codelineno-1-168"></a><span class="w">  </span><span class="nt">django_secret_key</span><span class="p">:</span>
+<a id="__codelineno-1-169" name="__codelineno-1-169"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-170" name="__codelineno-1-170"></a><span class="w">  </span><span class="nt">db_password</span><span class="p">:</span>
+<a id="__codelineno-1-171" name="__codelineno-1-171"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-172" name="__codelineno-1-172"></a><span class="w">  </span><span class="nt">codebase_gitlab_auth_token</span><span class="p">:</span>
+<a id="__codelineno-1-173" name="__codelineno-1-173"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-174" name="__codelineno-1-174"></a><span class="w">  </span><span class="nt">codebase_gitlab_webhook_secret</span><span class="p">:</span>
+<a id="__codelineno-1-175" name="__codelineno-1-175"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-176" name="__codelineno-1-176"></a><span class="w">  </span><span class="nt">codebase_embeddings_api_key</span><span class="p">:</span>
+<a id="__codelineno-1-177" name="__codelineno-1-177"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-178" name="__codelineno-1-178"></a><span class="w">  </span><span class="nt">daiv_sandbox_api_key</span><span class="p">:</span>
+<a id="__codelineno-1-179" name="__codelineno-1-179"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-180" name="__codelineno-1-180"></a><span class="w">  </span><span class="nt">openrouter_api_key</span><span class="p">:</span>
+<a id="__codelineno-1-181" name="__codelineno-1-181"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-182" name="__codelineno-1-182"></a><span class="w">  </span><span class="nt">mcp_proxy_auth_token</span><span class="p">:</span>
+<a id="__codelineno-1-183" name="__codelineno-1-183"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div></td></tr></table></div>
 </div>
 <ol>
@@ -1676,7 +1714,29 @@
 <span class="normal"><a href="#__codelineno-4-103">103</a></span>
 <span class="normal"><a href="#__codelineno-4-104">104</a></span>
 <span class="normal"><a href="#__codelineno-4-105">105</a></span>
-<span class="normal"><a href="#__codelineno-4-106">106</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<span class="normal"><a href="#__codelineno-4-106">106</a></span>
+<span class="normal"><a href="#__codelineno-4-107">107</a></span>
+<span class="normal"><a href="#__codelineno-4-108">108</a></span>
+<span class="normal"><a href="#__codelineno-4-109">109</a></span>
+<span class="normal"><a href="#__codelineno-4-110">110</a></span>
+<span class="normal"><a href="#__codelineno-4-111">111</a></span>
+<span class="normal"><a href="#__codelineno-4-112">112</a></span>
+<span class="normal"><a href="#__codelineno-4-113">113</a></span>
+<span class="normal"><a href="#__codelineno-4-114">114</a></span>
+<span class="normal"><a href="#__codelineno-4-115">115</a></span>
+<span class="normal"><a href="#__codelineno-4-116">116</a></span>
+<span class="normal"><a href="#__codelineno-4-117">117</a></span>
+<span class="normal"><a href="#__codelineno-4-118">118</a></span>
+<span class="normal"><a href="#__codelineno-4-119">119</a></span>
+<span class="normal"><a href="#__codelineno-4-120">120</a></span>
+<span class="normal"><a href="#__codelineno-4-121">121</a></span>
+<span class="normal"><a href="#__codelineno-4-122">122</a></span>
+<span class="normal"><a href="#__codelineno-4-123">123</a></span>
+<span class="normal"><a href="#__codelineno-4-124">124</a></span>
+<span class="normal"><a href="#__codelineno-4-125">125</a></span>
+<span class="normal"><a href="#__codelineno-4-126">126</a></span>
+<span class="normal"><a href="#__codelineno-4-127">127</a></span>
+<span class="normal"><a href="#__codelineno-4-128">128</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
@@ -1701,87 +1761,109 @@
 <a id="__codelineno-4-23" name="__codelineno-4-23"></a><span class="w">    </span><span class="nt">OPENROUTER_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter-api-key (8)</span>
 <a id="__codelineno-4-24" name="__codelineno-4-24"></a><span class="w">    </span><span class="c1"># Sandbox settings</span>
 <a id="__codelineno-4-25" name="__codelineno-4-25"></a><span class="w">    </span><span class="nt">DAIV_SANDBOX_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox-api-key (9)</span>
-<a id="__codelineno-4-26" name="__codelineno-4-26"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-27" name="__codelineno-4-27"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/app/data/tantivy_index_v1</span>
-<a id="__codelineno-4-28" name="__codelineno-4-28"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/app/data/embeddings</span>
-<a id="__codelineno-4-29" name="__codelineno-4-29"></a><span class="w">  </span><span class="nt">depends_on</span><span class="p">:</span>
-<a id="__codelineno-4-30" name="__codelineno-4-30"></a><span class="w">    </span><span class="nt">db</span><span class="p">:</span>
-<a id="__codelineno-4-31" name="__codelineno-4-31"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-4-32" name="__codelineno-4-32"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-4-33" name="__codelineno-4-33"></a><span class="w">    </span><span class="nt">redis</span><span class="p">:</span>
-<a id="__codelineno-4-34" name="__codelineno-4-34"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-4-35" name="__codelineno-4-35"></a><span class="w">      </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-4-36" name="__codelineno-4-36"></a><span class="w">    </span><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-4-37" name="__codelineno-4-37"></a><span class="w">      </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
-<a id="__codelineno-4-38" name="__codelineno-4-38"></a>
-<a id="__codelineno-4-39" name="__codelineno-4-39"></a><span class="nt">services</span><span class="p">:</span>
-<a id="__codelineno-4-40" name="__codelineno-4-40"></a><span class="w">  </span><span class="nt">db</span><span class="p">:</span>
-<a id="__codelineno-4-41" name="__codelineno-4-41"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pgvector/pgvector:pg17</span>
-<a id="__codelineno-4-42" name="__codelineno-4-42"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-db</span>
-<a id="__codelineno-4-43" name="__codelineno-4-43"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-<a id="__codelineno-4-44" name="__codelineno-4-44"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-4-45" name="__codelineno-4-45"></a><span class="w">      </span><span class="nt">POSTGRES_DB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
-<a id="__codelineno-4-46" name="__codelineno-4-46"></a><span class="w">      </span><span class="nt">POSTGRES_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
-<a id="__codelineno-4-47" name="__codelineno-4-47"></a><span class="w">      </span><span class="nt">POSTGRES_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daivpass (10)</span>
-<a id="__codelineno-4-48" name="__codelineno-4-48"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-49" name="__codelineno-4-49"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db-volume:/var/lib/postgresql/data</span>
-<a id="__codelineno-4-50" name="__codelineno-4-50"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<a id="__codelineno-4-51" name="__codelineno-4-51"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;pg_isready</span><span class="nv"> </span><span class="s">-U</span><span class="nv"> </span><span class="s">daiv</span><span class="nv"> </span><span class="s">-d</span><span class="nv"> </span><span class="s">daiv&quot;</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-4-52" name="__codelineno-4-52"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-4-53" name="__codelineno-4-53"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-4-54" name="__codelineno-4-54"></a><span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
-<a id="__codelineno-4-55" name="__codelineno-4-55"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-4-56" name="__codelineno-4-56"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-4-57" name="__codelineno-4-57"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
-<a id="__codelineno-4-58" name="__codelineno-4-58"></a>
-<a id="__codelineno-4-59" name="__codelineno-4-59"></a><span class="w">  </span><span class="nt">redis</span><span class="p">:</span>
-<a id="__codelineno-4-60" name="__codelineno-4-60"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis:latest</span>
-<a id="__codelineno-4-61" name="__codelineno-4-61"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-<a id="__codelineno-4-62" name="__codelineno-4-62"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-redis</span>
-<a id="__codelineno-4-63" name="__codelineno-4-63"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-64" name="__codelineno-4-64"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis-volume:/data</span>
-<a id="__codelineno-4-65" name="__codelineno-4-65"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<a id="__codelineno-4-66" name="__codelineno-4-66"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;redis-cli&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;ping&quot;</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-4-67" name="__codelineno-4-67"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<a id="__codelineno-4-68" name="__codelineno-4-68"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
-<a id="__codelineno-4-69" name="__codelineno-4-69"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-4-70" name="__codelineno-4-70"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-4-71" name="__codelineno-4-71"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;6379:6379&quot;</span>
-<a id="__codelineno-4-72" name="__codelineno-4-72"></a>
-<a id="__codelineno-4-73" name="__codelineno-4-73"></a><span class="w">  </span><span class="nt">app</span><span class="p">:</span>
-<a id="__codelineno-4-74" name="__codelineno-4-74"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
-<a id="__codelineno-4-75" name="__codelineno-4-75"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-app</span>
-<a id="__codelineno-4-76" name="__codelineno-4-76"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-app</span>
-<a id="__codelineno-4-77" name="__codelineno-4-77"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<a id="__codelineno-4-78" name="__codelineno-4-78"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
-<a id="__codelineno-4-79" name="__codelineno-4-79"></a>
-<a id="__codelineno-4-80" name="__codelineno-4-80"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
-<a id="__codelineno-4-81" name="__codelineno-4-81"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
-<a id="__codelineno-4-82" name="__codelineno-4-82"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-worker</span>
-<a id="__codelineno-4-83" name="__codelineno-4-83"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-worker</span>
-<a id="__codelineno-4-84" name="__codelineno-4-84"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-4-85" name="__codelineno-4-85"></a><span class="w">      </span><span class="nt">C_FORCE_ROOT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-4-86" name="__codelineno-4-86"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-<a id="__codelineno-4-87" name="__codelineno-4-87"></a>
-<a id="__codelineno-4-88" name="__codelineno-4-88"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-4-89" name="__codelineno-4-89"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest</span>
-<a id="__codelineno-4-90" name="__codelineno-4-90"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-<a id="__codelineno-4-91" name="__codelineno-4-91"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox</span>
-<a id="__codelineno-4-92" name="__codelineno-4-92"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-4-93" name="__codelineno-4-93"></a><span class="w">      </span><span class="nt">DAIV_SANDBOX_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox-api-key (11)</span>
-<a id="__codelineno-4-94" name="__codelineno-4-94"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-95" name="__codelineno-4-95"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock</span>
-<a id="__codelineno-4-96" name="__codelineno-4-96"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.docker/config.json:/home/app/.docker/config.json</span>
-<a id="__codelineno-4-97" name="__codelineno-4-97"></a>
-<a id="__codelineno-4-98" name="__codelineno-4-98"></a><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-99" name="__codelineno-4-99"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
-<a id="__codelineno-4-100" name="__codelineno-4-100"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-4-101" name="__codelineno-4-101"></a><span class="w">  </span><span class="nt">redis-volume</span><span class="p">:</span>
-<a id="__codelineno-4-102" name="__codelineno-4-102"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-4-103" name="__codelineno-4-103"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
-<a id="__codelineno-4-104" name="__codelineno-4-104"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<a id="__codelineno-4-105" name="__codelineno-4-105"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
-<a id="__codelineno-4-106" name="__codelineno-4-106"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-4-26" name="__codelineno-4-26"></a><span class="w">    </span><span class="c1"># MCP Proxy settings</span>
+<a id="__codelineno-4-27" name="__codelineno-4-27"></a><span class="w">    </span><span class="nt">MCP_PROXY_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-auth-token (13)</span>
+<a id="__codelineno-4-28" name="__codelineno-4-28"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-29" name="__codelineno-4-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tantivy-volume:/home/app/data/tantivy_index_v1</span>
+<a id="__codelineno-4-30" name="__codelineno-4-30"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embeddings-volume:/home/app/data/embeddings</span>
+<a id="__codelineno-4-31" name="__codelineno-4-31"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-volume:/home/app/data/mcp-proxy</span>
+<a id="__codelineno-4-32" name="__codelineno-4-32"></a>
+<a id="__codelineno-4-33" name="__codelineno-4-33"></a><span class="nt">services</span><span class="p">:</span>
+<a id="__codelineno-4-34" name="__codelineno-4-34"></a><span class="w">  </span><span class="nt">db</span><span class="p">:</span>
+<a id="__codelineno-4-35" name="__codelineno-4-35"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pgvector/pgvector:pg17</span>
+<a id="__codelineno-4-36" name="__codelineno-4-36"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-db</span>
+<a id="__codelineno-4-37" name="__codelineno-4-37"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-4-38" name="__codelineno-4-38"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-4-39" name="__codelineno-4-39"></a><span class="w">      </span><span class="nt">POSTGRES_DB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-4-40" name="__codelineno-4-40"></a><span class="w">      </span><span class="nt">POSTGRES_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv</span>
+<a id="__codelineno-4-41" name="__codelineno-4-41"></a><span class="w">      </span><span class="nt">POSTGRES_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daivpass (10)</span>
+<a id="__codelineno-4-42" name="__codelineno-4-42"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-43" name="__codelineno-4-43"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db-volume:/var/lib/postgresql/data</span>
+<a id="__codelineno-4-44" name="__codelineno-4-44"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-4-45" name="__codelineno-4-45"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;pg_isready</span><span class="nv"> </span><span class="s">-U</span><span class="nv"> </span><span class="s">daiv</span><span class="nv"> </span><span class="s">-d</span><span class="nv"> </span><span class="s">daiv&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-4-46" name="__codelineno-4-46"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-4-47" name="__codelineno-4-47"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-4-48" name="__codelineno-4-48"></a><span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+<a id="__codelineno-4-49" name="__codelineno-4-49"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-4-50" name="__codelineno-4-50"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-4-51" name="__codelineno-4-51"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
+<a id="__codelineno-4-52" name="__codelineno-4-52"></a>
+<a id="__codelineno-4-53" name="__codelineno-4-53"></a><span class="w">  </span><span class="nt">redis</span><span class="p">:</span>
+<a id="__codelineno-4-54" name="__codelineno-4-54"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis:latest</span>
+<a id="__codelineno-4-55" name="__codelineno-4-55"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-4-56" name="__codelineno-4-56"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-redis</span>
+<a id="__codelineno-4-57" name="__codelineno-4-57"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-58" name="__codelineno-4-58"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis-volume:/data</span>
+<a id="__codelineno-4-59" name="__codelineno-4-59"></a><span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-4-60" name="__codelineno-4-60"></a><span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;redis-cli&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;ping&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-4-61" name="__codelineno-4-61"></a><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+<a id="__codelineno-4-62" name="__codelineno-4-62"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
+<a id="__codelineno-4-63" name="__codelineno-4-63"></a><span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-4-64" name="__codelineno-4-64"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-4-65" name="__codelineno-4-65"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;6379:6379&quot;</span>
+<a id="__codelineno-4-66" name="__codelineno-4-66"></a>
+<a id="__codelineno-4-67" name="__codelineno-4-67"></a><span class="w">  </span><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-4-68" name="__codelineno-4-68"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
+<a id="__codelineno-4-69" name="__codelineno-4-69"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-app</span>
+<a id="__codelineno-4-70" name="__codelineno-4-70"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-app</span>
+<a id="__codelineno-4-71" name="__codelineno-4-71"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-4-72" name="__codelineno-4-72"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8000:8000&quot;</span>
+<a id="__codelineno-4-73" name="__codelineno-4-73"></a><span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span>
+<a id="__codelineno-4-74" name="__codelineno-4-74"></a><span class="w">      </span><span class="nt">db</span><span class="p">:</span>
+<a id="__codelineno-4-75" name="__codelineno-4-75"></a><span class="w">        </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-4-76" name="__codelineno-4-76"></a><span class="w">        </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-77" name="__codelineno-4-77"></a><span class="w">      </span><span class="nt">redis</span><span class="p">:</span>
+<a id="__codelineno-4-78" name="__codelineno-4-78"></a><span class="w">        </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-4-79" name="__codelineno-4-79"></a><span class="w">        </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-80" name="__codelineno-4-80"></a><span class="w">      </span><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-4-81" name="__codelineno-4-81"></a><span class="w">        </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-4-82" name="__codelineno-4-82"></a>
+<a id="__codelineno-4-83" name="__codelineno-4-83"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
+<a id="__codelineno-4-84" name="__codelineno-4-84"></a><span class="w">    </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*x_app_default</span>
+<a id="__codelineno-4-85" name="__codelineno-4-85"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-worker</span>
+<a id="__codelineno-4-86" name="__codelineno-4-86"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/app/docker/start-worker</span>
+<a id="__codelineno-4-87" name="__codelineno-4-87"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-4-88" name="__codelineno-4-88"></a><span class="w">      </span><span class="nt">C_FORCE_ROOT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-89" name="__codelineno-4-89"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-4-90" name="__codelineno-4-90"></a><span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span>
+<a id="__codelineno-4-91" name="__codelineno-4-91"></a><span class="w">      </span><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-4-92" name="__codelineno-4-92"></a><span class="w">        </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-4-93" name="__codelineno-4-93"></a><span class="w">        </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-94" name="__codelineno-4-94"></a>
+<a id="__codelineno-4-95" name="__codelineno-4-95"></a><span class="w">  </span><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-4-96" name="__codelineno-4-96"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv-sandbox:latest</span>
+<a id="__codelineno-4-97" name="__codelineno-4-97"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-4-98" name="__codelineno-4-98"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox</span>
+<a id="__codelineno-4-99" name="__codelineno-4-99"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-4-100" name="__codelineno-4-100"></a><span class="w">      </span><span class="nt">DAIV_SANDBOX_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-sandbox-api-key (11)</span>
+<a id="__codelineno-4-101" name="__codelineno-4-101"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-102" name="__codelineno-4-102"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/docker.sock:/var/run/docker.sock</span>
+<a id="__codelineno-4-103" name="__codelineno-4-103"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.docker/config.json:/home/app/.docker/config.json</span>
+<a id="__codelineno-4-104" name="__codelineno-4-104"></a>
+<a id="__codelineno-4-105" name="__codelineno-4-105"></a><span class="w">  </span><span class="nt">mcp-proxy</span><span class="p">:</span>
+<a id="__codelineno-4-106" name="__codelineno-4-106"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/tbxark/mcp-proxy:latest</span>
+<a id="__codelineno-4-107" name="__codelineno-4-107"></a><span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-4-108" name="__codelineno-4-108"></a><span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-mcp-proxy</span>
+<a id="__codelineno-4-109" name="__codelineno-4-109"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-110" name="__codelineno-4-110"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-proxy-volume:/config</span>
+<a id="__codelineno-4-111" name="__codelineno-4-111"></a><span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<a id="__codelineno-4-112" name="__codelineno-4-112"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;9090:9090&quot;</span>
+<a id="__codelineno-4-113" name="__codelineno-4-113"></a><span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span>
+<a id="__codelineno-4-114" name="__codelineno-4-114"></a><span class="w">      </span><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-4-115" name="__codelineno-4-115"></a><span class="w">        </span><span class="nt">condition</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_healthy</span>
+<a id="__codelineno-4-116" name="__codelineno-4-116"></a><span class="w">        </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-117" name="__codelineno-4-117"></a>
+<a id="__codelineno-4-118" name="__codelineno-4-118"></a><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-4-119" name="__codelineno-4-119"></a><span class="w">  </span><span class="nt">db-volume</span><span class="p">:</span>
+<a id="__codelineno-4-120" name="__codelineno-4-120"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-4-121" name="__codelineno-4-121"></a><span class="w">  </span><span class="nt">redis-volume</span><span class="p">:</span>
+<a id="__codelineno-4-122" name="__codelineno-4-122"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-4-123" name="__codelineno-4-123"></a><span class="w">  </span><span class="nt">tantivy-volume</span><span class="p">:</span>
+<a id="__codelineno-4-124" name="__codelineno-4-124"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-4-125" name="__codelineno-4-125"></a><span class="w">  </span><span class="nt">embeddings-volume</span><span class="p">:</span>
+<a id="__codelineno-4-126" name="__codelineno-4-126"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<a id="__codelineno-4-127" name="__codelineno-4-127"></a><span class="w">  </span><span class="nt">mcp-proxy-volume</span><span class="p">:</span>
+<a id="__codelineno-4-128" name="__codelineno-4-128"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
 </code></pre></div></td></tr></table></div>
 </div>
 <ol>
@@ -1797,6 +1879,7 @@
 <li><strong>Use the same password</strong> as defined in annotation 3</li>
 <li><strong>Use the same API key</strong> as defined in annotation 9</li>
 <li><strong>Include the full URL with schema</strong> (e.g., <code>https://your-hostname.com</code>)</li>
+<li><strong>Generate a random API key</strong> for MCP Proxy service authentication</li>
 </ol>
 <h3 id="step-2-run-the-compose-file">Step 2: Run the compose file</h3>
 <p><strong>Start all DAIV services</strong> by running this command from the directory containing your <code>docker-compose.yml</code>:</p>
@@ -1994,7 +2077,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 8, 2025 11:19:41 UTC">June 8, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2025 22:26:25 UTC">June 12, 2025</span>
   </span>
 
     
@@ -2004,7 +2087,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 8, 2025 11:19:41 UTC">June 8, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2025 22:26:25 UTC">June 12, 2025</span>
   </span>
 
     

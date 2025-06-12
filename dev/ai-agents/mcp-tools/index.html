@@ -699,30 +699,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Available MCP Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-fetch-mcp-server" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Fetch MCP Server
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-sentry-mcp-server" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Sentry MCP Server
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -943,30 +919,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Available MCP Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-fetch-mcp-server" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Fetch MCP Server
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-sentry-mcp-server" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Sentry MCP Server
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -1136,36 +1088,27 @@
 <p>MCP (Model Context Protocol) Tools are external services that extend the capabilities of DAIV agents by providing specialized functionality through a standardized protocol. These tools allow AI agents to interact with external systems, fetch data from various sources, and perform actions that go beyond basic code analysis and modification.</p>
 <h2 id="available-mcp-tools">Available MCP Tools</h2>
 <p>DAIV currently supports the following MCP tools:</p>
-<h3 id="1-fetch-mcp-server">1. Fetch MCP Server</h3>
-<p>The Fetch MCP server provides web scraping and HTTP request capabilities, allowing agents to retrieve content from web pages and APIs.</p>
-<p><strong>Capabilities:</strong></p>
-<ul>
-<li>Fetch content from URLs</li>
-<li>Perform HTTP GET/POST requests</li>
-<li>Extract structured data from web pages</li>
-<li>Handle various content types (HTML, JSON, text)</li>
-</ul>
-<p><strong>Use Cases:</strong></p>
-<ul>
-<li>Researching documentation and examples from the web</li>
-<li>Fetching configuration files or data from remote sources</li>
-<li>Analyzing external APIs and their responses</li>
-<li>Gathering context from online resources</li>
-</ul>
-<h3 id="2-sentry-mcp-server">2. Sentry MCP Server</h3>
-<p>The Sentry MCP server integrates with Sentry.io to provide error monitoring and issue tracking capabilities.</p>
-<p><strong>Available Tools:</strong></p>
-<ul>
-<li><code>find_organizations</code>: Discover Sentry organizations</li>
-<li><code>get_issue_details</code>: Retrieve detailed information about specific issues</li>
-</ul>
-<p><strong>Use Cases:</strong></p>
-<ul>
-<li>Analyzing error patterns and crash reports</li>
-<li>Understanding issue context when fixing bugs</li>
-<li>Gathering debugging information from production systems</li>
-<li>Correlating code changes with error occurrences</li>
-</ul>
+<table>
+<thead>
+<tr>
+<th>MCP Server</th>
+<th>Tools</th>
+<th>Use Cases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://pypi.org/project/mcp-server-fetch/">Fetch MCP Server</a></td>
+<td>• <code>fetch</code>: Fetch content from URLs</td>
+<td>• Researching documentation and examples from the web<br>• Fetching configuration files or data from remote sources<br>• Analyzing external APIs and their responses<br>• Gathering context from online resources</td>
+</tr>
+<tr>
+<td><a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server</a></td>
+<td>• <code>find_organizations</code>: Discover Sentry organizations<br>• <code>get_issue_details</code>: Retrieve detailed information about specific issues</td>
+<td>• Analyzing error patterns and crash reports<br>• Understanding issue context when fixing bugs<br>• Gathering debugging information from production systems<br>• Correlating code changes with error occurrences</td>
+</tr>
+</tbody>
+</table>
 <h2 id="configuration">Configuration</h2>
 <p>MCP tools are configured through environment variables. Here's how to set them up:</p>
 <h3 id="basic-configuration">Basic Configuration</h3>
@@ -1193,7 +1136,7 @@
 <a id="__codelineno-0-9" name="__codelineno-0-9"></a>
 <a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="c1"># Sentry MCP Server</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="nv">MCP_SENTRY_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                      </span><span class="c1"># Default: true</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="nv">MCP_SENTRY_VERSION</span><span class="o">=</span><span class="m">0</span>.10.0<span class="w">                    </span><span class="c1"># Default: 0.10.0</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="nv">MCP_SENTRY_VERSION</span><span class="o">=</span><span class="m">0</span>.11.0<span class="w">                    </span><span class="c1"># Default: 0.11.0</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="nv">MCP_SENTRY_ACCESS_TOKEN</span><span class="o">=</span>your-sentry-token<span class="w">    </span><span class="c1"># Required for Sentry functionality</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="nv">MCP_SENTRY_HOST</span><span class="o">=</span>your-sentry-host<span class="w">             </span><span class="c1"># Your Sentry instance host</span>
 </code></pre></div></td></tr></table></div>
@@ -1289,7 +1232,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 8, 2025 11:19:41 UTC">June 8, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2025 22:26:25 UTC">June 12, 2025</span>
   </span>
 
     
@@ -1299,7 +1242,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 8, 2025 11:19:41 UTC">June 8, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2025 22:26:25 UTC">June 12, 2025</span>
   </span>
 
     
