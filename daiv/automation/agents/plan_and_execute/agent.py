@@ -112,7 +112,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         mcp_tools_names = [tool.name for tool in mcp_tools]
 
         return create_react_agent(
-            self.get_model(model=settings.PLANNING_MODEL_NAME, max_tokens=8_192),
+            self.get_model(
+                model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+            ),
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
             + mcp_tools

@@ -8,39 +8,10 @@ MCP (Model Context Protocol) Tools are external services that extend the capabil
 
 DAIV currently supports the following MCP tools:
 
-### 1. Fetch MCP Server
-
-The Fetch MCP server provides web scraping and HTTP request capabilities, allowing agents to retrieve content from web pages and APIs.
-
-**Capabilities:**
-
-- Fetch content from URLs
-- Perform HTTP GET/POST requests
-- Extract structured data from web pages
-- Handle various content types (HTML, JSON, text)
-
-**Use Cases:**
-
-- Researching documentation and examples from the web
-- Fetching configuration files or data from remote sources
-- Analyzing external APIs and their responses
-- Gathering context from online resources
-
-### 2. Sentry MCP Server
-
-The Sentry MCP server integrates with Sentry.io to provide error monitoring and issue tracking capabilities.
-
-**Available Tools:**
-
-- `find_organizations`: Discover Sentry organizations
-- `get_issue_details`: Retrieve detailed information about specific issues
-
-**Use Cases:**
-
-- Analyzing error patterns and crash reports
-- Understanding issue context when fixing bugs
-- Gathering debugging information from production systems
-- Correlating code changes with error occurrences
+| MCP Server | Tools | Use Cases |
+|------------|--------------|-----------|
+| [Fetch MCP Server](https://pypi.org/project/mcp-server-fetch/) | • `fetch`: Fetch content from URLs | • Researching documentation and examples from the web<br>• Fetching configuration files or data from remote sources<br>• Analyzing external APIs and their responses<br>• Gathering context from online resources |
+| [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) | • `find_organizations`: Discover Sentry organizations<br>• `get_issue_details`: Retrieve detailed information about specific issues | • Analyzing error patterns and crash reports<br>• Understanding issue context when fixing bugs<br>• Gathering debugging information from production systems<br>• Correlating code changes with error occurrences |
 
 ## Configuration
 
@@ -60,7 +31,7 @@ MCP_FETCH_VERSION=2025.4.7                   # Default: 2025.4.7
 
 # Sentry MCP Server
 MCP_SENTRY_ENABLED=true                      # Default: true
-MCP_SENTRY_VERSION=0.10.0                    # Default: 0.10.0
+MCP_SENTRY_VERSION=0.11.0                    # Default: 0.11.0
 MCP_SENTRY_ACCESS_TOKEN=your-sentry-token    # Required for Sentry functionality
 MCP_SENTRY_HOST=your-sentry-host             # Your Sentry instance host
 ```

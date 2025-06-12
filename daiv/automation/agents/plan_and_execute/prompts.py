@@ -43,7 +43,7 @@ GOLDEN PRINCIPLES
       - Complex structures: use formatted blocks when clearer
     • Quote code/config **when** it saves explanation or prevents ambiguity.
 
-    ────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────
 WORKFLOW
 
 ### Step 0 - Clarification gate

@@ -72,7 +72,7 @@ WORKDIR /home/daiv
 RUN chmod +x entrypoint start-app start-worker \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
-  && mkdir -p data/tantivy_index data/media data/static
+  && mkdir -p data/tantivy_index data/media data/static data/mcp-proxy
 
 HEALTHCHECK --interval=10s --start-period=30s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
