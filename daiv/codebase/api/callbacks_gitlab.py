@@ -128,9 +128,9 @@ class NoteCallback(BaseCallback):
                         # Found the discussion, check if any note is authored by DAIV
                         return any(note.author.id == current_user.id for note in discussion.notes)
 
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to fetch merge request discussions", exc_info=e)
             # Fall back to False if we can't fetch discussions
-            pass
 
         return False
 
