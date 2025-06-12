@@ -1,4 +1,5 @@
 import logging
+import re
 from functools import cached_property
 from typing import Any, Literal
 
@@ -89,35 +90,88 @@ class NoteCallback(BaseCallback):
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
 
+    def _note_mentions_daiv(self, current_user: User) -> bool:
+        """
+        Check if the incoming note body references the DAIV GitLab account.
+
+        Returns True when the note contains:
+        - Explicit user-mention (e.g. @daiv, @DAIV)
+        - Bare textual reference to the bot name (e.g. DAIV please fix)
+        """
+        note_body = self.object_attributes.note
+
+        # Check for explicit user mention (case-insensitive)
+        mention_pattern = rf"@{re.escape(current_user.username)}\b"
+        if re.search(mention_pattern, note_body, re.IGNORECASE):
+            return True
+
+        # Check for bare textual reference (case-insensitive)
+        return bool(re.search(r"\bDAIV\b", note_body, re.IGNORECASE))
+
+    def _discussion_has_daiv_notes(self, client: RepoClient, current_user: User) -> bool:
+        """
+        Check if the discussion containing the incoming note has any notes authored by DAIV.
+
+        Returns True if any note in the same discussion is authored by DAIV.
+        Falls back to False if discussion not found.
+        """
+        if not self.merge_request:
+            return False
+
+        try:
+            discussions = client.get_merge_request_discussions(self.project.path_with_namespace, self.merge_request.iid)
+
+            # Find the discussion that contains the incoming note
+            for discussion in discussions:
+                for note in discussion.notes:
+                    if note.id == self.object_attributes.id:
+                        # Found the discussion, check if any note is authored by DAIV
+                        return any(note.author.id == current_user.id for note in discussion.notes)
+
+        except Exception:
+            # Fall back to False if we can't fetch discussions
+            pass
+
+        return False
+
     def accept_callback(self) -> bool:
         """
         Accept the webhook if the note is a review feedback for a merge request.
         """
         client = RepoClient.create_instance()
-        return bool(
-            (
+
+        # Handle merge request notes with new logic
+        if self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST:
+            # Early return False for various conditions
+            if (
+                not self._repo_config.features.auto_address_review_enabled
+                or self.object_attributes.system
+                or self.object_attributes.action != NoteAction.CREATE
+                or not self.merge_request
+                or self.merge_request.work_in_progress
+                or self.merge_request.state != "opened"
+                or self.user.id == client.current_user.id
+            ):
+                return False
+
+            # Accept when note mentions DAIV OR discussion has DAIV notes
+            return self._note_mentions_daiv(client.current_user) or self._discussion_has_daiv_notes(
+                client, client.current_user
+            )
+
+        # Handle issue comments with existing logic (unchanged)
+        elif self.object_attributes.noteable_type == NoteableType.ISSUE:
+            return bool(
                 self._repo_config.features.auto_address_issues_enabled
-                or self._repo_config.features.auto_address_review_enabled
+                and not self.object_attributes.system
+                and self.object_attributes.action == NoteAction.CREATE
+                and self.user.id != client.current_user.id
+                and self.issue
+                and self.issue.is_daiv()
+                and self.issue.state == "opened"
             )
-            and not self.object_attributes.system
-            and self.object_attributes.action == NoteAction.CREATE
-            and (
-                (
-                    self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
-                    and self.merge_request
-                    and not self.merge_request.work_in_progress
-                    and self.merge_request.state == "opened"
-                    and self.merge_request.is_daiv()
-                )
-                or (
-                    self.object_attributes.noteable_type == NoteableType.ISSUE
-                    and self.user.id != client.current_user.id
-                    and self.issue
-                    and self.issue.is_daiv()
-                    and self.issue.state == "opened"
-                )
-            )
-        )
+
+        return False
 
     async def process_callback(self):
         """
