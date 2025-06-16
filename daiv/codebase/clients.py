@@ -174,6 +174,10 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str) -> Discussion:
+        pass
+
+    @abc.abstractmethod
     def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
@@ -881,6 +885,23 @@ class GitLabClient(RepoClient):
             if discussion.individual_note is False
             and (notes := self._serialize_notes(discussion.attributes["notes"], note_types))
         ]
+
+    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str) -> Discussion:
+        """
+        Get a discussion from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+
+        Returns:
+            The discussion object.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        discussion = merge_request.discussions.get(discussion_id)
+        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
 
     def _serialize_notes(self, notes: list[dict], note_types: list[NoteType] | None = None) -> list[Note]:
         """

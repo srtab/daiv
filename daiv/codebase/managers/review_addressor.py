@@ -13,7 +13,7 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
-from codebase.utils import notes_to_messages
+from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
 from core.utils import generate_uuid
 
 from .base import BaseManager
@@ -299,8 +299,16 @@ class ReviewAddressorManager(BaseManager):
         for discussion in self.client.get_merge_request_discussions(
             self.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
-            if (last_note := discussion.notes[-1]) and last_note.author.id == self.client.current_user.id:
-                logger.debug("Ignoring discussion, DAIV is the current user: %s", discussion.id)
+            if not discussion.notes:
+                logger.info("Ignoring discussion with no notes: %s", discussion.id)
+                continue
+
+            if discussion.notes[-1].author.id == self.client.current_user.id:
+                logger.info("Ignoring discussion, DAIV is the current user: %s", discussion.id)
+                continue
+
+            if not (discussion_has_daiv_mentions(discussion, self.client.current_user)):
+                logger.info("Ignoring discussion, no DAIV mention or DAIV notes: %s", discussion.id)
                 continue
 
             context = DiscussionReviewContext(discussion=discussion)

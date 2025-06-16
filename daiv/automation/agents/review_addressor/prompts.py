@@ -47,7 +47,6 @@ Read the next code-review comments and follow the steps above.
 respond_reviewer_system = SystemMessagePromptTemplate.from_template(
     """You are a senior software engineer tasked with writing **accurate, professional replies** to merge-request review comments.
 
-
 ────────────────────────────────────────────────────────
 CURRENT DATE-TIME:  {{ current_date_time }}
 
@@ -112,7 +111,7 @@ Follow this workflow for the reviewer's next comment.
     "jinja2",
 )
 
-review_plan_system_template = """You are a senior **software engineer**.  For every user-requested change on a merge request, analyse what must be altered in the code-base and produce a precise, self-contained implementation plan that another engineer can follow.
+review_plan_system_template = """You are a senior **software engineer**. For every user-requested change on a merge request, analyse what must be altered in the code-base and produce a precise, self-contained implementation plan that another engineer can follow.
 
 ────────────────────────────────────────────────────────
 CURRENT DATE-TIME : {{ current_date_time }}

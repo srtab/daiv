@@ -140,6 +140,7 @@ class Note(BaseModel):
     action: NoteAction
     noteable_type: NoteableType
     noteable_id: int
+    discussion_id: str
     note: str
     system: bool
     type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None

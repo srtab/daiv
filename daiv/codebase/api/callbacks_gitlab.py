@@ -20,6 +20,7 @@ from codebase.api.models import (
 from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
+from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
 from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
@@ -94,30 +95,41 @@ class NoteCallback(BaseCallback):
         Accept the webhook if the note is a review feedback for a merge request.
         """
         client = RepoClient.create_instance()
-        return bool(
-            (
+
+        if self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST:
+            if (
+                not self._repo_config.features.auto_address_review_enabled
+                or self.object_attributes.system
+                or self.object_attributes.action != NoteAction.CREATE
+                or not self.merge_request
+                or self.merge_request.work_in_progress
+                or self.merge_request.state != "opened"
+                or self.user.id == client.current_user.id
+            ):
+                return False
+
+            # Shortcut to avoid fetching the discussion if the note mentions DAIV.
+            if note_mentions_daiv(self.object_attributes.note, client.current_user):
+                return True
+
+            # Fetch the discussion to check if it has any notes mentioning DAIV.
+            discussion = client.get_merge_request_discussion(
+                self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
+            )
+            return discussion_has_daiv_mentions(discussion, client.current_user)
+
+        elif self.object_attributes.noteable_type == NoteableType.ISSUE:
+            return bool(
                 self._repo_config.features.auto_address_issues_enabled
-                or self._repo_config.features.auto_address_review_enabled
+                and not self.object_attributes.system
+                and self.object_attributes.action == NoteAction.CREATE
+                and self.user.id != client.current_user.id
+                and self.issue
+                and self.issue.is_daiv()
+                and self.issue.state == "opened"
             )
-            and not self.object_attributes.system
-            and self.object_attributes.action == NoteAction.CREATE
-            and (
-                (
-                    self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
-                    and self.merge_request
-                    and not self.merge_request.work_in_progress
-                    and self.merge_request.state == "opened"
-                    and self.merge_request.is_daiv()
-                )
-                or (
-                    self.object_attributes.noteable_type == NoteableType.ISSUE
-                    and self.user.id != client.current_user.id
-                    and self.issue
-                    and self.issue.is_daiv()
-                    and self.issue.state == "opened"
-                )
-            )
-        )
+
+        return False
 
     async def process_callback(self):
         """
