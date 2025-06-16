@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed default model for `CodebaseChatAgent` to `gpt-4.1`.
 - Changed `PlanAndExecuteAgent` planning phase to use `medium` thinking level by default.
 - Updated deployment documentation to include information about the MCP proxy.
+- Improved `PipelineFixerAgent` to ensure the `troubleshoot_analysis_result` (renamed to `complete_task`) tool is called exactly once at the end of the workflow.
+- Improved `PipelineFixerAgent` troubleshooting details to include more context about the issue.
 
 ### Fixed
 
