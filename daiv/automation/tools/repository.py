@@ -108,7 +108,12 @@ class SearchCodeSnippetsTool(BaseTool):
         if search_results := await search_agent.ainvoke(query):
             search_results_str = ""
             for document in search_results:
-                logger.debug("[%s] Found snippet in '%s'", self.name, document.metadata["source"])
+                logger.debug(
+                    "[%s] Found snippet in '%s' (retriever: %s)",
+                    self.name,
+                    document.metadata["source"],
+                    document.metadata["retriever"],
+                )
 
                 search_results_str += textwrap.dedent(
                     """\

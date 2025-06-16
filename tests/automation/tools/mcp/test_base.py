@@ -58,12 +58,26 @@ class TestMCPServer:
     def test_get_connection_returns_sse_connection(self, mock_settings):
         """Test that get_connection returns a properly configured SSEConnection."""
         mock_settings.MCP_PROXY_HOST.encoded_string.return_value = "http://test-host:9090"
+        mock_settings.MCP_PROXY_AUTH_TOKEN = None
 
         server = ConcreteMCPServer()
         connection = server.get_connection()
 
         assert connection["transport"] == "sse"
         assert "concrete_server/sse" in connection["url"]
+
+    @patch("automation.tools.mcp.base.settings")
+    def test_get_connection_includes_auth_header_when_token_set(self, mock_settings):
+        """Test that get_connection includes Authorization header when MCP_PROXY_AUTH_TOKEN is set."""
+        mock_settings.MCP_PROXY_HOST.encoded_string.return_value = "http://test-host:9090"
+        mock_settings.MCP_PROXY_AUTH_TOKEN.get_secret_value.return_value = "secret-token"
+
+        server = ConcreteMCPServer()
+        connection = server.get_connection()
+
+        assert connection["transport"] == "sse"
+        assert "concrete_server/sse" in connection["url"]
+        assert connection["headers"] == {"Authorization": "Bearer secret-token"}
 
     def test_get_proxy_config_returns_configured_proxy(self):
         """Test that get_proxy_config returns the configured proxy configuration."""

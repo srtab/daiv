@@ -21,7 +21,10 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_THINKING_MODELS = ("claude-3-7-sonnet", "claude-sonnet-4", "claude-opus-4")
+CLAUDE_THINKING_MODELS = ("claude-sonnet-4", "claude-opus-4", "anthropic/claude-sonnet-4", "anthropic/claude-opus-4")
+CLAUDE_MAX_TOKENS = 4_096
+
+OPENAI_THINKING_MODELS = ("o1", "o3", "o4", "openai/o1", "openai/o3", "openai/o4")
 
 
 class ModelProvider(StrEnum):
@@ -108,7 +111,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(thinking_level=thinking_level)
+                max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
+                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens")
+                )
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
                 _kwargs["max_tokens"] = max_tokens
@@ -117,18 +122,12 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
                 # If needed, we can increase this value using the configurable field.
-                _kwargs["max_tokens"] = 4_096
+                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
 
-            if _kwargs["model"].startswith("claude-3-7-sonnet"):
-                # Enable token efficient tools to reduce the number of tokens used and
-                # turn more likely parallel tool calls.
-                # Only claude-3-7-sonnet supports token efficient tools, claude-sonnet-4 and claude-opus-4 do not
-                # https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/token-efficient-tool-use
-                _kwargs["model_kwargs"]["extra_headers"] = {"anthropic-beta": "token-efficient-tools-2025-02-19"}
         elif model_provider == ModelProvider.OPENAI:
             assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
             _kwargs["api_key"] = settings.OPENAI_API_KEY.get_secret_value()
-            if thinking_level and _kwargs["model"].startswith(("o1", "o3", "o4")):
+            if thinking_level and _kwargs["model"].startswith(OPENAI_THINKING_MODELS):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
 
@@ -144,17 +143,21 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
             _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
 
-            if _kwargs["model"].startswith("anthropic/claude-3-7-sonnet"):
-                # only claude-3-7-sonnet supports token efficient tools, claude-sonnet-4 and claude-opus-4 do not
-                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "token-efficient-tools-2025-02-19"
-
             if thinking_level:
                 _kwargs["temperature"] = 1
-                _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level}}
+
+                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
+                    max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
+                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens")
+                    )
+                    _kwargs["max_tokens"] = max_tokens
+                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
+                else:
+                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
-                _kwargs["max_tokens"] = 4_096
+                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
@@ -162,16 +165,18 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         return _kwargs
 
-    def _get_anthropic_thinking_tokens(self, *, thinking_level: ThinkingLevel) -> tuple[int, dict]:
+    def _get_anthropic_thinking_tokens(
+        self, *, thinking_level: ThinkingLevel, max_tokens: int = CLAUDE_MAX_TOKENS
+    ) -> tuple[int, int]:
         """
         Get the thinking tokens and max tokens for the model.
         """
         if thinking_level == ThinkingLevel.LOW:
-            return 8_192, {"type": "enabled", "budget_tokens": 4_096}
+            return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
-            return 32_768, {"type": "enabled", "budget_tokens": 25_600}
+            return max_tokens + 25_600, 25_600
         elif thinking_level == ThinkingLevel.HIGH:
-            return 64_000, {"type": "enabled", "budget_tokens": 55_808}
+            return 64_000, 64_000 - max_tokens
 
     async def draw_mermaid(self) -> str:
         """
