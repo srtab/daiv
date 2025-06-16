@@ -1,5 +1,4 @@
 import logging
-import re
 from functools import cached_property
 from typing import Any, Literal
 
@@ -21,6 +20,7 @@ from codebase.api.models import (
 from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
+from codebase.utils import discussion_has_daiv_notes, note_mentions_daiv
 from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
@@ -90,50 +90,6 @@ class NoteCallback(BaseCallback):
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
 
-    def _note_mentions_daiv(self, current_user: User) -> bool:
-        """
-        Check if the incoming note body references the DAIV GitLab account.
-
-        Returns True when the note contains:
-        - Explicit user-mention (e.g. @daiv, @DAIV)
-        - Bare textual reference to the bot name (e.g. DAIV please fix)
-        """
-        note_body = self.object_attributes.note
-
-        # Check for explicit user mention (case-insensitive)
-        mention_pattern = rf"@{re.escape(current_user.username)}\b"
-        if re.search(mention_pattern, note_body, re.IGNORECASE):
-            return True
-
-        # Check for bare textual reference (case-insensitive)
-        return bool(re.search(r"\bDAIV\b", note_body, re.IGNORECASE))
-
-    def _discussion_has_daiv_notes(self, client: RepoClient, current_user: User) -> bool:
-        """
-        Check if the discussion containing the incoming note has any notes authored by DAIV.
-
-        Returns True if any note in the same discussion is authored by DAIV.
-        Falls back to False if discussion not found.
-        """
-        if not self.merge_request:
-            return False
-
-        try:
-            discussions = client.get_merge_request_discussions(self.project.path_with_namespace, self.merge_request.iid)
-
-            # Find the discussion that contains the incoming note
-            for discussion in discussions:
-                for note in discussion.notes:
-                    if note.id == self.object_attributes.id:
-                        # Found the discussion, check if any note is authored by DAIV
-                        return any(note.author.id == current_user.id for note in discussion.notes)
-
-        except Exception as e:
-            logger.exception("Failed to fetch merge request discussions", exc_info=e)
-            # Fall back to False if we can't fetch discussions
-
-        return False
-
     def accept_callback(self) -> bool:
         """
         Accept the webhook if the note is a review feedback for a merge request.
@@ -155,9 +111,28 @@ class NoteCallback(BaseCallback):
                 return False
 
             # Accept when note mentions DAIV OR discussion has DAIV notes
-            return self._note_mentions_daiv(client.current_user) or self._discussion_has_daiv_notes(
-                client, client.current_user
-            )
+            if note_mentions_daiv(self.object_attributes.note, client.current_user):
+                return True
+
+            # Check if discussion has DAIV notes
+            if self.merge_request:
+                try:
+                    discussions = client.get_merge_request_discussions(
+                        self.project.path_with_namespace, self.merge_request.iid
+                    )
+
+                    # Find the discussion that contains the incoming note
+                    for discussion in discussions:
+                        for note in discussion.notes:
+                            if note.id == self.object_attributes.id:
+                                # Found the discussion, check if any note is authored by DAIV
+                                return discussion_has_daiv_notes(discussion, client.current_user)
+
+                except Exception as e:
+                    logger.exception("Failed to fetch merge request discussions", exc_info=e)
+                    # Fall back to False if we can't fetch discussions
+
+            return False
 
         # Handle issue comments with existing logic (unchanged)
         elif self.object_attributes.noteable_type == NoteableType.ISSUE:

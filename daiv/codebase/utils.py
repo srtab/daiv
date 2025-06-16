@@ -1,11 +1,50 @@
 import fnmatch
+import re
 from collections.abc import Iterable
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 
-from codebase.base import Note
+from codebase.base import Discussion, Note, User
 from core.constants import BOT_NAME
+
+
+def note_mentions_daiv(note_body: str, current_user: User) -> bool:
+    """
+    Check if the note body references the DAIV GitLab account.
+
+    Returns True when the note contains:
+    - Explicit user-mention (e.g. @daiv, @DAIV)
+    - Bare textual reference to the bot name (e.g. DAIV please fix)
+
+    Args:
+        note_body: The note body text to check
+        current_user: The current DAIV user
+
+    Returns:
+        bool: True if the note mentions DAIV, False otherwise
+    """
+    # Check for explicit user mention (case-insensitive)
+    mention_pattern = rf"@{re.escape(current_user.username)}\b"
+    if re.search(mention_pattern, note_body, re.IGNORECASE):
+        return True
+
+    # Check for bare textual reference (case-insensitive)
+    return bool(re.search(r"\bDAIV\b", note_body, re.IGNORECASE))
+
+
+def discussion_has_daiv_notes(discussion: Discussion, current_user: User) -> bool:
+    """
+    Check if the discussion has any notes authored by DAIV.
+
+    Args:
+        discussion: The discussion to check
+        current_user: The current DAIV user
+
+    Returns:
+        bool: True if any note in the discussion is authored by DAIV, False otherwise
+    """
+    return any(note.author.id == current_user.id for note in discussion.notes)
 
 
 def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:

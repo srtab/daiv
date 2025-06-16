@@ -13,7 +13,7 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
-from codebase.utils import notes_to_messages
+from codebase.utils import discussion_has_daiv_notes, note_mentions_daiv, notes_to_messages
 from core.utils import generate_uuid
 
 from .base import BaseManager
@@ -299,8 +299,21 @@ class ReviewAddressorManager(BaseManager):
         for discussion in self.client.get_merge_request_discussions(
             self.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
-            if (last_note := discussion.notes[-1]) and last_note.author.id == self.client.current_user.id:
-                logger.debug("Ignoring discussion, DAIV is the current user: %s", discussion.id)
+            # Check if discussion should be processed using the same logic as webhook callback
+            last_note = discussion.notes[-1] if discussion.notes else None
+
+            # Skip if no notes in discussion
+            if not last_note:
+                logger.debug("Ignoring discussion with no notes: %s", discussion.id)
+                continue
+
+            # Accept discussions where the last note mentions DAIV OR discussion has DAIV-authored notes
+            should_process = note_mentions_daiv(last_note.body, self.client.current_user) or discussion_has_daiv_notes(
+                discussion, self.client.current_user
+            )
+
+            if not should_process:
+                logger.debug("Ignoring discussion, no DAIV mention or DAIV notes: %s", discussion.id)
                 continue
 
             context = DiscussionReviewContext(discussion=discussion)
@@ -332,4 +345,4 @@ class ReviewAddressorManager(BaseManager):
 
             if context.notes:
                 discussions.append(context)
-        return discussions
+        return di
