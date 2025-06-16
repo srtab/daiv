@@ -20,7 +20,7 @@ from codebase.api.models import (
 from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
 from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
-from codebase.utils import discussion_has_daiv_notes, note_mentions_daiv
+from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
 from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
@@ -96,9 +96,7 @@ class NoteCallback(BaseCallback):
         """
         client = RepoClient.create_instance()
 
-        # Handle merge request notes with new logic
         if self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST:
-            # Early return False for various conditions
             if (
                 not self._repo_config.features.auto_address_review_enabled
                 or self.object_attributes.system
@@ -110,31 +108,16 @@ class NoteCallback(BaseCallback):
             ):
                 return False
 
-            # Accept when note mentions DAIV OR discussion has DAIV notes
+            # Shortcut to avoid fetching the discussion if the note mentions DAIV.
             if note_mentions_daiv(self.object_attributes.note, client.current_user):
                 return True
 
-            # Check if discussion has DAIV notes
-            if self.merge_request:
-                try:
-                    discussions = client.get_merge_request_discussions(
-                        self.project.path_with_namespace, self.merge_request.iid
-                    )
+            # Fetch the discussion to check if it has any notes mentioning DAIV.
+            discussion = client.get_merge_request_discussion(
+                self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
+            )
+            return discussion_has_daiv_mentions(discussion, client.current_user)
 
-                    # Find the discussion that contains the incoming note
-                    for discussion in discussions:
-                        for note in discussion.notes:
-                            if note.id == self.object_attributes.id:
-                                # Found the discussion, check if any note is authored by DAIV
-                                return discussion_has_daiv_notes(discussion, client.current_user)
-
-                except Exception as e:
-                    logger.exception("Failed to fetch merge request discussions", exc_info=e)
-                    # Fall back to False if we can't fetch discussions
-
-            return False
-
-        # Handle issue comments with existing logic (unchanged)
         elif self.object_attributes.noteable_type == NoteableType.ISSUE:
             return bool(
                 self._repo_config.features.auto_address_issues_enabled

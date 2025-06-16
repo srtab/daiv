@@ -11,13 +11,13 @@ from core.config import RepositoryConfig
 class StubClient:
     def __init__(self):
         self.current_user = BaseUser(id=1, username="daiv", name="DAIV")
-        self._discussions = []
+        self._discussion = None
 
-    def get_merge_request_discussions(self, *_a, **_kw):
-        return self._discussions
+    def get_merge_request_discussion(self, *_a, **_kw):
+        return self._discussion
 
-    def set_discussions(self, discussions):
-        self._discussions = discussions
+    def set_discussion(self, discussion):
+        self._discussion = discussion
 
 
 @pytest.fixture
@@ -55,6 +55,7 @@ def create_note_callback(note_body: str) -> NoteCallback:
             action=NoteAction.CREATE,
             noteable_type=NoteableType.MERGE_REQUEST,
             noteable_id=1,
+            discussion_id="discussion_1",
             note=note_body,
             system=False,
         ),
@@ -65,14 +66,11 @@ def test_accept_when_mention(monkeypatch_dependencies, stub_client):
     """Test that callback is accepted when note body contains @daiv mention."""
     callback = create_note_callback("@daiv please review this code")
 
-    # No discussions needed for mention-based acceptance
-    stub_client.set_discussions([])
-
     assert callback.accept_callback() is True
 
 
-def test_accept_when_thread_has_daiv(monkeypatch_dependencies, stub_client):
-    """Test that callback is accepted when discussion thread has DAIV-authored notes."""
+def test_reject_when_thread_only_has_daiv(monkeypatch_dependencies, stub_client):
+    """Test that callback is rejected when discussion thread has only DAIV-authored notes."""
     callback = create_note_callback("This looks good to me")
 
     # Create a discussion with the current note and a DAIV-authored note
@@ -83,7 +81,7 @@ def test_accept_when_thread_has_daiv(monkeypatch_dependencies, stub_client):
                 id=100,  # This is the incoming note
                 body="This looks good to me",
                 author=BaseUser(id=2, username="reviewer", name="Reviewer"),
-                noteable_type="MergeRequest",
+                noteable_type=NoteableType.MERGE_REQUEST,
                 system=False,
                 resolvable=False,
             ),
@@ -91,16 +89,16 @@ def test_accept_when_thread_has_daiv(monkeypatch_dependencies, stub_client):
                 id=99,  # Previous DAIV note in same discussion
                 body="I've updated the code based on your feedback",
                 author=BaseUser(id=1, username="daiv", name="DAIV"),
-                noteable_type="MergeRequest",
+                noteable_type=NoteableType.MERGE_REQUEST,
                 system=False,
                 resolvable=False,
             ),
         ],
     )
 
-    stub_client.set_discussions([discussion])
+    stub_client.set_discussion(discussion)
 
-    assert callback.accept_callback() is True
+    assert callback.accept_callback() is False
 
 
 def test_reject_unmentioned_and_no_daiv_thread(monkeypatch_dependencies, stub_client):
@@ -115,7 +113,7 @@ def test_reject_unmentioned_and_no_daiv_thread(monkeypatch_dependencies, stub_cl
                 id=100,  # This is the incoming note
                 body="This looks good to me",
                 author=BaseUser(id=2, username="reviewer", name="Reviewer"),
-                noteable_type="MergeRequest",
+                noteable_type=NoteableType.MERGE_REQUEST,
                 system=False,
                 resolvable=False,
             ),
@@ -123,26 +121,25 @@ def test_reject_unmentioned_and_no_daiv_thread(monkeypatch_dependencies, stub_cl
                 id=101,  # Another reviewer note
                 body="I agree with the changes",
                 author=BaseUser(id=3, username="other_reviewer", name="Other Reviewer"),
-                noteable_type="MergeRequest",
+                noteable_type=NoteableType.MERGE_REQUEST,
                 system=False,
                 resolvable=False,
             ),
         ],
     )
 
-    stub_client.set_discussions([discussion])
+    stub_client.set_discussion(discussion)
 
     assert callback.accept_callback() is False
 
 
-def test_accept_when_bare_daiv_mention(monkeypatch_dependencies, stub_client):
-    """Test that callback is accepted when note body contains bare DAIV reference."""
+def test_reject_when_bare_daiv_mention(monkeypatch_dependencies, stub_client):
+    """Test that callback is rejected when note body contains bare DAIV reference."""
     callback = create_note_callback("DAIV please fix this issue")
 
-    # No discussions needed for mention-based acceptance
-    stub_client.set_discussions([])
+    stub_client.set_discussion(Discussion(id="discussion_1", notes=[]))
 
-    assert callback.accept_callback() is True
+    assert callback.accept_callback() is False
 
 
 def test_reject_when_note_by_daiv_itself(monkeypatch_dependencies, stub_client):
@@ -166,6 +163,7 @@ def test_reject_when_note_by_daiv_itself(monkeypatch_dependencies, stub_client):
             action=NoteAction.CREATE,
             noteable_type=NoteableType.MERGE_REQUEST,
             noteable_id=1,
+            discussion_id="discussion_1",
             note="I've updated the code",
             system=False,
         ),
@@ -195,6 +193,7 @@ def test_reject_when_system_note(monkeypatch_dependencies, stub_client):
             action=NoteAction.CREATE,
             noteable_type=NoteableType.MERGE_REQUEST,
             noteable_id=1,
+            discussion_id="discussion_1",
             note="@daiv please review",
             system=True,  # System note
         ),

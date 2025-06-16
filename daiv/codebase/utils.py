@@ -24,27 +24,22 @@ def note_mentions_daiv(note_body: str, current_user: User) -> bool:
     Returns:
         bool: True if the note mentions DAIV, False otherwise
     """
-    # Check for explicit user mention (case-insensitive)
     mention_pattern = rf"@{re.escape(current_user.username)}\b"
-    if re.search(mention_pattern, note_body, re.IGNORECASE):
-        return True
-
-    # Check for bare textual reference (case-insensitive)
-    return bool(re.search(r"\bDAIV\b", note_body, re.IGNORECASE))
+    return bool(re.search(mention_pattern, note_body, re.IGNORECASE))
 
 
-def discussion_has_daiv_notes(discussion: Discussion, current_user: User) -> bool:
+def discussion_has_daiv_mentions(discussion: Discussion, current_user: User) -> bool:
     """
-    Check if the discussion has any notes authored by DAIV.
+    Check if the discussion has any notes mentioning DAIV.
 
     Args:
         discussion: The discussion to check
         current_user: The current DAIV user
 
     Returns:
-        bool: True if any note in the discussion is authored by DAIV, False otherwise
+        bool: True if any note in the discussion mentions DAIV, False otherwise
     """
-    return any(note.author.id == current_user.id for note in discussion.notes)
+    return any(note_mentions_daiv(note.body, current_user) for note in discussion.notes)
 
 
 def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
