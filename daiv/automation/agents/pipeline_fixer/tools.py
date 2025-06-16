@@ -7,8 +7,8 @@ from langgraph.types import Command
 from .schemas import TroubleshootingDetail
 
 
-@tool("troubleshoot_pipeline_logs", parse_docstring=True)
-def troubleshoot_analysis_result(
+@tool("complete_task", parse_docstring=True)
+def complete_task(
     category: Literal["codebase", "external-factor"],
     category_reasoning: str,
     pipeline_phase: Literal["lint", "unittest", "other"],
@@ -16,7 +16,7 @@ def troubleshoot_analysis_result(
     troubleshooting: list[TroubleshootingDetail],
 ) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
     """
-    Provide your final categorization and troubleshooting details by using this tool.
+    Call this tool to complete the task by providing the final categorization and troubleshooting details.
 
     Args:
         category: State whether the issue is 'codebase' or 'external-factor'.

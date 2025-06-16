@@ -1,4 +1,4 @@
-PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE = """### 🚫 **Pipeline Job `{{ job_name }}` Failed**
+PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE = """### 🚨 **Pipeline Job `{{ job_name }}` Failed**
 
 The pipeline job has failed and requires **manual intervention**.
 

@@ -20,6 +20,7 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.schemas import ChangeInstructions, Plan
+from automation.tools import think
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
@@ -40,7 +41,7 @@ from .schemas import (
     TroubleshootingDetail,
 )
 from .state import OverallState, TroubleshootState
-from .tools import troubleshoot_analysis_result
+from .tools import complete_task
 
 logger = logging.getLogger("daiv.agents")
 
@@ -129,8 +130,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                     "need_manual_fix": True,
                     "troubleshooting": [
                         TroubleshootingDetail(
-                            details="Maximum retry iterations reached for automatic pipeline fix.",
-                            remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                            title="Automatic fix failed",
+                            details=(
+                                "Maximum retry iterations reached for automatic pipeline fix. "
+                                "Please review the logs and apply the necessary fixes manually."
+                            ),
                         )
                     ],
                 },
@@ -159,8 +163,11 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                     "need_manual_fix": True,
                     "troubleshooting": [
                         TroubleshootingDetail(
-                            details="Couldn't fix the pipeline automatically.",
-                            remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                            title="Automatic fix skipped",
+                            details=(
+                                "Automatic fix skipped because the error is the same as the previous one. "
+                                "Please review the logs and apply the necessary fixes manually."
+                            ),
                         )
                     ],
                 },
@@ -191,7 +198,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             model=self.get_model(
                 model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
-            tools=tools + [troubleshoot_analysis_result],
+            tools=tools + [complete_task, think],
             state_schema=TroubleshootState,
             prompt=ChatPromptTemplate.from_messages([
                 troubleshoot_system,
@@ -210,20 +217,22 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
         await agent.ainvoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
 
-        # At this stage, the agent has invoked the troubleshoot_analysis_result tool and next step is
-        # already set in the tool call. If not, it means something went wrong and we need to fallback to a
-        # manual fix.
+        # At this stage, the agent has invoked the `complete_task` tool and next step is already set in the tool call.
+        # If not, it means something went wrong and we need to fallback to a manual fix.
         return Command(
             goto=END,
             update={
+                "need_manual_fix": True,
                 "troubleshooting": [
                     TroubleshootingDetail(
-                        details="Couldn't fix the pipeline automatically.",
-                        remediation_steps=["Please review the logs and apply the necessary fixes manually."],
+                        title="Pipeline fix failed",
+                        details=(
+                            "Couldn't fix the pipeline automatically due to an unexpected error. "
+                            "Please review the logs and apply the necessary fixes manually."
+                        ),
                     )
                 ]
                 + state.get("troubleshooting", []),
-                "need_manual_fix": True,
             },
         )
 

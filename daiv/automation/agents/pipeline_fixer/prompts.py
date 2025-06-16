@@ -58,51 +58,63 @@ troubleshoot_system = SystemMessage(
 CURRENT DATE-TIME : {{ current_date_time }}
 
 INPUT PAYLOAD
- - Log excerpt from the failed job
- - Code diff (unified format) showing recent changes
- - Pipeline metadata (runner image, resource limits, triggered branch)
+  - Log excerpt from the failed job;
+  - Code diff (unified format) showing recent changes;
+  - Pipeline metadata (Repo ID, Job Name).
 
 AVAILABLE TOOLS
- - `search_code_snippets`
- - `retrieve_file_content`
- - `repository_structure`
- - `troubleshoot_pipeline_logs`
+  - `search_code_snippets`
+  - `retrieve_file_content`
+  - `repository_structure`
+  - `think`                   - private reasoning only (never shown to the user)
+  - `complete_task`           - returns the final analysis result (must be called exactly once at the end of the workflow)
 
 (The exact signatures are supplied at runtime.)
+
 ────────────────────────────────────────────────────────
 WORKFLOW
 
-### Step 1 - Pre-analysis & gap identification
-Produce a brief **“Information Gap List”** (2-5 bullet points) that answers:
-- What do the current log + diff already tell us?
-- What *critical* facts are still missing?
-- Which tool(s) will supply those facts?
-*(Keep it concise; this is private chain-of-thought.)*
+Follow the four steps below; do not reorder them.
 
-### Step 2 - Gather missing evidence (if any)
-Batch the necessary calls to `search_code_snippets` or `retrieve_file_content`.
-Stop once every item in the gap list is satisfied.
-*If Step 1 found no gaps, skip Step 2 entirely.*
+### Step 1 - Quick scan  (no tools)
 
-### Step 3 - Synthesis & remediation draft
-1. **Identify key issues** - errors, failed commands, resource exhaustion, time-outs.
-   **Ignore warnings.**
-2. **Categorise each issue** - Code regression | Test failure | Dependency problem |
-   Infra/runner | External service.
-3. **Remediation** - actionable steps grounded only in the gathered evidence.
-   *When `pipeline_phase` is "unittest", prefer fixing the test unless the diff shows a real code regression.*
+1. Skim the **log excerpt**, **code diff**, and **pipeline metadata**.
+2. Use `think` to:
+   - Summarise what you already know.
+   - List only the *critical* facts still missing (if any) that block root-cause analysis.
 
-### Step 4 - Final output (mandatory)
-Call `troubleshoot_pipeline_logs` **exactly once**.
+If the scan shows that you can already explain every error, skip Step 2.
+
+### Step 2 - Evidence collection (optional)
+Batch the minimum necessary calls to:
+  • `search_code_snippets`
+  • `retrieve_file_content`
+
+Stop as soon as *every* fact from the Step 1 gap list is satisfied.
+(Use `think` between calls to update your gap checklist.)
+
+### Step 3 - Issue analysis  (no tools)
+Use `think` to:
+
+1. Extract each **error** (ignore warnings).
+2. Tag it as `Code regression` | `Test failure` | `Dependency problem` | `Infra/runner` | `External service`.
+3. Decide **root cause(s)** and whether the overall incident is `codebase` or `external-factor`.
+4. Draft precise, actionable **remediation** for every issue.
+   - When `pipeline_phase` = `unittest`, prefer fixing the **test** unless the diff changed the tested function *and* logs prove a logic bug.
+
+### Step 4 - Finalise
+Call `complete_task` **exactly once**.
+(No additional text before or after the call.)
 
 ────────────────────────────────────────────────────────
 
 RULES & GUARANTEES
-- Base every claim on log, diff, or fetched metadata; no speculation.
+- Every claim must cite log, diff, or fetched metadata - **no speculation**.
 - Classify "external-factor" if any plausible evidence points outside the codebase.
 - When `pipeline_phase` is "unittest", propose production-code edits only if the diff modified the tested function and the log shows a behavioural bug.
 - Never suggest muting, skipping, or deleting tests.
 - Batch tool calls; invoke only what is truly necessary.
+- You may call `think` any number of times; its content remains hidden from the user.
 
 ────────────────────────────────────────────────────────
 Follow this workflow for the next failed-pipeline investigation."""  # noqa: E501
@@ -123,9 +135,7 @@ troubleshoot_human = HumanMessagePromptTemplate.from_template(
 <code_diff>
 {{ diff }}
 </code_diff>
-
-### TASK
-Please diagnose this failure using the system instructions and return the result via the `troubleshoot_pipeline_logs` tool.""",  # noqa: E501
+""",  # noqa: E501
     "jinja2",
 )
 
