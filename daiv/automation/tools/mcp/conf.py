@@ -19,7 +19,7 @@ class MCPSettings(BaseSettings):
     # Sentry MCP server
     SENTRY_ENABLED: bool = Field(default=True, description="Whether to enable the Sentry MCP server")
     SENTRY_VERSION: str = Field(
-        default="0.11.0",
+        default="0.12.0",
         description="The version of the Sentry MCP server: https://www.npmjs.com/package/@sentry/mcp-server",
     )
     SENTRY_ACCESS_TOKEN: SecretStr | None = Field(default=None, description="The access token to the Sentry MCP server")

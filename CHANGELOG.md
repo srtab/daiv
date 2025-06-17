@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added support to `o3` model from OpenAI.
+- Added build and push docker image to `main` branch to allow testing edge versions of the project.
 
 ### Changed
 
@@ -19,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved `PipelineFixerAgent` to ensure the `troubleshoot_analysis_result` (renamed to `complete_task`) tool is called exactly once at the end of the workflow.
 - Improved `PipelineFixerAgent` troubleshooting details to include more context about the issue.
 - `ReviewAddressorAgent` now will only accept reviews for merge requests that have DAIV mentions on the discussion thread.
+- Updated MCP `@sentry/mcp-server` to `0.12.0` version.
+- Updated base python image to `3.13.5`.
 
 ### Fixed
 

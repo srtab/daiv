@@ -10,10 +10,10 @@ maintainers = [
 authors = [
   { name = "Sandro Rodrigues", email = "srtabs@gmail.com" },
 ]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.13,<3.14"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "celery[redis]==5.5.3",
@@ -84,7 +84,6 @@ docs = [
 ]
 
 [tool.ruff]
-target-version = "py312"
 line-length = 120
 extend-exclude = [ "*/node_modules/*", "*/static/*" ]
 force-exclude = true
@@ -168,7 +167,7 @@ CODEBASE_GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 NINJA_SKIP_REGISTRY = true
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
