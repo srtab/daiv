@@ -30,8 +30,6 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-          flavor: |
-            latest=true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
