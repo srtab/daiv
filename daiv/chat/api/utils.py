@@ -39,7 +39,7 @@ def extract_text_from_event_data(event_data: StreamEvent) -> str:
 
 async def generate_stream(
     codebase_chat: CompiledGraph, input_data: dict, model_id: str, config: RunnableConfig
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """
     Generate a stream of chat completion events.
 
