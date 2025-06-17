@@ -10,3 +10,5 @@ class AutomationConfig(AppConfig):
 
     def ready(self):
         autodiscover_modules("tools.mcp.servers")
+        # Import quick action implementations to ensure they are registered
+        from automation.quick_actions.actions import hello_world  # noqa: F401

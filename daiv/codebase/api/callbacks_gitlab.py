@@ -4,6 +4,9 @@ from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
 
+from automation.quick_actions.parser import parse_quick_actions
+from automation.quick_actions.registry import quick_action_registry
+from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import (
     Issue,
@@ -137,6 +140,9 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
+        # Process quick actions first
+        await self._process_quick_actions()
+
         if self._repo_config.features.auto_address_review_enabled and self.merge_request:
             await sync_to_async(
                 address_review_task.si(
@@ -150,6 +156,92 @@ class NoteCallback(BaseCallback):
             await sync_to_async(
                 address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
             )()
+
+    async def _process_quick_actions(self):
+        """
+        Parse and execute quick actions from the note body.
+        """
+        try:
+            # Parse quick actions from the note body
+            quick_actions = parse_quick_actions(self.object_attributes.note)
+            if not quick_actions:
+                return
+
+            logger.info(f"Found {len(quick_actions)} quick action(s) in note: {[qa['identifier'] for qa in quick_actions]}")
+
+            # Process each quick action
+            for action_command in quick_actions:
+                action_identifier = action_command["identifier"]
+                params = action_command["params"]
+
+                # Check if the action exists in the registry
+                action_class = quick_action_registry.get_action_by_identifier(action_identifier)
+                if not action_class:
+                    logger.warning(f"Quick action '{action_identifier}' not found in registry")
+                    continue
+
+                # Check if the action supports the current context
+                is_issue = self.object_attributes.noteable_type == NoteableType.ISSUE
+                is_merge_request = self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+
+                if is_issue and not action_class.supports_issues:
+                    logger.warning(f"Quick action '{action_identifier}' does not support issues")
+                    continue
+
+                if is_merge_request and not action_class.supports_merge_requests:
+                    logger.warning(f"Quick action '{action_identifier}' does not support merge requests")
+                    continue
+
+                # Prepare data for the task
+                note_data = {
+                    "id": self.object_attributes.id,
+                    "body": self.object_attributes.note,
+                    "discussion_id": self.object_attributes.discussion_id,
+                }
+
+                user_data = {
+                    "id": self.user.id,
+                    "username": self.user.username,
+                    "name": self.user.name,
+                }
+
+                issue_data = None
+                if self.issue:
+                    issue_data = {
+                        "id": self.issue.id,
+                        "iid": self.issue.iid,
+                        "title": self.issue.title,
+                        "description": self.issue.description,
+                    }
+
+                merge_request_data = None
+                if self.merge_request:
+                    merge_request_data = {
+                        "id": self.merge_request.id,
+                        "iid": self.merge_request.iid,
+                        "title": self.merge_request.title,
+                        "description": self.merge_request.description,
+                        "source_branch": self.merge_request.source_branch,
+                        "target_branch": self.merge_request.target_branch,
+                    }
+
+                # Launch the quick action task
+                await sync_to_async(
+                    execute_quick_action_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        action_identifier=action_identifier,
+                        note_data=note_data,
+                        user_data=user_data,
+                        issue_data=issue_data,
+                        merge_request_data=merge_request_data,
+                        params=params,
+                    ).delay
+                )()
+
+                logger.info(f"Launched quick action task for '{action_identifier}' in repo '{self.project.path_with_namespace}'")
+
+        except Exception as e:
+            logger.error(f"Error processing quick actions: {str(e)}", exc_info=True)
 
 
 class PushCallback(BaseCallback):
