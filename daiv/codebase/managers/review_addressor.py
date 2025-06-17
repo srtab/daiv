@@ -59,10 +59,23 @@ class NoteProcessor:
 
         if note.position.position_type == NotePositionType.FILE:
             return str(patch_file)
-        elif note.position.position_type == NotePositionType.TEXT and note.position.line_range:
-            # Extract line range information
-            start_info = self._get_line_info(note.position.line_range.start)
-            end_info = self._get_line_info(note.position.line_range.end)
+        elif note.position.position_type == NotePositionType.TEXT:
+            if note.position.line_range:
+                # Extract line range information
+                start_info = self._get_line_info(note.position.line_range.start)
+                end_info = self._get_line_info(note.position.line_range.end)
+            else:
+                # There are cases of single line notes, where the line range is not defined.
+                # In this case, we will use the old or new line information to build the diff content.
+                _position = self._get_line_info(
+                    NoteDiffPosition(
+                        type=NoteDiffPositionType.OLD if note.position.old_line else NoteDiffPositionType.NEW,
+                        old_line=note.position.old_line,
+                        new_line=note.position.new_line,
+                    )
+                )
+                start_info = _position
+                end_info = _position
 
             return self._build_diff_content(
                 self._merge_hunks_from_patch_file(patch_file, file_content), start_info, end_info
