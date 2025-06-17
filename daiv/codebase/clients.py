@@ -86,7 +86,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
         pass
 
     @abc.abstractmethod
@@ -465,7 +465,7 @@ class GitLabClient(RepoClient):
             sha=mr.sha,
         )
 
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff, None, None]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
         """
         Get the latest diff of a merge request.
         https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
