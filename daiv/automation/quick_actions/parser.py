@@ -1,44 +1,50 @@
 import re
-from typing import TypedDict
+import shlex
+from dataclasses import dataclass
 
 
-class QuickActionCommand(TypedDict):
-    """Type definition for a parsed quick action command."""
-    identifier: str
-    params: str | None
-
-
-def parse_quick_actions(note_body: str) -> list[QuickActionCommand]:
+@dataclass
+class QuickActionCommand:
     """
-    Parse quick actions from a note body using GitLab-style slash commands.
+    Structured result of a parsed bot command.
+    """
 
-    Supports commands like:
-    - /hello
-    - /assign @user
-    - /label bug
+    verb: str
+    args: list[str]
+    raw: str
+
+
+_COMMAND_RE_TEMPLATE = r"""
+    (?<![\w@])           # negative look-behind: don't match e-mail addresses
+    @(?P<bot>{bot})      # literal @bot-name mention
+    \b                   # word boundary so '@botx' doesn't match '@bot'
+    \s+                  # at least one space or tab
+    (?P<cmd>[^\n\r]+)    # capture the rest of the line (until newline)
+"""
+
+
+def parse_quick_action(note_body: str, bot_name: str) -> QuickActionCommand | None:
+    """
+    Parse the first '@<bot_name> …' command in `note_body`.
 
     Args:
-        note_body: The note body text to parse.
+        note_body: The full text of a GitLab note / comment.
+        bot_name: The bot mention to look for (case-insensitive).
 
     Returns:
-        List of dictionaries with 'identifier' and 'params' keys.
+        QuickActionCommand if found, otherwise None.
     """
-    if not note_body:
-        return []
+    pattern = _COMMAND_RE_TEMPLATE.format(bot=re.escape(bot_name))
 
-    # Remove code blocks (between triple backticks) to avoid parsing commands inside code
-    code_block_pattern = r'```[\s\S]*?```'
-    note_without_code_blocks = re.sub(code_block_pattern, '', note_body, flags=re.MULTILINE)
+    match = re.search(pattern, note_body, flags=re.IGNORECASE | re.VERBOSE)
+    if not match:
+        return None
 
-    # Pattern to match slash commands at the beginning of lines or after whitespace
-    # Captures the command identifier and optional parameters
-    command_pattern = r'(?:^|\s)/(\w+)(?:\s+(.+?))?(?=\s*$|\s*/\w+)'
+    raw_line = match.group(0).strip()
+    parts = shlex.split(match.group("cmd"))
 
-    commands = []
-    for match in re.finditer(command_pattern, note_without_code_blocks, re.MULTILINE):
-        identifier = match.group(1)
-        params = match.group(2).strip() if match.group(2) else None
+    if not parts:
+        return None
 
-        commands.append(QuickActionCommand(identifier=identifier, params=params))
-
-    return commands
+    verb, *args = parts
+    return QuickActionCommand(verb=verb.lower(), args=args, raw=raw_line)

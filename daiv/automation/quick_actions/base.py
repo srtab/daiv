@@ -1,4 +1,10 @@
 from abc import ABC, abstractmethod
+from enum import StrEnum
+
+
+class Scope(StrEnum):
+    ISSUE = "issue"
+    MERGE_REQUEST = "merge_request"
 
 
 class QuickAction(ABC):
@@ -6,9 +12,8 @@ class QuickAction(ABC):
     Base class for quick actions.
     """
 
-    identifier: str
-    supports_issues: bool = True
-    supports_merge_requests: bool = True
+    verb: str
+    scopes: list[Scope]
 
     @property
     @abstractmethod
@@ -25,24 +30,23 @@ class QuickAction(ABC):
     def execute(
         self,
         repo_id: str,
+        scope: Scope,
         note: dict,
         user: dict,
         issue: dict | None = None,
         merge_request: dict | None = None,
-        params: str | None = None,
-    ) -> str:
+        args: list[str] | None = None,
+    ) -> None:
         """
         Execute the quick action.
 
         Args:
             repo_id: The repository ID.
+            scope: The scope of the quick action.
             note: The note data that triggered the action.
             user: The user who triggered the action.
             issue: The issue data (if applicable).
             merge_request: The merge request data (if applicable).
-            params: Additional parameters from the command.
-
-        Returns:
-            str: The result message to post as a comment.
+            args: Additional parameters from the command.
         """
         pass

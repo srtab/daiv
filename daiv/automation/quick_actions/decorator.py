@@ -1,17 +1,16 @@
-from functools import wraps
+from collections.abc import Callable
 
-from .base import QuickAction
+from .base import QuickAction, Scope
 from .registry import quick_action_registry
 
 
-def quick_action(cls: type[QuickAction]) -> type[QuickAction]:
+def quick_action(verb: str, scopes: list[Scope]) -> Callable[[type[QuickAction]], type[QuickAction]]:
     """
     Decorator to register a quick action.
 
     Usage:
-        @quick_action
+        @quick_action(verb="my_action", scopes=[Scopes.ISSUE, Scopes.MERGE_REQUEST])
         class MyAction(QuickAction):
-            identifier = "my_action"
             # ... implementation
 
     Args:
@@ -20,10 +19,9 @@ def quick_action(cls: type[QuickAction]) -> type[QuickAction]:
     Returns:
         The quick action class.
     """
-    quick_action_registry.register(cls)
 
-    @wraps(cls)
-    def wrapper(*args, **kwargs) -> QuickAction:
-        return cls(*args, **kwargs)
+    def decorator(cls: type[QuickAction]) -> type[QuickAction]:
+        quick_action_registry.register(cls, verb, scopes)
+        return cls
 
-    return wrapper
+    return decorator

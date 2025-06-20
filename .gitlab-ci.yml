@@ -5,7 +5,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE != "merge_request_event" && $CI_COMMIT_REF_NAME =~ /^(release\/.*|dev|master|main)$/
     - if: "$CI_COMMIT_TAG"
 
-image: ghcr.io/astral-sh/uv:python3.12-bookworm
+image: ghcr.io/astral-sh/uv:python3.13-bookworm
 stages:
   - static
   - test

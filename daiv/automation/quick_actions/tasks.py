@@ -2,75 +2,85 @@ import logging
 
 from celery import shared_task
 
+from codebase.api.models import Issue, MergeRequest, Note, User
 from codebase.clients import RepoClient
 
+from .base import Scope
 from .registry import quick_action_registry
 
 logger = logging.getLogger("daiv.quick_actions")
 
 
-@shared_task
+@shared_task(pydantic=True)
 def execute_quick_action_task(
     repo_id: str,
-    action_identifier: str,
-    note_data: dict,
-    user_data: dict,
-    issue_data: dict | None = None,
-    merge_request_data: dict | None = None,
-    params: str | None = None,
+    action_verb: str,
+    action_scope: str,
+    note: Note,
+    user: User,
+    issue: Issue | None = None,
+    merge_request: MergeRequest | None = None,
+    action_args: str | None = None,
 ) -> None:
     """
     Execute a quick action asynchronously.
 
     Args:
         repo_id: The repository ID.
-        action_identifier: The identifier of the quick action to execute.
-        note_data: The note data that triggered the action.
-        user_data: The user data who triggered the action.
-        issue_data: The issue data (if applicable).
-        merge_request_data: The merge request data (if applicable).
-        params: Additional parameters from the command.
+        action_verb: The verb of the quick action to execute.
+        action_scope: The scope of the quick action to execute.
+        note: The note data that triggered the action.
+        user: The user data who triggered the action.
+        issue: The issue data (if applicable).
+        merge_request: The merge request data (if applicable).
+        action_args: Additional parameters from the command.
     """
-    try:
-        # Get the quick action class from the registry
-        action_class = quick_action_registry.get_action_by_identifier(action_identifier)
-        if not action_class:
-            logger.error(f"Quick action '{action_identifier}' not found in registry")
-            return
+    action_classes = quick_action_registry.get_actions(verb=action_verb, scope=Scope(action_scope))
 
-        # Instantiate and execute the action
-        action = action_class()
-        result_message = action.execute(
-            repo_id=repo_id,
-            note=note_data,
-            user=user_data,
-            issue=issue_data,
-            merge_request=merge_request_data,
-            params=params,
+    if not action_classes:
+        logger.error("Quick action '%s' not found in registry for scope '%s'", action_verb, action_scope)
+        return
+
+    if len(action_classes) > 1:
+        logger.error(
+            "Multiple quick actions found for '%s' in registry for scope '%s': %s",
+            action_verb,
+            action_scope,
+            [a.verb for a in action_classes],
         )
+        return
 
-        # Post the result as a comment
-        client = RepoClient.create_instance()
-        if issue_data:
-            client.comment_issue(repo_id, issue_data["iid"], result_message)
-        elif merge_request_data:
-            client.comment_merge_request(repo_id, merge_request_data["iid"], result_message)
-        else:
-            logger.warning(f"No issue or merge request context for quick action '{action_identifier}'")
-
-        logger.info(f"Successfully executed quick action '{action_identifier}' for repo '{repo_id}'")
-
+    try:
+        action = action_classes[0]()
+        action.execute(
+            repo_id=repo_id,
+            scope=Scope(action_scope),
+            note=note,
+            user=user,
+            issue=issue,
+            merge_request=merge_request,
+            args=action_args,
+        )
     except Exception as e:
-        logger.error(f"Error executing quick action '{action_identifier}': {str(e)}", exc_info=True)
+        logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
 
-        # Try to post error feedback to the user
-        try:
-            client = RepoClient.create_instance()
-            error_message = f"❌ Failed to execute quick action `/{action_identifier}`: {str(e)}"
+        error_message = f"❌ Failed to execute quick action `{action_verb}`."
 
-            if issue_data:
-                client.comment_issue(repo_id, issue_data["iid"], error_message)
-            elif merge_request_data:
-                client.comment_merge_request(repo_id, merge_request_data["iid"], error_message)
-        except Exception as feedback_error:
-            logger.error(f"Failed to post error feedback: {str(feedback_error)}", exc_info=True)
+        client = RepoClient.create_instance()
+        if issue:
+            client.create_issue_discussion_note(repo_id, issue.iid, error_message, note.discussion_id)
+        elif merge_request:
+            client.create_merge_request_discussion_note(repo_id, merge_request.iid, error_message, note.discussion_id)
+
+    else:
+        if issue:
+            logger.info(
+                "Successfully executed quick action '%s' for repo '%s' on issue '%s'", action_verb, repo_id, issue.iid
+            )
+        elif merge_request:
+            logger.info(
+                "Successfully executed quick action '%s' for repo '%s' on merge request '%s'",
+                action_verb,
+                repo_id,
+                merge_request.iid,
+            )
