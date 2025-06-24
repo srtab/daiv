@@ -41,7 +41,10 @@ def parse_quick_action(note_body: str, bot_name: str) -> QuickActionCommand | No
         return None
 
     raw_line = match.group(0).strip()
-    parts = shlex.split(match.group("cmd"))
+    try:
+        parts = shlex.split(match.group("cmd"))
+    except ValueError:
+        return None
 
     if not parts:
         return None

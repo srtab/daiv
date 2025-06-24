@@ -49,10 +49,11 @@ class HelpAction(QuickAction):
             f"- `@{current_user.username} {action.verb}` - {action().description}" for action in actions
         ])
 
-        if scope == Scope.ISSUE:
+        if actions_str and scope == Scope.ISSUE:
             note_message = f"You can trigger quick actions by commenting on this issue:\n{actions_str}"
             client.create_issue_discussion_note(repo_id, issue.iid, note_message, note.discussion_id)
 
-        elif scope == Scope.MERGE_REQUEST:
+        elif actions_str and scope == Scope.MERGE_REQUEST:
             note_message = f"You can trigger quick actions by commenting on this merge request:\n{actions_str}"
             client.create_merge_request_discussion_note(repo_id, merge_request.iid, note_message, note.discussion_id)
+            client.resolve_merge_request_discussion(repo_id, merge_request.iid, note.discussion_id)
