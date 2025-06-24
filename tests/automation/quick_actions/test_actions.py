@@ -36,7 +36,7 @@ class TestHelpAction:
 
     def test_description_property(self):
         """Test the description property."""
-        assert self.action.description == "Shows the help message"
+        assert self.action.description == "Shows the help message with the available quick actions."
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     @patch("automation.quick_actions.actions.help.RepoClient")
