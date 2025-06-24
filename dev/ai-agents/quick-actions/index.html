@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/mcp-tools/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/quick-actions/">
       
       
-        <link rel="prev" href="../codebase-chat/">
+        <link rel="prev" href="../mcp-tools/">
       
       
-        <link rel="next" href="../quick-actions/">
+        <link rel="next" href="../../community/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>MCP Tools - DAIV</title>
+        <title>Quick Actions - DAIV</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#mcp-tools" class="md-skip">
+        <a href="#quick-actions" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              MCP Tools
+              Quick Actions
             
           </span>
         </div>
@@ -631,6 +631,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP Tools
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -648,7 +671,7 @@
   
   
   <span class="md-ellipsis">
-    MCP Tools
+    Quick Actions
     
   </span>
   
@@ -661,7 +684,7 @@
   
   
   <span class="md-ellipsis">
-    MCP Tools
+    Quick Actions
     
   </span>
   
@@ -684,37 +707,19 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-are-mcp-tools" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
-      What are MCP Tools?
+      Overview
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#available-mcp-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available MCP Tools
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configuration">
+    <nav class="md-nav" aria-label="Overview">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#basic-configuration" class="md-nav__link">
+  <a href="#how-quick-actions-work" class="md-nav__link">
     <span class="md-ellipsis">
-      Basic Configuration
+      How Quick Actions Work
     </span>
   </a>
   
@@ -726,36 +731,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-integration" class="md-nav__link">
+  <a href="#available-quick-actions" class="md-nav__link">
     <span class="md-ellipsis">
-      Agent Integration
+      Available Quick Actions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Agent Integration">
+    <nav class="md-nav" aria-label="Available Quick Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#which-agents-use-mcp-tools" class="md-nav__link">
+  <a href="#help-action" class="md-nav__link">
     <span class="md-ellipsis">
-      Which Agents Use MCP Tools?
+      🆘 Help Action
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Which Agents Use MCP Tools?">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan-and-execute-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      Plan and Execute Agent
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -765,19 +755,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#advanced-configuration" class="md-nav__link">
+  <a href="#using-quick-actions" class="md-nav__link">
     <span class="md-ellipsis">
-      Advanced Configuration
+      Using Quick Actions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Advanced Configuration">
+    <nav class="md-nav" aria-label="Using Quick Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#creating-custom-mcp-servers" class="md-nav__link">
+  <a href="#basic-usage" class="md-nav__link">
     <span class="md-ellipsis">
-      Creating Custom MCP Servers
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Workflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-parsing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command Parsing
     </span>
   </a>
   
@@ -808,9 +816,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
+  <a href="#debug-information" class="md-nav__link">
     <span class="md-ellipsis">
-      Debugging
+      Debug Information
     </span>
   </a>
   
@@ -822,20 +830,59 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
+  <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
-      Security Considerations
+      Examples
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#getting-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      Getting Help
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
+  <a href="#extension-and-development" class="md-nav__link">
     <span class="md-ellipsis">
-      Additional Resources
+      Extension and Development
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Extension and Development">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-new-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding New Actions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -843,29 +890,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../quick-actions/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Quick Actions
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -927,37 +951,19 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-are-mcp-tools" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
-      What are MCP Tools?
+      Overview
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#available-mcp-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available MCP Tools
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configuration">
+    <nav class="md-nav" aria-label="Overview">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#basic-configuration" class="md-nav__link">
+  <a href="#how-quick-actions-work" class="md-nav__link">
     <span class="md-ellipsis">
-      Basic Configuration
+      How Quick Actions Work
     </span>
   </a>
   
@@ -969,36 +975,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-integration" class="md-nav__link">
+  <a href="#available-quick-actions" class="md-nav__link">
     <span class="md-ellipsis">
-      Agent Integration
+      Available Quick Actions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Agent Integration">
+    <nav class="md-nav" aria-label="Available Quick Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#which-agents-use-mcp-tools" class="md-nav__link">
+  <a href="#help-action" class="md-nav__link">
     <span class="md-ellipsis">
-      Which Agents Use MCP Tools?
+      🆘 Help Action
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Which Agents Use MCP Tools?">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan-and-execute-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      Plan and Execute Agent
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -1008,19 +999,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#advanced-configuration" class="md-nav__link">
+  <a href="#using-quick-actions" class="md-nav__link">
     <span class="md-ellipsis">
-      Advanced Configuration
+      Using Quick Actions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Advanced Configuration">
+    <nav class="md-nav" aria-label="Using Quick Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#creating-custom-mcp-servers" class="md-nav__link">
+  <a href="#basic-usage" class="md-nav__link">
     <span class="md-ellipsis">
-      Creating Custom MCP Servers
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Workflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-parsing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command Parsing
     </span>
   </a>
   
@@ -1051,9 +1060,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
+  <a href="#debug-information" class="md-nav__link">
     <span class="md-ellipsis">
-      Debugging
+      Debug Information
     </span>
   </a>
   
@@ -1065,20 +1074,59 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
+  <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
-      Security Considerations
+      Examples
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#getting-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      Getting Help
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
+  <a href="#extension-and-development" class="md-nav__link">
     <span class="md-ellipsis">
-      Additional Resources
+      Extension and Development
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Extension and Development">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-new-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding New Actions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1098,7 +1146,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/mcp-tools.md" title="Edit this page" class="md-content__button md-icon">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/quick-actions.md" title="Edit this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1106,132 +1154,106 @@
   
 
 
-<h1 id="mcp-tools">🔧 MCP Tools</h1>
-<h2 id="what-are-mcp-tools">What are MCP Tools?</h2>
-<p>MCP (Model Context Protocol) Tools are external services that extend the capabilities of DAIV agents by providing specialized functionality through a standardized protocol. These tools allow AI agents to interact with external systems, fetch data from various sources, and perform actions that go beyond basic code analysis and modification.</p>
-<h2 id="available-mcp-tools">Available MCP Tools</h2>
-<p>DAIV currently supports the following MCP tools:</p>
-<table>
-<thead>
-<tr>
-<th>MCP Server</th>
-<th>Tools</th>
-<th>Use Cases</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="https://pypi.org/project/mcp-server-fetch/">Fetch MCP Server</a></td>
-<td>• <code>fetch</code>: Fetch content from URLs</td>
-<td>• Researching documentation and examples from the web<br>• Fetching configuration files or data from remote sources<br>• Analyzing external APIs and their responses<br>• Gathering context from online resources</td>
-</tr>
-<tr>
-<td><a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server</a></td>
-<td>• <code>find_organizations</code>: Discover Sentry organizations<br>• <code>get_issue_details</code>: Retrieve detailed information about specific issues</td>
-<td>• Analyzing error patterns and crash reports<br>• Understanding issue context when fixing bugs<br>• Gathering debugging information from production systems<br>• Correlating code changes with error occurrences</td>
-</tr>
-</tbody>
-</table>
-<h2 id="configuration">Configuration</h2>
-<p>MCP tools are configured through environment variables. Here's how to set them up:</p>
-<h3 id="basic-configuration">Basic Configuration</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-0-10">10</a></span>
-<span class="normal"><a href="#__codelineno-0-11">11</a></span>
-<span class="normal"><a href="#__codelineno-0-12">12</a></span>
-<span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># MCP Proxy Configuration</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nv">MCP_PROXY_HOST</span><span class="o">=</span>http://mcp-proxy:9090<span class="w">         </span><span class="c1"># Default: http://mcp-proxy:9090</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nv">MCP_PROXY_ADDR</span><span class="o">=</span>:9090<span class="w">                         </span><span class="c1"># Default: :9090</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="nv">MCP_PROXY_AUTH_TOKEN</span><span class="o">=</span>your-auth-token<span class="w">         </span><span class="c1"># Optional authentication token</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="c1"># Fetch MCP Server</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="nv">MCP_FETCH_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                       </span><span class="c1"># Default: true</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="nv">MCP_FETCH_VERSION</span><span class="o">=</span><span class="m">2025</span>.4.7<span class="w">                   </span><span class="c1"># Default: 2025.4.7</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="c1"># Sentry MCP Server</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="nv">MCP_SENTRY_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                      </span><span class="c1"># Default: true</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="nv">MCP_SENTRY_VERSION</span><span class="o">=</span><span class="m">0</span>.11.0<span class="w">                    </span><span class="c1"># Default: 0.11.0</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="nv">MCP_SENTRY_ACCESS_TOKEN</span><span class="o">=</span>your-sentry-token<span class="w">    </span><span class="c1"># Required for Sentry functionality</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="nv">MCP_SENTRY_HOST</span><span class="o">=</span>your-sentry-host<span class="w">             </span><span class="c1"># Your Sentry instance host</span>
-</code></pre></div></td></tr></table></div>
-<p>See <a href="../../getting-started/environment-variables/#mcp-tools">Environment Variables Reference</a> for more details.</p>
-<h2 id="agent-integration">Agent Integration</h2>
-<h3 id="which-agents-use-mcp-tools">Which Agents Use MCP Tools?</h3>
-<p>Currently, MCP tools are available in the following agents:</p>
-<h4 id="plan-and-execute-agent">Plan and Execute Agent</h4>
-<p>The Plan and Execute agent has access to all configured MCP tools through the <code>MCPToolkit</code>. This agent can:</p>
+<h1 id="quick-actions">⚡ Quick Actions</h1>
+<p>Quick Actions provide command-based interactions with DAIV directly from GitLab issues and merge requests. They are useful for common tasks and information requests.</p>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge request comments.</p>
+<h3 id="how-quick-actions-work">How Quick Actions Work</h3>
+<p><strong>Command Format</strong>: <code>@&lt;daiv-username&gt; &lt;action&gt; [arguments]</code></p>
+<p><strong>Supported Scopes</strong>:</p>
 <ul>
-<li>Use the Fetch server to research solutions online</li>
-<li>Access Sentry to understand error contexts when fixing issues</li>
-<li>Combine MCP tools with repository tools for comprehensive problem-solving</li>
+<li><strong>Issues</strong>: Available in issue comments and discussions</li>
+<li><strong>Merge Requests</strong>: Available in merge request comments and discussions</li>
 </ul>
-<p><strong>Example Usage:</strong></p>
-<p>When addressing an issue, the agent might:</p>
+<p><strong>Architecture</strong>: Built on a plugin-based registry system that allows easy extension with custom actions.</p>
+<hr />
+<h2 id="available-quick-actions">Available Quick Actions</h2>
+<h3 id="help-action">🆘 Help Action</h3>
+<p><strong>Command</strong>: <code>@daiv help</code></p>
+<p><strong>Purpose</strong>: Displays all available Quick Actions for the current scope (issue or merge request).</p>
+<p><strong>Scopes</strong>: Issues, Merge Requests</p>
+<p><strong>Example</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv help
+</code></pre></div></td></tr></table></div></p>
+<p><strong>Response</strong>: DAIV replies with a formatted list of all available Quick Actions and their descriptions.</p>
+<hr />
+<h2 id="using-quick-actions">Using Quick Actions</h2>
+<h3 id="basic-usage">Basic Usage</h3>
 <ol>
-<li>Use Sentry tools to analyze error details</li>
-<li>Use Fetch tools to research similar issues or documentation</li>
-<li>Apply repository tools to implement the fix</li>
+<li><strong>Navigate</strong> to any GitLab issue or merge request</li>
+<li><strong>Add a comment</strong> mentioning DAIV with the desired action</li>
+<li><strong>Submit</strong> the comment</li>
+<li><strong>DAIV responds</strong> immediately with the action result</li>
 </ol>
-<h2 id="advanced-configuration">Advanced Configuration</h2>
-<h3 id="creating-custom-mcp-servers">Creating Custom MCP Servers</h3>
-<div class="admonition warning">
-<p class="admonition-title">Coming Soon</p>
-<p>The ability to create custom MCP servers is currently under development. This feature will allow you to define custom MCP servers.</p>
-<p>Stay tuned for updates as we work on bringing this functionality to DAIV.</p>
-</div>
+<h3 id="example-workflow">Example Workflow</h3>
+<pre class="mermaid"><code>graph TD
+    A["👤 User comments&lt;br/&gt;@daiv help"] --&gt; B["🔍 DAIV parses command"]
+    B --&gt; C["📋 Registry lookup"]
+    C --&gt; D["⚡ Execute action"]
+    D --&gt; E["💬 Post response"]</code></pre>
+<h3 id="command-parsing">Command Parsing</h3>
+<p>Quick Actions use shell-like parsing with support for:</p>
+<ul>
+<li><strong>Simple commands</strong>: <code>@daiv help</code></li>
+<li><strong>Commands with arguments</strong>: <code>@daiv action arg1 arg2</code></li>
+<li><strong>Quoted arguments</strong>: <code>@daiv action "argument with spaces"</code></li>
+<li><strong>Case-insensitive</strong>: <code>@DAIV HELP</code> works the same as <code>@daiv help</code></li>
+</ul>
+<hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <h3 id="common-issues">Common Issues</h3>
-<p><strong>MCP tools not available in agents:</strong></p>
+<p><strong>Action not recognized</strong>:</p>
 <ul>
-<li>Verify that the MCP proxy is running and accessible</li>
-<li>Check that required environment variables are set</li>
+<li>Check that the action supports the current scope (issue vs merge request)</li>
+<li>Ensure proper spelling and case (actions are case-insensitive)</li>
 </ul>
-<p><strong>Sentry tools not working:</strong></p>
+<p><strong>No response from DAIV</strong>:</p>
 <ul>
-<li>Verify <code>MCP_SENTRY_ACCESS_TOKEN</code> is set and valid</li>
-<li>Check that <code>MCP_SENTRY_HOST</code> points to your Sentry instance</li>
-<li>Ensure your Sentry token has the necessary permissions</li>
+<li>Confirm DAIV has access to the repository</li>
+<li>Check that webhooks are properly configured</li>
+<li>Verify the bot username is correct in the mention</li>
 </ul>
-<p><strong>Fetch tools timing out:</strong></p>
+<p><strong>Permission errors</strong>:</p>
 <ul>
-<li>Check network connectivity from the MCP proxy</li>
-<li>Verify target URLs are accessible</li>
+<li>Ensure DAIV has sufficient GitLab permissions</li>
+<li>Confirm the user triggering the action has appropriate access levels</li>
 </ul>
-<h3 id="debugging">Debugging</h3>
-<p>To debug MCP tool issues:</p>
+<h3 id="debug-information">Debug Information</h3>
+<p>Quick Actions log detailed information for troubleshooting:</p>
+<ul>
+<li>Command parsing results</li>
+<li>Registry lookup attempts</li>
+<li>Execution success/failure</li>
+<li>Error details and stack traces</li>
+</ul>
+<hr />
+<h2 id="examples">Examples</h2>
+<h3 id="getting-help">Getting Help</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv help
+</code></pre></div></td></tr></table></div>
+<p><strong>Response</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>You can trigger quick actions by commenting on this issue:
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a>- `@daiv help` - Shows the help message with the available quick actions.
+</code></pre></div></td></tr></table></div></p>
+<hr />
+<h2 id="extension-and-development">Extension and Development</h2>
+<h3 id="adding-new-actions">Adding New Actions</h3>
 <ol>
-<li>
-<p><strong>Check MCP proxy logs:</strong>
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>mcp-proxy
-</code></pre></div></td></tr></table></div></p>
-</li>
-<li>
-<p><strong>Verify configuration:</strong>
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>mcp_proxy_config
-</code></pre></div></td></tr></table></div></p>
-</li>
+<li><strong>Create</strong> new action class in <code>automation/quick_actions/actions/</code></li>
+<li><strong>Implement</strong> required methods (<code>description</code> and <code>execute</code>)</li>
+<li><strong>Decorate</strong> with <code>@quick_action</code> specifying verb and scopes</li>
+<li><strong>Import</strong> in the actions module</li>
+<li><strong>Test</strong> the action in development environment</li>
 </ol>
-<h2 id="security-considerations">Security Considerations</h2>
+<h3 id="best-practices">Best Practices</h3>
 <ul>
-<li><strong>API Tokens</strong>: Store sensitive tokens like <code>MCP_SENTRY_ACCESS_TOKEN</code> securely using Docker secrets</li>
-<li><strong>Network Access</strong>: MCP servers may require network access to external services</li>
-<li><strong>Authentication</strong>: Configure <code>MCP_PROXY_AUTH_TOKEN</code> for additional security in production environments</li>
-</ul>
-<h2 id="additional-resources">Additional Resources</h2>
-<ul>
-<li><a href="https://spec.modelcontextprotocol.io/">MCP Protocol Specification</a></li>
-<li><a href="https://pypi.org/project/mcp-server-fetch/">Fetch MCP Server Documentation</a></li>
-<li><a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server Documentation</a></li>
-<li><a href="../../getting-started/environment-variables/">Environment Variables Reference</a></li>
+<li><strong>Keep actions simple</strong>: Quick Actions should execute immediately</li>
+<li><strong>Provide clear descriptions</strong>: Help users understand what each action does</li>
+<li><strong>Handle errors gracefully</strong>: Post user-friendly error messages</li>
+<li><strong>Use appropriate scopes</strong>: Only enable actions where they make sense</li>
+<li><strong>Follow naming conventions</strong>: Use clear, descriptive verb names</li>
 </ul>
 
 
