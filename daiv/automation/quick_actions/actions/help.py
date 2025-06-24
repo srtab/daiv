@@ -8,13 +8,13 @@ from codebase.clients import RepoClient
 @quick_action(verb="help", scopes=[Scope.ISSUE, Scope.MERGE_REQUEST])
 class HelpAction(QuickAction):
     """
-    A simple hello world quick action for demonstration purposes.
+    Shows the help message for the available quick actions.
     """
 
     @property
     def description(self) -> str:
         """Get the description of the help action."""
-        return "Shows the help message"
+        return "Shows the help message with the available quick actions."
 
     def execute(
         self,
@@ -37,9 +37,6 @@ class HelpAction(QuickAction):
             issue: The issue data (if applicable).
             merge_request: The merge request data (if applicable).
             args: Additional parameters from the command.
-
-        Returns:
-            A help message.
         """
         client = RepoClient.create_instance()
         current_user = client.current_user

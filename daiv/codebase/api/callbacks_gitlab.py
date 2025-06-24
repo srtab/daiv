@@ -106,7 +106,7 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_address)
+        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_to_address)
 
     async def process_callback(self):
         """
@@ -139,7 +139,7 @@ class NoteCallback(BaseCallback):
                 ).delay
             )()
 
-        elif self._is_issue_address:
+        elif self._is_issue_to_address:
             await sync_to_async(
                 address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
             )()
@@ -180,7 +180,7 @@ class NoteCallback(BaseCallback):
         return discussion_has_daiv_mentions(discussion, self._client.current_user)
 
     @property
-    def _is_issue_address(self) -> bool:
+    def _is_issue_to_address(self) -> bool:
         """
         Accept the webhook if the note is a comment for an issue.
         """
