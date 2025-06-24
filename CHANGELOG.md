@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `ReviewAddressorAgent` was not handling single line notes without line range, leading to empty diff content.
+- `IssueAddressorAgent` was not handling correctly issues with the bot label on the title, leading to errors. Now it will remove the bot label from the title. #435
 
 ## [0.2.1] - 2025-06-17
 
