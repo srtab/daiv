@@ -2,4 +2,4 @@
 
 set -eu pipefail
 
-exec watchmedo auto-restart --directory=./daiv --pattern=*.py --recursive --debounce-interval=10 -- celery -A daiv worker -l INFO -c 1
+exec watchmedo auto-restart --directory=./daiv --pattern=*.py --recursive --debounce-interval=5 -- celery -A daiv worker -l INFO -c 1

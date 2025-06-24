@@ -16,6 +16,7 @@ DAIV automates four key development activities:
 - 🔄 **Code Review Response** - Addresses reviewer feedback and updates pull requests
 - 🔍 **Pipeline Repair** - Monitors CI/CD failures and applies fixes automatically
 - 💬 **Codebase Questions** - Answers questions about your code using built-in search
+- ⚡ **Quick Actions** - Command-based interactions for common tasks on issues and merge requests
 
 ---
 
@@ -59,8 +60,8 @@ DAIV monitors these repository events and responds automatically:
 |:------|:-------|:-------|
 | ✨ **Issue created** | Generates implementation plan | "Add user authentication" → detailed technical plan |
 | 📝 **Issue updated** | Updates plan if title/description changed | Issue scope changes → revised plan |
-| 💬 **Comment on issue** | Executes approved plan | Developer approves → creates pull request with code |
-| 💬 **Comment on merge request** | Addresses review feedback or answers questions | "Fix the bug in line 45" → updates code |
+| 💬 **Comment on issue** | Executes approved plan or Quick Action | Developer approves → creates pull request with code |
+| 💬 **Comment on merge request** | Addresses review feedback, answers questions, or Quick Action | "Fix the bug in line 45" → updates code |
 | 🚦 **Pipeline failure** | Analyzes logs and applies fixes | Test failures → code fixes + updated tests |
 | 📤 **Repository push** | Updates codebase index for future queries | New commits → refreshed code understanding |
 

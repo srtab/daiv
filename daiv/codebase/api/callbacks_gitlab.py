@@ -4,6 +4,10 @@ from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
 
+from automation.quick_actions.base import Scope
+from automation.quick_actions.parser import QuickActionCommand, parse_quick_action
+from automation.quick_actions.registry import quick_action_registry
+from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import (
     Issue,
@@ -89,47 +93,20 @@ class NoteCallback(BaseCallback):
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
+        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the note is a review feedback for a merge request.
+        Check if the webhook is accepted.
         """
-        client = RepoClient.create_instance()
+        if (
+            self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
+            or self.object_attributes.system
+            or self.user.id == self._client.current_user.id
+        ):
+            return False
 
-        if self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST:
-            if (
-                not self._repo_config.features.auto_address_review_enabled
-                or self.object_attributes.system
-                or self.object_attributes.action != NoteAction.CREATE
-                or not self.merge_request
-                or self.merge_request.work_in_progress
-                or self.merge_request.state != "opened"
-                or self.user.id == client.current_user.id
-            ):
-                return False
-
-            # Shortcut to avoid fetching the discussion if the note mentions DAIV.
-            if note_mentions_daiv(self.object_attributes.note, client.current_user):
-                return True
-
-            # Fetch the discussion to check if it has any notes mentioning DAIV.
-            discussion = client.get_merge_request_discussion(
-                self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
-            )
-            return discussion_has_daiv_mentions(discussion, client.current_user)
-
-        elif self.object_attributes.noteable_type == NoteableType.ISSUE:
-            return bool(
-                self._repo_config.features.auto_address_issues_enabled
-                and not self.object_attributes.system
-                and self.object_attributes.action == NoteAction.CREATE
-                and self.user.id != client.current_user.id
-                and self.issue
-                and self.issue.is_daiv()
-                and self.issue.state == "opened"
-            )
-
-        return False
+        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_to_address)
 
     async def process_callback(self):
         """
@@ -137,7 +114,23 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        if self._repo_config.features.auto_address_review_enabled and self.merge_request:
+        if self._is_quick_action:
+            logger.info("Found quick action in note: %s", self._quick_action_command.raw)
+
+            await sync_to_async(
+                execute_quick_action_task.si(
+                    repo_id=self.project.path_with_namespace,
+                    note=self.object_attributes.model_dump(),
+                    user=self.user.model_dump(),
+                    issue=self.issue and self.issue.model_dump() or None,
+                    merge_request=self.merge_request and self.merge_request.model_dump() or None,
+                    action_verb=self._quick_action_command.verb,
+                    action_args=self._quick_action_command.args,
+                    action_scope=self._action_scope,
+                ).delay
+            )()
+
+        elif self._is_merge_request_review:
             await sync_to_async(
                 address_review_task.si(
                     repo_id=self.project.path_with_namespace,
@@ -146,10 +139,96 @@ class NoteCallback(BaseCallback):
                 ).delay
             )()
 
-        if self._repo_config.features.auto_address_issues_enabled and self.issue:
+        elif self._is_issue_to_address:
             await sync_to_async(
                 address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
             )()
+
+    @property
+    def _is_quick_action(self) -> bool:
+        """
+        Accept the webhook if the note is a quick action.
+        """
+        return bool(
+            self.object_attributes.type is None  # Don't accept replies to the quick action note.
+            and self._quick_action_command
+        )
+
+    @cached_property
+    def _is_merge_request_review(self) -> bool:
+        """
+        Accept the webhook if the note is a merge request comment that mentions DAIV.
+        """
+        if (
+            not self._repo_config.features.auto_address_review_enabled
+            or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
+            or self.object_attributes.action != NoteAction.CREATE
+            or not self.merge_request
+            or self.merge_request.work_in_progress
+            or self.merge_request.state != "opened"
+        ):
+            return False
+
+        # Shortcut to avoid fetching the discussion if the note mentions DAIV.
+        if note_mentions_daiv(self.object_attributes.note, self._client.current_user):
+            return True
+
+        # Fetch the discussion to check if it has any notes mentioning DAIV.
+        discussion = self._client.get_merge_request_discussion(
+            self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
+        )
+        return discussion_has_daiv_mentions(discussion, self._client.current_user)
+
+    @property
+    def _is_issue_to_address(self) -> bool:
+        """
+        Accept the webhook if the note is a comment for an issue.
+        """
+        return bool(
+            self.object_attributes.noteable_type == NoteableType.ISSUE
+            and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
+            and self._repo_config.features.auto_address_issues_enabled
+            and self.object_attributes.action == NoteAction.CREATE
+            and self.issue
+            and self.issue.is_daiv()
+            and self.issue.state == "opened"
+        )
+
+    @cached_property
+    def _quick_action_command(self) -> QuickActionCommand | None:
+        """
+        Get the quick action command from the note body.
+        """
+        quick_action_command = parse_quick_action(self.object_attributes.note, self._client.current_user.username)
+
+        if not quick_action_command:
+            return None
+
+        action_classes = quick_action_registry.get_actions(verb=quick_action_command.verb, scope=self._action_scope)
+
+        if not action_classes:
+            logger.warning(
+                "Quick action '%s' not found in registry for scope '%s'", quick_action_command.verb, self._action_scope
+            )
+            return None
+
+        if len(action_classes) > 1:
+            logger.warning(
+                "Multiple quick actions found for '%s' in registry for scope '%s': %s",
+                quick_action_command.verb,
+                self._action_scope,
+                [a.verb for a in action_classes],
+            )
+            return None
+
+        return quick_action_command
+
+    @property
+    def _action_scope(self) -> Scope:
+        """
+        Get the scope of the quick action.
+        """
+        return Scope.ISSUE if self.object_attributes.noteable_type == NoteableType.ISSUE else Scope.MERGE_REQUEST
 
 
 class PushCallback(BaseCallback):

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added quick actions feature to allow users perform actions by commenting on the merge request or issue thread.
+
+### Changed
+
+- Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async.
+
 ### Fixed
 
 - `ReviewAddressorAgent` was not handling single line notes without line range, leading to empty diff content.

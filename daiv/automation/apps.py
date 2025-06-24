@@ -10,3 +10,4 @@ class AutomationConfig(AppConfig):
 
     def ready(self):
         autodiscover_modules("tools.mcp.servers")
+        autodiscover_modules("quick_actions.actions")

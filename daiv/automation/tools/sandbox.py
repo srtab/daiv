@@ -40,7 +40,7 @@ class RunSandboxCommandsTool(BaseTool):
     handle_validation_error: bool = True
     handle_tool_error: bool = True
 
-    def _run(
+    async def _arun(
         self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig
     ) -> tuple[str, list[RunCommandResult]]:
         """
@@ -67,28 +67,30 @@ class RunSandboxCommandsTool(BaseTool):
         ):
             workdir = self._extract_workdir(tar)
 
-            if store.search(file_changes_namespace(source_repo_id, source_ref), limit=1):
+            if await store.asearch(file_changes_namespace(source_repo_id, source_ref), limit=1):
                 # If there's already file changes stored, we need to update the tar archive with them.
                 logger.debug("[%s] Updating tar archive with file changes", self.name)
-                tar_archive = self._copy_tar_with_file_changes(tar, store, workdir, source_repo_id, source_ref)
+                tar_archive = await self._copy_tar_with_file_changes(tar, store, workdir, source_repo_id, source_ref)
             else:
                 # If there's no file changes stored, we can use the original tar archive.
                 logger.debug("[%s] Using original tar archive", self.name)
                 tar_archive = base64.b64encode(tarstream.getvalue()).decode()
 
         try:
-            response = httpx.post(
-                f"{settings.SANDBOX_URL}run/commands/",
-                json={
-                    "run_id": str(uuid.uuid4()),
-                    "base_image": RepositoryConfig.get_config(source_repo_id).commands.base_image,
-                    "commands": commands,
-                    "workdir": workdir,
-                    "archive": tar_archive,
-                },
-                headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
-                timeout=settings.SANDBOX_TIMEOUT,
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{settings.SANDBOX_URL}run/commands/",
+                    json={
+                        "run_id": str(uuid.uuid4()),
+                        "base_image": RepositoryConfig.get_config(source_repo_id).commands.base_image,
+                        "commands": commands,
+                        "workdir": workdir,
+                        "archive": tar_archive,
+                        "fail_fast": True,
+                    },
+                    headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
+                    timeout=settings.SANDBOX_TIMEOUT,
+                )
         except httpx.RequestError as e:
             raise ToolException(e) from e
 
@@ -98,11 +100,11 @@ class RunSandboxCommandsTool(BaseTool):
             raise ToolException(response.content)
 
         try:
-            return self._treat_response(response, store, source_repo_id, source_ref)
+            return await self._treat_response(response, store, source_repo_id, source_ref)
         except Exception as e:
             raise ToolException(e) from e
 
-    def _treat_response(
+    async def _treat_response(
         self, response: httpx.Response, store: BaseStore, source_repo_id: str, source_ref: str
     ) -> tuple[str, list[RunCommandResult]]:
         """
@@ -123,20 +125,20 @@ class RunSandboxCommandsTool(BaseTool):
             with io.BytesIO(resp.archive) as archive, tarfile.open(fileobj=archive) as tar:
                 for member in tar.getmembers():
                     if member.isfile() and (extracted_file := tar.extractfile(member)):
-                        if existent_file_change := store.get(
+                        if existent_file_change := await store.aget(
                             file_changes_namespace(source_repo_id, source_ref), member.name
                         ):
                             # Update the file content extracted from store.
                             data: FileChange = existent_file_change.value["data"]
                             data.content = extracted_file.read().decode()
-                            store.put(
+                            await store.aput(
                                 file_changes_namespace(source_repo_id, source_ref),
                                 member.name,
                                 {"data": data, "action": existent_file_change.value["action"]},
                             )
                         else:
                             # Add the new file to the store.
-                            store.put(
+                            await store.aput(
                                 file_changes_namespace(source_repo_id, source_ref),
                                 member.name,
                                 {
@@ -189,7 +191,7 @@ class RunSandboxCommandsTool(BaseTool):
             )
         return first_level_folders.pop()
 
-    def _copy_tar_with_file_changes(
+    async def _copy_tar_with_file_changes(
         self, source_tar: tarfile.TarFile, store: BaseStore, workdir: str, source_repo_id: str, source_ref: str
     ) -> str:
         """
@@ -212,7 +214,7 @@ class RunSandboxCommandsTool(BaseTool):
                 if member.isdir():
                     new_tar.addfile(member)
                 elif member.isfile():
-                    if file_change := store.get(
+                    if file_change := await store.aget(
                         file_changes_namespace(source_repo_id, source_ref), member.name.removeprefix(f"{workdir}/")
                     ):
                         if file_change.value["data"].action == FileChangeAction.DELETE:
@@ -232,7 +234,7 @@ class RunSandboxCommandsTool(BaseTool):
                         new_tar.addfile(member, source_tar.extractfile(member))
 
             # Add the new files to the tar archive as they are not in the original tar archive.
-            for item in store.search(
+            for item in await store.asearch(
                 file_changes_namespace(source_repo_id, source_ref),
                 filter={"action": FileChangeAction.CREATE},
                 limit=100,
@@ -268,6 +270,10 @@ class RunSandboxCodeTool(BaseTool):
     handle_tool_error: bool = True
 
     def _run(self, python_code: str, dependencies: list[str], intent: str, config: RunnableConfig) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
+    async def _arun(self, python_code: str, dependencies: list[str], intent: str, config: RunnableConfig) -> str:
         """
         Run python code in the sandbox.
 
@@ -287,17 +293,18 @@ class RunSandboxCodeTool(BaseTool):
         assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
         try:
-            response = httpx.post(
-                f"{settings.SANDBOX_URL}run/code/",
-                json={
-                    "run_id": str(uuid.uuid4()),
-                    "code": python_code,
-                    "dependencies": dependencies,
-                    "language": "python",
-                },
-                headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
-                timeout=settings.SANDBOX_TIMEOUT,
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{settings.SANDBOX_URL}run/code/",
+                    json={
+                        "run_id": str(uuid.uuid4()),
+                        "code": python_code,
+                        "dependencies": dependencies,
+                        "language": "python",
+                    },
+                    headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
+                    timeout=settings.SANDBOX_TIMEOUT,
+                )
         except httpx.RequestError as e:
             raise ToolException(e) from e
 
