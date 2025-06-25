@@ -176,8 +176,8 @@ class Issue(BaseModel):
 
         This will avoid issues with agents as they will think the bot label is part of the context for the task.
         """
-        if value.lower().startswith(BOT_LABEL):
-            return value.removeprefix(BOT_LABEL).strip()
-        elif value.lower().startswith(f"{BOT_LABEL}:"):
-            return value.removeprefix(f"{BOT_LABEL}:").strip()
+        if value.lower().startswith(f"{BOT_LABEL}:"):
+            return value[len(BOT_LABEL) + 1 :].strip()
+        elif value.lower().startswith(BOT_LABEL):
+            return value[len(BOT_LABEL) :].strip()
         return value
