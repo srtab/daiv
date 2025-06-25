@@ -1,4 +1,4 @@
-from codebase.base import FileChange, FileChangeAction, MergeRequest
+from codebase.base import FileChange, FileChangeAction, Issue, MergeRequest, User
 
 
 def test_is_daiv_with_bot_label():
@@ -91,3 +91,87 @@ def test_to_markdown_delete():
 def test_to_markdown_move():
     file_change = FileChange(action=FileChangeAction.MOVE, file_path="src/new_path.py", previous_path="src/old_path.py")
     assert file_change.to_markdown() == "Renamed `src/old_path.py` to `src/new_path.py`"
+
+
+def test_clean_title_normal_title():
+    """Test that normal titles without bot label remain unchanged."""
+    issue = Issue(title="Fix bug in authentication system", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix bug in authentication system"
+
+
+def test_clean_title_with_bot_label():
+    """Test that titles starting with 'daiv' have it removed."""
+    issue = Issue(title="daiv Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_bot_label_uppercase():
+    """Test that titles starting with 'DAIV' have it removed (case insensitive)."""
+    issue = Issue(title="DAIV Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_bot_label_mixed_case():
+    """Test that titles starting with mixed case 'DaIv' have it removed."""
+    issue = Issue(title="DaIv Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_bot_label_and_colon():
+    """Test that titles starting with 'daiv:' have it removed."""
+    issue = Issue(title="daiv: Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_bot_label_and_colon_uppercase():
+    """Test that titles starting with 'DAIV:' have it removed (case insensitive)."""
+    issue = Issue(title="DAIV: Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_bot_label_and_colon_mixed_case():
+    """Test that titles starting with mixed case 'DaIv:' have it removed."""
+    issue = Issue(title="DaIv: Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_extra_whitespace():
+    """Test that extra whitespace is properly stripped after removing bot label."""
+    issue = Issue(title="daiv   Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_with_colon_and_extra_whitespace():
+    """Test that extra whitespace is properly stripped after removing bot label with colon."""
+    issue = Issue(title="daiv:   Fix authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix authentication bug"
+
+
+def test_clean_title_bot_label_in_middle():
+    """Test that bot label in the middle of title is not removed."""
+    issue = Issue(title="Fix daiv authentication bug", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == "Fix daiv authentication bug"
+
+
+def test_clean_title_empty_after_bot_label():
+    """Test handling when only bot label is in the title."""
+    issue = Issue(title="daiv", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == ""
+
+
+def test_clean_title_empty_after_bot_label_with_colon():
+    """Test handling when only bot label with colon is in the title."""
+    issue = Issue(title="daiv:", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == ""
+
+
+def test_clean_title_only_whitespace_after_bot_label():
+    """Test handling when only whitespace follows bot label."""
+    issue = Issue(title="daiv   ", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == ""
+
+
+def test_clean_title_only_whitespace_after_bot_label_with_colon():
+    """Test handling when only whitespace follows bot label with colon."""
+    issue = Issue(title="daiv:   ", author=User(id=1, name="Test User", username="testuser"))
+    assert issue.title == ""

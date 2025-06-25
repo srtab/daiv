@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.constants import BOT_LABEL
 
@@ -167,3 +167,17 @@ class Issue(BaseModel):
     notes: list[Note] = Field(default_factory=list)
     related_merge_requests: list[MergeRequest] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
+
+    @field_validator("title", mode="after")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        """
+        Clean the title of the issue by removing the bot label and the colon if it exists.
+
+        This will avoid issues with agents as they will think the bot label is part of the context for the task.
+        """
+        if value.lower().startswith(f"{BOT_LABEL}:"):
+            return value[len(BOT_LABEL) + 1 :].strip()
+        elif value.lower().startswith(BOT_LABEL):
+            return value[len(BOT_LABEL) :].strip()
+        return value
