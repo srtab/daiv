@@ -36,11 +36,6 @@ class PlanAndExecuteState(MessagesState):
     The code changes to be applied to the codebase.
     """
 
-    plan_approval_response: str
-    """
-    The response to be provided to the human when the plan approval is ambiguous.
-    """
-
 
 class ExecuteState(AgentState):
     """

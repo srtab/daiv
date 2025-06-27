@@ -18,8 +18,8 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
     ISSUE_QUESTIONS_TEMPLATE,
-    ISSUE_REPLAN_TEMPLATE,
     ISSUE_REVIEW_PLAN_TEMPLATE,
+    ISSUE_REVISE_TEMPLATE,
     ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
     ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
@@ -27,8 +27,7 @@ from automation.agents.issue_addressor.templates import (
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.base import FileChange, Issue
-from codebase.clients import AllRepoClient, RepoClient
-from codebase.utils import notes_to_messages
+from codebase.clients import RepoClient
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -59,7 +58,11 @@ class UnableToExecutePlanError(IssueAddressorError):
     Exception raised when the agent is unable to execute the plan.
     """
 
-    pass
+
+class NoPlanToExecuteError(IssueAddressorError):
+    """
+    Exception raised when the agent is unable to execute the plan.
+    """
 
 
 class IssueAddressorManager(BaseManager):
@@ -67,66 +70,79 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None, **kwargs):
-        super().__init__(client, repo_id, ref)
+    def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None):
+        super().__init__(RepoClient.create_instance(), repo_id, ref)
         self.repository = self.client.get_repository(repo_id)
-        self.thread_id = kwargs["thread_id"]
-        self.issue: Issue = kwargs["issue"]
+        self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
+        self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
 
     @classmethod
-    async def process_issue(cls, repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
+    async def plan_issue(
+        cls,
+        repo_id: str,
+        issue_iid: int,
+        ref: str | None = None,
+        should_reset_plan: bool = False,
+        discussion_id: str | None = None,
+    ):
         """
-        Process an issue by creating a merge request with the changes described in the issue description.
+        Plan the issue.
 
         Args:
             repo_id: The repository ID.
             issue_iid: The issue ID.
             ref: The reference branch.
             should_reset_plan: Whether to reset the plan.
+            discussion_id: The discussion ID of the note that triggered the action.
         """
-        client = RepoClient.create_instance()
-
-        thread_id = generate_uuid(f"{repo_id}{issue_iid}")
-        issue = client.get_issue(repo_id, issue_iid)
-
-        manager = cls(client, repo_id, ref, issue=issue, thread_id=thread_id)
+        manager = cls(repo_id, issue_iid, ref)
 
         try:
-            await manager._process_issue(should_reset_plan)
+            await manager._plan_issue(should_reset_plan, discussion_id)
         except UnableToPlanIssueError as e:
             if e.soft:
                 logger.warning("Soft error planning issue %d: %s", issue_iid, e)
             else:
                 logger.exception("Error planning issue %d: %s", issue_iid, e)
-            client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
-        except UnableToExecutePlanError as e:
-            logger.exception("Error executing plan %d: %s", issue_iid, e)
-            client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE)
+            note_message = jinja2_formatter(ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE, discussion_id=discussion_id)
+            if discussion_id:
+                manager.client.create_issue_discussion_note(repo_id, issue_iid, note_message, discussion_id)
+            else:
+                manager.client.comment_issue(repo_id, issue_iid, note_message)
         except Exception as e:
             logger.exception("Error processing issue %d: %s", issue_iid, e)
-            client.comment_issue(repo_id, issue_iid, ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE)
+            manager._add_unable_to_process_issue_note(discussion_id)
 
-    async def _process_issue(self, should_reset_plan: bool):
+    @classmethod
+    async def approve_plan(cls, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
+        """
+        Approve the plan for the given issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_iid: The issue ID.
+            ref: The reference branch.
+            discussion_id: The discussion ID.
+        """
+        manager = cls(repo_id, issue_iid, ref)
+
+        try:
+            await manager._approve_plan(discussion_id)
+        except Exception:
+            logger.exception("Error approving plan for issue %d", issue_iid)
+            manager._add_unable_to_process_issue_note(discussion_id)
+
+    async def _plan_issue(self, should_reset_plan: bool, discussion_id: str | None = None):
         """
         Process the issue by addressing it with the appropriate actions.
 
         Args:
             should_reset_plan: Whether to reset the plan.
+            discussion_id: The discussion ID of the note that triggered the action.
         """
-        config = RunnableConfig(
-            tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
-            metadata={"author": self.issue.author.username},
-            configurable={
-                "thread_id": self.thread_id,
-                "project_id": self.repository.pk,
-                "source_repo_id": self.repo_id,
-                "source_ref": self.ref,
-                "issue_id": self.issue.iid,
-                "repo_client": self.client.client_slug,
-            },
-        )
-
         self._add_welcome_note()
+
+        config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
@@ -137,7 +153,7 @@ class IssueAddressorManager(BaseManager):
             ):
                 # Rollback to the first state to reset the state of the agent
                 config = merge_configs(config, history_states[-1].config)
-                self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), ISSUE_REPLAN_TEMPLATE)
+                self._add_plan_revised_note(discussion_id)
 
             current_state = await agent.aget_state(config, subgraphs=True)
 
@@ -150,91 +166,93 @@ class IssueAddressorManager(BaseManager):
                 except Exception as e:
                     raise UnableToPlanIssueError("Error planning issue") from e
                 else:
-                    if result.get("request_for_changes") is False or (
-                        INTERRUPT not in result and result.get("plan_questions") is None
-                    ):
-                        raise UnableToPlanIssueError(
-                            "No plan was generated.", soft=result.get("request_for_changes") is False
-                        )
-
                     # The first task is the plan_and_execute node
                     self._handle_initial_result(INTERRUPT in result and result[INTERRUPT][0].value or result)
 
-            # if the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
-            # we extract the note left by the human and resume the execution of the plan_and_execute node
-            elif (
-                "plan_and_execute" in current_state.next
-                and "plan_approval" in current_state.tasks[0].state.next
-                and (discussions := self.client.get_issue_discussions(self.repo_id, cast("int", self.issue.iid)))
-            ):
-                # TODO: Improve discovery of the last discussion awaiting for approval
-                # Skip first note because it's the bot note
-                approval_messages = notes_to_messages(discussions[-1].notes[1:], self.client.current_user.id)
-
-                try:
-                    async for _ns, payload in agent.astream(
-                        Command(resume=approval_messages), config, stream_mode="updates", subgraphs=True
-                    ):
-                        if "plan_approval" in payload and (
-                            response := payload["plan_approval"].get("plan_approval_response")
-                        ):
-                            self.client.create_issue_discussion_note(
-                                self.repo_id, cast("int", self.issue.iid), response, discussion_id=discussions[-1].id
-                            )
-                except Exception as e:
-                    raise UnableToExecutePlanError("Error executing plan") from e
-
-            elif current_state.tasks:
-                # This can happen if the agent got an error and we need to retry, or was interrupted.
-                await agent.ainvoke(None, config)
-
-            if file_changes := await self._get_file_changes():
-                # when changes where made by the agent, commit them
-                await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
-
-    def _add_welcome_note(self):
-        """
-        Leave a welcome note if the issue has no bot comment.
-        """
-        if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
-            self.client.comment_issue(
-                self.repo_id,
-                cast("int", self.issue.iid),
-                jinja2_formatter(
-                    ISSUE_PLANNING_TEMPLATE,
-                    assignee=self.issue.assignee.username if self.issue.assignee else None,
-                    bot_name=BOT_NAME,
-                ),
-            )
-
-    def _handle_initial_result(self, state: dict):
+    def _handle_initial_result(self, state: dict, discussion_id: str | None = None):
         """
         Handle the initial state of issue processing.
 
         Args:
             state: The state of the agent.
+            discussion_id: The discussion ID of the note that triggered the action.
         """
-        # All good, we share the plan with the human to review and approve
-        if plan_tasks := state.get("plan_tasks"):
-            self.client.comment_issue(
-                self.repo_id,
-                cast("int", self.issue.iid),
-                jinja2_formatter(ISSUE_REVIEW_PLAN_TEMPLATE, plan_tasks=plan_tasks),
-            )
+        if state.get("request_for_changes") is False:
+            raise UnableToPlanIssueError("No plan was generated.", soft=True)
+        # We share the plan with the human to review and approve
+        elif plan_tasks := state.get("plan_tasks"):
+            self._add_review_plan_note(plan_tasks)
         # We share the questions with the human to answer
         elif plan_questions := state.get("plan_questions"):
-            self.client.comment_issue(
-                self.repo_id,
-                cast("int", self.issue.iid),
-                jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=plan_questions),
-            )
+            self._add_plan_questions_note(plan_questions, discussion_id)
         else:
             raise UnableToPlanIssueError("Unexpected state from plan and execute node")
+
+    async def _approve_plan(self, discussion_id: str | None = None):
+        """
+        Approve the plan for the given issue.
+
+        Args:
+            discussion_id: The discussion ID of the note that triggered the action.
+        """
+        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+            issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
+            agent = await issue_addressor.agent
+
+            current_state = await agent.aget_state(self._config, subgraphs=True)
+
+            # If the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
+            # We resume the execution of the plan_and_execute node.
+            if "plan_and_execute" in current_state.next and "plan_approval" in current_state.tasks[0].state.next:
+                try:
+                    if discussion_id:
+                        note_message = "I'll apply the plan straight away.\n\nI'll let you know when it's done."
+                        self.client.create_issue_discussion_note(
+                            self.repo_id, self.issue.iid, note_message, discussion_id
+                        )
+
+                    await agent.ainvoke(Command(resume="Plan approved"), self._config)
+                except Exception:
+                    logger.exception("Error executing plan for issue %d", self.issue.iid)
+                    self._add_unable_to_execute_plan_note(discussion_id)
+            else:
+                if not current_state.next:
+                    note_message = "The plan has already been executed."
+                else:
+                    note_message = "There's no plan to be executed."
+
+                if discussion_id:
+                    self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
+                else:
+                    self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+
+            if (file_changes := await self._get_file_changes()) and (
+                merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
+            ):
+                self._add_issue_processed_note(merge_request_id)
+
+    @property
+    def _config(self):
+        """
+        Get the config for the agent.
+        """
+        return RunnableConfig(
+            tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
+            metadata={"author": self.issue.author.username},
+            configurable={
+                "thread_id": self.thread_id,
+                "project_id": self.repository.pk,
+                "source_repo_id": self.repo_id,
+                "source_ref": self.ref,
+                "issue_id": self.issue.iid,
+                "repo_client": self.client.client_slug,
+            },
+        )
 
     @override
     async def _commit_changes(
         self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False
-    ):
+    ) -> int | str | None:
         """
         Process file changes and create or update merge request.
 
@@ -283,7 +301,7 @@ class IssueAddressorManager(BaseManager):
             override_commits=True,
         )
 
-        merge_request_id = self.client.update_or_create_merge_request(
+        return self.client.update_or_create_merge_request(
             repo_id=self.repo_id,
             source_branch=changes_description.branch,
             target_branch=self.ref,
@@ -297,11 +315,86 @@ class IssueAddressorManager(BaseManager):
                 source_repo_id=self.repo_id,
                 issue_id=self.issue.iid,
                 bot_name=BOT_NAME,
+                bot_username=self.client.current_user.username,
             ),
         )
 
+    def _add_welcome_note(self):
+        """
+        Leave a welcome note if the issue has no bot comment.
+        """
+        if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
+            self.client.comment_issue(
+                self.repo_id,
+                cast("int", self.issue.iid),
+                jinja2_formatter(
+                    ISSUE_PLANNING_TEMPLATE,
+                    assignee=self.issue.assignee.username if self.issue.assignee else None,
+                    bot_name=BOT_NAME,
+                ),
+            )
+
+    def _add_review_plan_note(self, plan_tasks: list[dict]):
+        """
+        Add a note to the issue to inform the user that the plan has been reviewed.
+        """
         self.client.comment_issue(
             self.repo_id,
             cast("int", self.issue.iid),
-            ISSUE_PROCESSED_TEMPLATE.format(source_repo_id=self.repo_id, merge_request_id=merge_request_id),
+            jinja2_formatter(
+                ISSUE_REVIEW_PLAN_TEMPLATE, plan_tasks=plan_tasks, bot_username=self.client.current_user.username
+            ),
         )
+
+    def _add_plan_revised_note(self, discussion_id: str | None = None):
+        """
+        Add a note to the issue to inform the user that the plan has been revised.
+        """
+        note_message = jinja2_formatter(ISSUE_REVISE_TEMPLATE, discussion_id=discussion_id)
+        if discussion_id:
+            self.client.create_issue_discussion_note(
+                self.repo_id, cast("int", self.issue.iid), note_message, discussion_id
+            )
+        else:
+            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+
+    def _add_unable_to_process_issue_note(self, discussion_id: str | None = None):
+        """
+        Add a note to the issue to inform the user that the issue could not be processed.
+        """
+        note_message = jinja2_formatter(ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE, discussion_id=discussion_id)
+        if discussion_id:
+            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
+        else:
+            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
+
+    def _add_unable_to_execute_plan_note(self, discussion_id: str | None = None):
+        """
+        Add a note to the issue to inform the user that the plan could not be executed.
+        """
+        note_message = jinja2_formatter(ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE, discussion_id=discussion_id)
+        if discussion_id:
+            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
+        else:
+            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+
+    def _add_issue_processed_note(self, merge_request_id: int):
+        """
+        Add a note to the issue to inform the user that the issue has been processed.
+        """
+        note_message = jinja2_formatter(
+            ISSUE_PROCESSED_TEMPLATE, source_repo_id=self.repo_id, merge_request_id=merge_request_id
+        )
+        self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
+
+    def _add_plan_questions_note(self, plan_questions: list[str], discussion_id: str | None = None):
+        """
+        Add a note to the issue to inform the user that the plan has questions.
+        """
+        note_message = jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=plan_questions, discussion_id=discussion_id)
+        if discussion_id:
+            self.client.create_issue_discussion_note(
+                self.repo_id, cast("int", self.issue.iid), note_message, discussion_id
+            )
+        else:
+            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
