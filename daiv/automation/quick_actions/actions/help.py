@@ -11,12 +11,12 @@ class HelpAction(QuickAction):
     Shows the help message for the available quick actions.
     """
 
-    @property
-    def description(self) -> str:
+    @staticmethod
+    def description() -> str:
         """Get the description of the help action."""
         return "Shows the help message with the available quick actions."
 
-    def execute(
+    async def execute(
         self,
         repo_id: str,
         scope: Scope,
@@ -24,7 +24,7 @@ class HelpAction(QuickAction):
         user: User,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        args: str | None = None,
+        args: list[str] | None = None,
     ) -> None:
         """
         Execute the help action.
@@ -42,9 +42,7 @@ class HelpAction(QuickAction):
         current_user = client.current_user
 
         actions = quick_action_registry.get_actions(scope=scope)
-        actions_str = "\n".join([
-            f"- `@{current_user.username} {action.verb}` - {action().description}" for action in actions
-        ])
+        actions_str = "\n".join([action.help(current_user.username) for action in actions])
 
         if actions_str and scope == Scope.ISSUE:
             note_message = f"You can trigger quick actions by commenting on this issue:\n{actions_str}"

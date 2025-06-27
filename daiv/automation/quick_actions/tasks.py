@@ -1,5 +1,6 @@
 import logging
 
+from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from codebase.api.models import Issue, MergeRequest, Note, User
@@ -20,7 +21,7 @@ def execute_quick_action_task(
     user: User,
     issue: Issue | None = None,
     merge_request: MergeRequest | None = None,
-    action_args: str | None = None,
+    action_args: list[str] | None = None,
 ) -> None:
     """
     Execute a quick action asynchronously.
@@ -52,7 +53,7 @@ def execute_quick_action_task(
 
     try:
         action = action_classes[0]()
-        action.execute(
+        async_to_sync(action.execute)(
             repo_id=repo_id,
             scope=Scope(action_scope),
             note=note,
@@ -61,6 +62,7 @@ def execute_quick_action_task(
             merge_request=merge_request,
             args=action_args,
         )
+
     except Exception as e:
         logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
 

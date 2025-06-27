@@ -61,7 +61,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    async_to_sync(IssueAddressorManager.process_issue)(repo_id, issue_iid, ref, should_reset_plan)
+    async_to_sync(IssueAddressorManager.plan_issue)(repo_id, issue_iid, ref, should_reset_plan)
 
 
 @shared_task
