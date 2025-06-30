@@ -44,8 +44,9 @@ class TestExecuteQuickActionTask:
             target_branch="target_branch",
         )
 
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_execute_action_success_issue(self, mock_registry):
+    def test_execute_action_success_issue(self, mock_registry, mock_async_to_sync):
         """Test successful execution of quick action on issue."""
         # Setup mock action
         mock_action_class = MagicMock()
@@ -53,7 +54,11 @@ class TestExecuteQuickActionTask:
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
 
-        # Execute task
+        # Mock async_to_sync to return a callable that calls the async method
+        mock_sync_execute = MagicMock()
+        mock_async_to_sync.return_value = mock_sync_execute
+
+        # Execute task with list of action args
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
@@ -61,32 +66,42 @@ class TestExecuteQuickActionTask:
             note=self.note,
             user=self.user,
             issue=self.issue,
-            action_args="arg1 arg2",
+            action_args=["arg1", "arg2"],
         )
 
         # Verify registry was called correctly
         mock_registry.get_actions.assert_called_once_with(verb="help", scope=Scope.ISSUE)
 
-        # Verify action was instantiated and executed
+        # Verify action was instantiated
         mock_action_class.assert_called_once()
-        mock_action_instance.execute.assert_called_once_with(
+
+        # Verify async_to_sync was called with the action's execute method
+        mock_async_to_sync.assert_called_once_with(mock_action_instance.execute)
+
+        # Verify the synced execute method was called with correct arguments
+        mock_sync_execute.assert_called_once_with(
             repo_id="repo123",
             scope=Scope.ISSUE,
             note=self.note,
             user=self.user,
             issue=self.issue,
             merge_request=None,
-            args="arg1 arg2",
+            args=["arg1", "arg2"],
         )
 
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_execute_action_success_merge_request(self, mock_registry):
+    def test_execute_action_success_merge_request(self, mock_registry, mock_async_to_sync):
         """Test successful execution of quick action on merge request."""
         # Setup mock action
         mock_action_class = MagicMock()
         mock_action_instance = MagicMock()
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that calls the async method
+        mock_sync_execute = MagicMock()
+        mock_async_to_sync.return_value = mock_sync_execute
 
         # Execute task
         execute_quick_action_task(
@@ -102,7 +117,7 @@ class TestExecuteQuickActionTask:
         mock_registry.get_actions.assert_called_once_with(verb="help", scope=Scope.MERGE_REQUEST)
 
         # Verify action was executed
-        mock_action_instance.execute.assert_called_once_with(
+        mock_sync_execute.assert_called_once_with(
             repo_id="repo123",
             scope=Scope.MERGE_REQUEST,
             note=self.note,
@@ -127,6 +142,9 @@ class TestExecuteQuickActionTask:
             issue=self.issue,
         )
 
+        # Verify registry was called
+        mock_registry.get_actions.assert_called_once_with(verb="nonexistent", scope=Scope.ISSUE)
+
     @patch("automation.quick_actions.tasks.quick_action_registry")
     def test_multiple_actions_found(self, mock_registry):
         """Test when multiple actions are found for same verb/scope."""
@@ -147,16 +165,24 @@ class TestExecuteQuickActionTask:
             issue=self.issue,
         )
 
+        # Verify registry was called
+        mock_registry.get_actions.assert_called_once_with(verb="duplicate", scope=Scope.ISSUE)
+
     @patch("automation.quick_actions.tasks.RepoClient")
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_action_execution_exception_issue(self, mock_registry, mock_repo_client_class):
+    def test_action_execution_exception_issue(self, mock_registry, mock_async_to_sync, mock_repo_client_class):
         """Test handling of exception during action execution on issue."""
         # Setup mock action that raises exception
         mock_action_class = MagicMock()
         mock_action_instance = MagicMock()
-        mock_action_instance.execute.side_effect = Exception("Action failed")
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that raises exception
+        mock_sync_execute = MagicMock()
+        mock_sync_execute.side_effect = Exception("Action failed")
+        mock_async_to_sync.return_value = mock_sync_execute
 
         # Setup mock repo client
         mock_client = MagicMock()
@@ -178,15 +204,20 @@ class TestExecuteQuickActionTask:
         )
 
     @patch("automation.quick_actions.tasks.RepoClient")
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_action_execution_exception_merge_request(self, mock_registry, mock_repo_client_class):
+    def test_action_execution_exception_merge_request(self, mock_registry, mock_async_to_sync, mock_repo_client_class):
         """Test handling of exception during action execution on merge request."""
         # Setup mock action that raises exception
         mock_action_class = MagicMock()
         mock_action_instance = MagicMock()
-        mock_action_instance.execute.side_effect = Exception("Action failed")
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that raises exception
+        mock_sync_execute = MagicMock()
+        mock_sync_execute.side_effect = Exception("Action failed")
+        mock_async_to_sync.return_value = mock_sync_execute
 
         # Setup mock repo client
         mock_client = MagicMock()
@@ -210,13 +241,18 @@ class TestExecuteQuickActionTask:
             self.note.discussion_id,
         )
 
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_execute_with_both_issue_and_merge_request_none(self, mock_registry):
+    def test_execute_with_both_issue_and_merge_request_none(self, mock_registry, mock_async_to_sync):
         """Test execution when both issue and merge_request are None."""
         mock_action_class = MagicMock()
         mock_action_instance = MagicMock()
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that calls the async method
+        mock_sync_execute = MagicMock()
+        mock_async_to_sync.return_value = mock_sync_execute
 
         # Execute task with both None
         execute_quick_action_task(
@@ -230,7 +266,7 @@ class TestExecuteQuickActionTask:
         )
 
         # Verify action was executed
-        mock_action_instance.execute.assert_called_once_with(
+        mock_sync_execute.assert_called_once_with(
             repo_id="repo123",
             scope=Scope.ISSUE,
             note=self.note,
@@ -240,13 +276,18 @@ class TestExecuteQuickActionTask:
             args=None,
         )
 
+    @patch("automation.quick_actions.tasks.async_to_sync")
     @patch("automation.quick_actions.tasks.quick_action_registry")
-    def test_scope_conversion(self, mock_registry):
+    def test_scope_conversion(self, mock_registry, mock_async_to_sync):
         """Test that string scope is converted to Scope enum."""
         mock_action_class = MagicMock()
         mock_action_instance = MagicMock()
         mock_action_class.return_value = mock_action_instance
         mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that calls the async method
+        mock_sync_execute = MagicMock()
+        mock_async_to_sync.return_value = mock_sync_execute
 
         # Execute task with string scope
         execute_quick_action_task(
@@ -263,6 +304,41 @@ class TestExecuteQuickActionTask:
             scope=Scope.MERGE_REQUEST,  # Should be converted to enum
         )
 
-        mock_action_instance.execute.assert_called_once()
-        execute_call_args = mock_action_instance.execute.call_args[1]
+        mock_sync_execute.assert_called_once()
+        execute_call_args = mock_sync_execute.call_args[1]
         assert execute_call_args["scope"] == Scope.MERGE_REQUEST
+
+    @patch("automation.quick_actions.tasks.async_to_sync")
+    @patch("automation.quick_actions.tasks.quick_action_registry")
+    def test_execute_with_empty_action_args(self, mock_registry, mock_async_to_sync):
+        """Test execution with empty action_args list."""
+        mock_action_class = MagicMock()
+        mock_action_instance = MagicMock()
+        mock_action_class.return_value = mock_action_instance
+        mock_registry.get_actions.return_value = [mock_action_class]
+
+        # Mock async_to_sync to return a callable that calls the async method
+        mock_sync_execute = MagicMock()
+        mock_async_to_sync.return_value = mock_sync_execute
+
+        # Execute task with empty action args
+        execute_quick_action_task(
+            repo_id="repo123",
+            action_verb="help",
+            action_scope="issue",
+            note=self.note,
+            user=self.user,
+            issue=self.issue,
+            action_args=[],
+        )
+
+        # Verify action was executed with empty list
+        mock_sync_execute.assert_called_once_with(
+            repo_id="repo123",
+            scope=Scope.ISSUE,
+            note=self.note,
+            user=self.user,
+            issue=self.issue,
+            merge_request=None,
+            args=[],
+        )
