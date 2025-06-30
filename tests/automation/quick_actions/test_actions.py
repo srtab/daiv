@@ -36,18 +36,18 @@ class TestHelpAction:
 
     def test_description_property(self):
         """Test the description property."""
-        assert self.action.description == "Shows the help message with the available quick actions."
+        assert self.action.description() == "Shows the help message with the available quick actions."
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     @patch("automation.quick_actions.actions.help.RepoClient")
-    def test_execute_on_issue(self, mock_repo_client_class, mock_registry):
+    async def test_execute_on_issue(self, mock_repo_client_class, mock_registry):
         """Test executing help action on an issue."""
         # Setup mock registry with actions
         mock_action1 = MagicMock(verb="help")
-        mock_action1.return_value.description = "Shows help"
+        mock_action1.help.return_value = "- `@bot help` - Shows help"
 
         mock_action2 = MagicMock(verb="status")
-        mock_action2.return_value.description = "Shows status"
+        mock_action2.help.return_value = "- `@bot status` - Shows status"
 
         mock_registry.get_actions.return_value = [mock_action1, mock_action2]
 
@@ -56,7 +56,7 @@ class TestHelpAction:
         mock_repo_client_class.create_instance.return_value = mock_client
 
         # Execute the action
-        self.action.execute(
+        await self.action.execute(
             repo_id="repo123",
             scope=Scope.ISSUE,
             note=self.mock_note,
@@ -79,11 +79,11 @@ class TestHelpAction:
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     @patch("automation.quick_actions.actions.help.RepoClient")
-    def test_execute_on_merge_request(self, mock_repo_client_class, mock_registry):
+    async def test_execute_on_merge_request(self, mock_repo_client_class, mock_registry):
         """Test executing help action on a merge request."""
         # Setup mock registry with actions
         mock_action = MagicMock(verb="help")
-        mock_action.return_value.description = "Shows help"
+        mock_action.help.return_value = "- `@bot help` - Shows help"
 
         mock_registry.get_actions.return_value = [mock_action]
 
@@ -92,7 +92,7 @@ class TestHelpAction:
         mock_repo_client_class.create_instance.return_value = mock_client
 
         # Execute the action
-        self.action.execute(
+        await self.action.execute(
             repo_id="repo123",
             scope=Scope.MERGE_REQUEST,
             note=self.mock_note,
@@ -118,7 +118,7 @@ class TestHelpAction:
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     @patch("automation.quick_actions.actions.help.RepoClient")
-    def test_execute_with_multiple_actions(self, mock_repo_client_class, mock_registry):
+    async def test_execute_with_multiple_actions(self, mock_repo_client_class, mock_registry):
         """Test executing help action with multiple available actions."""
         # Setup mock registry with multiple actions
         mock_actions = []
@@ -127,7 +127,7 @@ class TestHelpAction:
 
         for verb, desc in zip(action_verbs, descriptions, strict=False):
             mock_action = MagicMock(verb=verb)
-            mock_action.return_value.description = desc
+            mock_action.help.return_value = f"- `@daivbot {verb}` - {desc}"
             mock_actions.append(mock_action)
 
         mock_registry.get_actions.return_value = mock_actions
@@ -137,7 +137,7 @@ class TestHelpAction:
         mock_repo_client_class.create_instance.return_value = mock_client
 
         # Execute the action
-        self.action.execute(
+        await self.action.execute(
             repo_id="repo123", scope=Scope.ISSUE, note=self.mock_note, user=self.mock_user, issue=self.mock_issue
         )
 

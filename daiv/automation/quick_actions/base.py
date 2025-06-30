@@ -15,9 +15,9 @@ class QuickAction(ABC):
     verb: str
     scopes: list[Scope]
 
-    @property
+    @staticmethod
     @abstractmethod
-    def description(self) -> str:
+    def description() -> str:
         """
         Get the description of the quick action.
 
@@ -27,7 +27,7 @@ class QuickAction(ABC):
         pass
 
     @abstractmethod
-    def execute(
+    async def execute(
         self,
         repo_id: str,
         scope: Scope,
@@ -50,3 +50,10 @@ class QuickAction(ABC):
             args: Additional parameters from the command.
         """
         pass
+
+    @classmethod
+    def help(cls, username: str) -> str:
+        """
+        Get the help message for the quick action.
+        """
+        return f"* `@{username} {cls.verb}` - {cls.description()}"

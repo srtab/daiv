@@ -6,10 +6,7 @@ from typing import TYPE_CHECKING, Literal
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import (
-    Runnable,
-    RunnableConfig,  # noqa: TC002
-)
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledGraph, CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -24,8 +21,7 @@ from automation.utils import file_changes_namespace
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import execute_plan_human, execute_plan_system, human_approval_system, plan_system
-from .schemas import HumanApprovalEvaluation, HumanApprovalInput
+from .prompts import execute_plan_human, execute_plan_system, plan_system
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import determine_next_action
 
@@ -33,20 +29,6 @@ if TYPE_CHECKING:
     from langchain_core.prompts import SystemMessagePromptTemplate
 
 logger = logging.getLogger("daiv.agents")
-
-
-class HumanApprovalEvaluator(BaseAgent[Runnable[HumanApprovalInput, HumanApprovalEvaluation]]):
-    """
-    Chain for evaluating the human approval of the plan.
-    """
-
-    async def compile(self) -> Runnable:
-        return (
-            ChatPromptTemplate.from_messages([human_approval_system, MessagesPlaceholder("messages")])
-            | self.get_model(model=settings.HUMAN_APPROVAL_MODEL_NAME).with_structured_output(
-                HumanApprovalEvaluation, method="function_calling"
-            )
-        ).with_config({"run_name": "HumanApprovalEvaluator"})
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -142,14 +124,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if self.skip_approval:
             return Command(goto="execute_plan")
 
-        messages = interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
+        interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
 
-        human_approval_evaluator = await HumanApprovalEvaluator().agent
-        result = await human_approval_evaluator.ainvoke({"messages": messages})
-
-        if result.is_unambiguous_approval:
-            return Command(goto="execute_plan", update={"plan_approval_response": result.feedback})
-        return Command(goto="plan_approval", update={"plan_approval_response": result.feedback})
+        return Command(goto="execute_plan")
 
     async def execute_plan(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
