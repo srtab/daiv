@@ -59,12 +59,6 @@ class UnableToExecutePlanError(IssueAddressorError):
     """
 
 
-class NoPlanToExecuteError(IssueAddressorError):
-    """
-    Exception raised when the agent is unable to execute the plan.
-    """
-
-
 class IssueAddressorManager(BaseManager):
     """
     Manages the issue processing and addressing workflow.
@@ -104,11 +98,7 @@ class IssueAddressorManager(BaseManager):
                 logger.warning("Soft error planning issue %d: %s", issue_iid, e)
             else:
                 logger.exception("Error planning issue %d: %s", issue_iid, e)
-            note_message = jinja2_formatter(ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE, discussion_id=discussion_id)
-            if discussion_id:
-                manager.client.create_issue_discussion_note(repo_id, issue_iid, note_message, discussion_id)
-            else:
-                manager.client.comment_issue(repo_id, issue_iid, note_message)
+            manager._add_unable_to_define_plan_note(discussion_id)
         except Exception as e:
             logger.exception("Error processing issue %d: %s", issue_iid, e)
             manager._add_unable_to_process_issue_note(discussion_id)
@@ -178,7 +168,7 @@ class IssueAddressorManager(BaseManager):
             discussion_id: The discussion ID of the note that triggered the action.
         """
         if state.get("request_for_changes") is False:
-            raise UnableToPlanIssueError("No plan was generated.", soft=True)
+            raise UnableToPlanIssueError("The issue is not a request for changes.", soft=True)
         # We share the plan with the human to review and approve
         elif plan_tasks := state.get("plan_tasks"):
             self._add_review_plan_note(plan_tasks)
@@ -186,7 +176,7 @@ class IssueAddressorManager(BaseManager):
         elif plan_questions := state.get("plan_questions"):
             self._add_plan_questions_note(plan_questions, discussion_id)
         else:
-            raise UnableToPlanIssueError("Unexpected state from plan and execute node")
+            raise UnableToPlanIssueError(f"Unexpected state returned: {state}")
 
     async def _approve_plan(self, discussion_id: str | None = None):
         """
@@ -216,15 +206,7 @@ class IssueAddressorManager(BaseManager):
                     logger.exception("Error executing plan for issue %d", self.issue.iid)
                     self._add_unable_to_execute_plan_note(discussion_id)
             else:
-                if not current_state.next:
-                    note_message = "The plan has already been executed."
-                else:
-                    note_message = "There's no plan to be executed."
-
-                if discussion_id:
-                    self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
-                else:
-                    self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+                self._add_no_plan_to_execute_note(discussion_id, bool(current_state.next))
 
             if (file_changes := await self._get_file_changes()) and (
                 merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
@@ -358,6 +340,16 @@ class IssueAddressorManager(BaseManager):
         else:
             self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
 
+    def _add_unable_to_define_plan_note(self, discussion_id: str | None = None):
+        """
+        Add a note to the issue to inform the user that the plan could not be defined.
+        """
+        note_message = jinja2_formatter(ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE, discussion_id=discussion_id)
+        if discussion_id:
+            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
+        else:
+            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
+
     def _add_unable_to_process_issue_note(self, discussion_id: str | None = None):
         """
         Add a note to the issue to inform the user that the issue could not be processed.
@@ -396,5 +388,15 @@ class IssueAddressorManager(BaseManager):
             self.client.create_issue_discussion_note(
                 self.repo_id, cast("int", self.issue.iid), note_message, discussion_id
             )
+        else:
+            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+
+    def _add_no_plan_to_execute_note(self, discussion_id: str | None = None, has_next: bool = False):
+        """
+        Add a note to the issue to inform the user that the plan could not be executed.
+        """
+        note_message = "The plan has already been executed." if not has_next else "There's no plan to be executed."
+        if discussion_id:
+            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, discussion_id)
         else:
             self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)

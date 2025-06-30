@@ -26,8 +26,7 @@ class PlanAction(QuickAction):
         """
         Get the description of the plan action.
         """
-        actions = [f"`{action.name.lower()}`" for action in Action]
-        return f"Actions related to the plan of an issue. Available actions: {', '.join(actions)}"
+        return "Actions related to the plan of an issue."
 
     @classmethod
     def help(cls, username: str) -> str:

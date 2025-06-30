@@ -72,6 +72,8 @@ ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """{% if not discussion_id %}### ⚠ ***Unab
 - **Add Examples:** Include specific examples or scenarios to clarify the issue.
 - **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
 
+----
+
 💡 **Next Steps:**
 
 - Update the issue's title or description.
