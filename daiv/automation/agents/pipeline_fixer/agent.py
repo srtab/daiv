@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Literal, cast
+from typing import Literal
 
 from django.utils import timezone
 
-from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import (
     Runnable,
@@ -26,37 +25,12 @@ from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import (
-    command_output_evaluator_human,
-    same_error_evaluator_human,
-    same_error_evaluator_system,
-    troubleshoot_human,
-    troubleshoot_system,
-)
-from .schemas import (
-    CommandOuputEvaluation,
-    CommandOuputInput,
-    SameErrorEvaluation,
-    SameErrorInput,
-    TroubleshootingDetail,
-)
+from .prompts import command_output_evaluator_human, troubleshoot_human, troubleshoot_system
+from .schemas import CommandOuputEvaluation, CommandOuputInput, TroubleshootingDetail
 from .state import OverallState, TroubleshootState
 from .tools import complete_task
 
 logger = logging.getLogger("daiv.agents")
-
-
-class SameErrorEvaluator(BaseAgent[Runnable[SameErrorInput, SameErrorEvaluation]]):
-    """
-    Chain for evaluating if two logs are the same error.
-    """
-
-    async def compile(self) -> Runnable:
-        return (
-            ChatPromptTemplate.from_messages([same_error_evaluator_system, same_error_evaluator_human])
-            | self.get_model(model=settings.SAME_ERROR_MODEL_NAME).bind_tools([SameErrorEvaluation], tool_choice="auto")
-            | PydanticToolsParser(tools=[SameErrorEvaluation], first_tool_only=True)
-        ).with_config({"run_name": "SameErrorEvaluator"})
 
 
 class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputEvaluation]]):
@@ -88,92 +62,13 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(OverallState)
 
-        workflow.add_node("should_try_to_fix", self.should_try_to_fix)
         workflow.add_node("troubleshoot", self.troubleshoot)
         workflow.add_node("execute_remediation_steps", self.execute_remediation_steps)
         workflow.add_node("apply_format_code", self.apply_format_code)
 
-        workflow.set_entry_point("should_try_to_fix")
+        workflow.set_entry_point("troubleshoot")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
-
-    async def should_try_to_fix(
-        self, state: OverallState, config: RunnableConfig
-    ) -> Command[Literal["troubleshoot", "__end__"]]:
-        """
-        Determine if the agent should try to fix the pipeline issue.
-
-        If the agent has reached the maximum number of retries, or if the previous job logs are not available,
-        the agent will try to fix the pipeline issue.
-
-        If the previous job logs are available, the agent will invoke the error log evaluator to determine if the
-        error is the same as the previous one. This is important to prevent the agent from applying the same fix
-        over and over.
-
-        Args:
-            state (OverallState): The state of the agent.
-            config (RunnableConfig): The config to use for the agent.
-
-        Returns:
-            Command[Literal["troubleshoot", "__end__"]]: The next step in the workflow.
-        """
-        if state.get("iteration", 0) >= settings.MAX_ITERATIONS:
-            logger.warning(
-                "Max retry iterations reached for pipeline fix on %s[%s] for job %s",
-                config["configurable"]["source_repo_id"],
-                config["configurable"]["source_ref"],
-                config["configurable"]["job_name"],
-            )
-            return Command(
-                goto=END,
-                update={
-                    "need_manual_fix": True,
-                    "troubleshooting": [
-                        TroubleshootingDetail(
-                            title="Automatic fix failed",
-                            details=(
-                                "Maximum retry iterations reached for automatic pipeline fix. "
-                                "Please review the logs and apply the necessary fixes manually."
-                            ),
-                        )
-                    ],
-                },
-            )
-
-        if state.get("previous_job_logs") is None:
-            # This means that it's the first time the agent is running, so we need to troubleshoot the issue.
-            return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
-
-        same_error_evaluator = await SameErrorEvaluator().agent
-        result = await same_error_evaluator.ainvoke({
-            "log_trace_1": cast("str", state["previous_job_logs"]),
-            "log_trace_2": state["job_logs"],
-        })
-
-        if result.is_same_error:
-            logger.warning(
-                "Not applying pipeline fix on %s[%s] for job %s because it's the same error as the previous one",
-                config["configurable"]["source_repo_id"],
-                config["configurable"]["source_ref"],
-                config["configurable"]["job_name"],
-            )
-            return Command(
-                goto=END,
-                update={
-                    "need_manual_fix": True,
-                    "troubleshooting": [
-                        TroubleshootingDetail(
-                            title="Automatic fix skipped",
-                            details=(
-                                "Automatic fix skipped because the error is the same as the previous one. "
-                                "Please review the logs and apply the necessary fixes manually."
-                            ),
-                        )
-                    ],
-                },
-            )
-
-        return Command(goto="troubleshoot", update={"iteration": state.get("iteration", 0) + 1})
 
     async def troubleshoot(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
@@ -192,13 +87,13 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]: The next step in
                 the workflow.
         """
-        tools = ReadRepositoryToolkit.create_instance().get_tools()
+        tools = ReadRepositoryToolkit.create_instance().get_tools() + [complete_task, think]
 
         agent = create_react_agent(
             model=self.get_model(
                 model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
-            tools=tools + [complete_task, think],
+            tools=tools,
             state_schema=TroubleshootState,
             prompt=ChatPromptTemplate.from_messages([
                 troubleshoot_system,

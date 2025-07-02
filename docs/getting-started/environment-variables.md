@@ -254,8 +254,6 @@ All the default models where chosen to be the most effective models. You can cha
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
 | `PIPELINE_FIXER_NAME` | Name of the pipeline fixer agent. | `PipelineFixer` |
-| `PIPELINE_FIXER_MAX_ITERATIONS` | Maximum retry iterations for pipeline fixer. | `20` |
-| `PIPELINE_FIXER_SAME_ERROR_MODEL_NAME` | Model for same error evaluator. | `openrouter:openai/gpt-4-1-mini` |
 | `PIPELINE_FIXER_TROUBLESHOOTING_MODEL_NAME` | Model for troubleshooting. | `openrouter:openai/o4-mini` |
 | `PIPELINE_FIXER_TROUBLESHOOTING_THINKING_LEVEL` | Thinking level for troubleshooting. | `high` |
 | `PIPELINE_FIXER_COMMAND_OUTPUT_MODEL_NAME` | Model for command output evaluator. | `openrouter:openai/gpt-4-1-mini` |

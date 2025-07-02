@@ -18,11 +18,7 @@ class RepositoryConfigTest:
         cached_config = {
             "default_branch": "main",
             "repository_description": "Test repository",
-            "features": {
-                "auto_address_review_enabled": True,
-                "auto_address_issues_enabled": True,
-                "autofix_pipeline_enabled": True,
-            },
+            "features": {"auto_address_review_enabled": True, "auto_address_issues_enabled": True},
             "extend_exclude_patterns": ["tests/"],
             "branch_name_convention": "always start with 'daiv/' followed by a short description.",
         }
@@ -50,7 +46,6 @@ class RepositoryConfigTest:
         features:
           auto_address_review_enabled: true
           auto_address_issues_enabled: true
-          autofix_pipeline_enabled: true
         extend_exclude_patterns:
           - tests/
         branch_name_convention: always start with 'daiv/' followed by a short description.

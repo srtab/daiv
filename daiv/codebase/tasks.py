@@ -6,7 +6,6 @@ from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from codebase.managers.issue_addressor import IssueAddressorManager
-from codebase.managers.pipeline_fixer import PipelineFixerManager
 from codebase.managers.review_addressor import ReviewAddressorManager
 from core.utils import locked_task
 
@@ -76,19 +75,3 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
         merge_request_source_branch (str): The merge request source branch.
     """
     async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)
-
-
-@shared_task
-@locked_task(key="{repo_id}:{merge_request_id}")
-def fix_pipeline_job_task(repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
-    """
-    Try to fix a failed pipeline of a merge request.
-
-    Args:
-        repo_id (str): The repository id.
-        ref (str): The reference.
-        merge_request_id (int): The merge request id.
-        job_id (int): The job id.
-        job_name (str): The job name.
-    """
-    async_to_sync(PipelineFixerManager.process_job)(repo_id, ref, merge_request_id, job_id, job_name)
