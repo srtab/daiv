@@ -2,26 +2,12 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 
-class SameErrorInput(TypedDict):
-    log_trace_1: str
-    log_trace_2: str
-
-
-class SameErrorEvaluation(BaseModel):
-    """
-    Provide the output of the error log evaluator to determine if the two logs are the same error using this tool.
-    """
-
-    is_same_error: bool = Field(description="Whether the two logs are the same error")
-    justification: str = Field(description="The justification for the decision")
-
-
 class TroubleshootingDetail(BaseModel):
     """
     Provide a detailed explanation of your troubleshooting findings.
     """
 
-    title: str = Field(description="A short title of the issue.", default="")
+    title: str = Field(description="A short title to identify the issue.")
     details: str = Field(
         description=(
             "Summary of your key troubleshooting findings. "

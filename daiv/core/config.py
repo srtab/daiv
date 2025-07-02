@@ -31,9 +31,6 @@ class Features(BaseModel):
 
     auto_address_review_enabled: bool = Field(default=True, description="Enable code review automation features.")
     auto_address_issues_enabled: bool = Field(default=True, description="Enable issue implementation features.")
-    autofix_pipeline_enabled: bool = Field(
-        default=True, description="Enable autofix of issues detected on the pipelines."
-    )
 
 
 class Commands(BaseModel):

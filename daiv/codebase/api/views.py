@@ -3,7 +3,7 @@ import logging
 from ninja import Router
 
 from .callbacks import UnprocessableEntityResponse
-from .callbacks_gitlab import IssueCallback, NoteCallback, PipelineStatusCallback, PushCallback
+from .callbacks_gitlab import IssueCallback, NoteCallback, PushCallback
 from .security import validate_gitlab_webhook
 
 logger = logging.getLogger("daiv.webhooks")
@@ -12,7 +12,7 @@ router = Router(tags=["codebase"])
 
 
 @router.post("/callbacks/gitlab/", response={204: None, 401: None, 423: UnprocessableEntityResponse})
-async def gitlab_callback(request, payload: IssueCallback | NoteCallback | PushCallback | PipelineStatusCallback):
+async def gitlab_callback(request, payload: IssueCallback | NoteCallback | PushCallback):
     """
     GitLab callback endpoint for processing callbacks.
 

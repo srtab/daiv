@@ -2,20 +2,16 @@ import logging
 import re
 from collections.abc import Iterable
 
-from django.conf import settings
-
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE
 from codebase.base import ClientType, MergeRequestDiff
-from codebase.clients import AllRepoClient, RepoClient
+from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
-from core.utils import generate_uuid
 
 logger = logging.getLogger("daiv.managers")
 
@@ -25,12 +21,25 @@ class PipelineFixerManager(BaseManager):
     Manages the pipeline fix process.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, ref: str, **kwargs):
-        super().__init__(client, repo_id, ref)
-        self.thread_id = kwargs["thread_id"]
+    def __init__(
+        self,
+        repo_id: str,
+        ref: str,
+        merge_request_id: int,
+        job_id: int,
+        job_name: str,
+        discussion_id: str | None = None,
+    ):
+        super().__init__(RepoClient.create_instance(), repo_id, ref)
+        self.merge_request_id = merge_request_id
+        self.job_id = job_id
+        self.job_name = job_name
+        self.discussion_id = discussion_id
 
     @classmethod
-    async def process_job(cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str):
+    async def process_job(
+        cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, discussion_id: str | None = None
+    ):
         """
         Process pipeline fix for a job.
 
@@ -40,72 +49,46 @@ class PipelineFixerManager(BaseManager):
             merge_request_id: The merge request ID
             job_id: The job ID to process
             job_name: The job name
+            discussion_id: The discussion ID that triggered the pipeline fix (optional)
         """
-        client = RepoClient.create_instance()
+        manager = cls(repo_id, ref, merge_request_id, job_id, job_name, discussion_id)
 
-        # Create a unique thread ID to give the agent different threads (memory) by job name, so that we can consult
-        # previous log traces and avoid applying the same fix to the same job name multiple times.
-        thread_id = generate_uuid(f"{repo_id}{merge_request_id}{job_name}")
-
-        manager = cls(client, repo_id, ref, thread_id=thread_id)
         try:
-            await manager._process_job(merge_request_id, job_id, job_name)
+            await manager._process_job()
         except Exception:
             logger.exception("Error processing pipeline fix for job '%s[%s]:%d'.", repo_id, ref, merge_request_id)
+            manager._add_unable_to_process_job_note()
 
-    async def _process_job(self, merge_request_id: int, job_id: int, job_name: str):
+    async def _process_job(self):
         """
         Process pipeline fix for a job.
-
-        Args:
-            merge_request_id: The merge request ID
-            job_id: The job ID to process
-            job_name: The job name
         """
-        log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
-        diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
+        log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, self.job_id))
+        diffs = self.client.get_merge_request_diff(self.repo_id, self.merge_request_id)
 
         config = RunnableConfig(
             tags=[pipeline_fixer_settings.NAME, str(self.client.client_slug)],
-            metadata={"merge_request_id": merge_request_id, "job_id": job_id},
+            metadata={"merge_request_id": self.merge_request_id, "job_id": self.job_id},
             configurable={
-                "thread_id": self.thread_id,
                 "source_repo_id": self.repo_id,
                 "source_ref": self.ref,
-                "job_name": job_name,
+                "job_name": self.job_name,
+                "discussion_id": self.discussion_id,
             },
         )
 
-        async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+        pipeline_fixer = await PipelineFixerAgent(store=self._file_changes_store).agent
 
-            current_state = await pipeline_fixer.aget_state(config)
+        result = await pipeline_fixer.ainvoke(
+            {"diff": self._merge_request_diffs_to_str(diffs), "job_logs": log_trace, "need_manual_fix": False}, config
+        )
 
-            result = await pipeline_fixer.ainvoke(
-                {
-                    "diff": self._merge_request_diffs_to_str(diffs),
-                    "job_logs": log_trace,
-                    "previous_job_logs": current_state.values.get("job_logs", None),
-                    "iteration": current_state.values.get("iteration", 0),
-                    "need_manual_fix": False,
-                },
-                config,
-            )
+        if file_changes := await self._get_file_changes():
+            await self._commit_changes(file_changes=file_changes)
+            self._add_pipeline_fixed_note()
 
-            if file_changes := await self._get_file_changes():
-                await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
-
-            elif result and result.get("need_manual_fix", False) and (troubleshooting := result.get("troubleshooting")):
-                self.client.comment_merge_request(
-                    self.repo_id,
-                    merge_request_id,
-                    jinja2_formatter(
-                        PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
-                        troubleshooting_details=troubleshooting,
-                        job_name=job_name,
-                        bot_name=BOT_NAME,
-                    ),
-                )
+        elif result and result.get("need_manual_fix", False) and (troubleshooting := result.get("troubleshooting")):
+            self._add_manual_fix_note(troubleshooting)
 
     def _clean_logs(self, log: str):
         """
@@ -175,3 +158,52 @@ class PipelineFixerManager(BaseManager):
             The merge request diffs as a string
         """
         return "\n".join([mr_diff.diff.decode() for mr_diff in diffs if mr_diff.diff])
+
+    def _add_unable_to_process_job_note(self):
+        """
+        Add a note to the discussion that the job could not be processed.
+        """
+        note_message = (
+            "❌ We were unable to process the job and fix the pipeline. **Please check the logs** and try again."
+        )
+        if self.discussion_id:
+            self.client.create_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+            )
+            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
+        else:
+            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+
+    def _add_pipeline_fixed_note(self):
+        """
+        Add a note to the discussion that the pipeline was fixed.
+        """
+        note_message = "✅ Pipeline fix applied. 🔎 Please **review the changes** before merging."
+        if self.discussion_id:
+            self.client.create_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+            )
+            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
+        else:
+            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+
+    def _add_manual_fix_note(self, troubleshooting: list[dict]):
+        """
+        Add a note to the discussion that the pipeline needs manual fix.
+
+        Args:
+            troubleshooting: The troubleshooting details to be added to the note
+        """
+        note_message = jinja2_formatter(
+            PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
+            troubleshooting_details=troubleshooting,
+            job_name=self.job_name,
+            bot_name=BOT_NAME,
+        )
+        if self.discussion_id:
+            self.client.create_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+            )
+            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
+        else:
+            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)

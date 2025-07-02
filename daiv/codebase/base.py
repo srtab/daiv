@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,6 +27,24 @@ class RepositoryFile(BaseModel):
     file_path: str
     ref: str | None = None
     content: str | None = None
+
+
+class Job(BaseModel):
+    id: int
+    name: str
+    status: Literal["created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"]
+    stage: str
+    allow_failure: bool
+    failure_reason: str | None = None
+
+
+class Pipeline(BaseModel):
+    id: int
+    iid: int
+    sha: str
+    status: str
+    web_url: str
+    jobs: list[Job] = Field(default_factory=list)
 
 
 class MergeRequest(BaseModel):
