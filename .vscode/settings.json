@@ -16,5 +16,9 @@
       "source.fixAll.ruff": "explicit"
     }
   },
-  "jupyter.notebookFileRoot": "${workspaceFolder}"
+  "jupyter.notebookFileRoot": "${workspaceFolder}",
+  "cursorpyright.analysis.extraPaths": [
+    "./daiv"
+  ],
+  "cursorpyright.analysis.typeCheckingMode": "off"
 }

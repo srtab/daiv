@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from automation.quick_actions.actions.help import HelpAction
+from automation.quick_actions.actions.help import HelpQuickAction
 from automation.quick_actions.base import Scope
 
 
 class TestHelpAction:
     def setup_method(self):
         """Set up test fixtures."""
-        self.action = HelpAction()
+        self.action = HelpQuickAction()
 
         # Create mock objects
         self.mock_note = MagicMock()
@@ -28,11 +28,11 @@ class TestHelpAction:
 
     def test_help_action_has_correct_attributes(self):
         """Test that HelpAction has the expected attributes set by decorator."""
-        assert hasattr(HelpAction, "verb")
-        assert hasattr(HelpAction, "scopes")
-        assert HelpAction.verb == "help"
-        assert Scope.ISSUE in HelpAction.scopes
-        assert Scope.MERGE_REQUEST in HelpAction.scopes
+        assert hasattr(HelpQuickAction, "verb")
+        assert hasattr(HelpQuickAction, "scopes")
+        assert HelpQuickAction.verb == "help"
+        assert Scope.ISSUE in HelpQuickAction.scopes
+        assert Scope.MERGE_REQUEST in HelpQuickAction.scopes
 
     def test_description_property(self):
         """Test the description property."""

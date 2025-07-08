@@ -1,22 +1,21 @@
 import textwrap
-from enum import StrEnum
 
-from automation.quick_actions.base import QuickAction, Scope
+from automation.quick_actions.base import BaseAction, QuickAction, Scope
 from automation.quick_actions.decorator import quick_action
-from codebase.api.models import Issue, MergeRequest, Note, User
+from codebase.base import Discussion, Issue, MergeRequest, Note
 from codebase.clients import RepoClient
 from codebase.managers.issue_addressor import IssueAddressorManager
 
 QUICK_ACTION_VERB = "plan"
 
 
-class Action(StrEnum):
+class Action(BaseAction):
     EXECUTE = "Run or launch the current plan."
     REVISE = "Discard current plan and create a new one from scratch.."
 
 
 @quick_action(verb=QUICK_ACTION_VERB, scopes=[Scope.ISSUE])
-class PlanAction(QuickAction):
+class PlanQuickAction(QuickAction):
     """
     Actions related to the plan of an issue.
     """
@@ -33,17 +32,20 @@ class PlanAction(QuickAction):
         """
         Get the help message for the plan action.
         """
-        return "\n".join([f" * `@{username} {cls.verb} {action.name.lower()}` - {action.value}" for action in Action])
+        return "\n".join([
+            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}" for action in Action
+        ])
 
     async def execute(
         self,
         repo_id: str,
+        *,
         scope: Scope,
+        discussion: Discussion,
         note: Note,
-        user: User,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        args: list[str] | None = None,
+        args: str | None = None,
     ) -> None:
         """
         Execute the plan approval action.
@@ -51,10 +53,10 @@ class PlanAction(QuickAction):
         Args:
             repo_id: The repository ID.
             scope: The scope of the quick action.
-            note: The note data that triggered the action.
-            user: The user who triggered the action.
-            issue: The issue data.
-            merge_request: The merge request data (if applicable).
+            discussion: The discussion that triggered the action.
+            note: The note that triggered the action.
+            issue: The issue where the action was triggered (if applicable).
+            merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
         if not args or args[0].lower() not in [action.name.lower() for action in Action]:
@@ -63,15 +65,15 @@ class PlanAction(QuickAction):
                 repo_id,
                 issue.iid,
                 self._invalid_action_message(client.current_user.username, args and args[0] or None),
-                note.discussion_id,
+                discussion.id,
             )
             return
 
         if Action.EXECUTE.name.lower() == args[0].lower():
-            await IssueAddressorManager.approve_plan(repo_id, issue.iid, discussion_id=note.discussion_id)
+            await IssueAddressorManager.approve_plan(repo_id, issue.iid, discussion_id=discussion.id)
         elif Action.REVISE.name.lower() == args[0].lower():
             await IssueAddressorManager.plan_issue(
-                repo_id, issue.iid, should_reset_plan=True, discussion_id=note.discussion_id
+                repo_id, issue.iid, should_reset_plan=True, discussion_id=discussion.id
             )
 
     def _invalid_action_message(self, username: str, invalid_action: str | None) -> str:

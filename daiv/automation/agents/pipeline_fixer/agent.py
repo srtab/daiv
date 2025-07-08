@@ -14,7 +14,7 @@ from langchain_core.runnables import (
 from langgraph.graph.state import END, CompiledStateGraph, StateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
@@ -63,6 +63,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         workflow = StateGraph(OverallState)
 
         workflow.add_node("troubleshoot", self.troubleshoot)
+        workflow.add_node("plan_approval", self.plan_approval)
         workflow.add_node("execute_remediation_steps", self.execute_remediation_steps)
         workflow.add_node("apply_format_code", self.apply_format_code)
 
@@ -130,6 +131,20 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                 + state.get("troubleshooting", []),
             },
         )
+
+    async def plan_approval(self, state: OverallState) -> Command[Literal["execute_remediation_steps"]]:
+        """
+        Request human approval of the remediation steps.
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            Command[Literal["execute_remediation_steps"]]: The next step in the workflow.
+        """
+        interrupt({"troubleshooting": state.get("troubleshooting")})
+
+        return Command(goto="execute_remediation_steps")
 
     async def execute_remediation_steps(self, state: OverallState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
@@ -209,7 +224,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         result = await command_output_evaluator.ainvoke({"output": tool_message.artifact[-1].output})
 
         if result.has_errors:
-            # If there are still errors, we need to try to fix them by executing the remediation steps.
-            return Command(goto="execute_remediation_steps")
+            # If there are still errors, we need to try to fix them by executing troubleshooting again.
+            return Command(goto="troubleshoot", update={"job_logs": tool_message.artifact[-1].output})
 
         return Command(goto=END)

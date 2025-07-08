@@ -155,6 +155,10 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str) -> Discussion:
+        pass
+
+    @abc.abstractmethod
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
@@ -488,6 +492,7 @@ class GitLabClient(RepoClient):
         pipeline = merge_request.pipelines.list(iterator=True, per_page=1).next()
         # We need to get the object to get the jobs, otherwise the jobs are not loaded.
         pipeline_for_jobs = project.pipelines.get(id=pipeline.id, lazy=True)
+
         return Pipeline(
             id=pipeline.id,
             iid=pipeline.iid,
@@ -501,7 +506,7 @@ class GitLabClient(RepoClient):
                     status=job.status,
                     stage=job.stage,
                     allow_failure=job.allow_failure,
-                    failure_reason=job.failure_reason,
+                    failure_reason=getattr(job, "failure_reason", None),
                 )
                 for job in pipeline_for_jobs.jobs.list(get_all=True, iterator=True)
             ],
@@ -837,6 +842,23 @@ class GitLabClient(RepoClient):
                 discussions.append(Discussion(id=discussion.id, notes=notes))
         return discussions
 
+    def get_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str) -> Discussion:
+        """
+        Get a discussion from an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            discussion_id: The discussion ID.
+
+        Returns:
+            The discussion object.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        discussion = issue.discussions.get(discussion_id)
+        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
+
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
@@ -937,7 +959,9 @@ class GitLabClient(RepoClient):
             and (notes := self._serialize_notes(discussion.attributes["notes"], note_types))
         ]
 
-    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str) -> Discussion:
+    def get_merge_request_discussion(
+        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
+    ) -> Discussion:
         """
         Get a discussion from a merge request.
 
@@ -945,6 +969,7 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             discussion_id: The discussion ID.
+            only_resolvable: Whether to only return resolvable notes.
 
         Returns:
             The discussion object.
@@ -952,15 +977,21 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         discussion = merge_request.discussions.get(discussion_id)
-        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
+        return Discussion(
+            id=discussion.id,
+            notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable),
+        )
 
-    def _serialize_notes(self, notes: list[dict], note_types: list[NoteType] | None = None) -> list[Note]:
+    def _serialize_notes(
+        self, notes: list[dict], note_types: list[NoteType] | None = None, only_resolvable: bool = True
+    ) -> list[Note]:
         """
         Serialize dictionary of notes to Note objects.
 
         Args:
             notes: The list of notes.
             note_types: The list of note types.
+            only_resolvable: Whether to only return resolvable notes.
 
         Returns:
             The list of Note objects.
@@ -973,7 +1004,7 @@ class GitLabClient(RepoClient):
                 noteable_type=note["noteable_type"],
                 system=note["system"],
                 resolvable=note["resolvable"],
-                resolved=note["resolved"],
+                resolved=note.get("resolved"),
                 author=User(
                     id=note["author"].get("id"),
                     username=note["author"].get("username"),
@@ -1006,8 +1037,7 @@ class GitLabClient(RepoClient):
             )
             for note in notes
             if not note["system"]
-            and note["resolvable"]
-            and not note["resolved"]
+            and (only_resolvable is False or note["resolvable"] and not note["resolved"])
             and (note_types is None or note["type"] in note_types)
         ]
 

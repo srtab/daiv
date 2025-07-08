@@ -3,7 +3,6 @@ import logging
 from asgiref.sync import async_to_sync
 from celery import shared_task
 
-from codebase.api.models import Issue, MergeRequest, Note, User
 from codebase.clients import RepoClient
 
 from .base import Scope
@@ -17,11 +16,11 @@ def execute_quick_action_task(
     repo_id: str,
     action_verb: str,
     action_scope: str,
-    note: Note,
-    user: User,
-    issue: Issue | None = None,
-    merge_request: MergeRequest | None = None,
-    action_args: list[str] | None = None,
+    discussion_id: str,
+    note_id: str,
+    issue_id: int | None = None,
+    merge_request_id: int | None = None,
+    action_args: str | None = None,
 ) -> None:
     """
     Execute a quick action asynchronously.
@@ -36,7 +35,8 @@ def execute_quick_action_task(
         merge_request: The merge request data (if applicable).
         action_args: Additional parameters from the command.
     """
-    action_classes = quick_action_registry.get_actions(verb=action_verb, scope=Scope(action_scope))
+    action_scope = Scope(action_scope)
+    action_classes = quick_action_registry.get_actions(verb=action_verb, scope=action_scope)
 
     if not action_classes:
         logger.error("Quick action '%s' not found in registry for scope '%s'", action_verb, action_scope)
@@ -51,38 +51,61 @@ def execute_quick_action_task(
         )
         return
 
+    client = RepoClient.create_instance()
+
+    issue = None
+    merge_request = None
+    discussion = None
+
+    if action_scope == Scope.ISSUE:
+        discussion = client.get_issue_discussion(repo_id, issue_id, discussion_id)
+        issue = client.get_issue(repo_id, issue_id)
+    elif action_scope == Scope.MERGE_REQUEST:
+        discussion = client.get_merge_request_discussion(
+            repo_id, merge_request_id, discussion_id, only_resolvable=False
+        )
+        merge_request = client.get_merge_request(repo_id, merge_request_id)
+    else:
+        raise ValueError(f"Invalid action scope: {action_scope}")
+
+    if len(discussion.notes) > 1 and not action_classes[0].can_reply:
+        logger.info(
+            "Quick action '%s' ignored. It is a reply to a previous note and it's not supported for this action.",
+            action_verb,
+        )
+        return
+
     try:
         action = action_classes[0]()
         async_to_sync(action.execute)(
             repo_id=repo_id,
-            scope=Scope(action_scope),
-            note=note,
-            user=user,
+            scope=action_scope,
+            discussion=discussion,
+            note=next(note for note in discussion.notes if note.id == note_id),
             issue=issue,
             merge_request=merge_request,
             args=action_args,
         )
-
     except Exception as e:
         logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
 
         error_message = f"❌ Failed to execute quick action `{action_verb}`."
 
-        client = RepoClient.create_instance()
-        if issue:
-            client.create_issue_discussion_note(repo_id, issue.iid, error_message, note.discussion_id)
-        elif merge_request:
-            client.create_merge_request_discussion_note(repo_id, merge_request.iid, error_message, note.discussion_id)
-
+        if action_scope == Scope.ISSUE:
+            client.create_issue_discussion_note(repo_id, issue.iid, error_message, discussion.id)
+        elif action_scope == Scope.MERGE_REQUEST:
+            client.create_merge_request_discussion_note(
+                repo_id, merge_request.merge_request_id, error_message, discussion.id
+            )
     else:
-        if issue:
+        if action_scope == Scope.ISSUE:
             logger.info(
                 "Successfully executed quick action '%s' for repo '%s' on issue '%s'", action_verb, repo_id, issue.iid
             )
-        elif merge_request:
+        elif action_scope == Scope.MERGE_REQUEST:
             logger.info(
                 "Successfully executed quick action '%s' for repo '%s' on merge request '%s'",
                 action_verb,
                 repo_id,
-                merge_request.iid,
+                merge_request.merge_request_id,
             )

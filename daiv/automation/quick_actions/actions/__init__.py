@@ -1,5 +1,5 @@
-from .help import HelpAction
-from .pipeline import PipelineAction
-from .plan import PlanAction
+from .help import HelpQuickAction
+from .pipeline import PipelineQuickAction
+from .plan import PlanQuickAction
 
-__all__ = ["HelpAction", "PlanAction", "PipelineAction"]
+__all__ = ["HelpQuickAction", "PlanQuickAction", "PipelineQuickAction"]

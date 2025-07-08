@@ -39,8 +39,6 @@ def complete_task(
             return Command(goto="apply_format_code", update={"troubleshooting": troubleshooting}, graph=Command.PARENT)
 
         elif pipeline_phase == "unittest":
-            return Command(
-                goto="execute_remediation_steps", update={"troubleshooting": troubleshooting}, graph=Command.PARENT
-            )
+            return Command(goto="plan_approval", update={"troubleshooting": troubleshooting}, graph=Command.PARENT)
 
     return Command(goto=END, update={"need_manual_fix": True, "troubleshooting": troubleshooting}, graph=Command.PARENT)

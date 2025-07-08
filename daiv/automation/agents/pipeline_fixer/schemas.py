@@ -11,7 +11,8 @@ class TroubleshootingDetail(BaseModel):
     details: str = Field(
         description=(
             "Summary of your key troubleshooting findings. "
-            "Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed."
+            "- Use the safe format: fenced with tildes `~~~language` … `~~~` for markdown code blocks; "
+            "- Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed."
         )
     )
     file_path: str = Field(description="The path to the file that is causing the issue, if applicable.", default="")

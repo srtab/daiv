@@ -103,7 +103,7 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self._is_quick_action:
-            logger.info("Found quick action in note: %s", self._quick_action_command.raw)
+            logger.info("Found quick action in note: '%s'", self._quick_action_command.raw)
 
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
@@ -118,12 +118,12 @@ class NoteCallback(BaseCallback):
             await sync_to_async(
                 execute_quick_action_task.si(
                     repo_id=self.project.path_with_namespace,
-                    note=self.object_attributes.model_dump(),
-                    user=self.user.model_dump(),
-                    issue=self.issue and self.issue.model_dump() or None,
-                    merge_request=self.merge_request and self.merge_request.model_dump() or None,
+                    discussion_id=self.object_attributes.discussion_id,
+                    note_id=self.object_attributes.id,
+                    issue_id=self.issue and self.issue.iid or None,
+                    merge_request_id=self.merge_request and self.merge_request.iid or None,
                     action_verb=self._quick_action_command.verb,
-                    action_args=self._quick_action_command.args,
+                    action_args=" ".join(self._quick_action_command.args),
                     action_scope=self._action_scope,
                 ).delay
             )()
@@ -147,10 +147,7 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(
-            self.object_attributes.type is None  # Don't accept replies to the quick action note.
-            and self._quick_action_command
-        )
+        return bool(self._quick_action_command)
 
     @cached_property
     def _is_merge_request_review(self) -> bool:
