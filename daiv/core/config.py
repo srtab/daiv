@@ -68,6 +68,24 @@ class Commands(BaseModel):
         return self.base_image is not None and self.install_dependencies is not None and self.format_code is not None
 
 
+class PipelineConfig(BaseModel):
+    """Pipeline-specific configuration settings."""
+    
+    excluded_job_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of job name patterns that the Pipeline Fixer should exclude from automatic fixing. "
+            "Supports fnmatch patterns with wildcards (* and ?). "
+            "For more information on pattern syntax, refer to the fnmatch documentation."
+        ),
+        examples=[
+            ["security-*", "deploy-*", "manual-review-*"],
+            ["*-security-scan", "prod-deploy"],
+            ["critical-*", "*-manual-*"]
+        ]
+    )
+
+
 class RepositoryConfig(BaseModel):
     """
     Configuration for a repository.
@@ -157,6 +175,12 @@ class RepositoryConfig(BaseModel):
             "Commands to be executed in the sandbox. "
             "These commands are executed after code changes are applied to minimise pipeline breakage."
         ),
+    )
+
+    # Pipeline-specific configuration
+    pipeline: PipelineConfig = Field(
+        default_factory=PipelineConfig,
+        description="Pipeline-specific configuration for automated fixing behavior."
     )
 
     @field_validator("repository_description", "branch_name_convention", mode="before")

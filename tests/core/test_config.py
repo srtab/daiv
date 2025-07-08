@@ -158,3 +158,60 @@ class RepositoryConfigTest:
         combined_patterns = config.combined_exclude_patterns
         assert "**/custom_pattern/**" in combined_patterns
         assert "**/.git/**" in combined_patterns
+
+    def test_pipeline_config_defaults(self):
+        config = RepositoryConfig()
+        assert config.pipeline.excluded_job_patterns == []
+
+    @patch("core.config.cache")
+    @patch.object(RepoClient, "create_instance", autospec=True)
+    def test_get_config_with_excluded_job_patterns(self, mock_repo_client, mock_cache):
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_instance = Mock()
+        mock_repo_instance.get_repository.return_value.default_branch = "main"
+        mock_repo_instance.get_repository_file.return_value = """
+        pipeline:
+          excluded_job_patterns:
+            - "security-*"
+            - "deploy-prod"
+            - "*-manual-*"
+        """
+        mock_repo_client.return_value = mock_repo_instance
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert config.pipeline.excluded_job_patterns == ["security-*", "deploy-prod", "*-manual-*"]
+
+    def test_pipeline_config_validation(self):
+        from core.config import PipelineConfig
+        
+        # Test valid configuration
+        config = PipelineConfig(excluded_job_patterns=["security-*", "deploy-prod"])
+        assert config.excluded_job_patterns == ["security-*", "deploy-prod"]
+        
+        # Test default configuration
+        config = PipelineConfig()
+        assert config.excluded_job_patterns == []
+
+    @patch("core.config.cache")
+    @patch.object(RepoClient, "create_instance", autospec=True)
+    def test_backwards_compatibility_pipeline_config(self, mock_repo_client, mock_cache):
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_instance = Mock()
+        mock_repo_instance.get_repository.return_value.default_branch = "main"
+        mock_repo_instance.get_repository_file.return_value = """
+        default_branch: main
+        repository_description: Test repository
+        features:
+          auto_address_review_enabled: true
+        """
+        mock_repo_client.return_value = mock_repo_instance
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        # Ensure pipeline config is created with defaults even when not specified in YAML
+        assert config.pipeline.excluded_job_patterns == []
+        assert config.default_branch == "main"
+        assert config.repository_description == "Test repository"

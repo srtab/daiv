@@ -1,3 +1,4 @@
+import fnmatch
 import logging
 import re
 from collections.abc import Iterable
@@ -62,6 +63,11 @@ class PipelineFixerManager(BaseManager):
             job_id: The job ID to process
             job_name: The job name
         """
+        # Check if job should be excluded from automatic fixing
+        if self._is_job_excluded(job_name):
+            logger.info("Job '%s' excluded from automatic fixing due to configuration patterns", job_name)
+            return
+
         log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, job_id))
         diffs = self.client.get_merge_request_diff(self.repo_id, merge_request_id)
 
@@ -106,6 +112,24 @@ class PipelineFixerManager(BaseManager):
                         bot_name=BOT_NAME,
                     ),
                 )
+
+    def _is_job_excluded(self, job_name: str) -> bool:
+        """Check if a job should be excluded from automatic fixing.
+        
+        Args:
+            job_name: The name of the job to check
+            
+        Returns:
+            True if the job should be excluded, False otherwise
+        """
+        from core.config import RepositoryConfig
+        
+        config = RepositoryConfig.get_config(self.repo_id)
+        
+        for pattern in config.pipeline.excluded_job_patterns:
+            if fnmatch.fnmatch(job_name, pattern):
+                return True
+        return False
 
     def _clean_logs(self, log: str):
         """

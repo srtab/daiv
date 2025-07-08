@@ -123,3 +123,103 @@ def test_merge_request_diffs_to_str_empty(pipeline_fixer: PipelineFixerManager):
     """Test that _merge_request_diffs_to_str handles empty diff list."""
     result = pipeline_fixer._merge_request_diffs_to_str([])
     assert result == ""
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+def test_is_job_excluded_exact_match(mock_repo_config, pipeline_fixer):
+    """Test exact job name matches for exclusion."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = ["security-scan", "deploy-prod", "manual-review"]
+    mock_repo_config.get_config.return_value = mock_config
+    
+    assert pipeline_fixer._is_job_excluded("security-scan") is True
+    assert pipeline_fixer._is_job_excluded("deploy-prod") is True
+    assert pipeline_fixer._is_job_excluded("manual-review") is True
+    assert pipeline_fixer._is_job_excluded("test-unit") is False
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+def test_is_job_excluded_wildcard_patterns(mock_repo_config, pipeline_fixer):
+    """Test wildcard pattern matching for job exclusion."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = ["security-*", "*-deploy", "manual-*"]
+    mock_repo_config.get_config.return_value = mock_config
+    
+    # Test various job names against patterns
+    assert pipeline_fixer._is_job_excluded("security-scan") is True
+    assert pipeline_fixer._is_job_excluded("prod-deploy") is True
+    assert pipeline_fixer._is_job_excluded("manual-review") is True
+    assert pipeline_fixer._is_job_excluded("test-unit") is False
+    assert pipeline_fixer._is_job_excluded("build") is False
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+def test_is_job_excluded_no_patterns(mock_repo_config, pipeline_fixer):
+    """Test when no exclusion patterns are configured."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = []
+    mock_repo_config.get_config.return_value = mock_config
+    
+    assert pipeline_fixer._is_job_excluded("security-scan") is False
+    assert pipeline_fixer._is_job_excluded("deploy-prod") is False
+    assert pipeline_fixer._is_job_excluded("any-job") is False
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+def test_is_job_excluded_no_match(mock_repo_config, pipeline_fixer):
+    """Test when job doesn't match any patterns."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = ["security-*", "deploy-*"]
+    mock_repo_config.get_config.return_value = mock_config
+    
+    assert pipeline_fixer._is_job_excluded("test-unit") is False
+    assert pipeline_fixer._is_job_excluded("build-app") is False
+    assert pipeline_fixer._is_job_excluded("lint-code") is False
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+@patch('daiv.codebase.managers.pipeline_fixer.logger')
+async def test_process_job_excluded(mock_logger, mock_repo_config, pipeline_fixer):
+    """Test that excluded jobs are not processed."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = ["security-*"]
+    mock_repo_config.get_config.return_value = mock_config
+    
+    # Mock the client methods to ensure they're not called
+    pipeline_fixer.client.job_log_trace = Mock()
+    pipeline_fixer.client.get_merge_request_diff = Mock()
+    
+    await pipeline_fixer._process_job(1, 123, "security-scan")
+    
+    # Verify exclusion was logged
+    mock_logger.info.assert_called_once_with(
+        "Job '%s' excluded from automatic fixing due to configuration patterns", "security-scan"
+    )
+    
+    # Verify no further processing occurred
+    pipeline_fixer.client.job_log_trace.assert_not_called()
+    pipeline_fixer.client.get_merge_request_diff.assert_not_called()
+
+
+@patch('daiv.codebase.managers.pipeline_fixer.RepositoryConfig')
+async def test_process_job_not_excluded(mock_repo_config, pipeline_fixer):
+    """Test that non-excluded jobs are processed normally."""
+    mock_config = Mock()
+    mock_config.pipeline.excluded_job_patterns = ["security-*"]
+    mock_repo_config.get_config.return_value = mock_config
+    
+    # Mock the client methods
+    pipeline_fixer.client.job_log_trace = Mock(return_value="test logs")
+    pipeline_fixer.client.get_merge_request_diff = Mock(return_value=[])
+    
+    # Mock the agent and other dependencies to avoid full processing
+    with patch('daiv.codebase.managers.pipeline_fixer.AsyncPostgresSaver'), \
+         patch('daiv.codebase.managers.pipeline_fixer.PipelineFixerAgent'), \
+         patch.object(pipeline_fixer, '_get_file_changes', return_value=None), \
+         patch('daiv.codebase.managers.pipeline_fixer.RunnableConfig'):
+        
+        await pipeline_fixer._process_job(1, 123, "test-unit")
+    
+    # Verify processing started (client methods were called)
+    pipeline_fixer.client.job_log_trace.assert_called_once_with("test-repo", 123)
+    pipeline_fixer.client.get_merge_request_diff.assert_called_once_with("test-repo", 1)
