@@ -842,7 +842,9 @@ class GitLabClient(RepoClient):
                 discussions.append(Discussion(id=discussion.id, notes=notes))
         return discussions
 
-    def get_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str) -> Discussion:
+    def get_issue_discussion(
+        self, repo_id: str, issue_id: int, discussion_id: str, only_resolvable: bool = True
+    ) -> Discussion:
         """
         Get a discussion from an issue.
 
@@ -857,7 +859,10 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         discussion = issue.discussions.get(discussion_id)
-        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
+        return Discussion(
+            id=discussion.id,
+            notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable),
+        )
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None

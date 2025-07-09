@@ -17,7 +17,7 @@ def execute_quick_action_task(
     action_verb: str,
     action_scope: str,
     discussion_id: str,
-    note_id: str,
+    note_id: int,
     issue_id: int | None = None,
     merge_request_id: int | None = None,
     action_args: str | None = None,
@@ -29,10 +29,10 @@ def execute_quick_action_task(
         repo_id: The repository ID.
         action_verb: The verb of the quick action to execute.
         action_scope: The scope of the quick action to execute.
-        note: The note data that triggered the action.
-        user: The user data who triggered the action.
-        issue: The issue data (if applicable).
-        merge_request: The merge request data (if applicable).
+        discussion_id: The ID of the discussion to execute the action on.
+        note_id: The ID of the note to execute the action on.
+        issue_id: The ID of the issue to execute the action on (if applicable).
+        merge_request_id: The ID of the merge request to execute the action on (if applicable).
         action_args: Additional parameters from the command.
     """
     action_scope = Scope(action_scope)
@@ -58,7 +58,7 @@ def execute_quick_action_task(
     discussion = None
 
     if action_scope == Scope.ISSUE:
-        discussion = client.get_issue_discussion(repo_id, issue_id, discussion_id)
+        discussion = client.get_issue_discussion(repo_id, issue_id, discussion_id, only_resolvable=False)
         issue = client.get_issue(repo_id, issue_id)
     elif action_scope == Scope.MERGE_REQUEST:
         discussion = client.get_merge_request_discussion(

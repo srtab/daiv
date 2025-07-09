@@ -59,22 +59,35 @@ class PlanQuickAction(QuickAction):
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        if not args or args[0].lower() not in [action.name.lower() for action in Action]:
+        if not args or not self._validate_action(args, discussion):
             client = RepoClient.create_instance()
             client.create_issue_discussion_note(
                 repo_id,
                 issue.iid,
-                self._invalid_action_message(client.current_user.username, args and args[0] or None),
+                self._invalid_action_message(client.current_user.username, args or None),
                 discussion.id,
             )
             return
 
-        if Action.EXECUTE.name.lower() == args[0].lower():
+        if Action.get_name(Action.EXECUTE) == args:
             await IssueAddressorManager.approve_plan(repo_id, issue.iid, discussion_id=discussion.id)
-        elif Action.REVISE.name.lower() == args[0].lower():
+        elif Action.get_name(Action.REVISE) == args:
             await IssueAddressorManager.plan_issue(
                 repo_id, issue.iid, should_reset_plan=True, discussion_id=discussion.id
             )
+
+    def _validate_action(self, action: str, discussion: Discussion) -> bool:
+        """
+        Validate the action is valid.
+        """
+        return action.lower() in [Action.get_name(action) for action in Action] and (
+            # Need to be the first note in the discussion to execute the plan
+            action == Action.get_name(Action.EXECUTE)
+            and len(discussion.notes) == 1
+            # Need to be the first note in the discussion to revise the plan
+            or action == Action.get_name(Action.REVISE)
+            and len(discussion.notes) == 1
+        )
 
     def _invalid_action_message(self, username: str, invalid_action: str | None) -> str:
         """
