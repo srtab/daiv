@@ -90,14 +90,13 @@ troubleshoot_human = HumanMessagePromptTemplate.from_template(
 
 
 command_output_evaluator_human = HumanMessagePromptTemplate.from_template(
-    """You will be analyzing a command output to determine if there are any errors present. Your task is to provide a simple True or False answer based on your analysis.
+    """You are given the raw output of a CLI command.
 
-Here is the command output to analyze:
+**Task:**
+Return `True` if the output includes any unexpected error messages or signs of failure; otherwise return `False`.
 
 <command_output>
 {{ output }}
-</command_output>
-
-Carefully examine the command output above and determine if there are any error messages, or indications of failures present.""",  # noqa: E501
+</command_output>""",  # noqa: E501
     "jinja2",
 )

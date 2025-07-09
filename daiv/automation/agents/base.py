@@ -112,7 +112,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                 max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
-                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens")
+                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                 )
                 # When using thinking the temperature need to be set to 1
                 _kwargs["temperature"] = 1
@@ -148,7 +148,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                     max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens")
+                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                     )
                     _kwargs["max_tokens"] = max_tokens
                     _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
@@ -165,9 +165,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         return _kwargs
 
-    def _get_anthropic_thinking_tokens(
-        self, *, thinking_level: ThinkingLevel, max_tokens: int = CLAUDE_MAX_TOKENS
-    ) -> tuple[int, int]:
+    def _get_anthropic_thinking_tokens(self, *, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
         """
         Get the thinking tokens and max tokens for the model.
         """
