@@ -367,16 +367,15 @@ wheels = [
 
 [[package]]
 name = "chonkie"
-version = "1.0.10"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tokenizers" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/d9/be009f2793235c8f5712cfa5598e7078446c6197e90cc4250d86fb1d4871/chonkie-1.0.10.tar.gz", hash = "sha256:09a57277f755b3bd9c66052378c34ba778d2fc67d37cdc819fc378d195f7c6ea", size = 262623, upload-time = "2025-06-07T19:37:03.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/fd/0f4a795c347b3a3b18b87fbe40096d3617188e4761e65df55bf60e0e198b/chonkie-1.1.0.tar.gz", hash = "sha256:a3c145f7b94820fd3bee366714996abb0900a2302baa89ec7f948173c6ba4257", size = 265700, upload-time = "2025-07-02T20:58:41.238Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/30/687c8ecc0af2fbf353cae9969f0c7cf41fd865f5745aa59bf33ab19c3ab1/chonkie-1.0.10-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:ce0be28214fbd7350e581f8df321e420b49f1d9844f92d24d5935140aad7de46", size = 343891, upload-time = "2025-06-07T19:36:58.227Z" },
-    { url = "https://files.pythonhosted.org/packages/00/2a/e93ebaef62bfa3b59248c4b9587d105ba0bcb6f1f163cd12e94510f8c098/chonkie-1.0.10-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8f80c15717c60478e75088b45b9bf8d896fb887c8034d1431eabe1643d7d59a8", size = 644326, upload-time = "2025-06-07T19:36:59.613Z" },
+    { url = "https://files.pythonhosted.org/packages/54/af/8d963794650969569857969f6afbe04ace9b81780268d8b81dd55c66536a/chonkie-1.1.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:9ba0cc92587546591e4f80ecdeaa1141f943b644b47e1979ce53d3ad039f4f11", size = 348600, upload-time = "2025-07-02T20:58:34.011Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/76/00484b27cb9ef3fbc2f078c65326656c7c27cfa98d4d4a59d371f51608f0/chonkie-1.1.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f3dba3bbb3fefdf093f4c6d7d8a1dfdc85cd6d709de2dea1fed209808e7fbda2", size = 650437, upload-time = "2025-07-02T20:58:35.482Z" },
 ]
 
 [package.optional-dependencies]
@@ -604,7 +603,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = "==5.5.3" },
-    { name = "chonkie", extras = ["code"], specifier = "==1.0.10" },
+    { name = "chonkie", extras = ["code"], specifier = "==1.1.0" },
     { name = "django", specifier = "==5.2.4" },
     { name = "django-extensions", specifier = "==4.1" },
     { name = "django-ninja", specifier = "==1.4.3" },
