@@ -10,10 +10,13 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.constants import INTERRUPT
 from langgraph.types import Command
 
-from automation.agents.issue_addressor.templates import ISSUE_REVIEW_PLAN_TEMPLATE
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
-from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE
+from automation.agents.pipeline_fixer.schemas import TroubleshootingDetail
+from automation.agents.pipeline_fixer.templates import (
+    PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE,
+    PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
+)
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
@@ -89,7 +92,7 @@ class PipelineFixerManager(BaseManager):
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
 
-            current_state = await pipeline_fixer.aget_state(self._config)
+            current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
             if not current_state.next and current_state.created_at is None:
                 log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, self.job_id))
@@ -104,15 +107,17 @@ class PipelineFixerManager(BaseManager):
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
                     self._add_pipeline_fix_applied_note()
 
-                if (
-                    result
-                    and result.get("need_manual_fix", False)
-                    and (troubleshooting := result.get("troubleshooting"))
-                ):
-                    self._add_manual_fix_note(troubleshooting)
+                manual_fix_details = [
+                    troubleshooting_detail
+                    for troubleshooting_detail in result.get("troubleshooting")
+                    if troubleshooting_detail.category != "codebase"
+                ]
 
-                elif result and INTERRUPT in result and (troubleshooting := result.get("troubleshooting")):
-                    self._add_plan_review_note(troubleshooting)
+                if result and result.get("need_manual_fix", False) and manual_fix_details:
+                    self._add_manual_fix_note(manual_fix_details)
+
+                elif result and INTERRUPT in result:
+                    self._add_plan_review_note(result[INTERRUPT][0].value, manual_fix_details=manual_fix_details)
 
     async def _execute_fix(self):
         """
@@ -258,6 +263,7 @@ class PipelineFixerManager(BaseManager):
             troubleshooting_details=troubleshooting,
             job_name=self.job_name,
             bot_name=BOT_NAME,
+            show_warning=True,
         )
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
@@ -267,17 +273,26 @@ class PipelineFixerManager(BaseManager):
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
-    def _add_plan_review_note(self, plan_tasks: list[dict]):
+    def _add_plan_review_note(self, state: dict, manual_fix_details: list[TroubleshootingDetail]):
         """
         Add a note to the discussion that the plan is ready for review.
 
         Args:
             plan_tasks: The plan tasks to be added to the note
         """
+        manual_fix_template = ""
+        if manual_fix_details:
+            manual_fix_template = jinja2_formatter(
+                PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
+                troubleshooting_details=manual_fix_details,
+                job_name=self.job_name,
+                bot_name=BOT_NAME,
+                show_warning=False,
+            )
         note_message = jinja2_formatter(
-            ISSUE_REVIEW_PLAN_TEMPLATE,
-            plan_tasks=plan_tasks,
-            approve_plan_command=f"@{self.client.current_user.username} pipeline fix execute",
+            PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE,
+            plan_tasks=state.get("plan_tasks", []),
+            manual_fix_template=manual_fix_template,
         )
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(

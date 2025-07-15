@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
@@ -7,7 +9,16 @@ class TroubleshootingDetail(BaseModel):
     Provide a detailed explanation of your troubleshooting findings.
     """
 
-    title: str = Field(description="A short title to identify the issue.")
+    title: str = Field(description="A short title for the troubleshooting detail.")
+    file_path: str = Field(description="The path to the file that is causing the issue, if applicable.", default="")
+    category: Literal["codebase", "external-factor", "other"] = Field(
+        description=(
+            "State whether the issue is 'codebase' or 'external-factor'. "
+            "If there is any possibility that the issue could be caused by an external factor, "
+            "classify it as 'external-factor'. "
+            "If the issue is not related to codebase or external-factor, classify it as 'other'."
+        )
+    )
     details: str = Field(
         description=(
             "Summary of your key troubleshooting findings. "
@@ -15,33 +26,15 @@ class TroubleshootingDetail(BaseModel):
             "- Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed."
         )
     )
-    file_path: str = Field(description="The path to the file that is causing the issue, if applicable.", default="")
     remediation_steps: list[str] = Field(
         description=(
-            "Outline actionable remediation steps with instructions to resolve the identified issues, "
+            "Outline actionable remediation steps with instructions to resolve the identified external-factor issues, "
             "including any code changes, configuration adjustments, or infrastructure interventions. "
-            "Focus on actions that solve the identified issue directly."
+            "Focus on actions that solve the identified external-factor issue directly. "
+            "If the issue is not related to external-factor, do not provide any remediation steps."
         ),
         default_factory=list,
     )
-
-
-class ActionPlan(BaseModel):
-    """
-    A plan to fix an issue.
-    """
-
-    description: str = Field(..., description="Briefly describe the issue.")
-    steps: list[str] = Field(..., description="A list of steps to fix the issue.")
-
-
-class ActionPlanOutput(BaseModel):
-    """
-    Provide the plan to fix an issue based on the root cause with this tool.
-    Only use this tool to provide the plan at the end of the response.
-    """
-
-    actions: list[ActionPlan] = Field(..., description="A list of actions to fix the issue.")
 
 
 class CommandOuputInput(TypedDict):

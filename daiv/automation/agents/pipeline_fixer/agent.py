@@ -14,23 +14,25 @@ from langchain_core.runnables import (
 from langgraph.graph.state import END, CompiledStateGraph, StateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.schemas import ChangeInstructions, Plan
 from automation.tools import think
 from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
 from core.config import RepositoryConfig
 
 from .conf import settings
-from .prompts import command_output_evaluator_human, troubleshoot_human, troubleshoot_system
+from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
 from .schemas import CommandOuputEvaluation, CommandOuputInput, TroubleshootingDetail
 from .state import OverallState, TroubleshootState
 from .tools import complete_task
 
 logger = logging.getLogger("daiv.agents")
+
+
+MAX_FORMAT_ITERATIONS = 2
 
 
 class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputEvaluation]]):
@@ -63,8 +65,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         workflow = StateGraph(OverallState)
 
         workflow.add_node("troubleshoot", self.troubleshoot)
-        workflow.add_node("plan_approval", self.plan_approval)
-        workflow.add_node("execute_remediation_steps", self.execute_remediation_steps)
+        workflow.add_node("plan_and_execute", self.plan_and_execute)
         workflow.add_node("apply_format_code", self.apply_format_code)
 
         workflow.set_entry_point("troubleshoot")
@@ -73,7 +74,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
 
     async def troubleshoot(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
-    ) -> Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]:
+    ) -> Command[Literal["plan_and_execute", "__end__"]]:
         """
         Troubleshoot the issue based on the logs from the failed CI/CD pipeline.
 
@@ -85,8 +86,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             config (RunnableConfig): The config to use for the agent.
 
         Returns:
-            Command[Literal["execute_remediation_steps", "apply_format_code", "__end__"]]: The next step in
-                the workflow.
+            Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
         tools = ReadRepositoryToolkit.create_instance().get_tools() + [complete_task, think]
 
@@ -119,65 +119,52 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             goto=END,
             update={
                 "need_manual_fix": True,
-                "troubleshooting": [
-                    TroubleshootingDetail(
-                        title="Pipeline fix failed",
-                        details=(
-                            "Couldn't fix the pipeline automatically due to an unexpected error. "
-                            "Please review the logs and apply the necessary fixes manually."
-                        ),
-                    )
-                ]
-                + state.get("troubleshooting", []),
+                "troubleshooting": state.get(
+                    "troubleshooting",
+                    [
+                        TroubleshootingDetail(
+                            category="other",
+                            details=(
+                                "Couldn't fix the pipeline automatically due to an unexpected error. "
+                                "Please review the logs and apply the necessary fixes manually."
+                            ),
+                        )
+                    ],
+                ),
             },
         )
 
-    async def plan_approval(self, state: OverallState) -> Command[Literal["execute_remediation_steps"]]:
+    async def plan_and_execute(
+        self, state: OverallState, store: BaseStore, config: RunnableConfig
+    ) -> Command[Literal["__end__"]]:
         """
-        Request human approval of the remediation steps.
-
-        Args:
-            state (OverallState): The state of the agent.
-
-        Returns:
-            Command[Literal["execute_remediation_steps"]]: The next step in the workflow.
-        """
-        interrupt({"troubleshooting": state.get("troubleshooting")})
-
-        return Command(goto="execute_remediation_steps")
-
-    async def execute_remediation_steps(self, state: OverallState, store: BaseStore) -> Command[Literal["__end__"]]:
-        """
-        Execute the remediation steps to fix the pipeline issue.
+        Plan and execute the remediation steps to fix the identified codebase issues.
 
         Args:
             state (OverallState): The state of the agent.
             store (BaseStore): The store to use for caching.
+            config (RunnableConfig): The config for the agent.
 
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan = Plan(
-            changes=[
-                ChangeInstructions(
-                    file_path=troubleshooting.file_path,
-                    details="\n".join(troubleshooting.remediation_steps),
-                    relevant_files=[troubleshooting.file_path],
-                )
-                for troubleshooting in state["troubleshooting"]
-            ]
-        )
+        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=False).agent
 
-        plan_and_execute = await PlanAndExecuteAgent(
-            store=store, skip_planning=True, skip_approval=True, checkpointer=False
-        ).agent
-        await plan_and_execute.ainvoke({"plan_tasks": plan.changes})
+        await plan_and_execute.ainvoke({
+            "messages": await pipeline_fixer_human.aformat_messages(
+                troubleshooting_details=[
+                    troubleshooting_detail
+                    for troubleshooting_detail in state["troubleshooting"]
+                    if troubleshooting_detail.category == "codebase"
+                ]
+            )
+        })
 
         return Command(goto=END)
 
     async def apply_format_code(
         self, state: OverallState, store: BaseStore, config: RunnableConfig
-    ) -> Command[Literal["execute_remediation_steps", "__end__"]]:
+    ) -> Command[Literal["plan_and_execute", "__end__"]]:
         """
         Apply format code to the repository to fix the linting issues in the pipeline.
 
@@ -187,16 +174,16 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             config (RunnableConfig): The config for the agent.
 
         Returns:
-            Command[Literal["execute_remediation_steps", "__end__"]]: The next step in the workflow.
+            Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
         if not repo_config.commands.enabled():
             logger.info("Format code is disabled for this repository, skipping.")
-            # If format code is disabled, we need to try to fix the linting issues by executing the remediation steps.
+            # If format code is disabled, we need to try to fix the linting issues by planning the remediation steps.
             # This is less effective than actually formatting the code, but it's better than nothing. For instance,
             # linting errors like whitespaces can be challenging to fix by an agent, or even impossible.
-            return Command(goto="execute_remediation_steps")
+            return Command(goto="plan_and_execute")
 
         tool_message = await RunSandboxCommandsTool().ainvoke(
             {
@@ -223,8 +210,14 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         command_output_evaluator = await CommandOutputEvaluator().agent
         result = await command_output_evaluator.ainvoke({"output": tool_message.artifact[-1].output})
 
-        if result.has_errors:
+        if result.has_errors and state.get("format_iteration", 0) < MAX_FORMAT_ITERATIONS:
             # If there are still errors, we need to try to fix them by executing troubleshooting again.
-            return Command(goto="troubleshoot", update={"job_logs": tool_message.artifact[-1].output})
+            return Command(
+                goto="troubleshoot",
+                update={
+                    "job_logs": tool_message.artifact[-1].output,
+                    "format_iteration": state.get("format_iteration", 0) + 1,
+                },
+            )
 
         return Command(goto=END)

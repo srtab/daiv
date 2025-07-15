@@ -75,41 +75,37 @@ class PipelineQuickAction(QuickAction):
             return
 
         pipeline = self.client.get_merge_request_latest_pipeline(repo_id, merge_request.merge_request_id)
-        if pipeline.status == "failed":
-            if not (failed_job := self._get_failed_job(pipeline)):
-                self.client.create_merge_request_discussion_note(
-                    repo_id,
-                    merge_request.merge_request_id,
-                    jinja2_formatter(PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE, pipeline_url=pipeline.web_url),
-                    discussion.id,
-                )
-                self.client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)
-                return
-
-            # Plan the fix if the action is the first note in the discussion
-            if Action.get_name(Action.FIX) == args and len(discussion.notes) == 1:
-                await PipelineFixerManager.plan_fix(
-                    repo_id,
-                    merge_request.source_branch,
-                    merge_request.merge_request_id,
-                    job_id=failed_job.id,
-                    job_name=failed_job.name,
-                    discussion_id=discussion.id,
-                )
-            elif Action.get_name(Action.FIX_EXECUTE) == args and len(discussion.notes) > 1:
-                await PipelineFixerManager.execute_fix(
-                    repo_id,
-                    merge_request.source_branch,
-                    merge_request.merge_request_id,
-                    job_id=failed_job.id,
-                    job_name=failed_job.name,
-                    discussion_id=discussion.id,
-                )
-        else:
+        if pipeline is None or pipeline.status != "failed" or not (failed_job := self._get_failed_job(pipeline)):
             self.client.create_merge_request_discussion_note(
-                repo_id, merge_request.merge_request_id, "ℹ️ The pipeline is not failing. No fix needed.", discussion.id
+                repo_id,
+                merge_request.merge_request_id,
+                jinja2_formatter(
+                    PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE, pipeline_url=pipeline and pipeline.web_url or ""
+                ),
+                discussion.id,
             )
             self.client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)
+            return
+
+        # Plan the fix if the action is the first note in the discussion
+        if Action.get_name(Action.FIX) == args and len(discussion.notes) == 1:
+            await PipelineFixerManager.plan_fix(
+                repo_id,
+                merge_request.source_branch,
+                merge_request.merge_request_id,
+                job_id=failed_job.id,
+                job_name=failed_job.name,
+                discussion_id=discussion.id,
+            )
+        elif Action.get_name(Action.FIX_EXECUTE) == args and len(discussion.notes) > 1:
+            await PipelineFixerManager.execute_fix(
+                repo_id,
+                merge_request.source_branch,
+                merge_request.merge_request_id,
+                job_id=failed_job.id,
+                job_name=failed_job.name,
+                discussion_id=discussion.id,
+            )
 
     def _get_failed_job(self, pipeline: Pipeline) -> Job | None:
         """

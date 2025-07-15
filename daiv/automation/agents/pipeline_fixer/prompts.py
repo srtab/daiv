@@ -88,6 +88,19 @@ troubleshoot_human = HumanMessagePromptTemplate.from_template(
     "jinja2",
 )
 
+pipeline_fixer_human = HumanMessagePromptTemplate.from_template(
+    """The pipeline failed and need to be fixed. Here's the troubleshooting details to help you fix the pipeline:
+
+<troubleshooting_details>
+  {% for troubleshooting in troubleshooting_details -%}
+  <troubleshooting id="{{ loop.index }}">
+    <file_path>{{ troubleshooting.file_path }}</file_path>
+    <details>{{ troubleshooting.details }}</details>
+  </troubleshooting>
+  {% endfor -%}
+</troubleshooting_details>""",  # noqa: E501
+    "jinja2",
+)
 
 command_output_evaluator_human = HumanMessagePromptTemplate.from_template(
     """You are given the raw output of a CLI command.

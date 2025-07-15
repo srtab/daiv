@@ -178,7 +178,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
         pass
 
     @abc.abstractmethod
@@ -483,13 +483,16 @@ class GitLabClient(RepoClient):
             sha=mr.sha,
         )
 
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
         """
         Get the latest pipeline of a merge request.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id)
-        pipeline = merge_request.pipelines.list(iterator=True, per_page=1).next()
+        try:
+            pipeline = merge_request.pipelines.list(iterator=True, per_page=1).next()
+        except StopIteration:
+            return None
         # We need to get the object to get the jobs, otherwise the jobs are not loaded.
         pipeline_for_jobs = project.pipelines.get(id=pipeline.id, lazy=True)
 

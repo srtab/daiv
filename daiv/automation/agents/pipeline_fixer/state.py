@@ -1,3 +1,5 @@
+from typing import Literal
+
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
 
@@ -23,6 +25,16 @@ class OverallState(TypedDict):
     need_manual_fix: bool
     """
     Whether the agent couldnt fix the issue and needs a manual fix.
+    """
+
+    pipeline_phase: Literal["lint", "unittest", "other"]
+    """
+    The phase of the pipeline that failed.
+    """
+
+    format_iteration: int
+    """
+    The number of times the format code has been applied.
     """
 
 
