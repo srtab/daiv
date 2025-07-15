@@ -32,7 +32,7 @@ dependencies = [
   "langchain-mcp-adapters==0.1.9",
   "langchain-text-splitters==0.3.8",
   "langchain-voyageai==0.1.6",
-  "langgraph==0.4.9",
+  "langgraph==0.5.3",
   "langgraph-checkpoint-postgres==2.0.22",
   "langsmith==0.4.5",
   "pgvector==0.4.1",
