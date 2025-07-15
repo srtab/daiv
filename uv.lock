@@ -620,7 +620,7 @@ requires-dist = [
     { name = "langchain-text-splitters", specifier = "==0.3.8" },
     { name = "langchain-voyageai", specifier = "==0.1.6" },
     { name = "langgraph", specifier = "==0.4.9" },
-    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.21" },
+    { name = "langgraph-checkpoint-postgres", specifier = "==2.0.22" },
     { name = "langsmith", specifier = "==0.4.5" },
     { name = "pgvector", specifier = "==0.4.1" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.9" },
@@ -1845,7 +1845,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint-postgres"
-version = "2.0.21"
+version = "2.0.22"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
@@ -1853,9 +1853,9 @@ dependencies = [
     { name = "psycopg" },
     { name = "psycopg-pool" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/51/18138b116807180c97093890dd7955f0e68eabcba97d323a61275bab45b6/langgraph_checkpoint_postgres-2.0.21.tar.gz", hash = "sha256:921915fd3de534b4c84469f93d03046c1ef1f224e44629212b172ec3e9b72ded", size = 30371, upload-time = "2025-04-18T16:31:50.164Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/10/bfab9d031c0eeff9785e28ebcb79107b0a4c57ad3e0f21935679935f77ee/langgraph_checkpoint_postgres-2.0.22.tar.gz", hash = "sha256:4b58346f9d7d44994fc8141310bbd3429fe0e17a18c4a606bf3d7ff673325391", size = 118024, upload-time = "2025-07-10T22:45:24.941Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/31/d5f4a7dd63dddfdb85209a3cbc1778b14bc0dddadb431e34938956f45e8c/langgraph_checkpoint_postgres-2.0.21-py3-none-any.whl", hash = "sha256:f0a50f2c1496778e00ea888415521bb2b7789a12052aa5ae54d82cf517b271e8", size = 39440, upload-time = "2025-04-18T16:31:48.838Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/26/9594505e5698f40e9a76d66c06f412c48a119c3ca41493c432d66f7e1e44/langgraph_checkpoint_postgres-2.0.22-py3-none-any.whl", hash = "sha256:81623697050ea755abd3cab936e60ae0203c0c492675b16d4d4608da8b586bd5", size = 40339, upload-time = "2025-07-10T22:45:23.737Z" },
 ]
 
 [[package]]
