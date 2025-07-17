@@ -1,12 +1,8 @@
-import textwrap
-
 from automation.quick_actions.base import BaseAction, QuickAction, Scope
 from automation.quick_actions.decorator import quick_action
 from codebase.base import Discussion, Issue, MergeRequest, Note
 from codebase.clients import RepoClient
 from codebase.managers.issue_addressor import IssueAddressorManager
-
-QUICK_ACTION_VERB = "plan"
 
 
 class Action(BaseAction):
@@ -14,7 +10,7 @@ class Action(BaseAction):
     REVISE = "Discard current plan and create a new one from scratch.."
 
 
-@quick_action(verb=QUICK_ACTION_VERB, scopes=[Scope.ISSUE])
+@quick_action(verb="plan", scopes=[Scope.ISSUE])
 class PlanQuickAction(QuickAction):
     """
     Actions related to the plan of an issue.
@@ -28,12 +24,14 @@ class PlanQuickAction(QuickAction):
         return "Actions related to the plan of an issue."
 
     @classmethod
-    def help(cls, username: str) -> str:
+    def help(cls, username: str, is_reply: bool = False) -> str:
         """
         Get the help message for the plan action.
         """
         return "\n".join([
-            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}" for action in Action
+            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}"
+            for action in Action
+            if Action.execute_as_reply(action) == is_reply
         ])
 
     async def execute(
@@ -64,7 +62,9 @@ class PlanQuickAction(QuickAction):
             client.create_issue_discussion_note(
                 repo_id,
                 issue.iid,
-                self._invalid_action_message(client.current_user.username, args or None),
+                self._invalid_action_message(
+                    client.current_user.username, args or "", is_reply=len(discussion.notes) > 1
+                ),
                 discussion.id,
             )
             return
@@ -88,15 +88,3 @@ class PlanQuickAction(QuickAction):
             or action == Action.get_name(Action.REVISE)
             and len(discussion.notes) == 1
         )
-
-    def _invalid_action_message(self, username: str, invalid_action: str | None) -> str:
-        """
-        Get the help message for the plan action.
-        """
-        return textwrap.dedent(
-            f"""\
-            ❌ The action `{invalid_action or "no action"}` is not valid.
-
-            The available actions for the `{QUICK_ACTION_VERB}` are as follows:
-            """
-        ) + self.help(username)

@@ -1,5 +1,3 @@
-import textwrap
-
 from langchain_core.prompts.string import jinja2_formatter
 
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE
@@ -9,15 +7,20 @@ from codebase.base import Discussion, Issue, Job, MergeRequest, Note, Pipeline
 from codebase.clients import RepoClient
 from codebase.managers.pipeline_fixer import PipelineFixerManager
 
-QUICK_ACTION_VERB = "pipeline"
-
 
 class Action(BaseAction):
     FIX = "Define a plan to fix the failed pipeline."
     FIX_EXECUTE = "Execute the defined plan to fix the pipeline."
 
+    @staticmethod
+    def execute_as_reply(action: BaseAction) -> bool:
+        """
+        Check if the action can be executed as a reply.
+        """
+        return action == Action.FIX_EXECUTE
 
-@quick_action(verb=QUICK_ACTION_VERB, scopes=[Scope.MERGE_REQUEST])
+
+@quick_action(verb="pipeline", scopes=[Scope.MERGE_REQUEST])
 class PipelineQuickAction(QuickAction):
     """
     Actions related to the pipeline of a merge request.
@@ -37,12 +40,14 @@ class PipelineQuickAction(QuickAction):
         return "Actions related to the pipeline of a merge request."
 
     @classmethod
-    def help(cls, username: str) -> str:
+    def help(cls, username: str, is_reply: bool = False) -> str:
         """
         Get the help message for the pipeline action.
         """
         return "\n".join([
-            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}" for action in Action
+            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}"
+            for action in Action
+            if Action.execute_as_reply(action) == is_reply
         ])
 
     async def execute(
@@ -70,7 +75,7 @@ class PipelineQuickAction(QuickAction):
         """
         if not args or not self._validate_action(args, discussion):
             self._add_invalid_action_message(
-                repo_id, merge_request.merge_request_id, discussion.id, note.author.username, args or None
+                repo_id, merge_request.merge_request_id, discussion.id, args or None, is_reply=len(discussion.notes) > 1
             )
             return
 
@@ -121,18 +126,17 @@ class PipelineQuickAction(QuickAction):
             return None
 
     def _add_invalid_action_message(
-        self, repo_id: str, merge_request_iid: int, note_discussion_id: str, username: str, invalid_action: str | None
+        self,
+        repo_id: str,
+        merge_request_iid: int,
+        note_discussion_id: str,
+        invalid_action: str | None,
+        is_reply: bool = False,
     ) -> None:
         """
         Add an invalid action message to the merge request discussion.
         """
-        note_message = textwrap.dedent(
-            f"""\
-            ❌ The action `{invalid_action or "no action"}` is not valid.
-
-            The available actions for the `{QUICK_ACTION_VERB}` are as follows:
-            """
-        ) + self.help(username)
+        note_message = self._invalid_action_message(self.client.current_user.username, invalid_action, is_reply)
 
         self.client.create_merge_request_discussion_note(repo_id, merge_request_iid, note_message, note_discussion_id)
         self.client.resolve_merge_request_discussion(repo_id, merge_request_iid, note_discussion_id)

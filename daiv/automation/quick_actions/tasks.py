@@ -2,6 +2,7 @@ import logging
 
 from asgiref.sync import async_to_sync
 from celery import shared_task
+from langchain_core.prompts import jinja2_formatter
 
 from codebase.clients import RepoClient
 
@@ -9,6 +10,16 @@ from .base import Scope
 from .registry import quick_action_registry
 
 logger = logging.getLogger("daiv.quick_actions")
+
+QUICK_ACTION_ERROR_MESSAGE = """### ❌ Quick-Action Error
+
+I tried to run **`{{ command }}`**, but something unexpected happened and the action didn't complete.
+
+**What you can do now**
+
+1. 🔄 **Retry** - simply add the same quick-action comment again.
+2. 📜 **Check the app logs** - open the DAIV logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
+"""  # noqa: E501
 
 
 @shared_task(pydantic=True)
@@ -89,7 +100,9 @@ def execute_quick_action_task(
     except Exception as e:
         logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
 
-        error_message = f"❌ Failed to execute quick action `{action_verb}`."
+        error_message = jinja2_formatter(
+            QUICK_ACTION_ERROR_MESSAGE, command=f"@{client.current_user.username} {action_verb} {action_args}"
+        )
 
         if action_scope == Scope.ISSUE:
             client.create_issue_discussion_note(repo_id, issue.iid, error_message, discussion.id)

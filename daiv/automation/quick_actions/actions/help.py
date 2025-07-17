@@ -1,8 +1,12 @@
+from langchain_core.prompts.string import jinja2_formatter
+
 from automation.quick_actions.base import QuickAction, Scope
 from automation.quick_actions.decorator import quick_action
 from automation.quick_actions.registry import quick_action_registry
+from automation.quick_actions.templates import QUICK_ACTIONS_TEMPLATE
 from codebase.base import Discussion, Issue, MergeRequest, Note
 from codebase.clients import RepoClient
+from core.constants import BOT_NAME
 
 
 @quick_action(verb="help", scopes=[Scope.ISSUE, Scope.MERGE_REQUEST])
@@ -10,6 +14,8 @@ class HelpQuickAction(QuickAction):
     """
     Shows the help message for the available quick actions.
     """
+
+    can_reply = True
 
     @staticmethod
     def description() -> str:
@@ -43,15 +49,17 @@ class HelpQuickAction(QuickAction):
         current_user = client.current_user
 
         actions = quick_action_registry.get_actions(scope=scope)
-        actions_str = "\n".join([action.help(current_user.username) for action in actions])
-
-        if actions_str and scope == Scope.ISSUE:
-            note_message = f"You can trigger quick actions by commenting on this issue:\n{actions_str}"
-            client.create_issue_discussion_note(repo_id, issue.iid, note_message, discussion.id)
-
-        elif actions_str and scope == Scope.MERGE_REQUEST:
-            note_message = f"You can trigger quick actions by commenting on this merge request:\n{actions_str}"
-            client.create_merge_request_discussion_note(
-                repo_id, merge_request.merge_request_id, note_message, discussion.id
+        if actions_help := [
+            action.help(current_user.username, is_reply=len(discussion.notes) > 1) for action in actions
+        ]:
+            note_message = jinja2_formatter(
+                QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help
             )
-            client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)
+            if scope == Scope.ISSUE:
+                client.create_issue_discussion_note(repo_id, issue.iid, note_message, discussion.id)
+
+            elif scope == Scope.MERGE_REQUEST:
+                client.create_merge_request_discussion_note(
+                    repo_id, merge_request.merge_request_id, note_message, discussion.id
+                )
+                client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)

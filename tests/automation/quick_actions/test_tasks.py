@@ -62,7 +62,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=self.issue,
@@ -107,7 +107,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
-            action_scope=Scope.MERGE_REQUEST,
+            action_scope=Scope.MERGE_REQUEST.value,
             note=self.note,
             user=self.user,
             merge_request=self.merge_request,
@@ -136,7 +136,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="nonexistent",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=self.issue,
@@ -159,7 +159,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="duplicate",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=self.issue,
@@ -192,7 +192,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="failing_action",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=self.issue,
@@ -227,7 +227,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="failing_action",
-            action_scope="merge_request",
+            action_scope=Scope.MERGE_REQUEST.value,
             note=self.note,
             user=self.user,
             merge_request=self.merge_request,
@@ -258,7 +258,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=None,
@@ -293,7 +293,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
-            action_scope="merge_request",  # String
+            action_scope=Scope.MERGE_REQUEST.value,
             note=self.note,
             user=self.user,
         )
@@ -325,7 +325,7 @@ class TestExecuteQuickActionTask:
         execute_quick_action_task(
             repo_id="repo123",
             action_verb="help",
-            action_scope="issue",
+            action_scope=Scope.ISSUE.value,
             note=self.note,
             user=self.user,
             issue=self.issue,

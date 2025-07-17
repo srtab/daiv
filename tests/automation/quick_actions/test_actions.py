@@ -14,6 +14,10 @@ class TestHelpAction:
         self.mock_note.id = 1
         self.mock_note.discussion_id = "disc-123"
 
+        self.mock_discussion = MagicMock()
+        self.mock_discussion.id = "disc-123"
+        self.mock_discussion.notes = [self.mock_note]
+
         self.mock_user = MagicMock()
         self.mock_user.id = 1
         self.mock_user.username = "testuser"
@@ -59,8 +63,8 @@ class TestHelpAction:
         await self.action.execute(
             repo_id="repo123",
             scope=Scope.ISSUE,
+            discussion=self.mock_discussion,
             note=self.mock_note,
-            user=self.mock_user,
             issue=self.mock_issue,
             args="test_args",
         )
@@ -95,8 +99,8 @@ class TestHelpAction:
         await self.action.execute(
             repo_id="repo123",
             scope=Scope.MERGE_REQUEST,
+            discussion=self.mock_discussion,
             note=self.mock_note,
-            user=self.mock_user,
             merge_request=self.mock_merge_request,
         )
 
@@ -138,7 +142,11 @@ class TestHelpAction:
 
         # Execute the action
         await self.action.execute(
-            repo_id="repo123", scope=Scope.ISSUE, note=self.mock_note, user=self.mock_user, issue=self.mock_issue
+            repo_id="repo123",
+            scope=Scope.ISSUE,
+            discussion=self.mock_discussion,
+            note=self.mock_note,
+            issue=self.mock_issue,
         )
 
         # Verify issue discussion note was created

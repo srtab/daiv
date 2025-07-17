@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from langchain_core.prompts.string import jinja2_formatter
+
+from automation.quick_actions.templates import UNKNOWN_QUICK_ACTION_TEMPLATE
+
 if TYPE_CHECKING:
     from codebase.base import Discussion, Issue, MergeRequest, Note
 
@@ -27,10 +31,17 @@ class BaseAction(StrEnum):
         """
         return action.name.lower().split("_")
 
+    @staticmethod
+    def is_reply(action: BaseAction) -> bool:
+        """
+        Check if the action is specific to a reply.
+        """
+        return False
+
 
 class Scope(StrEnum):
-    ISSUE = "issue"
-    MERGE_REQUEST = "merge_request"
+    ISSUE = "Issue"
+    MERGE_REQUEST = "Merge Request"
 
 
 class QuickAction(ABC):
@@ -80,8 +91,29 @@ class QuickAction(ABC):
         pass
 
     @classmethod
-    def help(cls, username: str) -> str:
+    def help(cls, username: str, is_reply: bool = False) -> str:
         """
         Get the help message for the quick action.
+
+        Args:
+            username: The username of the bot.
+            is_reply: Whether the action was triggered as a reply.
         """
         return f"* `@{username} {cls.verb}` - {cls.description()}"
+
+    def _invalid_action_message(self, username: str, invalid_action: str | None, is_reply: bool = False) -> str:
+        """
+        Get the invalid action message for the quick action.
+
+        Args:
+            username: The username of the bot.
+            invalid_action: The invalid action that was triggered.
+            is_reply: Whether the action was triggered as a reply.
+        """
+        return jinja2_formatter(
+            UNKNOWN_QUICK_ACTION_TEMPLATE,
+            bot_name=username,
+            verb=self.verb,
+            help=self.help(username, is_reply),
+            invalid_action=invalid_action,
+        )

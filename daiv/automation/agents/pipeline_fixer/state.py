@@ -6,7 +6,7 @@ from typing_extensions import TypedDict
 from .schemas import TroubleshootingDetail
 
 
-class OverallState(TypedDict):
+class InputState(TypedDict):
     diff: str
     """
     The diff of the changes made to the codebase.
@@ -17,6 +17,13 @@ class OverallState(TypedDict):
     The logs of the job that failed.
     """
 
+    format_iteration: int
+    """
+    The number of times the format code has been applied.
+    """
+
+
+class OutputState(TypedDict):
     troubleshooting: list[TroubleshootingDetail]
     """
     The troubleshooting details of the job that failed.
@@ -32,10 +39,9 @@ class OverallState(TypedDict):
     The phase of the pipeline that failed.
     """
 
-    format_iteration: int
-    """
-    The number of times the format code has been applied.
-    """
+
+class OverallState(InputState, OutputState):
+    pass
 
 
 class TroubleshootState(AgentState):

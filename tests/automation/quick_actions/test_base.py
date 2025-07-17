@@ -6,13 +6,13 @@ from automation.quick_actions.base import QuickAction, Scope
 class TestScope:
     def test_scope_enum_values(self):
         """Test that Scope enum has correct values."""
-        assert Scope.ISSUE == "issue"
-        assert Scope.MERGE_REQUEST == "merge_request"
+        assert Scope.ISSUE == "Issue"
+        assert Scope.MERGE_REQUEST == "Merge Request"
 
     def test_scope_enum_string_representation(self):
         """Test string representation of Scope enum."""
-        assert str(Scope.ISSUE) == "issue"
-        assert str(Scope.MERGE_REQUEST) == "merge_request"
+        assert str(Scope.ISSUE) == "Issue"
+        assert str(Scope.MERGE_REQUEST) == "Merge Request"
 
 
 class TestQuickAction:

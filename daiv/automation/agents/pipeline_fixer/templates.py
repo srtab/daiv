@@ -43,7 +43,7 @@ I scanned the latest pipeline but didn't find any job that met **all** of these 
 - Only **manual** or **skipped** jobs failed
 - The failure came from infrastructure (timeout, runner outage) rather than the script itself
 
-If you believe a failure should have been detected, review the job settings or rerun the pipeline with verbose logging.
+If you believe a failure should have been detected, review the job settings.
 
 {% if pipeline_url %}
 📋 **Pipeline logs:** [Open in CI]({{ pipeline_url }})
@@ -51,7 +51,7 @@ If you believe a failure should have been detected, review the job settings or r
 """
 
 
-PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE = """### 🚀 Automatic Fix Plan
+PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE = """### 🚀 Automatic Repair Plan
 
 {% for plan_task in plan_tasks %}
 <details>
@@ -77,10 +77,25 @@ PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE = """### 🚀 Automatic Fix Plan
 {% endif %}
 
 ### ✅ What Next?
-* **Happy with the automatic plan?**
+* **Happy with the automatic repair plan?**
   Comment **`@daiv pipeline fix execute`** and I'll apply the changes to the PR.
 
 ---
 
-> ⚠️ {{ bot_name }} can make mistakes. Critical thinking is expected when interpreting the proposed remediation steps.
+> ⚠️ {{ bot_name }} can make mistakes. Critical thinking is expected when interpreting the proposed remediation steps and repair plan.
 """  # noqa: E501
+
+
+PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE = """### ✅ Code Changes Applied
+
+I've committed the code changes to this branch to repair the job `{{ job_name }}` and kicked off a fresh pipeline run.
+
+**Next steps**
+
+1. 🔍 **Review the changes**
+2. 🧪 **Watch the new pipeline**
+3. 🚦 **Wrap up**
+
+   * **All green?** → Merge when you're ready.
+   * **Still failing?** → Create a new discussion with `@daiv pipeline fix` to plan a new fix.
+"""

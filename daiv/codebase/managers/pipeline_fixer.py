@@ -1,19 +1,20 @@
 import logging
 import re
 from collections.abc import Iterable
+from typing import Literal
 
 from django.conf import settings
 
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.constants import INTERRUPT
 from langgraph.types import Command
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
 from automation.agents.pipeline_fixer.schemas import TroubleshootingDetail
 from automation.agents.pipeline_fixer.templates import (
+    PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE,
     PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE,
     PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
 )
@@ -91,33 +92,38 @@ class PipelineFixerManager(BaseManager):
         """
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
-
             current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
             if not current_state.next and current_state.created_at is None:
                 log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, self.job_id))
                 diffs = self.client.get_merge_request_diff(self.repo_id, self.merge_request_id)
 
-                result = await pipeline_fixer.ainvoke(
+                async for event in pipeline_fixer.astream_events(
                     {"diff": self._merge_request_diffs_to_str(diffs), "job_logs": log_trace, "need_manual_fix": False},
                     self._config,
-                )
+                    include_names=["troubleshoot", "plan_and_execute"],
+                    include_types=["on_chain_start"],
+                ):
+                    if event["event"] == "on_chain_start":
+                        self._add_workflow_step_note(event["name"], planning=True)
 
+                current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
+
+                # This is not supposed to happen, but just in case we need to commit the changes to avoid lost work.
                 if file_changes := await self._get_file_changes():
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
-                    self._add_pipeline_fix_applied_note()
 
                 manual_fix_details = [
                     troubleshooting_detail
-                    for troubleshooting_detail in result.get("troubleshooting")
+                    for troubleshooting_detail in current_state.values.get("troubleshooting")
                     if troubleshooting_detail.category != "codebase"
                 ]
 
-                if result and result.get("need_manual_fix", False) and manual_fix_details:
+                if current_state.values.get("need_manual_fix", False) and manual_fix_details:
                     self._add_manual_fix_note(manual_fix_details)
 
-                elif result and INTERRUPT in result:
-                    self._add_plan_review_note(result[INTERRUPT][0].value, manual_fix_details=manual_fix_details)
+                elif "plan_and_execute" in current_state.next and current_state.interrupts:
+                    self._add_plan_review_note(current_state.interrupts[0].value, manual_fix_details=manual_fix_details)
 
     async def _execute_fix(self):
         """
@@ -126,16 +132,35 @@ class PipelineFixerManager(BaseManager):
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
 
-            current_state = await pipeline_fixer.aget_state(self._config)
+            current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
-            if current_state.next and "plan_approval" in current_state.next:
-                await pipeline_fixer.ainvoke(Command(resume="Plan approved"), self._config)
+            if "plan_and_execute" in current_state.next and current_state.interrupts:
+                async for event in pipeline_fixer.astream_events(
+                    Command(resume="Plan approved"),
+                    self._config,
+                    include_names=["plan_and_execute", "apply_format_code"],
+                    include_types=["on_chain_start"],
+                ):
+                    if event["event"] == "on_chain_start":
+                        self._add_workflow_step_note(event["name"])
 
                 if file_changes := await self._get_file_changes():
+                    self._add_workflow_step_note("commit_changes")
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
-                    self._add_pipeline_fix_applied_note()
+                    self._add_repair_plan_applied_note()
+
+            elif current_state.values.get("need_manual_fix") and (
+                manual_fix_details := [
+                    troubleshooting_detail
+                    for troubleshooting_detail in current_state.values.get("troubleshooting")
+                    if troubleshooting_detail.category != "codebase"
+                ]
+            ):
+                self._add_manual_fix_note(manual_fix_details)
+            elif not current_state.next and current_state.created_at:
+                self._add_repair_plan_applied_note()
             else:
-                self._add_no_plan_to_execute_note(bool(current_state.next), current_state.values.get("need_manual_fix"))
+                self._add_no_plan_to_execute_note()
 
     @property
     def _config(self):
@@ -238,11 +263,11 @@ class PipelineFixerManager(BaseManager):
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
-    def _add_pipeline_fix_applied_note(self):
+    def _add_repair_plan_applied_note(self):
         """
-        Add a note to the discussion that the pipeline was fixed.
+        Add a note to the discussion that the repair plan was applied.
         """
-        note_message = "✅ Pipeline fix applied. 🔎 Please **review the changes** before merging."
+        note_message = jinja2_formatter(PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE, job_name=self.job_name)
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
                 self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
@@ -301,20 +326,11 @@ class PipelineFixerManager(BaseManager):
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
-    def _add_no_plan_to_execute_note(self, has_next: bool = False, need_manual_fix: bool = False):
+    def _add_no_plan_to_execute_note(self):
         """
         Add a note to the merge request to inform the user that the plan could not be executed.
-
-        Args:
-            has_next: Whether the plan has already been executed
-            need_manual_fix: Whether the pipeline needs manual fix
         """
-        note_message = "The plan has already been executed."
-
-        if need_manual_fix:
-            note_message = "There's no plan to be executed. The pipeline needs to be fixed manually."
-        elif not has_next:
-            note_message = "There's no plan to be executed."
+        note_message = "ℹ️ No pending automatic repair plan to apply."
 
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
@@ -323,3 +339,31 @@ class PipelineFixerManager(BaseManager):
             self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+
+    def _add_workflow_step_note(
+        self,
+        step_name: Literal["troubleshoot", "plan_and_execute", "apply_format_code", "commit_changes"],
+        planning: bool = False,
+    ):
+        """
+        Add a note to the discussion that the workflow step is in progress.
+
+        Args:
+            step_name: The name of the step
+            planning: Whether the step is planning or executing
+        """
+        if step_name == "troubleshoot":
+            note_message = f"🔍 Reviewing `{self.job_name}` job logs and recent changes — *in progress* ..."
+        elif step_name == "plan_and_execute":
+            if planning:
+                note_message = f"🛠️ Drafting repair plan to fix `{self.job_name}` job — *in progress* ..."
+            else:
+                note_message = f"🛠️ Applying repair plan to fix `{self.job_name}` job — *in progress* ..."
+        elif step_name == "apply_format_code":
+            note_message = "🎨 Formatting the code changes — *in progress* ..."
+        elif step_name == "commit_changes":
+            note_message = "💾 Committing the code changes — *in progress* ..."
+
+        self.client.create_merge_request_discussion_note(
+            self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+        )

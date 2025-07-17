@@ -10,8 +10,16 @@ from codebase.managers.pipeline_fixer import PipelineFixerManager
 @pytest.fixture
 @patch("codebase.managers.base.RepositoryConfig", new=Mock())
 def pipeline_fixer() -> PipelineFixerManager:
-    client = Mock(spec=AllRepoClient)
-    return PipelineFixerManager(client, repo_id="test-repo", ref="main", thread_id="test-thread")
+    pipeline_fixer = PipelineFixerManager(
+        repo_id="test-repo",
+        ref="main",
+        merge_request_id=1,
+        job_id=1,
+        job_name="test-job",
+        discussion_id="test-discussion",
+    )
+    pipeline_fixer.client = Mock(spec=AllRepoClient)
+    return pipeline_fixer
 
 
 def test_clean_logs_gitlab(pipeline_fixer: PipelineFixerManager):

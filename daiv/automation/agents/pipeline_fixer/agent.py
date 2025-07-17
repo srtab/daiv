@@ -26,7 +26,7 @@ from core.config import RepositoryConfig
 from .conf import settings
 from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
 from .schemas import CommandOuputEvaluation, CommandOuputInput, TroubleshootingDetail
-from .state import OverallState, TroubleshootState
+from .state import InputState, OutputState, OverallState, TroubleshootState
 from .tools import complete_task
 
 logger = logging.getLogger("daiv.agents")
@@ -62,7 +62,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled state graph.
         """
-        workflow = StateGraph(OverallState)
+        workflow = StateGraph(OverallState, input=InputState, output=OutputState)
 
         workflow.add_node("troubleshoot", self.troubleshoot)
         workflow.add_node("plan_and_execute", self.plan_and_execute)
@@ -73,7 +73,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     async def troubleshoot(
-        self, state: OverallState, store: BaseStore, config: RunnableConfig
+        self, state: InputState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["plan_and_execute", "__end__"]]:
         """
         Troubleshoot the issue based on the logs from the failed CI/CD pipeline.
@@ -81,7 +81,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         This will determine whether the issue is directly related to the codebase or caused by external factors.
 
         Args:
-            state (OverallState): The state of the agent.
+            state (InputState): The state of the agent.
             store (BaseStore): The store to use for caching.
             config (RunnableConfig): The config to use for the agent.
 
@@ -123,6 +123,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                     "troubleshooting",
                     [
                         TroubleshootingDetail(
+                            title="Pipeline fix failed",
                             category="other",
                             details=(
                                 "Couldn't fix the pipeline automatically due to an unexpected error. "
@@ -148,7 +149,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=False).agent
+        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=self.checkpointer).agent
 
         await plan_and_execute.ainvoke({
             "messages": await pipeline_fixer_human.aformat_messages(
@@ -163,13 +164,13 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         return Command(goto=END)
 
     async def apply_format_code(
-        self, state: OverallState, store: BaseStore, config: RunnableConfig
+        self, state: InputState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["plan_and_execute", "__end__"]]:
         """
         Apply format code to the repository to fix the linting issues in the pipeline.
 
         Args:
-            state (OverallState): The state of the agent.
+            state (InputState): The state of the agent.
             store (BaseStore): The store to use for caching.
             config (RunnableConfig): The config for the agent.
 
