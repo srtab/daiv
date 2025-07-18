@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async.
+- Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async only.
+- Migrated `PipelineFixerAgent` to be triggered by a quick action instead of a webhook, allowing users to request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
 
 ### Fixed
 

@@ -27,7 +27,7 @@ from core.utils import generate_uuid
 logger = logging.getLogger("daiv.managers")
 
 
-class PipelineFixerManager(BaseManager):
+class PipelineRepairManager(BaseManager):
     """
     Manages the pipeline fix process.
     """

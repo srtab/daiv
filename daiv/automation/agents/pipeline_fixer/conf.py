@@ -14,10 +14,10 @@ class PipelineFixerSettings(BaseSettings):
 
     NAME: str = Field(default="PipelineFixer", description="Name of the pipeline fixer agent.")
     TROUBLESHOOTING_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_4_1, description="Model name to be used for pipeline fixer."
+        default=ModelName.CLAUDE_SONNET_4, description="Model name to be used for pipeline fixer."
     )
     TROUBLESHOOTING_THINKING_LEVEL: ThinkingLevel | None = Field(
-        default=None, description="Thinking level to be used for pipeline fixer."
+        default=ThinkingLevel.MEDIUM, description="Thinking level to be used for pipeline fixer."
     )
     COMMAND_OUTPUT_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for command output evaluator."

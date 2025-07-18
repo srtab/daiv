@@ -5,19 +5,19 @@ from automation.quick_actions.base import BaseAction, QuickAction, Scope
 from automation.quick_actions.decorator import quick_action
 from codebase.base import Discussion, Issue, Job, MergeRequest, Note, Pipeline
 from codebase.clients import RepoClient
-from codebase.managers.pipeline_fixer import PipelineFixerManager
+from codebase.managers.pipeline_repair import PipelineRepairManager
 
 
 class Action(BaseAction):
-    FIX = "Define a plan to fix the failed pipeline."
-    FIX_EXECUTE = "Execute the defined plan to fix the pipeline."
+    REPAIR = "Suggest a repair plan to fix the failed pipeline."
+    REPAIR_APPLY = "Apply the repair plan to fix the pipeline."
 
     @staticmethod
     def execute_as_reply(action: BaseAction) -> bool:
         """
         Check if the action can be executed as a reply.
         """
-        return action == Action.FIX_EXECUTE
+        return action == Action.REPAIR_APPLY
 
 
 @quick_action(verb="pipeline", scopes=[Scope.MERGE_REQUEST])
@@ -93,8 +93,8 @@ class PipelineQuickAction(QuickAction):
             return
 
         # Plan the fix if the action is the first note in the discussion
-        if Action.get_name(Action.FIX) == args and len(discussion.notes) == 1:
-            await PipelineFixerManager.plan_fix(
+        if Action.get_name(Action.REPAIR) == args and len(discussion.notes) == 1:
+            await PipelineRepairManager.plan_fix(
                 repo_id,
                 merge_request.source_branch,
                 merge_request.merge_request_id,
@@ -102,8 +102,8 @@ class PipelineQuickAction(QuickAction):
                 job_name=failed_job.name,
                 discussion_id=discussion.id,
             )
-        elif Action.get_name(Action.FIX_EXECUTE) == args and len(discussion.notes) > 1:
-            await PipelineFixerManager.execute_fix(
+        elif Action.get_name(Action.REPAIR_APPLY) == args and len(discussion.notes) > 1:
+            await PipelineRepairManager.execute_fix(
                 repo_id,
                 merge_request.source_branch,
                 merge_request.merge_request_id,
@@ -147,9 +147,9 @@ class PipelineQuickAction(QuickAction):
         """
         return action.lower() in [Action.get_name(action) for action in Action] and (
             # Need to be the first note in the discussion to plan the fix
-            action == Action.get_name(Action.FIX)
+            action == Action.get_name(Action.REPAIR)
             and len(discussion.notes) == 1
             # Need to be a reply to the first note in the discussion to execute the fix
-            or action == Action.get_name(Action.FIX_EXECUTE)
+            or action == Action.get_name(Action.REPAIR_APPLY)
             and len(discussion.notes) > 1
         )

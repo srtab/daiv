@@ -4,13 +4,13 @@ import pytest
 
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import AllRepoClient
-from codebase.managers.pipeline_fixer import PipelineFixerManager
+from codebase.managers.pipeline_repair import PipelineRepairManager
 
 
 @pytest.fixture
 @patch("codebase.managers.base.RepositoryConfig", new=Mock())
-def pipeline_fixer() -> PipelineFixerManager:
-    pipeline_fixer = PipelineFixerManager(
+def pipeline_fixer() -> PipelineRepairManager:
+    pipeline_fixer = PipelineRepairManager(
         repo_id="test-repo",
         ref="main",
         merge_request_id=1,
@@ -22,7 +22,7 @@ def pipeline_fixer() -> PipelineFixerManager:
     return pipeline_fixer
 
 
-def test_clean_logs_gitlab(pipeline_fixer: PipelineFixerManager):
+def test_clean_logs_gitlab(pipeline_fixer: PipelineRepairManager):
     """Test that _clean_logs properly processes GitLab logs."""
     pipeline_fixer.client.client_slug = ClientType.GITLAB
     raw_log = "section_start:123: step_script\r\nCommand output\r\nError message\r\nsection_end:123: step_script"
@@ -41,7 +41,7 @@ def test_clean_logs_gitlab(pipeline_fixer: PipelineFixerManager):
     assert result == raw_log
 
 
-def test_clean_logs_non_gitlab(pipeline_fixer: PipelineFixerManager):
+def test_clean_logs_non_gitlab(pipeline_fixer: PipelineRepairManager):
     """Test that _clean_logs returns original logs for non-GitLab clients."""
     pipeline_fixer.client.client_slug = ClientType.GITHUB
     raw_log = "Some log content"
@@ -51,7 +51,7 @@ def test_clean_logs_non_gitlab(pipeline_fixer: PipelineFixerManager):
     assert result == raw_log
 
 
-def test_clean_gitlab_logs(pipeline_fixer: PipelineFixerManager):
+def test_clean_gitlab_logs(pipeline_fixer: PipelineRepairManager):
     """Test that _clean_gitlab_logs properly cleans GitLab logs."""
     raw_log = (
         "\x1b[0msection_start:123: step_script\r\n"
@@ -73,7 +73,7 @@ def test_clean_gitlab_logs(pipeline_fixer: PipelineFixerManager):
     assert "Colored text" in result
 
 
-def test_extract_last_command_from_gitlab_logs(pipeline_fixer: PipelineFixerManager):
+def test_extract_last_command_from_gitlab_logs(pipeline_fixer: PipelineRepairManager):
     """Test that _extract_last_command_from_gitlab_logs extracts the last command correctly."""
     log = (
         "$ first command\nfirst output\n"
@@ -90,13 +90,13 @@ def test_extract_last_command_from_gitlab_logs(pipeline_fixer: PipelineFixerMana
     assert "second command" not in result
 
 
-def test_extract_last_command_empty_log(pipeline_fixer: PipelineFixerManager):
+def test_extract_last_command_empty_log(pipeline_fixer: PipelineRepairManager):
     """Test that _extract_last_command_from_gitlab_logs handles empty logs."""
     result = pipeline_fixer._extract_last_command_from_gitlab_logs("")
     assert result == ""
 
 
-def test_merge_request_diffs_to_str(pipeline_fixer: PipelineFixerManager):
+def test_merge_request_diffs_to_str(pipeline_fixer: PipelineRepairManager):
     """Test that _merge_request_diffs_to_str properly converts diffs to string."""
     diffs = [
         MergeRequestDiff(
@@ -127,7 +127,7 @@ def test_merge_request_diffs_to_str(pipeline_fixer: PipelineFixerManager):
     assert result == "diff1 content\ndiff2 content"
 
 
-def test_merge_request_diffs_to_str_empty(pipeline_fixer: PipelineFixerManager):
+def test_merge_request_diffs_to_str_empty(pipeline_fixer: PipelineRepairManager):
     """Test that _merge_request_diffs_to_str handles empty diff list."""
     result = pipeline_fixer._merge_request_diffs_to_str([])
     assert result == ""
