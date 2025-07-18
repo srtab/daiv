@@ -8,6 +8,7 @@ class TestHelpAction:
     def setup_method(self):
         """Set up test fixtures."""
         self.action = HelpQuickAction()
+        self.action.client = MagicMock(current_user=MagicMock(username="bot"))
 
         # Create mock objects
         self.mock_note = MagicMock()
@@ -37,13 +38,8 @@ class TestHelpAction:
         assert Scope.ISSUE in HelpQuickAction.scopes
         assert Scope.MERGE_REQUEST in HelpQuickAction.scopes
 
-    def test_description_property(self):
-        """Test the description property."""
-        assert self.action.description() == "Shows the help message with the available quick actions."
-
     @patch("automation.quick_actions.actions.help.quick_action_registry")
-    @patch("automation.quick_actions.actions.help.RepoClient")
-    async def test_execute_on_issue(self, mock_repo_client_class, mock_registry):
+    async def test_execute_on_issue(self, mock_registry):
         """Test executing help action on an issue."""
         # Setup mock registry with actions
         mock_action1 = MagicMock(verb="help")
@@ -54,29 +50,24 @@ class TestHelpAction:
 
         mock_registry.get_actions.return_value = [mock_action1, mock_action2]
 
-        # Setup mock repo client
-        mock_client = MagicMock(current_user=MagicMock(username="bot"))
-        mock_repo_client_class.create_instance.return_value = mock_client
-
         # Execute the action
         await self.action.execute(
             repo_id="repo123",
+            args="",
             scope=Scope.ISSUE,
             discussion=self.mock_discussion,
             note=self.mock_note,
             issue=self.mock_issue,
-            args="test_args",
         )
 
         # Verify registry was called with correct scope
         mock_registry.get_actions.assert_called_once_with(scope=Scope.ISSUE)
 
         # Verify issue discussion note was created
-        mock_client.create_issue_discussion_note.assert_called_once()
+        self.action.client.create_issue_discussion_note.assert_called_once()
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
-    @patch("automation.quick_actions.actions.help.RepoClient")
-    async def test_execute_on_merge_request(self, mock_repo_client_class, mock_registry):
+    async def test_execute_on_merge_request(self, mock_registry):
         """Test executing help action on a merge request."""
         # Setup mock registry with actions
         mock_action = MagicMock(verb="help")
@@ -84,13 +75,10 @@ class TestHelpAction:
 
         mock_registry.get_actions.return_value = [mock_action]
 
-        # Setup mock repo client
-        mock_client = MagicMock(current_user=MagicMock(username="bot"))
-        mock_repo_client_class.create_instance.return_value = mock_client
-
         # Execute the action
         await self.action.execute(
             repo_id="repo123",
+            args="",
             scope=Scope.MERGE_REQUEST,
             discussion=self.mock_discussion,
             note=self.mock_note,
@@ -101,16 +89,15 @@ class TestHelpAction:
         mock_registry.get_actions.assert_called_once_with(scope=Scope.MERGE_REQUEST)
 
         # Verify merge request discussion note was created
-        mock_client.create_merge_request_discussion_note.assert_called_once()
+        self.action.client.create_merge_request_discussion_note.assert_called_once()
 
         # Verify discussion was resolved
-        mock_client.resolve_merge_request_discussion.assert_called_once_with(
+        self.action.client.resolve_merge_request_discussion.assert_called_once_with(
             "repo123", self.mock_merge_request.merge_request_id, self.mock_discussion.id
         )
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
-    @patch("automation.quick_actions.actions.help.RepoClient")
-    async def test_execute_with_multiple_actions(self, mock_repo_client_class, mock_registry):
+    async def test_execute_with_multiple_actions(self, mock_registry):
         """Test executing help action with multiple available actions."""
         # Setup mock registry with multiple actions
         mock_actions = []
@@ -124,13 +111,10 @@ class TestHelpAction:
 
         mock_registry.get_actions.return_value = mock_actions
 
-        # Setup mock repo client
-        mock_client = MagicMock(current_user=MagicMock(username="daivbot"))
-        mock_repo_client_class.create_instance.return_value = mock_client
-
         # Execute the action
         await self.action.execute(
             repo_id="repo123",
+            args="",
             scope=Scope.ISSUE,
             discussion=self.mock_discussion,
             note=self.mock_note,
@@ -138,8 +122,8 @@ class TestHelpAction:
         )
 
         # Verify issue discussion note was created
-        mock_client.create_issue_discussion_note.assert_called_once()
-        call_args = mock_client.create_issue_discussion_note.call_args
+        self.action.client.create_issue_discussion_note.assert_called_once()
+        call_args = self.action.client.create_issue_discussion_note.call_args
 
         # Verify message content contains all actions
         message = call_args[0][2]

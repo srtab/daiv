@@ -54,10 +54,10 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="help",
             action_scope=Scope.ISSUE.value,
+            action_args="arg1 arg2",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             issue_id=self.issue.id,
-            action_args="arg1 arg2",
         )
 
         # Verify registry was called correctly
@@ -113,6 +113,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="help",
             action_scope=Scope.MERGE_REQUEST.value,
+            action_args="",
             discussion_id="disc-123",
             note_id=self.note.id,
             merge_request_id=self.merge_request.merge_request_id,
@@ -130,12 +131,12 @@ class TestExecuteQuickActionTask:
         # Verify action was executed
         mock_sync_execute.assert_called_once_with(
             repo_id="repo123",
+            args="",
             scope=Scope.MERGE_REQUEST,
             discussion=self.discussion,
             note=self.note,
             issue=None,
             merge_request=self.merge_request,
-            args=None,
         )
 
     @patch("automation.quick_actions.tasks.RepoClient")
@@ -153,6 +154,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="nonexistent",
             action_scope=Scope.ISSUE.value,
+            action_args="",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             issue_id=self.issue.id,
@@ -181,6 +183,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="duplicate",
             action_scope=Scope.ISSUE.value,
+            action_args="",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             issue_id=self.issue.id,
@@ -218,6 +221,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="failing_action",
             action_scope=Scope.ISSUE.value,
+            action_args="",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             issue_id=self.issue.id,
@@ -260,6 +264,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="failing_action",
             action_scope=Scope.MERGE_REQUEST.value,
+            action_args="",
             discussion_id="disc-123",
             note_id=self.note.id,
             merge_request_id=self.merge_request.merge_request_id,
@@ -301,6 +306,7 @@ class TestExecuteQuickActionTask:
                 repo_id="repo123",
                 action_verb="help",
                 action_scope=Scope.ISSUE.value,
+                action_args="",
                 discussion_id=self.discussion.id,
                 note_id=self.note.id,
                 issue_id=None,
@@ -333,6 +339,7 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="help",
             action_scope=Scope.MERGE_REQUEST.value,
+            action_args="",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             merge_request_id=self.merge_request.merge_request_id,
@@ -374,10 +381,10 @@ class TestExecuteQuickActionTask:
             repo_id="repo123",
             action_verb="help",
             action_scope=Scope.ISSUE.value,
+            action_args="",
             discussion_id=self.discussion.id,
             note_id=self.note.id,
             issue_id=self.issue.id,
-            action_args="",
         )
 
         # Verify action was executed with empty string

@@ -1,13 +1,19 @@
-from automation.quick_actions.base import BaseAction, QuickAction, Scope
+from automation.quick_actions.base import BaseAction, QuickAction, Scope, TriggerLocation
 from automation.quick_actions.decorator import quick_action
 from codebase.base import Discussion, Issue, MergeRequest, Note
-from codebase.clients import RepoClient
 from codebase.managers.issue_addressor import IssueAddressorManager
 
 
-class Action(BaseAction):
-    EXECUTE = "Run or launch the current plan."
-    REVISE = "Discard current plan and create a new one from scratch.."
+class PlanExecuteAction(BaseAction):
+    trigger: str = "execute"
+    description: str = "Run or launch the current plan."
+    location: TriggerLocation = TriggerLocation.REPLY
+
+
+class PlanReviseAction(BaseAction):
+    trigger: str = "revise"
+    description: str = "Discard current plan and create a new one from scratch."
+    location: TriggerLocation = TriggerLocation.DISCUSSION
 
 
 @quick_action(verb="plan", scopes=[Scope.ISSUE])
@@ -16,34 +22,19 @@ class PlanQuickAction(QuickAction):
     Actions related to the plan of an issue.
     """
 
-    @staticmethod
-    def description() -> str:
-        """
-        Get the description of the plan action.
-        """
-        return "Actions related to the plan of an issue."
+    actions = [PlanExecuteAction, PlanReviseAction]
 
-    @classmethod
-    def help(cls, username: str, is_reply: bool = False) -> str:
-        """
-        Get the help message for the plan action.
-        """
-        return "\n".join([
-            f" * `@{username} {cls.verb} {Action.get_name(action)}` - {action.value}"
-            for action in Action
-            if Action.execute_as_reply(action) == is_reply
-        ])
-
-    async def execute(
+    async def execute_action(
         self,
         repo_id: str,
         *,
+        args: str,
         scope: Scope,
         discussion: Discussion,
         note: Note,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        args: str | None = None,
+        is_reply: bool = False,
     ) -> None:
         """
         Execute the plan approval action.
@@ -56,35 +47,11 @@ class PlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
+            is_reply: Whether the action was triggered as a reply.
         """
-        if not args or not self._validate_action(args, discussion):
-            client = RepoClient.create_instance()
-            client.create_issue_discussion_note(
-                repo_id,
-                issue.iid,
-                self._invalid_action_message(
-                    client.current_user.username, args or "", is_reply=len(discussion.notes) > 1
-                ),
-                discussion.id,
-            )
-            return
-
-        if Action.get_name(Action.EXECUTE) == args:
+        if PlanExecuteAction.match(args or "", is_reply):
             await IssueAddressorManager.approve_plan(repo_id, issue.iid, discussion_id=discussion.id)
-        elif Action.get_name(Action.REVISE) == args:
+        elif PlanReviseAction.match(args or "", is_reply):
             await IssueAddressorManager.plan_issue(
                 repo_id, issue.iid, should_reset_plan=True, discussion_id=discussion.id
             )
-
-    def _validate_action(self, action: str, discussion: Discussion) -> bool:
-        """
-        Validate the action is valid.
-        """
-        return action.lower() in [Action.get_name(action) for action in Action] and (
-            # Need to be the first note in the discussion to execute the plan
-            action == Action.get_name(Action.EXECUTE)
-            and len(discussion.notes) == 1
-            # Need to be the first note in the discussion to revise the plan
-            or action == Action.get_name(Action.REVISE)
-            and len(discussion.notes) == 1
-        )

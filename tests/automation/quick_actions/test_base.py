@@ -1,6 +1,9 @@
+from unittest.mock import MagicMock
+
 import pytest
 
 from automation.quick_actions.base import QuickAction, Scope
+from codebase.base import Discussion, Issue, MergeRequest, Note
 
 
 class TestScope:
@@ -21,85 +24,97 @@ class TestQuickAction:
         with pytest.raises(TypeError):
             QuickAction()
 
-    def test_description_is_abstract_property(self):
-        """Test that description property is abstract."""
-
-        # Create a concrete subclass without implementing description
-        class IncompleteAction(QuickAction):
-            def execute(self, repo_id, scope, note, user, issue=None, merge_request=None, args=None):
-                pass
-
-        with pytest.raises(TypeError):
-            IncompleteAction()
-
     def test_execute_is_abstract_method(self):
         """Test that execute method is abstract."""
 
         # Create a concrete subclass without implementing execute
         class IncompleteAction(QuickAction):
-            @property
-            def description(self):
-                return "Test description"
+            pass
 
         with pytest.raises(TypeError):
             IncompleteAction()
 
-    def test_concrete_implementation_works(self):
+    async def test_concrete_implementation_works(self):
         """Test that a proper concrete implementation can be instantiated."""
 
         class ConcreteAction(QuickAction):
-            @property
-            def description(self):
-                return "Test description"
+            actions = [MagicMock()]
 
-            def execute(self, repo_id, scope, note, user, issue=None, merge_request=None, args=None):
+            async def execute_action(
+                self,
+                repo_id: str,
+                *,
+                args: str,
+                scope: Scope,
+                discussion: Discussion,
+                note: Note,
+                issue: Issue | None = None,
+                merge_request: MergeRequest | None = None,
+                is_reply: bool = False,
+            ):
                 return "executed"
 
         action = ConcreteAction()
-        assert action.description == "Test description"
-        result = action.execute("repo1", Scope.ISSUE, {}, {})
+        result = await action.execute(
+            args="",
+            repo_id="repo1",
+            scope=Scope.ISSUE,
+            note=MagicMock(),
+            discussion=MagicMock(),
+            issue=MagicMock(),
+            merge_request=MagicMock(),
+        )
         assert result == "executed"
 
-    def test_execute_method_signature(self):
+    async def test_execute_method_signature(self):
         """Test that execute method has correct signature."""
 
         class TestAction(QuickAction):
-            @property
-            def description(self):
-                return "Test"
+            actions = [MagicMock()]
 
-            def execute(self, repo_id, scope, note, user, issue=None, merge_request=None, args=None):
+            async def execute_action(
+                self,
+                repo_id: str,
+                *,
+                args: str,
+                scope: Scope,
+                discussion: Discussion,
+                note: Note,
+                issue: Issue | None = None,
+                merge_request: MergeRequest | None = None,
+                is_reply: bool = False,
+            ) -> None:
                 # Store parameters for verification
                 self.last_call = {
                     "repo_id": repo_id,
                     "scope": scope,
                     "note": note,
-                    "user": user,
                     "issue": issue,
+                    "discussion": discussion,
                     "merge_request": merge_request,
                     "args": args,
                 }
 
         action = TestAction()
-        mock_note = {"id": 1}
-        mock_user = {"id": 2}
-        mock_issue = {"id": 3}
-        mock_mr = {"id": 4}
+        mock_note = MagicMock()
+        mock_issue = MagicMock()
+        mock_mr = MagicMock()
+        mock_discussion = MagicMock()
 
-        action.execute(
+        await action.execute(
             repo_id="test_repo",
+            args="arg1 arg2",
             scope=Scope.ISSUE,
+            discussion=mock_discussion,
             note=mock_note,
-            user=mock_user,
             issue=mock_issue,
             merge_request=mock_mr,
-            args=["arg1", "arg2"],
         )
 
         assert action.last_call["repo_id"] == "test_repo"
         assert action.last_call["scope"] == Scope.ISSUE
         assert action.last_call["note"] == mock_note
-        assert action.last_call["user"] == mock_user
+        assert action.last_call["discussion"] == mock_discussion
         assert action.last_call["issue"] == mock_issue
         assert action.last_call["merge_request"] == mock_mr
-        assert action.last_call["args"] == ["arg1", "arg2"]
+        assert action.last_call["args"] == "arg1 arg2"
