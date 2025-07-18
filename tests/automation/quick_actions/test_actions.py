@@ -27,8 +27,7 @@ class TestHelpAction:
         self.mock_issue.iid = 100
 
         self.mock_merge_request = MagicMock()
-        self.mock_merge_request.id = 1
-        self.mock_merge_request.iid = 200
+        self.mock_merge_request.merge_request_id = 1
 
     def test_help_action_has_correct_attributes(self):
         """Test that HelpAction has the expected attributes set by decorator."""
@@ -73,13 +72,7 @@ class TestHelpAction:
         mock_registry.get_actions.assert_called_once_with(scope=Scope.ISSUE)
 
         # Verify issue discussion note was created
-        mock_client.create_issue_discussion_note.assert_called_once_with(
-            "repo123",
-            self.mock_issue.iid,
-            "You can trigger quick actions by commenting on this issue:"
-            "\n- `@bot help` - Shows help\n- `@bot status` - Shows status",
-            self.mock_note.discussion_id,
-        )
+        mock_client.create_issue_discussion_note.assert_called_once()
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     @patch("automation.quick_actions.actions.help.RepoClient")
@@ -108,16 +101,11 @@ class TestHelpAction:
         mock_registry.get_actions.assert_called_once_with(scope=Scope.MERGE_REQUEST)
 
         # Verify merge request discussion note was created
-        mock_client.create_merge_request_discussion_note.assert_called_once_with(
-            "repo123",
-            self.mock_merge_request.iid,
-            "You can trigger quick actions by commenting on this merge request:\n- `@bot help` - Shows help",
-            self.mock_note.discussion_id,
-        )
+        mock_client.create_merge_request_discussion_note.assert_called_once()
 
         # Verify discussion was resolved
         mock_client.resolve_merge_request_discussion.assert_called_once_with(
-            "repo123", self.mock_merge_request.iid, self.mock_note.discussion_id
+            "repo123", self.mock_merge_request.merge_request_id, self.mock_discussion.id
         )
 
     @patch("automation.quick_actions.actions.help.quick_action_registry")

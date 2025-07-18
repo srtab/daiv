@@ -8,18 +8,9 @@ from codebase.clients import RepoClient
 
 from .base import Scope
 from .registry import quick_action_registry
+from .templates import QUICK_ACTION_ERROR_MESSAGE
 
 logger = logging.getLogger("daiv.quick_actions")
-
-QUICK_ACTION_ERROR_MESSAGE = """### ❌ Quick-Action Error
-
-I tried to run **`{{ command }}`**, but something unexpected happened and the action didn't complete.
-
-**What you can do now**
-
-1. 🔄 **Retry** - simply add the same quick-action comment again.
-2. 📜 **Check the app logs** - open the DAIV logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
-"""  # noqa: E501
 
 
 @shared_task(pydantic=True)
@@ -46,6 +37,8 @@ def execute_quick_action_task(
         merge_request_id: The ID of the merge request to execute the action on (if applicable).
         action_args: Additional parameters from the command.
     """
+    assert issue_id is not None or merge_request_id is not None, "Either issue_id or merge_request_id must be provided"
+
     action_scope = Scope(action_scope)
     action_classes = quick_action_registry.get_actions(verb=action_verb, scope=action_scope)
 
@@ -76,8 +69,6 @@ def execute_quick_action_task(
             repo_id, merge_request_id, discussion_id, only_resolvable=False
         )
         merge_request = client.get_merge_request(repo_id, merge_request_id)
-    else:
-        raise ValueError(f"Invalid action scope: {action_scope}")
 
     if len(discussion.notes) > 1 and not action_classes[0].can_reply:
         logger.info(
