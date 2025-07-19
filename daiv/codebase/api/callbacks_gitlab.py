@@ -9,26 +9,14 @@ from automation.quick_actions.parser import QuickActionCommand, parse_quick_acti
 from automation.quick_actions.registry import quick_action_registry
 from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
-from codebase.api.models import (
-    Issue,
-    IssueAction,
-    MergeRequest,
-    Note,
-    NoteableType,
-    NoteAction,
-    Pipeline,
-    PipelineBuild,
-    Project,
-    User,
-)
+from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
-from codebase.tasks import address_issue_task, address_review_task, fix_pipeline_job_task, update_index_repository
+from codebase.tasks import address_issue_task, address_review_task, update_index_repository
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
 from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
-PIPELINE_JOB_REF_SUFFIX = "refs/merge-requests/"
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -115,17 +103,27 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self._is_quick_action:
-            logger.info("Found quick action in note: %s", self._quick_action_command.raw)
+            logger.info("Found quick action in note: '%s'", self._quick_action_command.raw)
+
+            # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
+            if self._action_scope == Scope.MERGE_REQUEST:
+                self._client.create_merge_request_note_emoji(
+                    self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
+                )
+            elif self._action_scope == Scope.ISSUE:
+                self._client.create_issue_note_emoji(
+                    self.project.path_with_namespace, self.issue.iid, "thumbsup", self.object_attributes.id
+                )
 
             await sync_to_async(
                 execute_quick_action_task.si(
                     repo_id=self.project.path_with_namespace,
-                    note=self.object_attributes.model_dump(),
-                    user=self.user.model_dump(),
-                    issue=self.issue and self.issue.model_dump() or None,
-                    merge_request=self.merge_request and self.merge_request.model_dump() or None,
+                    discussion_id=self.object_attributes.discussion_id,
+                    note_id=self.object_attributes.id,
+                    issue_id=self.issue and self.issue.iid or None,
+                    merge_request_id=self.merge_request and self.merge_request.iid or None,
                     action_verb=self._quick_action_command.verb,
-                    action_args=self._quick_action_command.args,
+                    action_args=" ".join(self._quick_action_command.args),
                     action_scope=self._action_scope,
                 ).delay
             )()
@@ -149,10 +147,7 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(
-            self.object_attributes.type is None  # Don't accept replies to the quick action note.
-            and self._quick_action_command
-        )
+        return bool(self._quick_action_command)
 
     @cached_property
     def _is_merge_request_review(self) -> bool:
@@ -276,75 +271,3 @@ class PushCallback(BaseCallback):
         """
         client = RepoClient.create_instance()
         return client.get_commit_related_merge_requests(self.project.path_with_namespace, commit_sha=self.checkout_sha)
-
-
-class PipelineStatusCallback(BaseCallback):
-    """
-    Gitlab Pipeline Status Webhook
-    """
-
-    object_kind: Literal["pipeline"]
-    project: Project
-    merge_request: MergeRequest | None = None
-    object_attributes: Pipeline
-    builds: list[PipelineBuild]
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
-
-    def accept_callback(self) -> bool:
-        """
-        Accept callback if the pipeline failed and has a failed build to fix.
-        """
-        return (
-            self._repo_config.features.autofix_pipeline_enabled
-            and self.object_attributes.status == "failed"
-            and self._first_failed_build is not None
-            and self._merge_request is not None
-            and self._merge_request.is_daiv()
-        )
-
-    async def process_callback(self):
-        """
-        Trigger the task to fix the pipeline failed build.
-
-        Only one build is fixed at a time to avoid two or more fixes being applied simultaneously to the same files,
-        which could lead to conflicts or a job being fixed with outdated code.
-        """
-        if self.merge_request is not None and self._first_failed_build is not None:
-            await sync_to_async(
-                fix_pipeline_job_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    ref=self.merge_request.source_branch,
-                    merge_request_id=self.merge_request.iid,
-                    job_id=self._first_failed_build.id,
-                    job_name=self._first_failed_build.name,
-                ).delay
-            )()
-
-    @cached_property
-    def _merge_request(self) -> BaseMergeRequest | None:
-        """
-        Get the merge request related to the pipeline to obtain associated labels and infer if is a DAIV MR.
-        """
-        client = RepoClient.create_instance()
-        if self.merge_request is not None:
-            return client.get_merge_request(self.project.path_with_namespace, self.merge_request.iid)
-        return None
-
-    @cached_property
-    def _first_failed_build(self) -> PipelineBuild | None:
-        """
-        Get the first failed build of the pipeline.
-        """
-        return next(
-            (
-                build
-                for build in self.builds
-                if build.status == "failed"
-                and not build.manual
-                and not build.allow_failure
-                and build.failure_reason == "script_failure"
-            ),
-            None,
-        )

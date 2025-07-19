@@ -21,7 +21,6 @@ declared_model_names = {
     image_url_extractor_settings.MODEL_NAME,
     issue_addressor_settings.ISSUE_EVALUATOR_MODEL_NAME,
     pipeline_fixer_settings.COMMAND_OUTPUT_MODEL_NAME,
-    pipeline_fixer_settings.SAME_ERROR_MODEL_NAME,
     pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
     plan_and_execute_settings.EXECUTION_MODEL_NAME,
     plan_and_execute_settings.PLANNING_MODEL_NAME,

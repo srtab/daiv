@@ -1,6 +1,5 @@
 from unittest.mock import Mock, patch
 
-from codebase.clients import RepoClient
 from core.config import (
     BRANCH_NAME_CONVENTION_MAX_LENGTH,
     CONFIGURATION_CACHE_KEY_PREFIX,
@@ -12,17 +11,12 @@ from core.config import (
 
 class RepositoryConfigTest:
     @patch("core.config.cache")
-    @patch.object(RepoClient, "create_instance", autospec=True)
-    def test_get_config_from_cache(self, _mock_repo_client, mock_cache):
+    def test_get_config_from_cache(self, mock_cache):
         repo_id = "test_repo"
         cached_config = {
             "default_branch": "main",
             "repository_description": "Test repository",
-            "features": {
-                "auto_address_review_enabled": True,
-                "auto_address_issues_enabled": True,
-                "autofix_pipeline_enabled": True,
-            },
+            "features": {"auto_address_review_enabled": True, "auto_address_issues_enabled": True},
             "extend_exclude_patterns": ["tests/"],
             "branch_name_convention": "always start with 'daiv/' followed by a short description.",
         }
@@ -38,24 +32,20 @@ class RepositoryConfigTest:
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @patch("core.config.cache")
-    @patch.object(RepoClient, "create_instance", autospec=True)
-    def test_get_config_from_repo(self, mock_repo_client, mock_cache):
+    def test_get_config_from_repo(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
-        mock_repo_instance = Mock()
-        mock_repo_instance.get_repository.return_value.default_branch = "main"
-        mock_repo_instance.get_repository_file.return_value = """
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
         default_branch: main
         repository_description: Test repository
         features:
           auto_address_review_enabled: true
           auto_address_issues_enabled: true
-          autofix_pipeline_enabled: true
         extend_exclude_patterns:
           - tests/
         branch_name_convention: always start with 'daiv/' followed by a short description.
         """
-        mock_repo_client.return_value = mock_repo_instance
 
         config = RepositoryConfig.get_config(repo_id)
 
@@ -69,14 +59,11 @@ class RepositoryConfigTest:
         )
 
     @patch("core.config.cache")
-    @patch.object(RepoClient, "create_instance", autospec=True)
-    def test_get_config_with_default_values(self, mock_repo_client, mock_cache):
+    def test_get_config_with_default_values(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
-        mock_repo_instance = Mock()
-        mock_repo_instance.get_repository.return_value.default_branch = "main"
-        mock_repo_instance.get_repository_file.return_value = None
-        mock_repo_client.return_value = mock_repo_instance
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = None
 
         config = RepositoryConfig.get_config(repo_id)
 
@@ -96,14 +83,11 @@ class RepositoryConfigTest:
         mock_cache.delete.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @patch("core.config.cache")
-    @patch.object(RepoClient, "create_instance", autospec=True)
-    def test_get_config_with_invalid_yaml(self, mock_repo_client, mock_cache):
+    def test_get_config_with_invalid_yaml(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
-        mock_repo_instance = Mock()
-        mock_repo_instance.get_repository.return_value.default_branch = "main"
-        mock_repo_instance.get_repository_file.return_value = "invalid_yaml: [unclosed_list"
-        mock_repo_client.return_value = mock_repo_instance
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = "invalid_yaml: [unclosed_list"
 
         config = RepositoryConfig.get_config(repo_id)
 
@@ -117,17 +101,14 @@ class RepositoryConfigTest:
         )
 
     @patch("core.config.cache")
-    @patch.object(RepoClient, "create_instance", autospec=True)
-    def test_get_config_with_partial_yaml(self, mock_repo_client, mock_cache):
+    def test_get_config_with_partial_yaml(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
-        mock_repo_instance = Mock()
-        mock_repo_instance.get_repository.return_value.default_branch = "main"
-        mock_repo_instance.get_repository_file.return_value = """
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
         default_branch: main
         repository_description: Test repository
         """
-        mock_repo_client.return_value = mock_repo_instance
 
         config = RepositoryConfig.get_config(repo_id)
 

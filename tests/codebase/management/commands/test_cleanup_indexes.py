@@ -11,21 +11,8 @@ from django.core.management.base import CommandError
 import pytest
 from gitlab import GitlabGetError
 
-from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from codebase.models import CodebaseNamespace, RepositoryInfo
-
-
-@pytest.fixture
-def mock_repo_client():
-    with patch.object(RepoClient, "create_instance") as mock:
-        client = Mock(spec=RepoClient)
-        # mock the get_repository_file method to return None
-        # this is to avoid the command from trying to read the configuration file
-        # and failing because it's not there
-        client.get_repository_file.return_value = None
-        mock.return_value = client
-        yield client
 
 
 @pytest.fixture
@@ -145,7 +132,7 @@ def test_cleanup_skips_accessible_repositories(mock_repo_client, mock_indexer, r
 
 
 @pytest.mark.django_db
-def test_cleanup_old_branch_indexes(mock_repo_client, old_namespace, default_namespace):
+def test_cleanup_old_branch_indexes(old_namespace, default_namespace):
     """Test cleanup of old branch indexes."""
     # Call the command
     call_command("cleanup_indexes", cleanup_old_branches=True, branch_age_days=30, no_input=True)
@@ -158,7 +145,7 @@ def test_cleanup_old_branch_indexes(mock_repo_client, old_namespace, default_nam
 
 
 @pytest.mark.django_db
-def test_cleanup_old_branch_indexes_dry_run(mock_repo_client, mock_indexer, old_namespace, default_namespace):
+def test_cleanup_old_branch_indexes_dry_run(mock_indexer, old_namespace, default_namespace):
     """Test dry run for cleanup of old branch indexes."""
     # Call the command with dry-run
     call_command("cleanup_indexes", cleanup_old_branches=True, branch_age_days=30, dry_run=True)
@@ -172,7 +159,7 @@ def test_cleanup_old_branch_indexes_dry_run(mock_repo_client, mock_indexer, old_
 
 
 @pytest.mark.django_db
-def test_cleanup_failed_indexes(mock_repo_client, failed_namespace, default_namespace):
+def test_cleanup_failed_indexes(failed_namespace, default_namespace):
     """Test cleanup of failed indexes."""
     # Call the command
     call_command("cleanup_indexes", cleanup_old_branches=True, no_input=True)
@@ -185,7 +172,7 @@ def test_cleanup_failed_indexes(mock_repo_client, failed_namespace, default_name
 
 
 @pytest.mark.django_db
-def test_cleanup_preserves_default_branches(mock_repo_client, mock_indexer, default_namespace):
+def test_cleanup_preserves_default_branches(mock_indexer, default_namespace):
     """Test that default branch indexes are never cleaned up."""
     from django.utils import timezone
 
@@ -249,7 +236,7 @@ def test_cleanup_all_operations(mock_repo_client, repo_info, old_namespace):
 
 
 @pytest.mark.django_db
-def test_cleanup_no_old_branches_found(mock_repo_client, mock_indexer, default_namespace):
+def test_cleanup_no_old_branches_found(mock_indexer, default_namespace):
     """Test behavior when no old branch indexes are found."""
     # Call the command
     call_command("cleanup_indexes", cleanup_old_branches=True, no_input=True)
@@ -276,7 +263,7 @@ def test_cleanup_no_inaccessible_repos_found(mock_repo_client, mock_indexer, rep
 
 
 @pytest.mark.django_db
-def test_cleanup_with_custom_branch_age_days(mock_repo_client, repo_info):
+def test_cleanup_with_custom_branch_age_days(repo_info):
     """Test cleanup with custom branch age threshold."""
     from django.utils import timezone
 

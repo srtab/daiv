@@ -324,7 +324,9 @@ class IssueAddressorManager(BaseManager):
             self.repo_id,
             cast("int", self.issue.iid),
             jinja2_formatter(
-                ISSUE_REVIEW_PLAN_TEMPLATE, plan_tasks=plan_tasks, bot_username=self.client.current_user.username
+                ISSUE_REVIEW_PLAN_TEMPLATE,
+                plan_tasks=plan_tasks,
+                approve_plan_command=f"@{self.client.current_user.username} plan execute",
             ),
         )
 

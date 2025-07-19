@@ -5,16 +5,7 @@ from django.core.management import call_command
 import pytest
 from gitlab import GitlabGetError
 
-from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
-
-
-@pytest.fixture
-def mock_repo_client():
-    with patch.object(RepoClient, "create_instance") as mock:
-        client = Mock(spec=RepoClient)
-        mock.return_value = client
-        yield client
 
 
 @pytest.fixture

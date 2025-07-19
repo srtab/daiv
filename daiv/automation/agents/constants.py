@@ -17,4 +17,4 @@ class ModelName(StrEnum):
     O4_MINI = "openrouter:openai/o4-mini"
     O3 = "openrouter:openai/o3"
     DEEPSEEK_CHAT_V3_0324 = "openrouter:deepseek/deepseek-chat-v3-0324"
-    GEMINI_2_5_PRO_PREVIEW = "openrouter:google/gemini-2.5-pro-preview"
+    GEMINI_2_5_PRO = "openrouter:google/gemini-2.5-pro"
