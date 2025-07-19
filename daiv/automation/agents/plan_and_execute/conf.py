@@ -17,7 +17,7 @@ class PlanAndExecuteSettings(BaseSettings):
     PLANNING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to plan tasks."
     )
-    PLANNING_THINKING_LEVEL: ThinkingLevel = Field(
+    PLANNING_THINKING_LEVEL: ThinkingLevel | None = Field(
         default=ThinkingLevel.MEDIUM, description="Thinking level to be used for planning."
     )
     EXECUTION_MODEL_NAME: ModelName | str = Field(

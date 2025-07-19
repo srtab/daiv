@@ -20,7 +20,6 @@ branch_name_convention: "Use 'feat/' for features, 'fix/' for bugfixes, 'docs/' 
 features:
   auto_address_review_enabled: true
   auto_address_issues_enabled: true
-  autofix_pipeline_enabled: true
 
 # Code indexing
 extend_exclude_patterns:
@@ -61,7 +60,6 @@ Under your `.daiv.yml` file's `features:` section, configure the following keys:
 |-----------------------------------|---------|---------|------------------------------------------------------------------|
 | `auto_address_review_enabled`     | `bool`    | `true`    | Enable the [code review addressor agent](../ai-agents/code-review-addressor.md).                          |
 | `auto_address_issues_enabled`     | `bool`    | `true`    | Enable the [issue addressor agent](../ai-agents/issue-addressor.md).                                |
-| `autofix_pipeline_enabled`        | `bool`    | `true`    | Enable the [pipeline fixing agent](../ai-agents/pipeline-fixing.md).                                |
 
 !!! tip
     Disable features you do not need to reduce noise and speed up processing.

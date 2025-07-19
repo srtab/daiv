@@ -40,7 +40,7 @@ class Command(BaseCommand):
             created = repo_client.set_repository_webhooks(
                 project.slug,
                 build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/"),
-                ["push_events", "issues_events", "note_events", "pipeline_events"],
+                ["push_events", "issues_events", "note_events"],
                 enable_ssl_verification=not options["disable_ssl_verification"],
                 secret_token=secret_token,
             )

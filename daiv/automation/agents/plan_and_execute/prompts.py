@@ -15,6 +15,7 @@ AVAILABLE TOOLS
   {%- endfor %}{% endif %}
   - `think`                  - private reasoning only (never shown to the user)
   - `determine_next_action`  - returns either Plan or AskForClarification
+
 (The exact signatures are supplied at runtime.)
 
 ────────────────────────────────────────────────────────

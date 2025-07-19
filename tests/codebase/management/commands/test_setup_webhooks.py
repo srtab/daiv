@@ -35,14 +35,14 @@ def test_setup_webhooks_success(mock_repo_client):
         call(
             "repo1",
             "https://test.com/api/codebase/callbacks/gitlab/",
-            ["push_events", "issues_events", "note_events", "pipeline_events"],
+            ["push_events", "issues_events", "note_events"],
             enable_ssl_verification=True,
             secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
         ),
         call(
             "repo2",
             "https://test.com/api/codebase/callbacks/gitlab/",
-            ["push_events", "issues_events", "note_events", "pipeline_events"],
+            ["push_events", "issues_events", "note_events"],
             enable_ssl_verification=True,
             secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
         ),
@@ -65,7 +65,7 @@ def test_setup_webhooks_with_ssl_disabled(mock_repo_client):
     mock_repo_client.set_repository_webhooks.assert_called_once_with(
         "repo1",
         "https://test.com/api/codebase/callbacks/gitlab/",
-        ["push_events", "issues_events", "note_events", "pipeline_events"],
+        ["push_events", "issues_events", "note_events"],
         enable_ssl_verification=False,
         secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
     )
@@ -86,7 +86,7 @@ def test_setup_webhooks_update_existing(mock_repo_client):
     mock_repo_client.set_repository_webhooks.assert_called_once_with(
         "repo1",
         "https://test.com/api/codebase/callbacks/gitlab/",
-        ["push_events", "issues_events", "note_events", "pipeline_events"],
+        ["push_events", "issues_events", "note_events"],
         enable_ssl_verification=True,
         secret_token=settings.GITLAB_WEBHOOK_SECRET.get_secret_value(),
     )
@@ -119,7 +119,7 @@ def test_setup_webhooks_with_secret_token(mock_repo_client):
     mock_repo_client.set_repository_webhooks.assert_called_once_with(
         "repo1",
         "https://test.com/api/codebase/callbacks/gitlab/",
-        ["push_events", "issues_events", "note_events", "pipeline_events"],
+        ["push_events", "issues_events", "note_events"],
         enable_ssl_verification=True,
         secret_token="test_secret",  # noqa: S106
     )

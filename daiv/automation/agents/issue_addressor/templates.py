@@ -32,7 +32,7 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 💡 **Next Steps:**
 
- - ✅ If the plan is good, leave a comment with `@{{ bot_username }} plan execute` to execute the plan.
+ - ✅ If the plan is good, leave a comment with `{{ approve_plan_command }}` to execute the plan.
  - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then refine the plan.
 """  # noqa: E501
 

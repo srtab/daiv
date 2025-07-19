@@ -7,11 +7,11 @@ check_interval = 0
 [[runners]]
   name = "runner"
   url = "http://gitlab:8929"
-  clone_url = "http://gitlab:8929"
+  clone_url = "http://127.0.0.1:8929"
   token = "glrt-dDoxCnU6MTMUC4wWBv1Hq8KJeY5kJOgQ.0w1rm0xi5"
   executor = "docker"
   [runners.docker]
-    network_mode = "daiv_default"
+    network_mode = "host"
     tls_verify = false
     image = "docker:latest"
     privileged = true

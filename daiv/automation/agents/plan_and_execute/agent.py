@@ -111,7 +111,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
-    async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan", "plan_approval"]]:
+    async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan"]]:
         """
         Request human approval of the plan.
 
@@ -119,7 +119,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             state (PlanAndExecuteState): The state of the agent.
 
         Returns:
-            Command[Literal["execute_plan", "plan_approval"]]: The next step in the workflow.
+            Command[Literal["execute_plan"]]: The next step in the workflow.
         """
         if self.skip_approval:
             return Command(goto="execute_plan")

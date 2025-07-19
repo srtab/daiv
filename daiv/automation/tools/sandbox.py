@@ -40,6 +40,10 @@ class RunSandboxCommandsTool(BaseTool):
     handle_validation_error: bool = True
     handle_tool_error: bool = True
 
+    def _run(self, commands: list[str], intent: str, config: RunnableConfig) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
     async def _arun(
         self, commands: list[str], intent: str, store: BaseStore, config: RunnableConfig
     ) -> tuple[str, list[RunCommandResult]]:
