@@ -1,19 +1,8 @@
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, call
 
 from django.core.management import call_command
 
-import pytest
-
-from codebase.clients import RepoClient
 from codebase.conf import settings
-
-
-@pytest.fixture
-def mock_repo_client():
-    with patch.object(RepoClient, "create_instance") as mock:
-        client = Mock(spec=RepoClient)
-        mock.return_value = client
-        yield client
 
 
 def test_setup_webhooks_success(mock_repo_client):
