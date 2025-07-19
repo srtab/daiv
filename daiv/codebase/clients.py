@@ -192,10 +192,6 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        pass
-
-    @abc.abstractmethod
     def update_merge_request_discussion_note(
         self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
     ):
@@ -1049,21 +1045,14 @@ class GitLabClient(RepoClient):
             and (note_types is None or note["type"] in note_types)
         ]
 
-    def resolve_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Resolve a discussion in a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            discussion_id: The discussion ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        merge_request.discussions.update(discussion_id, {"resolved": True})
-
     def update_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        discussion_id: str,
+        note_id: str,
+        body: str,
+        mark_as_resolved: bool = False,
     ):
         """
         Update a discussion in a merge request.
@@ -1074,6 +1063,7 @@ class GitLabClient(RepoClient):
             discussion_id: The discussion ID.
             note_id: The note ID.
             body: The note body.
+            mark_as_resolved: Whether to mark the note as resolved.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
@@ -1081,6 +1071,8 @@ class GitLabClient(RepoClient):
         note = discussion.notes.get(note_id)
         note.body = body
         note.save()
+        if mark_as_resolved:
+            merge_request.discussions.update(discussion_id, {"resolved": True})
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
         """
@@ -1098,7 +1090,12 @@ class GitLabClient(RepoClient):
         note.awardemojis.create({"name": emoji})
 
     def create_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        body: str,
+        discussion_id: str | None = None,
+        mark_as_resolved: bool = False,
     ) -> str:
         """
         Create a note in a discussion of a merge request.
@@ -1108,6 +1105,7 @@ class GitLabClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The note body.
             discussion_id: The discussion ID.
+            mark_as_resolved: Whether to mark the note as resolved.
 
         Returns:
             The note ID.
@@ -1117,6 +1115,8 @@ class GitLabClient(RepoClient):
         if discussion_id:
             discussion = merge_request.discussions.get(discussion_id, lazy=True)
             note = discussion.notes.create({"body": body})
+            if mark_as_resolved:
+                merge_request.discussions.update(discussion_id, {"resolved": True})
             return note.id
         else:
             discussion = merge_request.discussions.create({"body": body})

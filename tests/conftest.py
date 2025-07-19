@@ -60,7 +60,6 @@ def mock_repo_client():
         mock_client.get_merge_request_latest_pipeline.return_value = None
         mock_client.get_merge_request_discussions.return_value = []
         mock_client.get_merge_request_discussion.return_value = Mock()
-        mock_client.resolve_merge_request_discussion.return_value = None
         mock_client.update_merge_request_discussion_note.return_value = None
 
         # Mock load_repo to return a temporary directory context manager

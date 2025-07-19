@@ -257,9 +257,12 @@ class PipelineRepairManager(BaseManager):
         )
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+                self.repo_id,
+                self.merge_request_id,
+                note_message,
+                discussion_id=self.discussion_id,
+                mark_as_resolved=True,
             )
-            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
@@ -270,9 +273,12 @@ class PipelineRepairManager(BaseManager):
         note_message = jinja2_formatter(PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE, job_name=self.job_name)
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+                self.repo_id,
+                self.merge_request_id,
+                note_message,
+                discussion_id=self.discussion_id,
+                mark_as_resolved=True,
             )
-            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
@@ -292,9 +298,12 @@ class PipelineRepairManager(BaseManager):
         )
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+                self.repo_id,
+                self.merge_request_id,
+                note_message,
+                discussion_id=self.discussion_id,
+                mark_as_resolved=True,
             )
-            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
@@ -334,9 +343,12 @@ class PipelineRepairManager(BaseManager):
 
         if self.discussion_id:
             self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
+                self.repo_id,
+                self.merge_request_id,
+                note_message,
+                discussion_id=self.discussion_id,
+                mark_as_resolved=True,
             )
-            self.client.resolve_merge_request_discussion(self.repo_id, self.merge_request_id, self.discussion_id)
         else:
             self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 

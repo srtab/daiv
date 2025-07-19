@@ -56,6 +56,5 @@ class HelpQuickAction(QuickAction):
 
             elif scope == Scope.MERGE_REQUEST:
                 self.client.create_merge_request_discussion_note(
-                    repo_id, merge_request.merge_request_id, note_message, discussion.id
+                    repo_id, merge_request.merge_request_id, note_message, discussion.id, mark_as_resolved=True
                 )
-                self.client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)

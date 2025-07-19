@@ -91,11 +91,6 @@ class TestHelpAction:
         # Verify merge request discussion note was created
         self.action.client.create_merge_request_discussion_note.assert_called_once()
 
-        # Verify discussion was resolved
-        self.action.client.resolve_merge_request_discussion.assert_called_once_with(
-            "repo123", self.mock_merge_request.merge_request_id, self.mock_discussion.id
-        )
-
     @patch("automation.quick_actions.actions.help.quick_action_registry")
     async def test_execute_with_multiple_actions(self, mock_registry):
         """Test executing help action with multiple available actions."""

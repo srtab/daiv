@@ -37,9 +37,6 @@ def execute_quick_action_task(
         issue_id: The ID of the issue to execute the action on (if applicable).
         merge_request_id: The ID of the merge request to execute the action on (if applicable).
     """
-
-    print(f"action_args: {action_args}")  # noqa: T201
-
     assert issue_id is not None or merge_request_id is not None, "Either issue_id or merge_request_id must be provided"
 
     action_scope = Scope(action_scope)

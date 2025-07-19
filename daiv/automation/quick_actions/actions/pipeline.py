@@ -61,8 +61,8 @@ class PipelineQuickAction(QuickAction):
                     PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE, pipeline_url=pipeline and pipeline.web_url or ""
                 ),
                 discussion.id,
+                mark_as_resolved=True,
             )
-            self.client.resolve_merge_request_discussion(repo_id, merge_request.merge_request_id, discussion.id)
             return
 
         # Plan the fix if the action is the first note in the discussion

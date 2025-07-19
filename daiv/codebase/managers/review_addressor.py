@@ -230,9 +230,13 @@ class ReviewAddressorManager(BaseManager):
 
         for discussion_id, note_id in resolved_discussions:
             manager.client.update_merge_request_discussion_note(
-                manager.repo_id, manager.merge_request_id, discussion_id, note_id, END_TASK_MESSAGE
+                manager.repo_id,
+                manager.merge_request_id,
+                discussion_id,
+                note_id,
+                END_TASK_MESSAGE,
+                mark_as_resolved=True,
             )
-            manager.client.resolve_merge_request_discussion(manager.repo_id, manager.merge_request_id, discussion_id)
 
     async def _process_discussion(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
         """
