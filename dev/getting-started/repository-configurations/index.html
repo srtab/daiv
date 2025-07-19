@@ -911,8 +911,7 @@
 <span class="normal"><a href="#__codelineno-0-19">19</a></span>
 <span class="normal"><a href="#__codelineno-0-20">20</a></span>
 <span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Repository settings</span>
+<span class="normal"><a href="#__codelineno-0-22">22</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Repository settings</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nt">default_branch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nt">repository_description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Python</span><span class="nv"> </span><span class="s">web</span><span class="nv"> </span><span class="s">application</span><span class="nv"> </span><span class="s">using</span><span class="nv"> </span><span class="s">Django</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">React.</span><span class="nv"> </span><span class="s">Follows</span><span class="nv"> </span><span class="s">PEP</span><span class="nv"> </span><span class="s">8</span><span class="nv"> </span><span class="s">standards</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Airbnb</span><span class="nv"> </span><span class="s">style</span><span class="nv"> </span><span class="s">guide</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">JavaScript.&quot;</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="nt">branch_name_convention</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Use</span><span class="nv"> </span><span class="s">&#39;feat/&#39;</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">features,</span><span class="nv"> </span><span class="s">&#39;fix/&#39;</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">bugfixes,</span><span class="nv"> </span><span class="s">&#39;docs/&#39;</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">documentation&quot;</span>
@@ -921,20 +920,19 @@
 <a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="nt">features</span><span class="p">:</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="w">  </span><span class="nt">auto_address_review_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="w">  </span><span class="nt">auto_address_issues_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="w">  </span><span class="nt">autofix_pipeline_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11"></a>
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="c1"># Code indexing</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="nt">extend_exclude_patterns</span><span class="p">:</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;**/tests/**&quot;</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;**/*.test.ts&quot;</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;coverage/**&quot;</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.min.js&quot;</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18"></a>
-<a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="c1"># Sandbox commands</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="nt">commands</span><span class="p">:</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python:3.12-alpine&quot;</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="w">  </span><span class="nt">install_dependencies</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pip</span><span class="nv"> </span><span class="s">install</span><span class="nv"> </span><span class="s">-r</span><span class="nv"> </span><span class="s">requirements.txt&quot;</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">  </span><span class="nt">format_code</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ruff</span><span class="nv"> </span><span class="s">check</span><span class="nv"> </span><span class="s">--fix</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">ruff</span><span class="nv"> </span><span class="s">format&quot;</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="c1"># Code indexing</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="nt">extend_exclude_patterns</span><span class="p">:</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;**/tests/**&quot;</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;**/*.test.ts&quot;</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;coverage/**&quot;</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.min.js&quot;</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="c1"># Sandbox commands</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="nt">commands</span><span class="p">:</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python:3.12-alpine&quot;</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="w">  </span><span class="nt">install_dependencies</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pip</span><span class="nv"> </span><span class="s">install</span><span class="nv"> </span><span class="s">-r</span><span class="nv"> </span><span class="s">requirements.txt&quot;</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="w">  </span><span class="nt">format_code</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ruff</span><span class="nv"> </span><span class="s">check</span><span class="nv"> </span><span class="s">--fix</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">ruff</span><span class="nv"> </span><span class="s">format&quot;</span>
 </code></pre></div></td></tr></table></div>
 <h2 id="configure-repository-settings">Configure Repository Settings</h2>
 <p>Repository settings control the default branch, repository description, and branch naming convention.</p>
@@ -999,12 +997,6 @@
 <td><code>bool</code></td>
 <td><code>true</code></td>
 <td>Enable the <a href="../../ai-agents/issue-addressor/">issue addressor agent</a>.</td>
-</tr>
-<tr>
-<td><code>autofix_pipeline_enabled</code></td>
-<td><code>bool</code></td>
-<td><code>true</code></td>
-<td>Enable the <a href="../../ai-agents/pipeline-fixing/">pipeline fixing agent</a>.</td>
 </tr>
 </tbody>
 </table>
@@ -1117,7 +1109,7 @@ Prefer using <code>extend_exclude_patterns</code> to add more patterns.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 24, 2025 22:36:24 UTC">June 24, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2025 23:16:09 UTC">July 19, 2025</span>
   </span>
 
     
@@ -1127,7 +1119,7 @@ Prefer using <code>extend_exclude_patterns</code> to add more patterns.</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 24, 2025 22:36:24 UTC">June 24, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2025 23:16:09 UTC">July 19, 2025</span>
   </span>
 
     
