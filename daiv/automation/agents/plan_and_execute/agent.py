@@ -8,7 +8,7 @@ from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
-from langgraph.graph.state import CompiledGraph, CompiledStateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
@@ -80,7 +80,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    async def plan_subgraph(self, store: BaseStore | None = None) -> CompiledGraph:
+    async def plan_subgraph(self, store: BaseStore | None = None) -> CompiledStateGraph:
         """
         Subgraph to plan the steps to follow.
 
@@ -88,7 +88,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store (BaseStore): The store to use for caching.
 
         Returns:
-            CompiledGraph: The compiled subgraph.
+            CompiledStateGraph: The compiled subgraph.
         """
         mcp_tools = (await MCPToolkit.create_instance()).get_tools()
         mcp_tools_names = [tool.name for tool in mcp_tools]

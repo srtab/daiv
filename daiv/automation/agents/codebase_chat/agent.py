@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.utils import timezone
 
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph.state import CompiledGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 
@@ -23,17 +23,17 @@ class CodebaseChatAgentState(AgentState):
     current_date_time: str
 
 
-class CodebaseChatAgent(BaseAgent[CompiledGraph]):
+class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent for answering questions about codebases.
     """
 
-    async def compile(self) -> CompiledGraph:
+    async def compile(self) -> CompiledStateGraph:
         """
         Compile the graph for the agent.
 
         Returns:
-            CompiledGraph: The compiled graph.
+            CompiledStateGraph: The compiled graph.
         """
         index = CodebaseIndex(RepoClient.create_instance())
         return create_react_agent(

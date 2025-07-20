@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from langchain_core.runnables import RunnableConfig
     from langchain_core.runnables.schema import StreamEvent
-    from langgraph.graph.state import CompiledGraph
+    from langgraph.graph.state import CompiledStateGraph
 
 
 logger = logging.getLogger("daiv.chat")
@@ -38,7 +38,7 @@ def extract_text_from_event_data(event_data: StreamEvent) -> str:
 
 
 async def generate_stream(
-    codebase_chat: CompiledGraph, input_data: dict, model_id: str, config: RunnableConfig
+    codebase_chat: CompiledStateGraph, input_data: dict, model_id: str, config: RunnableConfig
 ) -> AsyncGenerator[str]:
     """
     Generate a stream of chat completion events.

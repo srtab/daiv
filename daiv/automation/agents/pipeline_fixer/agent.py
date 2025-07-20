@@ -62,7 +62,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled state graph.
         """
-        workflow = StateGraph(OverallState, input=InputState, output=OutputState)
+        workflow = StateGraph(OverallState, input_schema=InputState, output_schema=OutputState)
 
         workflow.add_node("troubleshoot", self.troubleshoot)
         workflow.add_node("plan_and_execute", self.plan_and_execute)

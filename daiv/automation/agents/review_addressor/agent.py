@@ -8,7 +8,7 @@ from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
-from langgraph.graph.state import CompiledGraph, CompiledStateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
@@ -41,12 +41,12 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
         ).with_config({"run_name": "ReviewCommentEvaluator"})
 
 
-class ReplyReviewerAgent(BaseAgent[CompiledGraph]):
+class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to reply to reviewer's comments or questions.
     """
 
-    async def compile(self) -> CompiledGraph:
+    async def compile(self) -> CompiledStateGraph:
         tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
 
         return create_react_agent(
