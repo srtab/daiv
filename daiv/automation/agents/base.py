@@ -71,7 +71,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         Compile the agent.
 
-        Tipically this method returns a Runnable or a CompiledGraph.
+        Tipically this method returns a Runnable or a CompiledStateGraph.
         """
         pass
 
