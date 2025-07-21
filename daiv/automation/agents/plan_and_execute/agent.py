@@ -23,7 +23,7 @@ from core.config import RepositoryConfig
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import determine_next_action
+from .tools import complete_task
 
 if TYPE_CHECKING:
     from langchain_core.prompts import SystemMessagePromptTemplate
@@ -100,7 +100,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=ReadRepositoryToolkit.create_instance().get_tools()
             + WebSearchToolkit.create_instance().get_tools()
             + mcp_tools
-            + [think, determine_next_action],
+            + [think, complete_task],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([

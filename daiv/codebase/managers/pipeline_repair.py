@@ -372,9 +372,9 @@ class PipelineRepairManager(BaseManager):
             else:
                 note_message = f"🛠️ Applying repair plan to fix `{self.job_name}` job — *in progress* ..."
         elif step_name == "apply_format_code":
-            note_message = "🎨 Formatting the code changes — *in progress* ..."
+            note_message = "🎨 Formatting code — *in progress* ..."
         elif step_name == "commit_changes":
-            note_message = "💾 Committing the code changes — *in progress* ..."
+            note_message = "💾 Committing code changes — *in progress* ..."
 
         self.client.create_merge_request_discussion_note(
             self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
