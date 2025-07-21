@@ -13,14 +13,14 @@ from .schemas import AskForClarification, DetermineNextAction, Plan
 logger = logging.getLogger("daiv.tools")
 
 
-@tool("determine_next_action", args_schema=DetermineNextAction)
-def determine_next_action(
+@tool("complete_task", args_schema=DetermineNextAction)
+def complete_task(
     action: Plan | AskForClarification, tool_call_id: str
 ) -> Command[Literal["plan_approval", "__end__"]]:
     """
     Use this tool to determine the next action to take, i.e. when you have a plan to share or when you need to ask for clarification.
     """  # noqa: E501
-    logger.info("[determine_next_action] Determining next action: %s", repr(action))
+    logger.info("[complete_task] Determining next action: %s", repr(action))
 
     message = ToolMessage(content=[{"action": action.model_dump()}], tool_call_id=tool_call_id)
 

@@ -9,7 +9,7 @@ I'm **{{ bot_name }}**, your assistant for refactoring the codebase. Here's the 
 > ⚠️ ***Note:*** This may **take some time**. I'll leave you a message once the plan is ready.
 """  # noqa: E501
 
-ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the planned tasks:***
+ISSUE_REVIEW_PLAN_TEMPLATE = """### 📋 ***Please take a moment to review the planned tasks:***
 {% for plan_task in plan_tasks %}
 <details>
 <summary>
@@ -30,85 +30,77 @@ ISSUE_REVIEW_PLAN_TEMPLATE = """### 📝 ***Please take a moment to review the p
 
 {% endfor %}
 
-💡 **Next Steps:**
+💡 **Next steps**
 
  - ✅ If the plan is good, leave a comment with `{{ approve_plan_command }}` to execute the plan.
- - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then refine the plan.
+ - ❌ If the plan doesn't meet your expectations, please **refine the issue description/title** and add more details or examples to help me understand the problem better. I will then revise the plan.
 """  # noqa: E501
 
-ISSUE_REVISE_TEMPLATE = """{% if not discussion_id %}### 🔄 ***Revising the Plan***
+ISSUE_QUESTIONS_TEMPLATE = """### 🔍 Additional Details Required
 
-I'm creating a brand-new plan based on the updated details.{% else %}
-I'm creating a brand-new plan based on the details.{% endif %}
-
-> ⚠️ ***Note:*** This may **take a moment**. I'll notify you as soon as the new plan is ready.
-"""  # noqa: E501
-
-ISSUE_EXECUTE_PLAN_TEMPLATE = """I'll apply the plan straight away.
-
-> ⚠️ ***Note:*** This may **take a moment**. I'll notify you as soon as the plan is executed.
-"""  # noqa: E501
-
-ISSUE_QUESTIONS_TEMPLATE = """{% if not discussion_id %}### ❓ ***Clarification needed***
-
-{% endif %}I couldn't define a plan clearly based on the current details. To help me create a better plan, please clarify the following points:
+I need more information before I can create a clear implementation plan. Please help by answering the following questions directly within the issue's **title or description**:
 
 {{ questions }}
 
 ---
 
-💡 **Next Steps:**
+💡 **Next steps**
 
-- Update the issue's title or description with the requested clarifications.
-- I'll automatically attempt to generate a new plan once the details are updated.
+1. **Edit the issue's title or description** and include your answers there.
+2. Once you've updated the details, I'll automatically attempt to draft a new implementation plan.
 """  # noqa: E501
 
 
-ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """{% if not discussion_id %}### ⚠ ***Unable to Define a Plan***
+ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """### 🤔 Can't Draft a Plan Yet
 
-{% endif %}I was unable to define a plan for this issue. To help me assist you better, please make the following adjustments:
+I couldn't generate a detailed plan because the issue is missing a few key details.
 
-- **Refine Description:** Provide more details about the problem.
-- **Add Examples:** Include specific examples or scenarios to clarify the issue.
-- **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
+**Please help by:**
 
-----
+* **Expanding the description** - What behaviour are you seeing and what did you expect?
+* **Adding concrete examples** - failing tests, stack traces, screenshots, or sample input/output.
+* **Stating acceptance criteria** - How will we know the fix is complete?
 
-💡 **Next Steps:**
+---
 
-- Update the issue's title or description.
-- I'll automatically attempt to generate a new plan once the details are updated.
+💡 **Next steps**
+
+1. Edit the issue's **title and/or description** to include the details above.
+2. After you save, I'll automatically attempt to draft a new plan and post an update.
 """  # noqa: E501
 
 
-ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE = """{% if not discussion_id %}### ⚠ ***Unable to Execute the Plan***
+ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE = """### ⚠️ Error Executing the Plan
 
-{% endif %}I was unable to execute the plan for this issue. To help me assist you better, please make the following adjustments:
-
-- **Refine Description:** Provide more details about the problem.
-- **Add Examples:** Include specific examples or scenarios to clarify the issue.
-- **Clarify Requirements:** Ensure all necessary requirements are clearly outlined.
+An error occurred while applying the implementation plan.
 
 ---
 
 💡 **Next Steps:**
 
-- Update the issue's title or description.
-- I'll automatically attempt to generate a new plan once the details are updated.
+- 🔄 Comment **`{{ execute_plan_command }}`** to retry the plan execution.
+- 📜 **Check the app logs** - open the {{ bot_name }} logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
 """  # noqa: E501
 
 
-ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE = """{% if not discussion_id %}### ⚠ ***Unable to Process the Issue***
+ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE = """### ⚠️ Unexpected Error
 
-{% endif %}⚠️ An unexpected error occurred while processing the issue.
+Something went wrong while processing this issue.
 
-Please check the logs for more details.
+---
+
+💡 **Next Steps:**
+
+- 🔄 Comment **`{{ revise_plan_command }}`** to trigger a fresh planning run.
+- 📜 **Check the app logs** - open the {{ bot_name }} logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
 """  # noqa: E501
 
 
 ISSUE_PROCESSED_TEMPLATE = """### ✅ ***Process Completed***
 
 I have created a merge request with the requested changes.
+
+---
 
 💡 **Next Steps:**
 

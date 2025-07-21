@@ -7,7 +7,7 @@ from codebase.managers.issue_addressor import IssueAddressorManager
 class PlanExecuteAction(BaseAction):
     trigger: str = "execute"
     description: str = "Run or launch the current plan."
-    location: TriggerLocation = TriggerLocation.REPLY
+    location: TriggerLocation = TriggerLocation.DISCUSSION
 
 
 class PlanReviseAction(BaseAction):

@@ -6,7 +6,7 @@ from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
-DETERMINE_NEXT_ACTION_TOOL_NAME = "determine_next_action"
+DETERMINE_NEXT_ACTION_TOOL_NAME = "complete_task"
 
 
 class HumanApprovalInput(TypedDict):

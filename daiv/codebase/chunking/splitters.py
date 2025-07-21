@@ -23,11 +23,11 @@ class ChonkieTextSplitter(TextSplitter):
             ) from None
 
         self.chonkie = CodeChunker(
-            language=language,
-            tokenizer_or_token_counter=self._length_function,
-            chunk_size=self._chunk_size,
-            return_type="texts",
+            language=language, tokenizer_or_token_counter=self._length_function, chunk_size=self._chunk_size
         )
 
     def split_text(self, text: str) -> list[str]:
-        return self.chonkie.chunk(text)
+        """
+        Split the text into chunks.
+        """
+        return [chunk.text for chunk in self.chonkie.chunk(text)]

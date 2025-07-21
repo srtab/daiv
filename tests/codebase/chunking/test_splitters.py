@@ -7,10 +7,7 @@ def test_chonkie_init():
     with patch("chonkie.CodeChunker") as mcode_chunker:
         splitter = ChonkieTextSplitter("python")
         mcode_chunker.assert_called_once_with(
-            language="python",
-            tokenizer_or_token_counter=splitter._length_function,
-            chunk_size=splitter._chunk_size,
-            return_type="texts",
+            language="python", tokenizer_or_token_counter=splitter._length_function, chunk_size=splitter._chunk_size
         )
 
 

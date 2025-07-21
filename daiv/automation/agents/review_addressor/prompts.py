@@ -122,7 +122,7 @@ AVAILABLE TOOLS
   - search_code_snippets
   - web_search
   - think                    - private chain-of-thought
-  - determine_next_action    - returns either Plan or AskForClarification
+  - complete_task            - returns either Plan or AskForClarification
 (The exact signatures are supplied at runtime.)
 
 ────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ WORKFLOW
 
 ### Step 0 - Need clarification?
 If the request is ambiguous or unclear:
-1. Create a **determine_next_action** tool call whose `action` is **AskForClarification**, filling its `questions` list in the user's language.
+1. Call **complete_task** with **one** payload: **AskForClarification**, filling its `questions` list in the user's language.
 2. End the turn.
 
 ### Step 1 - Draft inspection plan (private)
@@ -166,7 +166,7 @@ Execute the planned inspection:
 After each tool response, call `think` as needed to refine your plan until you are ready to deliver. (There is no limit on additional think calls in this step.)
 
 ### Step 4 - Deliver
-Call **determine_next_action** with **one** payload:
+Call **complete_task** with **one** of these payloads:
 
 1. **AskForClarification** - if you still need user input or no changes seem necessary.
 2. **Plan** - if you know the required work.
