@@ -29,7 +29,11 @@ class EchoQuickAction(QuickAction):
         is_reply: bool = False,
     ) -> None:
         """
-        Execute the echo action.
+        Execute the echo action by repeating back the provided message.
+
+        If a message is provided in args, responds with "Echo: {message}".
+        If no message or empty message is provided, responds with "No message to echo".
+        For merge requests, the discussion is automatically marked as resolved.
 
         Args:
             repo_id: The repository ID.
