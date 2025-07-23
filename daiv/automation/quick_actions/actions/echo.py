@@ -46,7 +46,7 @@ class EchoQuickAction(QuickAction):
             is_reply: Whether the action was triggered as a reply.
         """
         # Prepare the echo message
-        echo_message = "No message to echo" if not args or args.strip() == "" else f"Echo: {args}"
+        echo_message = "Nothing to echo" if not args or args.strip() == "" else f"Echo: {args}"
 
         # Send response based on scope
         if scope == Scope.ISSUE:
