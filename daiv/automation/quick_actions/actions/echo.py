@@ -32,17 +32,17 @@ class EchoQuickAction(QuickAction):
         Execute the echo action by repeating back the provided message.
 
         If a message is provided in args, responds with "Echo: {message}".
-        If no message or empty message is provided, responds with "No message to echo".
+        If no message or empty message is provided, responds with "Nothing to echo".
         For merge requests, the discussion is automatically marked as resolved.
 
         Args:
             repo_id: The repository ID.
+            args: Additional parameters from the command.
             scope: The scope of the quick action.
             discussion: The discussion that triggered the action.
             note: The note that triggered the action.
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
-            args: Additional parameters from the command.
             is_reply: Whether the action was triggered as a reply.
         """
         # Prepare the echo message
