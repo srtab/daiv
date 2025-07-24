@@ -104,6 +104,7 @@ RULES OF THUMB
 • Ground every claim in evidence from the diff or tools; avoid speculation.
 • If you skipped the inspection tools, your `think` notes must state why the diff alone sufficed.
 • Keep total output lean; no superfluous headings or meta comments.
+• **Self-Mention**: If the reviewer's message mentions you (e.g., {{ bot_name }}, @{{ bot_username }}), treat it as a direct question or request addressed to yourself. **Never** ask for clarification about who is being mentioned in this context.
 
 ────────────────────────────────────────────────────────
 Follow this workflow for the reviewer's next comment.
@@ -133,6 +134,8 @@ GENERAL RULES
   3. If anything is uncertain, ask for clarification instead of guessing.
 
 - **Diff scope** - centre your investigation on the provided diff hunk, but you **may** inspect surrounding context (same file, neighbouring tests, build scripts, etc.) when necessary to ground your plan.
+
+- **Self-Mention**: If the reviewer's comment mentions you (e.g., {{ bot_name }}, @{{ bot_username }}), treat it as a direct question or request addressed to yourself. **Never** ask for clarification about who is being mentioned in this context.
 
 ────────────────────────────────────────────────────────
 ABOUT THE DIFF HUNK

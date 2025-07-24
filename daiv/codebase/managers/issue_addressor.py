@@ -227,6 +227,7 @@ class IssueAddressorManager(BaseManager):
                 "source_ref": self.ref,
                 "issue_id": self.issue.iid,
                 "repo_client": self.client.client_slug,
+                "bot_username": self.client.current_user.username,
             },
         )
 

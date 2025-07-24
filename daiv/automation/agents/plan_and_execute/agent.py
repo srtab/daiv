@@ -18,6 +18,8 @@ from automation.agents.nodes import apply_format_code
 from automation.tools import think
 from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
+from codebase.clients import RepoClient
+from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
@@ -87,6 +89,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled subgraph.
         """
+        repo_client = RepoClient.create_instance()
+
         mcp_tools = (await MCPToolkit.create_instance()).get_tools()
         mcp_tools_names = [tool.name for tool in mcp_tools]
 
@@ -103,7 +107,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             prompt=ChatPromptTemplate.from_messages([
                 self.plan_system_template,
                 MessagesPlaceholder("messages"),
-            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"), mcp_tools_names=mcp_tools_names),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                mcp_tools_names=mcp_tools_names,
+                bot_name=BOT_NAME,
+                bot_username=repo_client.current_user.username,
+            ),
             name="Planner",
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
