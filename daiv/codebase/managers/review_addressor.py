@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.memory import InMemoryStore
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile, PatchSet
 from unidiff.patch import Line
 
+from automation.agents.nodes import apply_format_code
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
@@ -22,11 +26,6 @@ if TYPE_CHECKING:
     from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
-
-
-START_TASK_MESSAGE = "⏳ Working on it, i'll confirm once done..."
-END_TASK_MESSAGE = "✅ Task completed—ready for your review!"
-ERROR_TASK_MESSAGE = "⚠️ Oops! I couldn't handle that comment. Drop a reply to retry!"
 
 
 @dataclass
@@ -225,8 +224,9 @@ class ReviewAddressorManager(BaseManager):
                 # avoiding loosing the work done so far.
                 logger.exception("Error processing discussion: %s", context.discussion.id)
 
-        if file_changes := await manager._get_file_changes():
-            await manager._commit_changes(file_changes=file_changes)
+        if await manager._get_file_changes():
+            await apply_format_code(repo_id, ref, manager._file_changes_store)
+            await manager._commit_changes(file_changes=await manager._get_file_changes())
 
         for discussion_id, note_id in resolved_discussions:
             manager.client.update_merge_request_discussion_note(
@@ -234,7 +234,7 @@ class ReviewAddressorManager(BaseManager):
                 manager.merge_request_id,
                 discussion_id,
                 note_id,
-                END_TASK_MESSAGE,
+                "✅ Review comment addressed—ready for your check!",
                 mark_as_resolved=True,
             )
 
@@ -263,31 +263,42 @@ class ReviewAddressorManager(BaseManager):
         # Pre-populate the store with file changes that resulted from previous discussions resolution.
         await self._set_file_changes(await self._get_file_changes(), store=file_changes_store)
 
-        reviewer_addressor = await ReviewAddressorAgent(store=file_changes_store).agent
+        async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
+            reviewer_addressor = await ReviewAddressorAgent(store=file_changes_store, checkpointer=checkpointer).agent
 
-        note_id = self.client.create_merge_request_discussion_note(
-            self.repo_id, self.merge_request_id, START_TASK_MESSAGE, discussion_id=context.discussion.id
-        )
+            current_state = await reviewer_addressor.aget_state(config, subgraphs=True)
+            if current_state.created_at is not None:
+                # If the thread already exists, we will delete it to avoid conflicts. This is a workaround to avoid
+                # conflicts when the same discussion is processed multiple times.
+                await checkpointer.adelete_thread(thread_id)
 
-        try:
-            result = await reviewer_addressor.ainvoke(
-                {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff}, config
-            )
-        except Exception:
-            logger.exception("Error processing discussion: %s", context.discussion.id)
-            self.client.update_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, context.discussion.id, note_id, ERROR_TASK_MESSAGE
-            )
-            return None
+            note_id = self._add_workflow_step_note("start", context.discussion.id)
 
-        if note := (result.get("reply") or result.get("plan_questions")):
-            self.client.update_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
-            )
-        elif files_to_commit := await self._get_file_changes(store=file_changes_store):
-            # Update the global file changes store with file changes that resulted from the discussion resolution.
-            await self._set_file_changes(files_to_commit)
-            return context.discussion.id, note_id
+            try:
+                async for event in reviewer_addressor.astream_events(
+                    {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff},
+                    config,
+                    include_names=["plan", "execute_plan"],
+                    include_types=["on_chain_start"],
+                ):
+                    if event["event"] == "on_chain_start":
+                        self._add_workflow_step_note(event["name"], context.discussion.id, note_id)
+            except Exception:
+                logger.exception("Error processing discussion: %s", context.discussion.id)
+                self._add_workflow_step_note("error", context.discussion.id, note_id)
+                return None
+
+            current_state = await reviewer_addressor.aget_state(config, subgraphs=True)
+
+            if note := (current_state.values.get("reply") or current_state.values.get("plan_questions")):
+                self.client.update_merge_request_discussion_note(
+                    self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
+                )
+            elif files_to_commit := await self._get_file_changes(store=file_changes_store):
+                # Update the global file changes store with file changes that resulted from the discussion resolution.
+                await self._set_file_changes(files_to_commit)
+                self._add_workflow_step_note("addressed", context.discussion.id, note_id)
+                return context.discussion.id, note_id
 
         return None
 
@@ -358,3 +369,32 @@ class ReviewAddressorManager(BaseManager):
             if context.notes:
                 discussions.append(context)
         return discussions
+
+    def _add_workflow_step_note(
+        self,
+        step_name: Literal["start", "plan", "execute_plan", "addressed", "error"],
+        discussion_id: str,
+        note_id: str | None = None,
+    ) -> str | None:
+        """
+        Add a note to the discussion to inform the user that the workflow step has been completed.
+        """
+        if step_name == "start":
+            note_message = "⏳ Addressing your review comment — *in progress* ..."
+        if step_name == "plan":
+            note_message = "🛠️ Drafting a plan to address the review — *in progress* ..."
+        elif step_name == "execute_plan":
+            note_message = "🚀 Executing the plan — *in progress* ..."
+        elif step_name == "addressed":
+            note_message = "✅ Review comment addressed—I'll include the changes shortly with the final updates!"
+        elif step_name == "error":
+            note_message = "⚠️ I encountered an issue addressing this comment. Reply to this comment to retry!"
+
+        if note_id:
+            self.client.update_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, discussion_id, note_id, note_message
+            )
+        else:
+            return self.client.create_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, note_message, discussion_id=discussion_id
+            )

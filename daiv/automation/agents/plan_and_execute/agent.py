@@ -14,11 +14,10 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
+from automation.agents.nodes import apply_format_code
 from automation.tools import think
-from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
 from automation.utils import file_changes_namespace
-from core.config import RepositoryConfig
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
@@ -39,8 +38,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     def __init__(
         self,
         *,
-        skip_planning: bool = False,
         skip_approval: bool = False,
+        skip_format_code: bool = False,
         plan_system_template: SystemMessagePromptTemplate | None = None,
         **kwargs,
     ):
@@ -48,13 +47,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Initialize the agent.
 
         Args:
-            skip_planning (bool): Whether to skip the planning step.
             skip_approval (bool): Whether to skip the approval step.
+            skip_format_code (bool): Whether to skip the format code step.
             plan_system_template (SystemMessagePromptTemplate): The system prompt template for the planning step.
         """
         self.plan_system_template = plan_system_template or plan_system
-        self.skip_planning = skip_planning
         self.skip_approval = skip_approval
+        self.skip_format_code = skip_format_code
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -66,17 +65,15 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
 
-        if not self.skip_planning:
-            workflow.add_node("plan", await self.plan_subgraph(self.store))
-            workflow.add_node("plan_approval", self.plan_approval)
+        workflow.add_node("plan", await self.plan_subgraph(self.store))
+        workflow.add_node("plan_approval", self.plan_approval)
 
         workflow.add_node("execute_plan", self.execute_plan)
-        workflow.add_node("apply_format_code", self.apply_format_code)
 
-        if not self.skip_planning:
-            workflow.set_entry_point("plan")
-        else:
-            workflow.set_entry_point("execute_plan")
+        if not self.skip_format_code:
+            workflow.add_node("apply_format_code", self.apply_format_code)
+
+        workflow.set_entry_point("plan")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
@@ -121,16 +118,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["execute_plan"]]: The next step in the workflow.
         """
-        if self.skip_approval:
-            return Command(goto="execute_plan")
-
-        interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
+        if not self.skip_approval:
+            interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
 
         return Command(goto="execute_plan")
 
     async def execute_plan(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
-    ) -> Command[Literal["apply_format_code", "__end__"]]:
+    ) -> Command[Literal["__end__"]]:
         """
         Subgraph to execute the plan.
 
@@ -162,7 +157,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
         })
 
-        if await store.asearch(
+        if not self.skip_format_code and await store.asearch(
             file_changes_namespace(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]),
             limit=1,
         ):
@@ -183,23 +178,5 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        source_repo_id = config["configurable"]["source_repo_id"]
-        source_ref = config["configurable"]["source_ref"]
-
-        repo_config = RepositoryConfig.get_config(source_repo_id)
-
-        if not repo_config.commands.enabled():
-            logger.info("Format code is disabled for this repository, skipping.")
-            return Command(goto=END)
-
-        run_command_tool = RunSandboxCommandsTool()
-        await run_command_tool.ainvoke(
-            {
-                "commands": [repo_config.commands.install_dependencies, repo_config.commands.format_code],
-                "intent": "[Manual call] Format code in the repository",
-                "store": store,
-            },
-            config=RunnableConfig(configurable={"source_repo_id": source_repo_id, "source_ref": source_ref}),
-        )
-
+        await apply_format_code(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store)
         return Command(goto=END)

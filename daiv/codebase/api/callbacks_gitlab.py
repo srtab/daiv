@@ -129,6 +129,10 @@ class NoteCallback(BaseCallback):
             )()
 
         elif self._is_merge_request_review:
+            self._client.create_merge_request_note_emoji(
+                self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
+            )
+
             await sync_to_async(
                 address_review_task.si(
                     repo_id=self.project.path_with_namespace,
