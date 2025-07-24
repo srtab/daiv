@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added quick actions feature to allow users perform actions by commenting on the merge request or issue thread.
+- Added `echo` quick action that echoes back provided messages when triggered with `@daivbot echo {message}` on issues and merge requests. For merge requests, discussions are automatically marked as resolved.
 
 ### Changed
 
