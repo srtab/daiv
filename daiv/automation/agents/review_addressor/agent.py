@@ -20,6 +20,7 @@ from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
+from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import respond_reviewer_system, review_comment_system, review_plan_system_template
@@ -48,6 +49,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
 
     async def compile(self) -> CompiledStateGraph:
         tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
+        repo_client = RepoClient.create_instance()
 
         return create_react_agent(
             self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
@@ -56,7 +58,9 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             store=self.store,
             checkpointer=False,
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")
+                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                bot_name=BOT_NAME,
+                bot_username=repo_client.current_user.username,
             ),
             name=settings.REPLY_NAME,
             version="v2",
@@ -133,6 +137,8 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 "current_date_time": timezone.now().strftime("%d %B, %Y %H:%M"),
                 "diff": state["diff"],
                 "project_description": repo_config.repository_description,
+                "bot_name": BOT_NAME,
+                "bot_username": config["configurable"]["bot_username"],
             },
             additional_kwargs={"cache-control": {"type": "ephemeral"}},
         )

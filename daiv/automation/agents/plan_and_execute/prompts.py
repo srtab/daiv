@@ -105,6 +105,7 @@ RULES OF THUMB
 - Verify naming conventions and existing tests/libs before proposing new ones.
 - Be mindful of large repos; prefer targeted searches over blanket downloads.
 - Re-enter AskForClarification if *any* uncertainty remains.
+- If the user's mentions you (e.g., {{ bot_name }}, @{{ bot_username }}), treat it as a direct question or request addressed to yourself. **Never** ask for clarification about who is being mentioned in this context.
 
 ────────────────────────────────────────────────────────
 Follow this workflow for every user request.""",  # noqa: E501

@@ -255,7 +255,12 @@ class ReviewAddressorManager(BaseManager):
                 "discussion_id": context.discussion.id,
                 "author": context.notes[-1].author.username,
             },
-            configurable={"thread_id": thread_id, "source_repo_id": self.repo_id, "source_ref": self.ref},
+            configurable={
+                "thread_id": thread_id,
+                "source_repo_id": self.repo_id,
+                "source_ref": self.ref,
+                "bot_username": self.client.current_user.username,
+            },
         )
 
         # Create a new store for each discussion.

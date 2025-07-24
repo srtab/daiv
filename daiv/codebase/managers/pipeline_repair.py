@@ -176,6 +176,7 @@ class PipelineRepairManager(BaseManager):
                 "source_ref": self.ref,
                 "job_name": self.job_name,
                 "discussion_id": self.discussion_id,
+                "bot_username": self.client.current_user.username,
             },
         )
 
