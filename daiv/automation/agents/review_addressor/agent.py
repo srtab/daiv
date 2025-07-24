@@ -138,7 +138,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         )
 
         plan_and_execute = await PlanAndExecuteAgent(
-            plan_system_template=review_plan_system, store=store, skip_approval=True, checkpointer=False
+            plan_system_template=review_plan_system,
+            store=store,
+            skip_approval=True,
+            skip_format_code=True,  # we will apply format code after all reviews are addressed
+            checkpointer=False,
         ).agent
 
         result = await plan_and_execute.ainvoke({"messages": state["notes"]})

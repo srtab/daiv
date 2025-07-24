@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added quick actions feature to allow users perform actions by commenting on the merge request or issue thread.
+- Added quick actions feature to allow users perform actions by commenting on the merge request or issue.
+- Added quick actions to allow users to trigger plan revision by commenting `@daiv plan revise` on the issue.
 
 ### Changed
 
 - Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async only.
 - Migrated `PipelineFixerAgent` to be triggered by a quick action instead of a webhook, allowing users to request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
+- Migrated `IssueAddressorAgent` plan approval to be triggered by a quick action, allowing users to request a plan approval by commenting `@daiv plan execute` on the issue.
 
 ### Fixed
 

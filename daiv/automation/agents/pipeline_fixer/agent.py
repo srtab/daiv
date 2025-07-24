@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Literal
 
 from django.utils import timezone
@@ -17,11 +16,10 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
+from automation.agents.nodes import apply_format_code
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.tools import think
-from automation.tools.sandbox import RunSandboxCommandsTool
 from automation.tools.toolkits import ReadRepositoryToolkit
-from core.config import RepositoryConfig
 
 from .conf import settings
 from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
@@ -177,48 +175,27 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
+        content = await apply_format_code(
+            config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store
+        )
 
-        if not repo_config.commands.enabled():
-            logger.info("Format code is disabled for this repository, skipping.")
+        if content is None:
             # If format code is disabled, we need to try to fix the linting issues by planning the remediation steps.
             # This is less effective than actually formatting the code, but it's better than nothing. For instance,
             # linting errors like whitespaces can be challenging to fix by an agent, or even impossible.
             return Command(goto="plan_and_execute")
 
-        tool_message = await RunSandboxCommandsTool().ainvoke(
-            {
-                "name": "run_sandbox_commands",
-                "args": {
-                    "commands": [repo_config.commands.install_dependencies, repo_config.commands.format_code],
-                    "intent": "[Manual run] Format code in the repository to fix the pipeline issue.",
-                    "store": store,
-                },
-                "id": str(uuid.uuid4()),
-                "type": "tool_call",
-            },
-            config=RunnableConfig(
-                configurable={
-                    "source_repo_id": config["configurable"]["source_repo_id"],
-                    "source_ref": config["configurable"]["source_ref"],
-                }
-            ),
-        )
-
         # We need to check if the command output contains more errors, or indications of failures.
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
         command_output_evaluator = await CommandOutputEvaluator().agent
-        result = await command_output_evaluator.ainvoke({"output": tool_message.artifact[-1].output})
+        result = await command_output_evaluator.ainvoke({"output": content})
 
         if result.has_errors and state.get("format_iteration", 0) < MAX_FORMAT_ITERATIONS:
             # If there are still errors, we need to try to fix them by executing troubleshooting again.
             return Command(
                 goto="troubleshoot",
-                update={
-                    "job_logs": tool_message.artifact[-1].output,
-                    "format_iteration": state.get("format_iteration", 0) + 1,
-                },
+                update={"job_logs": content, "format_iteration": state.get("format_iteration", 0) + 1},
             )
 
         return Command(goto=END)
