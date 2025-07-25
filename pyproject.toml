@@ -28,9 +28,9 @@ dependencies = [
   "httpx==0.28.1",
   "ipython==9.4",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.26",
+  "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.27",
   "langchain-mcp-adapters==0.1.9",
-  "langchain-text-splitters==0.3.8",
+  "langchain-text-splitters==0.3.9",
   "langchain-voyageai==0.1.6",
   "langgraph==0.5.4",
   "langgraph-checkpoint-postgres==2.0.23",
@@ -58,7 +58,7 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.9.2",
+  "coverage==7.10",
   "jupyter==1.1.1",
   "mypy==1.17",
   "pre-commit==4.2",
@@ -71,8 +71,8 @@ dev = [
   "pytest-mock==3.14.1",
   "pytest-xdist==3.8",
   "python-dotenv==1.1.1",
-  "rich==14",
-  "ruff==0.12.4",
+  "rich==14.1",
+  "ruff==0.12.5",
   "types-pyyaml==6.0.12.20250516",
   "watchdog==6",
 ]
