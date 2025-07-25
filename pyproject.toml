@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "0.2.0"
+version = "0.3.0"
 description = "Developer assistant automating code issues, reviews, and pipeline fixes using AI Agents."
 readme = "README.md"
 license = { file = "LICENSE" }
