@@ -25,6 +25,7 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.base import FileChange, Issue
 from codebase.clients import RepoClient
+from core.config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -68,6 +69,7 @@ class IssueAddressorManager(BaseManager):
     def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
         super().__init__(RepoClient.create_instance(), repo_id, ref)
         self.repository = self.client.get_repository(repo_id)
+        self.repo_config = RepositoryConfig.get_config(repo_id)
         self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
         self.discussion_id = discussion_id
         self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
@@ -189,14 +191,14 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store)
+            issue_addressor = await IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
 
-            current_state = await issue_addressor.agent.aget_state(self._config, subgraphs=True)
+            current_state = await issue_addressor.aget_state(self._config, subgraphs=True)
 
             # If the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
             # We resume the execution of the plan_and_execute node.
             if "plan_and_execute" in current_state.next and current_state.interrupts:
-                async for event in issue_addressor.agent.astream_events(
+                async for event in issue_addressor.astream_events(
                     Command(resume="Plan approved"),
                     self._config,
                     include_names=["plan_and_execute", "apply_format_code"],
@@ -228,6 +230,7 @@ class IssueAddressorManager(BaseManager):
                 "issue_id": self.issue.iid,
                 "repo_client": self.client.client_slug,
                 "bot_username": self.client.current_user.username,
+                "commands_enabled": self.repo_config.commands.enabled(),
             },
         )
 

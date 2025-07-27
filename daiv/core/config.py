@@ -98,14 +98,10 @@ class RepositoryConfig(BaseModel):
     exclude_patterns: tuple[str, ...] = Field(
         default=(
             # files
-            "*package-lock.json",
-            "*.lock",
-            "*.svg",
             "*.pyc",
             "*.log",
             "*.zip",
             "*.coverage",
-            "*.sql",
             # folders
             "**/.git/**",
             "**/.mypy_cache/**",
@@ -137,6 +133,16 @@ class RepositoryConfig(BaseModel):
             "https://docs.python.org/3/library/fnmatch.html"
         ),
         examples=["**/tests/**", "requirements.txt"],
+    )
+    omit_content_patterns: list[str] = Field(
+        default=("*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg", "*.sql"),
+        description=(
+            "List of path patterns that DAIV should ignore when indexing but should be visible in the repository "
+            "structure/retrieval. This is useful to avoid indexing large files that are not relevant to the codebase. "
+            "For example, large images, videos, or other media files, lock files, etc..."
+            "For more information on the patterns syntax, refer to the `fnmatch` documentation: "
+            "https://docs.python.org/3/library/fnmatch.html"
+        ),
     )
 
     # Pull request management
@@ -226,3 +232,11 @@ class RepositoryConfig(BaseModel):
         Returns a tuple of all patterns that should be excluded.
         """
         return tuple(set(self.exclude_patterns) | set(self.extend_exclude_patterns))
+
+    @property
+    def index_exclude_patterns(self) -> tuple[str, ...]:
+        """
+        Combines the base exclude patterns with any additional patterns specified.
+        Returns a tuple of all patterns that should be excluded.
+        """
+        return tuple(set(self.exclude_patterns) | set(self.extend_exclude_patterns) | set(self.omit_content_patterns))

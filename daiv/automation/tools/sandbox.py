@@ -27,10 +27,12 @@ logger = logging.getLogger("daiv.tools")
 
 
 class RunSandboxCommandsTool(BaseTool):
-    name: str = "run_sandbox_commands"
+    name: str = "run_commands"
     description: str = textwrap.dedent(
         """\
-        Run a list of commands on the repository. The commands will be run in the same order as they are provided. All the changes made by the commands will be considered to be committed.
+        Run a list of commands in the repository root directory. The commands are executed in the order in which they are provided. Any changes made by the commands are considered to be persisted in the repository. There is no persistence on the file system over multiple tool calls, a clean state is used for each call. The output of each call is returned to you to check the success of the call and whether the intended changes have been made.
+
+        IMPORTANT: Only use this tool to execute commands when directly requested by the user.
         """  # noqa: E501
     )
     api_wrapper: RepoClient = Field(default_factory=RepoClient.create_instance)
@@ -55,6 +57,7 @@ class RunSandboxCommandsTool(BaseTool):
             intent: A description of why you're running these commands.
             store: The store to save the file changes to.
             config: The config to use for the run.
+
         Returns:
             The results of the commands to feed the agent knowledge.
         """

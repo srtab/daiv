@@ -58,7 +58,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             store=self.store,
             checkpointer=False,
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
                 bot_name=BOT_NAME,
                 bot_username=repo_client.current_user.username,
             ),
@@ -134,7 +134,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             review_plan_system_template,
             "jinja2",
             partial_variables={
-                "current_date_time": timezone.now().strftime("%d %B, %Y %H:%M"),
+                "current_date_time": timezone.now().strftime("%d %B, %Y"),
                 "diff": state["diff"],
                 "project_description": repo_config.repository_description,
                 "bot_name": BOT_NAME,

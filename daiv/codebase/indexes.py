@@ -118,7 +118,7 @@ class CodebaseIndex(abc.ABC):
                 loader = GenericLanguageLoader.from_filesystem(
                     repo_dir,
                     limit_to=loader_limit_paths_to,
-                    exclude=repo_config.combined_exclude_patterns,
+                    exclude=repo_config.index_exclude_patterns,
                     documents_metadata={
                         "repo_id": namespace.repository_info.external_slug,
                         "ref": ref,

@@ -38,7 +38,7 @@ async def apply_format_code(source_repo_id: str, source_ref: str | None, store: 
 
     tool_message = await RunSandboxCommandsTool().ainvoke(
         {
-            "name": "run_sandbox_commands",
+            "name": "run_commands",
             "args": {
                 "commands": [repo_config.commands.install_dependencies, repo_config.commands.format_code],
                 "intent": "[Manual run] Format code in the repository to fix the pipeline issue.",

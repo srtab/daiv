@@ -43,7 +43,7 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
                 repositories=await index._get_all_repositories(),
                 search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
             ),
             version="v2",
             name=settings.NAME,

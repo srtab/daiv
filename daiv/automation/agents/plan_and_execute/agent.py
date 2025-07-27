@@ -16,9 +16,14 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code
 from automation.tools import think
-from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import (
+    MCPToolkit,
+    ReadRepositoryToolkit,
+    SandboxToolkit,
+    WebSearchToolkit,
+    WriteRepositoryToolkit,
+)
 from automation.utils import file_changes_namespace
-from codebase.clients import RepoClient
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -67,7 +72,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
 
-        workflow.add_node("plan", await self.plan_subgraph(self.store))
+        workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
 
         workflow.add_node("execute_plan", self.execute_plan)
@@ -79,43 +84,50 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    async def plan_subgraph(self, store: BaseStore | None = None) -> CompiledStateGraph:
+    async def plan(
+        self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
+    ) -> Command[Literal["plan_approval", "__end__"]]:
         """
-        Subgraph to plan the steps to follow.
+        Node to plan the steps to follow.
 
         Args:
+            state (PlanAndExecuteState): The state of the agent.
             store (BaseStore): The store to use for caching.
+            config (RunnableConfig): The config for the agent.
 
         Returns:
-            CompiledStateGraph: The compiled subgraph.
+            Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        repo_client = RepoClient.create_instance()
-
         mcp_tools = (await MCPToolkit.create_instance()).get_tools()
-        mcp_tools_names = [tool.name for tool in mcp_tools]
+        repository_tools = ReadRepositoryToolkit.create_instance().get_tools()
+        web_search_tools = WebSearchToolkit.create_instance().get_tools()
 
-        return create_react_agent(
+        react_agent = create_react_agent(
             self.get_model(
                 model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
             ),
-            tools=ReadRepositoryToolkit.create_instance().get_tools()
-            + WebSearchToolkit.create_instance().get_tools()
-            + mcp_tools
-            + [think, complete_task],
+            tools=repository_tools + web_search_tools + mcp_tools + [think, complete_task],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([
                 self.plan_system_template,
                 MessagesPlaceholder("messages"),
             ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
-                mcp_tools_names=mcp_tools_names,
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                mcp_tools_names=[tool.name for tool in mcp_tools],
                 bot_name=BOT_NAME,
-                bot_username=repo_client.current_user.username,
+                bot_username=config["configurable"]["bot_username"],
+                commands_enabled=config["configurable"]["commands_enabled"],
             ),
             name="Planner",
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+
+        await react_agent.ainvoke({"messages": state["messages"]})
+
+        # The agent should call the complete_task tool to determine the next action to take.
+        # If the agent don't call the complete_task tool, the workflow will end.
+        return Command(goto=END)
 
     async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan"]]:
         """
@@ -136,7 +148,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["__end__"]]:
         """
-        Subgraph to execute the plan.
+        Node to execute the plan.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
@@ -146,16 +158,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
+        repository_tools = WriteRepositoryToolkit.create_instance().get_tools()
+        sandbox_tools = (
+            SandboxToolkit.create_instance().get_tools() if config["configurable"]["commands_enabled"] else []
+        )
+
         react_agent = create_react_agent(
             self.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
-            tools=WriteRepositoryToolkit.create_instance().get_tools() + [think],
+            tools=repository_tools + sandbox_tools + [think],
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,
                 HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
                 MessagesPlaceholder("messages"),
-            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                commands_enabled=config["configurable"]["commands_enabled"],
+            ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
             name="PlanExecuter",
             version="v2",

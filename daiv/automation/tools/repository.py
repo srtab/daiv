@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import logging
 import textwrap
 from typing import Any
@@ -226,6 +227,15 @@ class BaseRepositoryTool(BaseTool):
         Returns:
             The content of the file.
         """
+        config = RepositoryConfig.get_config(source_repo_id)
+
+        if any(fnmatch.fnmatch(file_path, pattern) for pattern in config.omit_content_patterns):
+            # We can't return None on this cases, otherwise the llm will think the file does not exist and
+            # try to create it on some specific scenarios.
+            return "[File content was intentionally excluded by the repository configuration]"
+
+        if any(fnmatch.fnmatch(file_path, pattern) for pattern in config.combined_exclude_patterns):
+            return None
 
         if stored_item := await store.aget(file_changes_namespace(source_repo_id, source_ref), file_path):
             if stored_item.value["action"] == FileChangeAction.DELETE:
