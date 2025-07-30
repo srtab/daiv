@@ -6,8 +6,6 @@ from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
-DETERMINE_NEXT_ACTION_TOOL_NAME = "complete_task"
-
 
 class HumanApprovalInput(TypedDict):
     """
@@ -112,26 +110,45 @@ class Plan(BaseModel):
     # `DetermineNextAction` as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    changes: list[ChangeInstructions] = Field(description="Sorted so that related edits to the same file are adjacent.")
+    changes: list[ChangeInstructions] = Field(
+        description="Sorted so that related edits to the same file are adjacent.", min_length=1
+    )
 
 
-class DetermineNextAction(BaseModel):
+class CompleteWithPlan(BaseModel):
     """
-    Wrapper object that tells the orchestrator what should happen next.
-
-    Exactly one of the two possible actions must be provided:
-     - AskForClarification - when more information is required from the user.
-     - Plan                - when a full implementation plan is ready.
+    The plan to execute.
     """
 
-    model_config = ConfigDict(title=DETERMINE_NEXT_ACTION_TOOL_NAME)
+    model_config = ConfigDict(title="complete_with_plan")
 
     tool_call_id: Annotated[str, InjectedToolCallId]
-    action: Plan | AskForClarification = Field(
-        description=dedent(
-            """\
-            The next step the agent proposes.
-            Supply *either* a populated `Plan` object *or* an `AskForClarification` object—not both, not neither.
-            """  # noqa: E501
-        )
+    plan: Plan = Field(
+        description="The plan to execute.",
+        examples=[{"changes": [{"file_path": "src/app.py", "relevant_files": ["src/app.py"], "details": "..."}]}],
     )
+
+
+class CompleteWithClarification(BaseModel):
+    """
+    The question(s) to ask the user for clarification.
+    """
+
+    model_config = ConfigDict(title="complete_with_clarification")
+
+    tool_call_id: Annotated[str, InjectedToolCallId]
+    ask_for_clarification: AskForClarification = Field(
+        description="The question(s) to ask the user for clarification.",
+        examples=[{"questions": ["Could you clarify which database driver we must support?"]}],
+    )
+
+
+class CompleteWithPlanOrClarification(BaseModel):
+    """
+    The plan or question(s) to ask the user for clarification.
+    """
+
+    model_config = ConfigDict(title="complete_with_plan_or_clarification")
+
+    tool_call_id: Annotated[str, InjectedToolCallId]
+    action: Plan | AskForClarification = Field(description="The plan or question(s) to ask the user for clarification.")

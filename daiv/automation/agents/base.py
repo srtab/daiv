@@ -99,7 +99,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         _kwargs = {
             "temperature": 0,
             "callbacks": [self.usage_handler],
-            "configurable_fields": ("temperature", "max_tokens"),
             "model_kwargs": {},
             "model_provider": model_provider,
             **kwargs,

@@ -28,8 +28,9 @@ from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
+from .schemas import AskForClarification, CompleteWithPlanOrClarification, Plan
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import complete_task
+from .tools import complete_with_clarification, complete_with_plan
 
 if TYPE_CHECKING:
     from langchain_core.prompts import SystemMessagePromptTemplate
@@ -106,7 +107,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             self.get_model(
                 model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
             ),
-            tools=repository_tools + web_search_tools + mcp_tools + [think, complete_task],
+            tools=repository_tools
+            + web_search_tools
+            + mcp_tools
+            + [think, complete_with_plan, complete_with_clarification],
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([
@@ -119,14 +123,23 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 bot_username=config["configurable"]["bot_username"],
                 commands_enabled=config["configurable"]["commands_enabled"],
             ),
+            # Add response_format to fallback if the agent doesn't call the final tools.
+            response_format=CompleteWithPlanOrClarification,
             name="Planner",
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
-        await react_agent.ainvoke({"messages": state["messages"]})
+        response = await react_agent.ainvoke({"messages": state["messages"]})
 
-        # The agent should call the complete_task tool to determine the next action to take.
-        # If the agent don't call the complete_task tool, the workflow will end.
+        # At this point, the agent should have called the final tool. In case it didn't, we fallback to the
+        # response_format.
+        if "structured_response" in response and (structured_response := response["structured_response"]):
+            if isinstance(structured_response.action, Plan):
+                return Command(goto="plan_approval", update={"plan_tasks": structured_response.action.changes})
+            elif isinstance(structured_response.action, AskForClarification):
+                return Command(goto=END, update={"plan_questions": structured_response.action.questions})
+
+        # If the agent don't call any tool and can't return a formatted response, the workflow will end.
         return Command(goto=END)
 
     async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan"]]:
