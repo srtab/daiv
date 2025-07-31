@@ -6,6 +6,17 @@ from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
+COMPLETE_WITH_PLAN_DESCRIPTION = """\
+A complete implementation plan that satisfies the user's request.
+
+The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
+Related instructions affecting the same file should appear in consecutive order to aid batching and review."""
+
+COMPLETE_WITH_CLARIFICATION_DESCRIPTION = """\
+Use this tool to ask for clarification only after workflow retrieval.
+Ask the user follow-up questions when their request is vague, ambiguous, incomplete, or self-contradictory.
+Do not ask for clarification before workflow retrieval."""
+
 
 class HumanApprovalInput(TypedDict):
     """
@@ -37,14 +48,10 @@ class HumanApprovalEvaluation(BaseModel):
 
 
 class AskForClarification(BaseModel):
-    """
-    Ask the user follow-up questions when their original request is ambiguous, incomplete, or self-contradictory.
-    """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
+    tool_call_id: Annotated[str, InjectedToolCallId]
     questions: str = Field(
         description=dedent(
             """\
@@ -56,6 +63,9 @@ class AskForClarification(BaseModel):
     )
 
 
+AskForClarification.__doc__ = COMPLETE_WITH_CLARIFICATION_DESCRIPTION
+
+
 class ChangeInstructions(BaseModel):
     """
     A single, self-contained description of what must change in the code-base.
@@ -65,8 +75,7 @@ class ChangeInstructions(BaseModel):
     shared file with `file_path`.
     """
 
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     relevant_files: list[str] = Field(
@@ -99,48 +108,16 @@ class ChangeInstructions(BaseModel):
 
 
 class Plan(BaseModel):
-    """
-    A complete implementation plan that satisfies the user's request.
-
-    The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
-    Related instructions affecting the same file should appear in consecutive order to aid batching and review.
-    """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
+    tool_call_id: Annotated[str, InjectedToolCallId]
     changes: list[ChangeInstructions] = Field(
         description="Sorted so that related edits to the same file are adjacent.", min_length=1
     )
 
 
-class CompleteWithPlan(BaseModel):
-    """
-    The plan to execute.
-    """
-
-    model_config = ConfigDict(title="complete_with_plan")
-
-    tool_call_id: Annotated[str, InjectedToolCallId]
-    plan: Plan = Field(
-        description="The plan to execute.",
-        examples=[{"changes": [{"file_path": "src/app.py", "relevant_files": ["src/app.py"], "details": "..."}]}],
-    )
-
-
-class CompleteWithClarification(BaseModel):
-    """
-    The question(s) to ask the user for clarification.
-    """
-
-    model_config = ConfigDict(title="complete_with_clarification")
-
-    tool_call_id: Annotated[str, InjectedToolCallId]
-    ask_for_clarification: AskForClarification = Field(
-        description="The question(s) to ask the user for clarification.",
-        examples=[{"questions": ["Could you clarify which database driver we must support?"]}],
-    )
+Plan.__doc__ = COMPLETE_WITH_PLAN_DESCRIPTION
 
 
 class CompleteWithPlanOrClarification(BaseModel):
@@ -150,5 +127,4 @@ class CompleteWithPlanOrClarification(BaseModel):
 
     model_config = ConfigDict(title="complete_with_plan_or_clarification")
 
-    tool_call_id: Annotated[str, InjectedToolCallId]
     action: Plan | AskForClarification = Field(description="The plan or question(s) to ask the user for clarification.")
