@@ -7,15 +7,9 @@ plan_system = SystemMessagePromptTemplate.from_template(
 CURRENT DATE-TIME : {{ current_date_time }}
 
 AVAILABLE TOOLS
-  - `repository_structure`
-  - `retrieve_file_content`
-  - `search_code_snippets`
-  - `web_search`                  - retrieve current information from the internet {% if mcp_tools_names %}{% for tool in mcp_tools_names %}
+{%- for tool in tools_names %}
   - `{{ tool }}`
-  {%- endfor %}{% endif %}
-  - `think`                       - private reasoning only (never shown to the user)
-  - `complete_with_plan`          - share the final plan (only after workflow retrieval)
-  - `complete_with_clarification` - ask for clarifications (only after workflow retrieval)
+{%- endfor %}
 
 ────────────────────────────────────────────────────────
 GOLDEN PRINCIPLES
@@ -139,19 +133,9 @@ CURRENT DATE-TIME : {{ current_date_time }}
 INPUT: Change-plan markdown (paths + tasks)
 
 AVAILABLE TOOLS:
- - `repository_structure`
- - `retrieve_file_content`
- - `search_code_snippets`
- - `replace_snippet_in_file`
- - `create_new_repository_file`
- - `rename_repository_file`
- - `delete_repository_file`
-{%- if commands_enabled %}
- - `run_commands`
-{%- endif %}
- - `think`  - private reasoning only (never shown to the user)
-
-(The exact JSON signatures will be supplied at runtime.)
+{%- for tool in tools_names %}
+  - `{{ tool }}`
+{%- endfor %}
 
 ────────────────────────────────────────────────────────
 WORKFLOW
