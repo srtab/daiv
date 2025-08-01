@@ -6,7 +6,16 @@ from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
-DETERMINE_NEXT_ACTION_TOOL_NAME = "complete_task"
+COMPLETE_WITH_PLAN_DESCRIPTION = """\
+A complete implementation plan that satisfies the user's request.
+
+The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
+Related instructions affecting the same file should appear in consecutive order to aid batching and review."""
+
+COMPLETE_WITH_CLARIFICATION_DESCRIPTION = """\
+Use this tool to ask for clarification only after workflow retrieval.
+Ask the user follow-up questions when their request is vague, ambiguous, incomplete, or self-contradictory.
+Do not ask for clarification before workflow retrieval."""
 
 
 class HumanApprovalInput(TypedDict):
@@ -39,14 +48,10 @@ class HumanApprovalEvaluation(BaseModel):
 
 
 class AskForClarification(BaseModel):
-    """
-    Ask the user follow-up questions when their original request is ambiguous, incomplete, or self-contradictory.
-    """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
+    tool_call_id: Annotated[str, InjectedToolCallId]
     questions: str = Field(
         description=dedent(
             """\
@@ -58,6 +63,9 @@ class AskForClarification(BaseModel):
     )
 
 
+AskForClarification.__doc__ = COMPLETE_WITH_CLARIFICATION_DESCRIPTION
+
+
 class ChangeInstructions(BaseModel):
     """
     A single, self-contained description of what must change in the code-base.
@@ -67,8 +75,7 @@ class ChangeInstructions(BaseModel):
     shared file with `file_path`.
     """
 
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
     relevant_files: list[str] = Field(
@@ -90,7 +97,7 @@ class ChangeInstructions(BaseModel):
     details: str = Field(
         description=dedent(
             """\
-            A clear, human-readable explanation of the required change—algorithms, naming conventions, error handling, edge cases, test approach, performance notes, etc.
+            A clear, human-readable explanation of the required change—algorithms, naming conventions, error handling, edge cases, test approach, performance notes, shell commands to run, etc.
              - **Do NOT** write or paste a full diff / complete implementation you have invented;
              - You **may** embed short illustrative snippets **or** verbatim user-supplied code **only if it is syntactically correct**. If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code;
              - Use the safe format: fenced with tildes `~~~language` … `~~~` for markdown code blocks;
@@ -101,37 +108,23 @@ class ChangeInstructions(BaseModel):
 
 
 class Plan(BaseModel):
-    """
-    A complete implementation plan that satisfies the user's request.
-
-    The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
-    Related instructions affecting the same file should appear in consecutive order to aid batching and review.
-    """
-
-    # Need to add manually `additionalProperties=False` to allow use the schema
-    # `DetermineNextAction` as tool with strict mode
+    # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    changes: list[ChangeInstructions] = Field(description="Sorted so that related edits to the same file are adjacent.")
-
-
-class DetermineNextAction(BaseModel):
-    """
-    Wrapper object that tells the orchestrator what should happen next.
-
-    Exactly one of the two possible actions must be provided:
-     - AskForClarification - when more information is required from the user.
-     - Plan                - when a full implementation plan is ready.
-    """
-
-    model_config = ConfigDict(title=DETERMINE_NEXT_ACTION_TOOL_NAME)
-
     tool_call_id: Annotated[str, InjectedToolCallId]
-    action: Plan | AskForClarification = Field(
-        description=dedent(
-            """\
-            The next step the agent proposes.
-            Supply *either* a populated `Plan` object *or* an `AskForClarification` object—not both, not neither.
-            """  # noqa: E501
-        )
+    changes: list[ChangeInstructions] = Field(
+        description="Sorted so that related edits to the same file are adjacent.", min_length=1
     )
+
+
+Plan.__doc__ = COMPLETE_WITH_PLAN_DESCRIPTION
+
+
+class CompleteWithPlanOrClarification(BaseModel):
+    """
+    The plan or question(s) to ask the user for clarification.
+    """
+
+    model_config = ConfigDict(title="complete_with_plan_or_clarification")
+
+    action: Plan | AskForClarification = Field(description="The plan or question(s) to ask the user for clarification.")

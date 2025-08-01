@@ -16,18 +16,25 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code
 from automation.tools import think
-from automation.tools.toolkits import MCPToolkit, ReadRepositoryToolkit, WebSearchToolkit, WriteRepositoryToolkit
+from automation.tools.toolkits import (
+    MCPToolkit,
+    ReadRepositoryToolkit,
+    SandboxToolkit,
+    WebSearchToolkit,
+    WriteRepositoryToolkit,
+)
 from automation.utils import file_changes_namespace
-from codebase.clients import RepoClient
 from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
+from .schemas import AskForClarification, CompleteWithPlanOrClarification, Plan
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import complete_task
+from .tools import complete_with_clarification, complete_with_plan
 
 if TYPE_CHECKING:
     from langchain_core.prompts import SystemMessagePromptTemplate
+    from langchain_core.tools import BaseTool
 
 logger = logging.getLogger("daiv.agents")
 
@@ -67,7 +74,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
 
-        workflow.add_node("plan", await self.plan_subgraph(self.store))
+        workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
 
         workflow.add_node("execute_plan", self.execute_plan)
@@ -79,43 +86,57 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    async def plan_subgraph(self, store: BaseStore | None = None) -> CompiledStateGraph:
+    async def plan(
+        self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
+    ) -> Command[Literal["plan_approval", "__end__"]]:
         """
-        Subgraph to plan the steps to follow.
+        Node to plan the steps to follow.
 
         Args:
+            state (PlanAndExecuteState): The state of the agent.
             store (BaseStore): The store to use for caching.
+            config (RunnableConfig): The config for the agent.
 
         Returns:
-            CompiledStateGraph: The compiled subgraph.
+            Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        repo_client = RepoClient.create_instance()
+        all_tools = await self._get_plan_tools()
 
-        mcp_tools = (await MCPToolkit.create_instance()).get_tools()
-        mcp_tools_names = [tool.name for tool in mcp_tools]
-
-        return create_react_agent(
+        react_agent = create_react_agent(
             self.get_model(
                 model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
             ),
-            tools=ReadRepositoryToolkit.create_instance().get_tools()
-            + WebSearchToolkit.create_instance().get_tools()
-            + mcp_tools
-            + [think, complete_task],
+            tools=all_tools,
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
             prompt=ChatPromptTemplate.from_messages([
                 self.plan_system_template,
                 MessagesPlaceholder("messages"),
             ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
-                mcp_tools_names=mcp_tools_names,
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
-                bot_username=repo_client.current_user.username,
+                bot_username=config["configurable"]["bot_username"],
+                commands_enabled=config["configurable"]["commands_enabled"],
             ),
+            # Add response_format to fallback if the agent doesn't call the final tools.
+            response_format=CompleteWithPlanOrClarification,
             name="Planner",
             version="v2",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+
+        response = await react_agent.ainvoke({"messages": state["messages"]})
+
+        # At this point, the agent should have called the final tool. In case it didn't, we fallback to the
+        # response_format.
+        if "structured_response" in response and (structured_response := response["structured_response"]):
+            if isinstance(structured_response.action, Plan):
+                return Command(goto="plan_approval", update={"plan_tasks": structured_response.action.changes})
+            elif isinstance(structured_response.action, AskForClarification):
+                return Command(goto=END, update={"plan_questions": structured_response.action.questions})
+
+        # If the agent don't call any tool and can't return a formatted response, the workflow will end.
+        return Command(goto=END)
 
     async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan"]]:
         """
@@ -136,7 +157,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
     ) -> Command[Literal["__end__"]]:
         """
-        Subgraph to execute the plan.
+        Node to execute the plan.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
@@ -146,16 +167,21 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
+        all_tools = await self._get_execute_tools(commands_enabled=config["configurable"]["commands_enabled"])
         react_agent = create_react_agent(
             self.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
-            tools=WriteRepositoryToolkit.create_instance().get_tools() + [think],
+            tools=all_tools,
             store=store,
             prompt=ChatPromptTemplate.from_messages([
                 execute_plan_system,
                 HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
                 MessagesPlaceholder("messages"),
-            ]).partial(current_date_time=timezone.now().strftime("%d %B, %Y %H:%M")),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                commands_enabled=config["configurable"]["commands_enabled"],
+                tools_names=[tool.name for tool in all_tools],
+            ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
             name="PlanExecuter",
             version="v2",
@@ -189,3 +215,26 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         await apply_format_code(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store)
         return Command(goto=END)
+
+    async def _get_plan_tools(self) -> list[BaseTool]:
+        """
+        Get the tools for the planning step.
+        """
+        mcp_tools = await MCPToolkit.create_instance()
+        repository_tools = ReadRepositoryToolkit.create_instance()
+        web_search_tools = WebSearchToolkit.create_instance()
+
+        return (
+            repository_tools.get_tools()
+            + web_search_tools.get_tools()
+            + mcp_tools.get_tools()
+            + [think, complete_with_plan, complete_with_clarification]
+        )
+
+    async def _get_execute_tools(self, commands_enabled: bool) -> list[BaseTool]:
+        """
+        Get the tools for the execution step.
+        """
+        repository_tools = WriteRepositoryToolkit.create_instance()
+        sandbox_tools = SandboxToolkit.create_instance() if commands_enabled else None
+        return repository_tools.get_tools() + (sandbox_tools.get_tools() if sandbox_tools else []) + [think]

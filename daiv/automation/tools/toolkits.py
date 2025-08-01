@@ -16,7 +16,7 @@ from .repository import (
     RetrieveFileContentTool,
     SearchCodeSnippetsTool,
 )
-from .sandbox import RunSandboxCodeTool
+from .sandbox import RunSandboxCommandsTool
 from .web_search import WebSearchTool
 
 logger = logging.getLogger("daiv.tools")
@@ -73,7 +73,7 @@ class SandboxToolkit(BaseToolkit):
 
     @classmethod
     def create_instance(cls) -> BaseToolkit:
-        return cls(tools=[RunSandboxCodeTool()])
+        return cls(tools=[RunSandboxCommandsTool()])
 
 
 class WebSearchToolkit(BaseToolkit):

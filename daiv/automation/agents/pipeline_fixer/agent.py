@@ -99,7 +99,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
                 troubleshoot_human,
                 MessagesPlaceholder("messages"),
             ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y %H:%M"),
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
                 repo_id=config["configurable"]["source_repo_id"],
                 job_name=config["configurable"]["job_name"],
             ),
