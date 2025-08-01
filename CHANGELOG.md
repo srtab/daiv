@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added to `PlanAndExecuteAgent` the capability to plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
+- Added `omit_content_patterns` to DAIV configuration to allow users to exclude files from being indexed by the codebase indexer, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
+
+### Changed
+
+- Changed current date time format to exclude hours and minutes, making the prompt cachable, at least until next day.
+- Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
+
+### Fixed
+
+- `PlanAndExecuteAgent` was not calling `complete_with_plan` and `complete_with_clarification` tools for some models, leading to errors. Added fallback logic to format the agent response to be compatible with the expected output.
+
 ## [0.3.0] - 2025-07-25
 
 ### Added

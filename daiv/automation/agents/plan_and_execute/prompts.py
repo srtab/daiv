@@ -130,7 +130,7 @@ Interact with the codebase **only** through the tool APIs listed below and follo
 ────────────────────────────────────────────────────────
 CURRENT DATE-TIME : {{ current_date_time }}
 
-INPUT: Change-plan markdown (paths + tasks)
+INPUT: Change-plan (paths + tasks)
 
 AVAILABLE TOOLS:
 {%- for tool in tools_names %}
