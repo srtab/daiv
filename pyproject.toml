@@ -60,7 +60,7 @@ urls.source = "https://github.com/srtab/daiv"
 dev = [
   "coverage==7.10.1",
   "jupyter==1.1.1",
-  "mypy==1.17",
+  "mypy==1.17.1",
   "pre-commit==4.2",
   "pyopenssl==25.1",
   "pyproject-fmt==2.6",
