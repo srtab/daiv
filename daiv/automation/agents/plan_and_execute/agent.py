@@ -117,7 +117,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"]["bot_username"],
-                commands_enabled=config["configurable"]["commands_enabled"],
+                commands_enabled=config["configurable"].get("commands_enabled", False),
+                role=self.plan_system_template.prompt.partial_variables.get("role", ""),
+                before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
+                after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
             # Add response_format to fallback if the agent doesn't call the final tools.
             response_format=CompleteWithPlanOrClarification,
@@ -167,7 +170,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
-        all_tools = await self._get_execute_tools(commands_enabled=config["configurable"]["commands_enabled"])
+        commands_enabled = config["configurable"].get("commands_enabled", False)
+
+        all_tools = await self._get_execute_tools(commands_enabled=commands_enabled)
         react_agent = create_react_agent(
             self.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
@@ -179,7 +184,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
-                commands_enabled=config["configurable"]["commands_enabled"],
+                commands_enabled=commands_enabled,
                 tools_names=[tool.name for tool in all_tools],
             ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
@@ -219,6 +224,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     async def _get_plan_tools(self) -> list[BaseTool]:
         """
         Get the tools for the planning step.
+
+        Returns:
+            list[BaseTool]: The tools for the planning step.
         """
         mcp_tools = await MCPToolkit.create_instance()
         repository_tools = ReadRepositoryToolkit.create_instance()
@@ -234,6 +242,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     async def _get_execute_tools(self, commands_enabled: bool) -> list[BaseTool]:
         """
         Get the tools for the execution step.
+
+        Args:
+            commands_enabled (bool): Whether to include the sandbox tools.
+
+        Returns:
+            list[BaseTool]: The tools for the execution step.
         """
         repository_tools = WriteRepositoryToolkit.create_instance()
         sandbox_tools = SandboxToolkit.create_instance() if commands_enabled else None
