@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Changed current date time format to exclude hours and minutes, making the prompt cachable, at least until next day.
+- Changed current date time format to exclude hours and minutes, making the prompt cacheable.
 - Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
 
 ### Fixed

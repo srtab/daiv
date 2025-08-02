@@ -5,7 +5,7 @@ from typing import Literal
 
 from django.utils import timezone
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, jinja2_formatter
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -15,6 +15,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.prompts import plan_system
 from automation.tools import think
 from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
@@ -23,7 +24,13 @@ from core.config import RepositoryConfig
 from core.constants import BOT_NAME
 
 from .conf import settings
-from .prompts import respond_reviewer_system, review_comment_system, review_plan_system_template
+from .prompts import (
+    respond_reviewer_system,
+    review_comment_system,
+    review_plan_system_after_rules,
+    review_plan_system_before_workflow,
+    review_plan_system_role,
+)
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
 from .state import OverallState, ReplyAgentState
 
@@ -130,21 +137,18 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
-        review_plan_system = SystemMessagePromptTemplate.from_template(
-            review_plan_system_template,
-            "jinja2",
-            partial_variables={
-                "current_date_time": timezone.now().strftime("%d %B, %Y"),
-                "diff": state["diff"],
-                "project_description": repo_config.repository_description,
-                "bot_name": BOT_NAME,
-                "bot_username": config["configurable"]["bot_username"],
-            },
-            additional_kwargs={"cache-control": {"type": "ephemeral"}},
+        plan_system.prompt = plan_system.prompt.partial(
+            role=review_plan_system_role,
+            before_workflow=review_plan_system_before_workflow,
+            after_rules=jinja2_formatter(
+                review_plan_system_after_rules,
+                project_description=repo_config.repository_description,
+                diff=state["diff"],
+            ),
         )
 
         plan_and_execute = await PlanAndExecuteAgent(
-            plan_system_template=review_plan_system,
+            plan_system_template=plan_system,
             store=store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
