@@ -58,7 +58,7 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.10.1",
+  "coverage==7.10.2",
   "jupyter==1.1.1",
   "mypy==1.17.1",
   "pre-commit==4.2",
