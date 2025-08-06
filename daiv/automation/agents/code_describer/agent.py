@@ -42,5 +42,7 @@ class CodeDescriberAgent(BaseAgent[Runnable[CodeSnippet, str]]):
         """
         prompt = ChatPromptTemplate.from_messages([("system", system), ("human", human)])
         return (
-            prompt.partial(language="Not specified") | self.get_model(model=settings.MODEL_NAME) | StrOutputParser()
+            prompt.partial(language="Not specified")
+            | BaseAgent.get_model(model=settings.MODEL_NAME)
+            | StrOutputParser()
         ).with_config({"run_name": settings.NAME, "tags": [settings.NAME], "max_concurrency": 5})

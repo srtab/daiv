@@ -171,8 +171,8 @@ class RepositoryStructureTool(BaseTool):
     name: str = REPOSITORY_STRUCTURE_NAME
     description: str = textwrap.dedent(
         """\
-        Get the full file tree structure of the repository. You don't need to use this tool more than once per conversation, as the structure doesn't change from one iteration to another.
-        Useful when you need to find files by their extension or by their path.
+        Get the full file tree structure of the repository. Use this when you need to locate files by extension or path.
+        The structure is stable within a conversation; you typically do NOT need to call this more than once.
         """  # noqa: E501
     )
     args_schema: type[BaseModel] = RepositoryStructureInput

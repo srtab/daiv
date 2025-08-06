@@ -42,7 +42,7 @@ Document {{loop.index}}: {{document}}
 
 class CodebaseSearchEvaluator(BaseAgent[Runnable[dict[str, str | list[str]], list[str]]]):
     async def compile(self):
-        return ChatPromptTemplate.from_messages([codebase_search_evaluator_system]) | self.get_model(
+        return ChatPromptTemplate.from_messages([codebase_search_evaluator_system]) | BaseAgent.get_model(
             model=ModelName.GPT_4_1_MINI
         )
 

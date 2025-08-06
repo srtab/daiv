@@ -45,7 +45,9 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
-            | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(ReviewCommentEvaluation)
+            | BaseAgent.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(
+                ReviewCommentEvaluation
+            )
         ).with_config({"run_name": "ReviewCommentEvaluator"})
 
 
@@ -59,7 +61,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
         repo_client = RepoClient.create_instance()
 
         return create_react_agent(
-            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
+            BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
             tools=tools + [think],
             store=self.store,

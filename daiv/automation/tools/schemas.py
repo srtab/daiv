@@ -45,7 +45,12 @@ class RepositoryStructureInput(BaseModel):
     Get the structure of the repository.
     """
 
-    intent: str = Field(description="A brief description of why you are getting the repository structure.")
+    intent: str = Field(
+        description=(
+            "Briefly state why you need the repository structure "
+            "(e.g., 'locate auth middlewares and config files to scope logging changes')."
+        )
+    )
 
 
 class RetrieveFileContentInput(BaseModel):

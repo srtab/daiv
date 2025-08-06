@@ -37,7 +37,7 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         """
         index = CodebaseIndex(RepoClient.create_instance())
         return create_react_agent(
-            self.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
+            BaseAgent.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
             state_schema=CodebaseChatAgentState,
             tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(

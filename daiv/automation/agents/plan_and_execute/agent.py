@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import Runnable, RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -28,15 +28,52 @@ from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
-from .schemas import AskForClarification, CompleteWithPlanOrClarification, Plan
+from .schemas import AskForClarification, FinalizeWithPlanOrTargetedQuestions, Plan
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import complete_with_clarification, complete_with_plan
+from .tools import finalize_with_plan, finalize_with_targeted_questions, plan_think
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.prompts import SystemMessagePromptTemplate
     from langchain_core.tools import BaseTool
+    from langgraph.checkpoint.base import BaseCheckpointSaver
 
 logger = logging.getLogger("daiv.agents")
+
+
+async def plan_agent(
+    model: BaseChatModel,
+    store: BaseStore,
+    config: RunnableConfig,
+    *,
+    checkpointer: BaseCheckpointSaver | bool = False,
+    plan_system_template: SystemMessagePromptTemplate | None = None,
+) -> Runnable:
+    """
+    Create a react agent for the planning step.
+    """
+    plan_system_template = plan_system_template or plan_system
+    all_tools = await PlanAndExecuteAgent._get_plan_tools()
+    return create_react_agent(
+        model=model,
+        tools=all_tools,
+        store=store,
+        checkpointer=checkpointer,
+        prompt=ChatPromptTemplate.from_messages([plan_system_template, MessagesPlaceholder("messages")]).partial(
+            current_date_time=timezone.now().strftime("%d %B, %Y"),
+            tools_names=[tool.name for tool in all_tools],
+            bot_name=BOT_NAME,
+            bot_username=config["configurable"]["bot_username"],
+            commands_enabled=config["configurable"].get("commands_enabled", False),
+            role=plan_system_template.prompt.partial_variables.get("role", ""),
+            before_workflow=plan_system_template.prompt.partial_variables.get("before_workflow", ""),
+            after_rules=plan_system_template.prompt.partial_variables.get("after_rules", ""),
+        ),
+        # Add response_format to fallback if the agent doesn't call the final tools.
+        response_format=FinalizeWithPlanOrTargetedQuestions,
+        name="Planner",
+        version="v2",
+    ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -100,35 +137,17 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        all_tools = await self._get_plan_tools()
-
-        react_agent = create_react_agent(
-            self.get_model(
+        react_agent = await plan_agent(
+            BaseAgent.get_model(
                 model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
             ),
-            tools=all_tools,
-            store=store,
-            checkpointer=False,  # Disable checkpointer to avoid storing the plan in the store
-            prompt=ChatPromptTemplate.from_messages([
-                self.plan_system_template,
-                MessagesPlaceholder("messages"),
-            ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y"),
-                tools_names=[tool.name for tool in all_tools],
-                bot_name=BOT_NAME,
-                bot_username=config["configurable"]["bot_username"],
-                commands_enabled=config["configurable"].get("commands_enabled", False),
-                role=self.plan_system_template.prompt.partial_variables.get("role", ""),
-                before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
-                after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
-            ),
-            # Add response_format to fallback if the agent doesn't call the final tools.
-            response_format=CompleteWithPlanOrClarification,
-            name="Planner",
-            version="v2",
-        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
-
+            store,
+            config,
+            plan_system_template=self.plan_system_template,
+        )
         response = await react_agent.ainvoke({"messages": state["messages"]})
+
+        print("##################", response)  # NOQA: T201
 
         # At this point, the agent should have called the final tool. In case it didn't, we fallback to the
         # response_format.
@@ -174,7 +193,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         all_tools = await self._get_execute_tools(commands_enabled=commands_enabled)
         react_agent = create_react_agent(
-            self.get_model(model=settings.EXECUTION_MODEL_NAME),
+            BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
             tools=all_tools,
             store=store,
@@ -221,7 +240,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         await apply_format_code(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store)
         return Command(goto=END)
 
-    async def _get_plan_tools(self) -> list[BaseTool]:
+    @staticmethod
+    async def _get_plan_tools() -> list[BaseTool]:
         """
         Get the tools for the planning step.
 
@@ -236,7 +256,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             repository_tools.get_tools()
             + web_search_tools.get_tools()
             + mcp_tools.get_tools()
-            + [think, complete_with_plan, complete_with_clarification]
+            + [plan_think, finalize_with_plan, finalize_with_targeted_questions]
         )
 
     async def _get_execute_tools(self, commands_enabled: bool) -> list[BaseTool]:

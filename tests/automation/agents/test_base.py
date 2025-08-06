@@ -2,7 +2,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 from langchain.chat_models.base import BaseChatModel
-from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable
 
 from automation.agents.base import BaseAgent, ModelProvider
@@ -23,16 +22,13 @@ class TestBaseAgent:
     def test_default_initialization(self, mock_init_chat_model):
         agent = ConcreteAgent()
 
-        assert isinstance(agent.usage_handler, OpenAICallbackHandler)
         assert agent.checkpointer is None
 
     def test_custom_initialization(self, mock_init_chat_model):
-        usage_handler = Mock(spec=OpenAICallbackHandler)
         checkpointer = Mock(name="PostgresSaver")
 
-        agent = ConcreteAgent(usage_handler=usage_handler, checkpointer=checkpointer)
+        agent = ConcreteAgent(checkpointer=checkpointer)
 
-        assert agent.usage_handler == usage_handler
         assert agent.checkpointer == checkpointer
 
     def test_get_model_kwargs_anthropic(self):

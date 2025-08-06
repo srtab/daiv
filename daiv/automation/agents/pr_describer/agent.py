@@ -25,7 +25,7 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         )
         return (
             prompt
-            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+            | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(
                 PullRequestMetadata, method="function_calling"
             )
         ).with_config({"run_name": settings.NAME})

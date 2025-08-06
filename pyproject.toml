@@ -18,7 +18,7 @@ classifiers = [
 dependencies = [
   "celery[redis]==5.5.3",
   "chonkie[code]==1.1.1",
-  "django==5.2.4",
+  "django==5.2.5",
   "django-extensions==4.1",
   "django-ninja==1.4.3",
   "django-split-settings==1.3.2",
@@ -31,10 +31,10 @@ dependencies = [
   "langchain[anthropic,community,google-genai,openai,huggingface]==0.3.27",
   "langchain-mcp-adapters==0.1.9",
   "langchain-text-splitters==0.3.9",
-  "langchain-voyageai==0.1.6",
-  "langgraph==0.5.4",
+  "langchain-voyageai==0.1.7",
+  "langgraph==0.6.3",
   "langgraph-checkpoint-postgres==2.0.23",
-  "langsmith==0.4.10",
+  "langsmith[pytest]==0.4.12",
   "pgvector==0.4.1",
   "psycopg[pool]==3.2.9",
   "pydantic==2.11.7",
@@ -58,7 +58,8 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.10.1",
+  "agentevals==0.0.9",
+  "coverage==7.10.2",
   "jupyter==1.1.1",
   "mypy==1.17.1",
   "pre-commit==4.2",

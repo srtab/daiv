@@ -40,14 +40,15 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         """
         if self.rephrase:
             base_retriever: BaseRetriever = MultiQueryRephraseRetriever.from_llm(
-                self.retriever, llm=cast("BaseChatModel", self.get_model(model=settings.REPHRASE_MODEL_NAME))
+                self.retriever, llm=cast("BaseChatModel", BaseAgent.get_model(model=settings.REPHRASE_MODEL_NAME))
             )
         else:
             base_retriever: BaseRetriever = self.retriever
 
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
-                llm=cast("BaseChatModel", self.get_model(model=settings.RERANKING_MODEL_NAME)), top_n=settings.TOP_N
+                llm=cast("BaseChatModel", BaseAgent.get_model(model=settings.RERANKING_MODEL_NAME)),
+                top_n=settings.TOP_N,
             ),
             base_retriever=base_retriever,
         ).with_config({"run_name": settings.NAME})

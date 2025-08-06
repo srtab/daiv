@@ -35,7 +35,7 @@ class IssueEvaluator(BaseAgent[Runnable[IssueAssessmentInput, IssueAssessmentEva
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([issue_evaluator_system, issue_evaluator_human])
-            | self.get_model(model=settings.ISSUE_EVALUATOR_MODEL_NAME).with_structured_output(
+            | BaseAgent.get_model(model=settings.ISSUE_EVALUATOR_MODEL_NAME).with_structured_output(
                 IssueAssessmentEvaluation, method="function_calling"
             )
         ).with_config({"run_name": "IssueEvaluator"})

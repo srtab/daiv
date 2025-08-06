@@ -42,7 +42,7 @@ class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputE
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([command_output_evaluator_human])
-            | self.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
+            | BaseAgent.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
                 CommandOuputEvaluation, method="function_calling"
             )
         ).with_config({"run_name": "CommandOutputEvaluator"})
@@ -89,7 +89,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         tools = ReadRepositoryToolkit.create_instance().get_tools() + [complete_task, think]
 
         agent = create_react_agent(
-            model=self.get_model(
+            model=BaseAgent.get_model(
                 model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
             tools=tools,

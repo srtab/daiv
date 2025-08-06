@@ -40,7 +40,7 @@ class ImageURLExtractorAgent(BaseAgent[Runnable[AgentInput, list[ImageTemplate]]
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([system, human])
-            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
+            | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(
                 ImageURLExtractorOutput, method="function_calling"
             )
             | RunnableLambda(_post_process, name="post_process_extracted_images")
