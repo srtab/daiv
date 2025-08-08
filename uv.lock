@@ -367,16 +367,16 @@ wheels = [
 
 [[package]]
 name = "chonkie"
-version = "1.1.1"
+version = "1.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/cb/5d95cecf45c07faff0e8057f10187ad3b1127c6a34f2c57fb5d5dbae2fdf/chonkie-1.1.1.tar.gz", hash = "sha256:391f90bd137fba5b82ed34411082a2abe46b6d12c00d75d73655f59f6c1ae504", size = 266261, upload-time = "2025-07-18T05:08:19.285Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/0d/bf6020d591e3a74002d3565dac5a42bfca95878f25840bdff4d58688a737/chonkie-1.1.2.tar.gz", hash = "sha256:ef38fd337354270267ff9f7faf26b14fc3a23af708654cd193dc6fc1288a9e02", size = 271647, upload-time = "2025-08-06T21:56:53.442Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/ea/371ecd17e2105f22c407d8a4ee0ccac88bdf7f86f8df2221379c36ea563b/chonkie-1.1.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:ecf8f99a9f5981d399b22d69c050a8dab4e376d221f6bb298bbc126571315049", size = 349622, upload-time = "2025-07-18T05:08:11.856Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/50/c6c44ed8785624a6397456c5ca188ef3e67971780b04aaa602c3053846cf/chonkie-1.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:653f53702f286df1348657702f2660010cabb2dee90c8783978d5adfa818fec4", size = 651452, upload-time = "2025-07-18T05:08:12.872Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/ef/3d870ea09dbef27128667a36358aaf68e4a01d19281cc63217da4273ab4c/chonkie-1.1.1-cp313-cp313-win_amd64.whl", hash = "sha256:5905b31adf73006b832f4bd20f8f31a180b31114d9c75e9b8ff2ca74d12a2172", size = 349063, upload-time = "2025-07-18T05:08:14.231Z" },
+    { url = "https://files.pythonhosted.org/packages/95/a8/339ab41e439981d32198b63eda290ce822b6cf7f7ad6f046081821efbd00/chonkie-1.1.2-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:1ecafad3d214f54e84fdeb2c3256ceb266a30464ebcba4a099e1988685001549", size = 361195, upload-time = "2025-08-06T21:56:45.31Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/56/3654b5c321ee9310b29014e1f369d5c0960b463dd577c3dae2477a123bcb/chonkie-1.1.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:38cac1720b621034f2cd377815d9cdddbbe651b0e315b18b68dd857a56b98c16", size = 663025, upload-time = "2025-08-06T21:56:46.473Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/b0/ced65379958affd325aaa0e2f9d698919402720960a7d4b59cc25eb42a28/chonkie-1.1.2-cp313-cp313-win_amd64.whl", hash = "sha256:38ec740f66f52c7c2f3de8bf197cf1a6bb6182919d296e081fab9e08ceb6fcbc", size = 360288, upload-time = "2025-08-06T21:56:47.561Z" },
 ]
 
 [package.optional-dependencies]
@@ -601,7 +601,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = "==5.5.3" },
-    { name = "chonkie", extras = ["code"], specifier = "==1.1.1" },
+    { name = "chonkie", extras = ["code"], specifier = "==1.1.2" },
     { name = "django", specifier = "==5.2.4" },
     { name = "django-extensions", specifier = "==4.1" },
     { name = "django-ninja", specifier = "==1.4.3" },
