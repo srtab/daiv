@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal
 
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langgraph.types import Command
 
 from .schemas import (
     FINALIZE_WITH_PLAN_DESCRIPTION,
@@ -19,8 +16,21 @@ from .schemas import (
 logger = logging.getLogger("daiv.tools")
 
 
-@tool("finalize_with_plan", args_schema=Plan, description=FINALIZE_WITH_PLAN_DESCRIPTION, return_direct=True)
-def finalize_with_plan(changes: list[ChangeInstructions], tool_call_id: str) -> Command[Literal["plan_approval"]]:
+FINALIZE_WITH_PLAN_NAME = "finalize_with_plan"
+FINALIZE_WITH_TARGETED_QUESTIONS_NAME = "finalize_with_targeted_questions"
+PLAN_THINK_NAME = "think"
+
+FINALIZE_TOOLS = [FINALIZE_WITH_PLAN_NAME, FINALIZE_WITH_TARGETED_QUESTIONS_NAME]
+
+
+@tool(
+    FINALIZE_WITH_PLAN_NAME,
+    args_schema=Plan,
+    description=FINALIZE_WITH_PLAN_DESCRIPTION,
+    return_direct=True,
+    response_format="content_and_artifact",
+)
+def finalize_with_plan(changes: list[ChangeInstructions]) -> tuple[str, dict]:
     """
     Finalize the inspection with a self-contained plan.
 
@@ -28,17 +38,15 @@ def finalize_with_plan(changes: list[ChangeInstructions], tool_call_id: str) -> 
         changes (list[ChangeInstructions]): The plan to execute.
 
     Returns:
-        Command[Literal["plan_approval"]]: The next step in the workflow.
+        tuple[str, dict]: The plan to execute.
     """  # noqa: E501
-    logger.info("[finalize_with_plan] The plan to execute: %s", repr(changes))
+    logger.info("[%s] The plan to execute: %s", FINALIZE_WITH_PLAN_NAME, repr(changes))
 
-    message = ToolMessage(content=json.dumps({"changes": changes}), tool_call_id=tool_call_id)
-
-    return Command(goto="plan_approval", update={"plan_tasks": changes, "messages": [message]}, graph=Command.PARENT)
+    return json.dumps([change.model_dump() for change in changes]), {"plan_tasks": changes}
 
 
 @tool(
-    "finalize_with_targeted_questions",
+    FINALIZE_WITH_TARGETED_QUESTIONS_NAME,
     args_schema=AskForClarification,
     description=FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION,
     return_direct=True,
@@ -55,13 +63,15 @@ def finalize_with_targeted_questions(questions: str) -> tuple[str, dict]:
         tuple[str, dict]: The question(s) to ask the user for clarification.
     """  # noqa: E501
     logger.info(
-        "[finalize_with_targeted_questions] The question(s) to ask the user for clarification: %s", repr(questions)
+        "[%s] The question(s) to ask the user for clarification: %s",
+        FINALIZE_WITH_TARGETED_QUESTIONS_NAME,
+        repr(questions),
     )
 
     return questions, {"plan_questions": questions}
 
 
-@tool("think", parse_docstring=True)
+@tool(PLAN_THINK_NAME, parse_docstring=True)
 def plan_think(thought: str):
     """
     Private scratchpad for reasoning only. Does NOT fetch new information or modify anything; it records concise plans/notes you will follow.
@@ -83,5 +93,5 @@ def plan_think(thought: str):
     Returns:
         A message indicating that the thought has been logged.
     """  # noqa: E501
-    logger.info("[think] Thinking about: %s", thought)
+    logger.info("[%s] Thinking about: %s", PLAN_THINK_NAME, thought)
     return "Thought registered."

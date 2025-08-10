@@ -22,6 +22,8 @@ from core.utils import build_uri
 
 from .schemas import (
     CreateNewRepositoryFileInput,
+    CrossRepositoryStructureInput,
+    CrossRetrieveFileContentInput,
     CrossSearchCodeSnippetsInput,
     DeleteRepositoryFileInput,
     RenameRepositoryFileInput,
@@ -126,30 +128,13 @@ class SearchCodeSnippetsTool(BaseTool):
                     repository_id=document.metadata["repo_id"],
                     ref=document.metadata["ref"],
                     file_path=document.metadata["source"],
-                    link=self._get_file_link(
-                        document.metadata["repo_id"], document.metadata["ref"], document.metadata["source"]
+                    link=self.api_wrapper.repo_client.get_repository_file_link(
+                        document.metadata["repo_id"], document.metadata["source"], document.metadata["ref"]
                     ),
                     content=document.page_content,
                 )
 
         return search_results_str
-
-    def _get_file_link(self, repository_id: str, ref: str, file_path: str) -> str:
-        """
-        Get the link to the file in the repository.
-
-        Args:
-            repository_id: The ID of the repository.
-            ref: The reference to the file.
-            file_path: The path to the file.
-
-        Returns:
-            The link to the file in the repository.
-        """
-        if self.api_wrapper.repo_client.client_slug == ClientType.GITLAB:
-            return build_uri(self.api_wrapper.repo_client.codebase_url, f"/{repository_id}/-/blob/{ref}/{file_path}")
-
-        raise ValueError(f"Unsupported repository client type: {self.api_wrapper.repo_client.client_slug}")
 
     def _get_repository_link(self, repository_id: str) -> str:
         """
@@ -175,28 +160,42 @@ class RepositoryStructureTool(BaseTool):
         The structure is stable within a conversation; you typically do NOT need to call this more than once.
         """  # noqa: E501
     )
-    args_schema: type[BaseModel] = RepositoryStructureInput
     api_wrapper: CodebaseIndex = Field(default_factory=lambda: CodebaseIndex(repo_client=RepoClient.create_instance()))
 
-    def _run(self, intent: str, config: RunnableConfig) -> str:
+    def __init__(self, *, all_repositories: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if all_repositories:
+            self.args_schema = CrossRepositoryStructureInput
+        else:
+            self.args_schema = RepositoryStructureInput
+
+    def _run(self, *args, **kwargs) -> str:
+        # this method is not used, but it's required to satisfy the BaseTool interface
+        raise NotImplementedError("This tool does not support sync invocation.")
+
+    async def _arun(self, intent: str, config: RunnableConfig, repository: str | None = None) -> str:
         """
         Gets the full file tree structure of the repository.
 
         Args:
             intent: The intent of the search query, why you are searching for this code.
             config: The config to use for the retrieval.
+            repository: The name of the repository to get the structure of.
+                If not provided, will fallback to runnable config.
 
         Returns:
             The full file tree structure of the repository.
         """
         logger.debug("[%s] Getting repository structure (intent: %s)", self.name, intent)
 
-        return (
-            self.api_wrapper.extract_tree(
-                config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]
-            )
-            or "The repository is empty."
-        )
+        source_repo_id = repository or config["configurable"].get("source_repo_id")
+        source_ref = config["configurable"].get("source_ref")
+
+        if repository:
+            repo_config = RepositoryConfig.get_config(repository)
+            source_ref = repo_config.default_branch
+
+        return self.api_wrapper.extract_tree(source_repo_id, source_ref) or "The repository is empty."
 
 
 class BaseRepositoryTool(BaseTool):
@@ -259,9 +258,21 @@ class RetrieveFileContentTool(BaseRepositoryTool):
     )
     ignore_not_found: bool = False
 
-    args_schema: type[BaseModel] = RetrieveFileContentInput
+    def __init__(self, *, all_repositories: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if all_repositories:
+            self.args_schema = CrossRetrieveFileContentInput
+        else:
+            self.args_schema = RetrieveFileContentInput
 
-    async def _arun(self, file_paths: list[str], intent: str, store: BaseStore, config: RunnableConfig) -> str:
+    async def _arun(
+        self,
+        file_paths: list[str],
+        intent: str,
+        store: BaseStore,
+        config: RunnableConfig,
+        repository: str | None = None,
+    ) -> str:
         """
         Gets the content of a list of files from the repository.
 
@@ -270,14 +281,20 @@ class RetrieveFileContentTool(BaseRepositoryTool):
             intent: The intent of the search query, why you are searching for this code.
             store: The store to use for the retrieval.
             config: The config to use for the retrieval.
+            repository: The name of the repository to get the content of.
+                If not provided, will fallback to runnable config.
 
         Returns:
             The content of the files.
         """
         logger.debug("[%s] Getting files '%s' (intent: %s)", self.name, file_paths, intent)
 
-        source_repo_id = config["configurable"]["source_repo_id"]
-        source_ref = config["configurable"]["source_ref"]
+        source_repo_id = repository or config["configurable"].get("source_repo_id")
+        source_ref = config["configurable"].get("source_ref")
+
+        if repository:
+            repo_config = RepositoryConfig.get_config(repository)
+            source_ref = repo_config.default_branch
 
         contents = []
         not_found_files = []
@@ -289,11 +306,16 @@ class RetrieveFileContentTool(BaseRepositoryTool):
                 contents.append(
                     textwrap.dedent(
                         """\
-                        <repository_file file_path="{file_path}">
+                        <repository_file file_path="{file_path}" repository_id="{source_repo_id}" external_link="{external_link}">
                         {content}
                         </repository_file>
-                        """
-                    ).format(file_path=file_path, content=content)
+                        """  # noqa: E501
+                    ).format(
+                        file_path=file_path,
+                        source_repo_id=source_repo_id,
+                        external_link=self.api_wrapper.get_repository_file_link(source_repo_id, file_path, source_ref),
+                        content=content,
+                    )
                 )
 
         if not_found_files and not self.ignore_not_found:

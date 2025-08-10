@@ -14,7 +14,7 @@ class SearchCodeSnippetsInput(BaseModel):
         ...,
         description=textwrap.dedent(
             """\
-            A code-centric search term including code snippets, function/class/method names, code-related keywords or file paths.
+            A code-centric search terms including code snippets, function/class/method names, code-related keywords or file paths. Wildcard/Regex/Fuzzy searches are not supported.
 
             Tips:
             1. Avoid ambiguous terms for precise results.
@@ -53,6 +53,14 @@ class RepositoryStructureInput(BaseModel):
     )
 
 
+class CrossRepositoryStructureInput(RepositoryStructureInput):
+    """
+    Get the structure of the repository.
+    """
+
+    repository: str = Field(description="The name of the repository to get the structure of.")
+
+
 class RetrieveFileContentInput(BaseModel):
     """
     Get the content of a file from the repository.
@@ -66,6 +74,14 @@ class RetrieveFileContentInput(BaseModel):
     )
     intent: str = Field(description="A description of why you're getting these files.")
     store: Annotated[Any, InjectedStore()]
+
+
+class CrossRetrieveFileContentInput(RetrieveFileContentInput):
+    """
+    Get the content of a file from the repository.
+    """
+
+    repository: str = Field(description="The name of the repository to get the content of.")
 
 
 class CommitableBaseModel(BaseModel):

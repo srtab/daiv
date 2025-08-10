@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 from django.utils import timezone
 
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable, RunnableConfig  # noqa: TC002
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -16,6 +16,7 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code
 from automation.tools import think
+from automation.tools.repository import REPOSITORY_STRUCTURE_NAME, RETRIEVE_FILE_CONTENT_NAME, SEARCH_CODE_SNIPPETS_NAME
 from automation.tools.toolkits import (
     MCPToolkit,
     ReadRepositoryToolkit,
@@ -24,56 +25,76 @@ from automation.tools.toolkits import (
     WriteRepositoryToolkit,
 )
 from automation.utils import file_changes_namespace
-from core.constants import BOT_NAME
+from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
-from .schemas import AskForClarification, FinalizeWithPlanOrTargetedQuestions, Plan
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
-from .tools import finalize_with_plan, finalize_with_targeted_questions, plan_think
+from .tools import FINALIZE_TOOLS, finalize_with_plan, finalize_with_targeted_questions, plan_think
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.language_models import LanguageModelLike
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.prompts import SystemMessagePromptTemplate
     from langchain_core.tools import BaseTool
-    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.runtime import ContextT, Runtime
+
 
 logger = logging.getLogger("daiv.agents")
 
 
-async def plan_agent(
-    model: BaseChatModel,
-    store: BaseStore,
-    config: RunnableConfig,
-    *,
-    checkpointer: BaseCheckpointSaver | bool = False,
-    plan_system_template: SystemMessagePromptTemplate | None = None,
-) -> Runnable:
+def wrapped_prepare_plan_model(
+    model: BaseChatModel, tools: list[BaseTool]
+) -> Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike]:
     """
-    Create a react agent for the planning step.
+    Wrapper for the prepare_plan_model function.
+
+    Args:
+        model (BaseChatModel): The model to use for the planning step.
+        tools (list[BaseTool]): The tools to use for the planning step.
+
+    Returns:
+        Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike]: The prepared model.
     """
-    plan_system_template = plan_system_template or plan_system
-    all_tools = await PlanAndExecuteAgent._get_plan_tools()
-    return create_react_agent(
-        model=model,
-        tools=all_tools,
-        store=store,
-        checkpointer=checkpointer,
-        prompt=ChatPromptTemplate.from_messages([plan_system_template, MessagesPlaceholder("messages")]).partial(
-            current_date_time=timezone.now().strftime("%d %B, %Y"),
-            tools_names=[tool.name for tool in all_tools],
-            bot_name=BOT_NAME,
-            bot_username=config["configurable"]["bot_username"],
-            commands_enabled=config["configurable"].get("commands_enabled", False),
-            role=plan_system_template.prompt.partial_variables.get("role", ""),
-            before_workflow=plan_system_template.prompt.partial_variables.get("before_workflow", ""),
-            after_rules=plan_system_template.prompt.partial_variables.get("after_rules", ""),
-        ),
-        # Add response_format to fallback if the agent doesn't call the final tools.
-        response_format=FinalizeWithPlanOrTargetedQuestions,
-        name="Planner",
-        version="v2",
-    ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+    base_tools = [tool for tool in tools if tool.name not in FINALIZE_TOOLS]
+
+    print("##############", base_tools)  # noqa: T201
+
+    def prepare_plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
+        """
+        Prepare the model for the planning step with the correct tools at each stage of the conversation.
+
+        Args:
+            state (PlanAndExecuteState): The state of the agent.
+            runtime (Runtime[ContextT]): The runtime of the agent.
+
+        Returns:
+            LanguageModelLike: The prepared model.
+        """
+        nonlocal base_tools
+        nonlocal model
+
+        tools = base_tools.copy()
+
+        # if the agent has not called any tool, we force the model to think
+        if len(state["messages"]) <= 2:
+            return model.bind_tools([plan_think], tool_choice="plan_think")
+
+        # only add the finalize tools if at least one of the inspection tools was called
+        if any(
+            message
+            for message in state["messages"]
+            if message.type == "tool"
+            and message.status == "success"
+            and message.name in [REPOSITORY_STRUCTURE_NAME, RETRIEVE_FILE_CONTENT_NAME, SEARCH_CODE_SNIPPETS_NAME]
+        ):
+            tools += [finalize_with_plan, finalize_with_targeted_questions]
+
+        return model.bind_tools(tools, tool_choice="any")
+
+    return prepare_plan_model
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -137,27 +158,45 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        react_agent = await plan_agent(
-            BaseAgent.get_model(
-                model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
-            ),
-            store,
-            config,
-            plan_system_template=self.plan_system_template,
+        all_tools = await PlanAndExecuteAgent._get_plan_tools()
+        model = BaseAgent.get_model(
+            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
         )
+        react_agent = create_react_agent(
+            model=wrapped_prepare_plan_model(model, all_tools),
+            tools=all_tools,
+            store=store,
+            checkpointer=False,
+            prompt=ChatPromptTemplate.from_messages([
+                self.plan_system_template,
+                MessagesPlaceholder("messages"),
+            ]).partial(
+                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                tools_names=[tool.name for tool in all_tools],
+                bot_name=BOT_NAME,
+                bot_username=config["configurable"].get("bot_username", BOT_LABEL),
+                commands_enabled=config["configurable"].get("commands_enabled", False),
+                role=self.plan_system_template.prompt.partial_variables.get("role", ""),
+                before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
+                after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
+            ),
+            name="Planner",
+            version="v2",
+        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+
         response = await react_agent.ainvoke({"messages": state["messages"]})
 
-        print("##################", response)  # NOQA: T201
+        # At this point, the agent should have called one of the finalize tools.
+        last_message_artifact = response["messages"][-1].artifact
 
-        # At this point, the agent should have called the final tool. In case it didn't, we fallback to the
-        # response_format.
-        if "structured_response" in response and (structured_response := response["structured_response"]):
-            if isinstance(structured_response.action, Plan):
-                return Command(goto="plan_approval", update={"plan_tasks": structured_response.action.changes})
-            elif isinstance(structured_response.action, AskForClarification):
-                return Command(goto=END, update={"plan_questions": structured_response.action.questions})
+        if "plan_tasks" in last_message_artifact:
+            return Command(goto="plan_approval", update={"plan_tasks": last_message_artifact["plan_tasks"]})
+        elif "plan_questions" in last_message_artifact:
+            return Command(goto=END, update={"plan_questions": last_message_artifact["plan_questions"]})
+        else:
+            logger.warning("The agent didn't call any tool and can't return a formatted response.")
 
-        # If the agent don't call any tool and can't return a formatted response, the workflow will end.
+        # If the agent don't call any finalize tool (theoretically impossible), the workflow will end.
         return Command(goto=END)
 
     async def plan_approval(self, state: PlanAndExecuteState) -> Command[Literal["execute_plan"]]:
@@ -251,7 +290,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         mcp_tools = await MCPToolkit.create_instance()
         repository_tools = ReadRepositoryToolkit.create_instance()
         web_search_tools = WebSearchToolkit.create_instance()
-
         return (
             repository_tools.get_tools()
             + web_search_tools.get_tools()

@@ -266,17 +266,6 @@ Required next step: `finalize_with_plan` (deliver doc plan referencing found pat
 
 ---
 
-✅ **Dark mode request (correct):**
-User: “Add dark mode.”
-Assistant: `think` (plan) → `repository_structure` → `search_code_snippets` (“theme”, “tokens”, “dark”, “prefers-color-scheme”) → `retrieve_file_content` (design tokens, ThemeProvider, layout CSS) → `think` (findings: token-based theming supported; needs DS variant + page wrappers) → `finalize_with_plan` (introduce `dark` token set, toggle via OS preference + user setting, wrap pages, regression tests for key components).
-
-❌ **Dark mode (incorrect but full flow — finalizer too soon):**
-Assistant: `finalize_with_targeted_questions` (first call).
-Compliance Rule: **FAIL** (missing Step 0 `think` and Step 1 inspection).
-Required next step: `think` (initial plan) → `repository_structure` → `search_code_snippets` → `retrieve_file_content` → `think`, then pick finalizer per Decision Gate.
-
----
-
 ✅ **File uploads with unclear platform (correct):**
 User: “Add file upload to user profiles.”
 Assistant: `think` → `repository_structure` → `search_code_snippets` (“upload”, “storage”, “S3”, “GCS”, “multipart”) → `retrieve_file_content` (current storage adapters, user profile form) → `think` (unknowns remain: provider, max size, mime whitelist, virus scan, image resizing, public vs private ACL) → `finalize_with_targeted_questions` (ask: storage vendor, limits, allowed types, scanning, thumbnails, retention, privacy).

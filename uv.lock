@@ -7,18 +7,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agentevals"
-version = "0.0.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "openevals" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/31/ce/ebc8548e37d7352954980bb791594f262e084405c0bf29e749e44c8b341e/agentevals-0.0.9.tar.gz", hash = "sha256:35131a5e4b60d2a6ac3203d3d15983aa5f9162b8acb1b8700f9b2c777df1150d", size = 40136, upload-time = "2025-07-24T17:46:16.483Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/57/d5c3f161dcb74a2d853d44e02850be4341c92a3865d0562c10eca4ffc901/agentevals-0.0.9-py3-none-any.whl", hash = "sha256:4da425c1183fe8d24600e4316a31baca74e2bdc4d5e03d202fc1b314ece4cb02", size = 27453, upload-time = "2025-07-24T17:46:15.27Z" },
-]
-
-[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -579,6 +567,7 @@ dependencies = [
     { name = "python-gitlab" },
     { name = "pyyaml" },
     { name = "redis" },
+    { name = "rich" },
     { name = "sentry-sdk" },
     { name = "tantivy" },
     { name = "tree-sitter" },
@@ -589,10 +578,10 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "agentevals" },
     { name = "coverage" },
     { name = "jupyter" },
     { name = "mypy" },
+    { name = "openevals" },
     { name = "pre-commit" },
     { name = "pyopenssl" },
     { name = "pyproject-fmt" },
@@ -644,6 +633,7 @@ requires-dist = [
     { name = "python-gitlab", specifier = "==6.2" },
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "redis", specifier = "==5.2.1" },
+    { name = "rich", specifier = ">=14.1.0" },
     { name = "sentry-sdk", specifier = "==2.34.1" },
     { name = "tantivy", specifier = "==0.24" },
     { name = "tree-sitter", specifier = "==0.24" },
@@ -654,10 +644,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agentevals", specifier = "==0.0.9" },
     { name = "coverage", specifier = "==7.10.2" },
     { name = "jupyter", specifier = "==1.1.1" },
     { name = "mypy", specifier = "==1.17.1" },
+    { name = "openevals", specifier = "==0.1.0" },
     { name = "pre-commit", specifier = "==4.2" },
     { name = "pyopenssl", specifier = "==25.1" },
     { name = "pyproject-fmt", specifier = "==2.6" },

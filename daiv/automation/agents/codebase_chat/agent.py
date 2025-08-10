@@ -5,22 +5,15 @@ from django.utils import timezone
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
-from langgraph.prebuilt.chat_agent_executor import AgentState
+from langgraph.store.memory import InMemoryStore
 
-from automation.agents import BaseAgent
-from automation.tools import think
-from automation.tools.repository import SEARCH_CODE_SNIPPETS_NAME, SearchCodeSnippetsTool
+from automation.agents import BaseAgent, ThinkingLevel
+from automation.tools.repository import RepositoryStructureTool, RetrieveFileContentTool, SearchCodeSnippetsTool
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 
 from .conf import settings
 from .prompts import codebase_chat_system
-
-
-class CodebaseChatAgentState(AgentState):
-    repositories: list[str]
-    search_code_snippets_name: str
-    current_date_time: str
 
 
 class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
@@ -35,15 +28,21 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled graph.
         """
-        index = CodebaseIndex(RepoClient.create_instance())
+        repo_client = RepoClient.create_instance()
+        index = CodebaseIndex(repo_client)
+
         return create_react_agent(
-            BaseAgent.get_model(model=settings.MODEL_NAME, temperature=settings.TEMPERATURE),
-            state_schema=CodebaseChatAgentState,
-            tools=[SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True), think],
+            BaseAgent.get_model(
+                model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
+            ),
+            store=InMemoryStore(),
+            tools=[
+                SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True),
+                RepositoryStructureTool(api_wrapper=index, all_repositories=True),
+                RetrieveFileContentTool(api_wrapper=repo_client, all_repositories=True),
+            ],
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                repositories=await index._get_all_repositories(),
-                search_code_snippets_name=SEARCH_CODE_SNIPPETS_NAME,
-                current_date_time=timezone.now().strftime("%d %B, %Y"),
+                repositories=await index._get_all_repositories(), current_date_time=timezone.now().strftime("%d %B, %Y")
             ),
             version="v2",
             name=settings.NAME,

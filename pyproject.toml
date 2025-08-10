@@ -58,10 +58,10 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "agentevals==0.0.9",
   "coverage==7.10.2",
   "jupyter==1.1.1",
   "mypy==1.17.1",
+  "openevals==0.1",
   "pre-commit==4.2",
   "pyopenssl==25.1",
   "pyproject-fmt==2.6",
@@ -155,7 +155,7 @@ DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 pythonpath = "daiv"
 python_files = "test_*.py"
 python_classes = "Test *Test"
-addopts = "--cov --cov-config=.coveragerc"
+addopts = "--cov --cov-config=.coveragerc -p no:warnings"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

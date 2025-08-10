@@ -14,6 +14,7 @@ from zipfile import ZipFile
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError
 
 from core.constants import BOT_NAME
+from core.utils import build_uri
 
 from .base import (
     ClientType,
@@ -70,6 +71,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
         pass
 
     @abc.abstractmethod
@@ -320,7 +325,7 @@ class GitLabClient(RepoClient):
         Returns:
             The content of the file. If the file is binary or not a text file, it returns None.
         """
-        project = self.client.projects.get(repo_id)
+        project = self.client.projects.get(repo_id, lazy=True)
         try:
             project_file = project.files.get(file_path=file_path, ref=ref)
         except GitlabOperationError as e:
@@ -331,6 +336,12 @@ class GitLabClient(RepoClient):
             return project_file.decode().decode()
         except UnicodeDecodeError:
             return None
+
+    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
+        """
+        Get the link to a file in a repository.
+        """
+        return build_uri(self.codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
 
     def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
         """
@@ -344,7 +355,7 @@ class GitLabClient(RepoClient):
         Returns:
             True if the file exists, otherwise False.
         """
-        project = self.client.projects.get(repo_id)
+        project = self.client.projects.get(repo_id, lazy=True)
         try:
             project.files.head(file_path=file_path, ref=ref)
         except GitlabHeadError as e:

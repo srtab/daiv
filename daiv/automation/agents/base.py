@@ -34,6 +34,7 @@ class ModelProvider(StrEnum):
 
 
 class ThinkingLevel(StrEnum):
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

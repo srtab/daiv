@@ -1,8 +1,6 @@
 from textwrap import dedent
-from typing import Annotated
 
 from langchain_core.messages import AnyMessage
-from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
@@ -116,7 +114,6 @@ class Plan(BaseModel):
     # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    tool_call_id: Annotated[str, InjectedToolCallId]
     changes: list[ChangeInstructions] = Field(
         description=(
             "List of ChangeInstructions in the order they should be executed. "
