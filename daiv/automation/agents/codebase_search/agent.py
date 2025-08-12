@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMListwiseRerank
@@ -14,7 +14,6 @@ from automation.retrievers import MultiQueryRephraseRetriever
 from .conf import settings
 
 if TYPE_CHECKING:
-    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.retrievers import BaseRetriever
 
 
@@ -40,15 +39,14 @@ class CodebaseSearchAgent(BaseAgent[Runnable[str, list[Document]]]):
         """
         if self.rephrase:
             base_retriever: BaseRetriever = MultiQueryRephraseRetriever.from_llm(
-                self.retriever, llm=cast("BaseChatModel", BaseAgent.get_model(model=settings.REPHRASE_MODEL_NAME))
+                self.retriever, llm=BaseAgent.get_model(model=settings.REPHRASE_MODEL_NAME)
             )
         else:
             base_retriever: BaseRetriever = self.retriever
 
         return ContextualCompressionRetriever(
             base_compressor=LLMListwiseRerank.from_llm(
-                llm=cast("BaseChatModel", BaseAgent.get_model(model=settings.RERANKING_MODEL_NAME)),
-                top_n=settings.TOP_N,
+                llm=BaseAgent.get_model(model=settings.RERANKING_MODEL_NAME), top_n=settings.TOP_N
             ),
             base_retriever=base_retriever,
         ).with_config({"run_name": settings.NAME})
