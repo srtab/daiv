@@ -46,7 +46,7 @@ class CodebaseSettings(BaseSettings):
         """),  # noqa: E501
     )
     EMBEDDINGS_BATCH_SIZE: int = Field(
-        default=500, description="Batch size for the embeddings. Only used for OpenAI models."
+        default=250, description="Batch size for the embeddings. Only used for OpenAI models."
     )
     EMBEDDINGS_MAX_INPUT_TOKENS: int = Field(
         default=8192,
