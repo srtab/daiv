@@ -229,7 +229,6 @@ All the default models where chosen to be the most effective models. You can cha
 |---------------------------|----------------------------------------------------------|------------------------|
 | `CODEBASE_SEARCH_NAME` | Name of the codebase search agent. | `CodebaseSearch` |
 | `CODEBASE_SEARCH_TOP_N` | Number of results to return from the codebase search. | `10` |
-| `CODEBASE_SEARCH_REPHRASE_MODEL_NAME` | Model to rephrase the codebase search query. | `openrouter:openai/gpt-4-1-mini` |
 | `CODEBASE_SEARCH_RERANKING_MODEL_NAME`| Model for listwise reranking. | `openrouter:openai/gpt-4-1-mini` |
 
 !!! note

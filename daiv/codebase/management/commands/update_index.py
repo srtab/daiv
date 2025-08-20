@@ -59,9 +59,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         repo_client = RepoClient.create_instance()
-        indexer = CodebaseIndex(
-            repo_client=repo_client, semantic_augmented_context=options["semantic_augmented_context"]
-        )
+        indexer = CodebaseIndex(repo_client=repo_client)
 
         repositories = []
 

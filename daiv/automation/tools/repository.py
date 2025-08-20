@@ -48,11 +48,8 @@ class SearchCodeSnippetsTool(BaseTool):
     name: str = SEARCH_CODE_SNIPPETS_NAME
     description: str = textwrap.dedent(
         """\
-        Search for code snippets in the repository based on a code-focused query. Wildcard searches are not supported.
-        Use when you do not know the exact file path. The returned value will include only partial pieces of code.
-        If you know the exact file path and/or need full content of the file, use '{retrieve_file_content_name}' instead (if available).
-        """  # noqa: E501
-    ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME)
+        Find relevant code excerpts when you don't know the exact file path or only need snippets. Searches across source code using hybrid code search. Returns up to 10 partial snippets with their file path and a external URL. Snippets are excerpts (not full files) and may not be contiguous. If you know the exact path or need the entire file, use '{retrieve_file_content_name}' instead. If you need to search by path/directory/filename, use '{repository_structure_name}' instead."""  # noqa: E501
+    ).format(retrieve_file_content_name=RETRIEVE_FILE_CONTENT_NAME, repository_structure_name=REPOSITORY_STRUCTURE_NAME)
 
     handle_validation_error: bool = True
 
@@ -102,31 +99,22 @@ class SearchCodeSnippetsTool(BaseTool):
             # and we need to make sure the index is updated before the agent starts retrieving the documents
             await sync_to_async(self.api_wrapper.update)(source_repo_id, source_ref)
 
-        search = CodebaseSearchAgent(
-            retriever=await self.api_wrapper.as_retriever(source_repo_id, source_ref), rephrase=False
-        )
-
-        search_agent = await search.agent
+        search_agent = await CodebaseSearchAgent(
+            retriever=await self.api_wrapper.as_retriever(source_repo_id, source_ref), intent=intent
+        ).agent
 
         if search_results := await search_agent.ainvoke(query):
-            search_results_str = ""
+            search_results_str = f"Extracted code snippets from {source_repo_id} (ref: {source_ref}):\n\n"
             for document in search_results:
-                logger.debug(
-                    "[%s] Found snippet in '%s' (retriever: %s)",
-                    self.name,
-                    document.metadata["source"],
-                    document.metadata["retriever"],
-                )
+                logger.debug("[%s] Found snippet in '%s'", self.name, document.metadata["source"])
 
                 search_results_str += textwrap.dedent(
                     """\
-                    <CodeSnippet repository="{repository_id}" ref="{ref}" path="{file_path}" external_link="{link}">
+                    <CodeSnippet path="{file_path}" external_link="{link}">
                     {content}
                     </CodeSnippet>
                     """
                 ).format(
-                    repository_id=document.metadata["repo_id"],
-                    ref=document.metadata["ref"],
                     file_path=document.metadata["source"],
                     link=self.api_wrapper.repo_client.get_repository_file_link(
                         document.metadata["repo_id"], document.metadata["source"], document.metadata["ref"]

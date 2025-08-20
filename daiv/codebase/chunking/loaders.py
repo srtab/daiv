@@ -28,7 +28,6 @@ logger = logging.getLogger("daiv.indexes")
 
 MARKDOWN_HEADER_1 = "header1"
 MARKDOWN_HEADER_2 = "header2"
-MARKDOWN_HEADER_3 = "header3"
 
 
 class FileSystemBlobLoader(LangFileSystemBlobLoader):
@@ -80,7 +79,7 @@ class GenericLanguageLoader(BaseLoader):
                 try:
                     for doc in self.blob_parser.lazy_parse(blob):
                         # avoid documents without content
-                        if doc.page_content:
+                        if doc.page_content and doc.metadata.get("content_type") != "simplified_code":
                             relative_path = Path(cast("str", blob.source)).relative_to(self.blob_loader.path)
                             doc.metadata.update(self.documents_metadata)
                             doc.metadata["source"] = relative_path.as_posix()
@@ -148,7 +147,8 @@ class GenericLanguageLoader(BaseLoader):
                     )
                     continue
 
-                doc.id = str(uuid4().__str__())
+                doc.id = str(uuid4())
+                doc.metadata["splitter"] = text_splitter.__class__.__name__
                 splitted_documents.append(doc)
 
         return splitted_documents
@@ -160,8 +160,7 @@ class GenericLanguageLoader(BaseLoader):
         if language == "markdown":
             logger.debug("Using markdown header splitter")
             return MarkdownHeaderTextSplitter(
-                headers_to_split_on=[("#", MARKDOWN_HEADER_1), ("##", MARKDOWN_HEADER_2), ("###", MARKDOWN_HEADER_3)],
-                strip_headers=False,
+                headers_to_split_on=[("#", MARKDOWN_HEADER_1), ("##", MARKDOWN_HEADER_2)], strip_headers=False
             )
         elif language:
             logger.debug("Using chonkie splitter")

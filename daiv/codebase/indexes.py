@@ -10,12 +10,10 @@ from django.db.models import Q, QuerySet
 
 from asgiref.sync import async_to_sync
 from gitlab import GitlabGetError, GitlabListError
-from langchain.retrievers import EnsembleRetriever
 
 from codebase.chunking.loaders import GenericLanguageLoader
 from codebase.models import CodebaseNamespace, RepositoryInfo
-from codebase.search_engines.lexical import LexicalSearchEngine
-from codebase.search_engines.semantic import SemanticSearchEngine
+from codebase.search_engines.hybrid import HybridSearchEngine
 from codebase.utils import analyze_repository
 from core.config import RepositoryConfig
 
@@ -40,10 +38,9 @@ class CodebaseIndex(abc.ABC):
 
     repo_client: AllRepoClient
 
-    def __init__(self, repo_client: AllRepoClient, semantic_augmented_context: bool = False):
+    def __init__(self, repo_client: AllRepoClient):
         self.repo_client = repo_client
-        self.semantic_search_engine = SemanticSearchEngine(augmented_context=semantic_augmented_context)
-        self.lexical_search_engine = LexicalSearchEngine()
+        self.hybrid_search_engine = HybridSearchEngine()
 
     @transaction.atomic
     def update(self, repo_id: str, ref: str | None = None):
@@ -132,11 +129,10 @@ class CodebaseIndex(abc.ABC):
             )
 
             if documents_to_delete:
-                self._delete_documents(namespace.repository_info.external_slug, ref, documents_to_delete)
+                async_to_sync(self._delete_documents)(namespace.repository_info.external_slug, ref, documents_to_delete)
 
             if documents:
-                async_to_sync(self.semantic_search_engine.add_documents)(namespace, documents)
-                self.lexical_search_engine.add_documents(namespace, documents)
+                async_to_sync(self.hybrid_search_engine.add_documents)(namespace, documents)
         except Exception:
             logger.exception("Error indexing repo %s[%s]", namespace.repository_info.external_slug, ref)
             namespace.status = CodebaseNamespace.Status.FAILED
@@ -147,7 +143,7 @@ class CodebaseIndex(abc.ABC):
             namespace.save(update_fields=["status", "modified", "sha"])
             logger.info("Index finished for repo %s[%s]", namespace.repository_info.external_slug, ref)
 
-    def _delete_documents(self, repo_id: str, ref: str, source_files: list[str]):
+    async def _delete_documents(self, repo_id: str, ref: str, source_files: list[str]):
         """
         Delete specific source files from both semantic and lexical indexes.
 
@@ -161,8 +157,7 @@ class CodebaseIndex(abc.ABC):
         if namespace is None:
             return
 
-        self.semantic_search_engine.delete_documents(namespace, source=source_files)
-        self.lexical_search_engine.delete_documents(namespace, source=source_files)
+        await self.hybrid_search_engine.delete_documents(namespace, source=source_files)
 
     def delete(self, repo_id: int | str, ref: str | None = None, delete_all: bool = False):
         """
@@ -182,8 +177,7 @@ class CodebaseIndex(abc.ABC):
         for namespace in namespaces.iterator():
             logger.info("Reseting repo %s[%s] index.", namespace.repository_info.external_slug, namespace.tracking_ref)
 
-            self.semantic_search_engine.delete(namespace)
-            self.lexical_search_engine.delete(namespace)
+            self.hybrid_search_engine.delete(namespace)
             namespace.delete()
 
     async def as_retriever(self, repo_id: str | None = None, ref: str | None = None) -> BaseRetriever:
@@ -202,13 +196,7 @@ class CodebaseIndex(abc.ABC):
         if repo_id and namespace is None:
             raise ValueError(f"No namespace found for repo {repo_id} and ref {ref}.")
 
-        return EnsembleRetriever(
-            retrievers=[
-                self.semantic_search_engine.as_retriever(namespace, k=10),
-                self.lexical_search_engine.as_retriever(namespace, k=10),
-            ],
-            weights=[0.6, 0.4],
-        )
+        return self.hybrid_search_engine.as_retriever(namespace)
 
     @functools.lru_cache(maxsize=32)  # noqa: B019
     def extract_tree(self, repo_id: str, ref: str) -> str | None:

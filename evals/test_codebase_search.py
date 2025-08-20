@@ -19,31 +19,17 @@ retrieval_relevance_evaluator = create_llm_as_judge(
 @pytest.mark.django_db
 @pytest.mark.langsmith
 @pytest.mark.parametrize(
-    "question,rephrase",
-    [
-        ("How many agents are there in daiv and what are they?", True),
-        ("How many agents are there in daiv and what are they?", False),
-        ("How can i setup a test project on local GitLab to be used with DAIV?", True),
-        ("How can i setup a test project on local GitLab to be used with DAIV?", False),
-        ("What are the configuration options for the codebase chat agent?", True),
-        ("What are the configuration options for the codebase chat agent?", False),
-        ("What are the supported models in DAIV?", True),
-        ("What are the supported models in DAIV?", False),
-        ("Is there a way to configure embeddings for the codebase? If yes, what are the options?", True),
-        ("Is there a way to configure embeddings for the codebase? If yes, what are the options?", False),
-    ],
+    "query", [("quick_actions decorator registry base"), ("class BaseAgent"), ("fnmatch.fnmatch(")]
 )
-async def test_codebase_search_relevance(question, rephrase):
+async def test_codebase_search_relevance(query):
     index = CodebaseIndex(RepoClient.create_instance())
-    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever(), rephrase=rephrase).agent
+    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever()).agent
 
-    t.log_inputs({"question": question})
+    t.log_inputs({"query": query})
 
-    outputs = [item.page_content for item in await codebase_search.ainvoke(question)]
+    outputs = [item.page_content for item in await codebase_search.ainvoke(query)]
 
     t.log_outputs({"documents": outputs})
 
-    retrieval_relevance_result = retrieval_relevance_evaluator(
-        inputs={"question": question}, context={"documents": outputs}
-    )
+    retrieval_relevance_result = retrieval_relevance_evaluator(inputs={"query": query}, context={"documents": outputs})
     assert retrieval_relevance_result["score"] is True, retrieval_relevance_result["comment"]

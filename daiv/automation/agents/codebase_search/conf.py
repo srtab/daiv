@@ -9,15 +9,12 @@ class CodebaseSearchSettings(BaseSettings):
     Settings for the codebase search agent.
     """
 
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_SEARCH_")
+    model_config = SettingsConfigDict(env_prefix="CODEBASE_SEARCH_")
 
     NAME: str = Field(default="CodebaseSearch", description="Name of the codebase search agent.")
     TOP_N: int = Field(default=10, description="Number of results to return from the codebase search.")
-    REPHRASE_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_4_1_MINI, description="Model name to be used for codebase search."
-    )
     RERANKING_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_4_1_MINI, description="Model name to be used for listwise reranking."
+        default=ModelName.GPT_4_1, description="Model name to be used for listwise reranking."
     )
 
 

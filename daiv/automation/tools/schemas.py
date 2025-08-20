@@ -14,16 +14,34 @@ class SearchCodeSnippetsInput(BaseModel):
         ...,
         description=textwrap.dedent(
             """\
-            A code-centric search terms including code snippets, function/class/method names, code-related keywords or file paths. Wildcard/Regex/Fuzzy searches are not supported.
+            A concise, code-centric string (≤150 chars) composed of **2-6 high-signal tokens** separated by spaces or new lines (bag-of-terms). The engine is case-insensitive and treats input as **literal tokens**—it does **not** interpret operators, wildcards, or regex; `AND`/`OR`/quotes/`-` are just characters. Multi-line is allowed within the limit.
 
-            Tips:
-            1. Avoid ambiguous terms for precise results.
-            2. Do not use redundant words like "code", "snippet", "example", or "sample".
-            3. Optimize the query for hybrid search methods (vector and sparse retrieval).
-            """  # noqa: E501
+            If the user asked in natural language, **rewrite** it into tokens here. Prefer:
+            • Exact identifiers and API calls (e.g., `refreshAccessToken`, `jwt.verify(`, `useSWR(`)
+            • Import/module strings and config keys (e.g., `import Stripe`, `NEXTAUTH_SECRET`)
+            • Distinctive literals and error codes (e.g., `ERR_JWT_EXPIRED`, `\"Invalid signature\"`)
+            Avoid: a single generic word, commas/quotes unless they are part of the code, filler like "code/snippet/example/sample", and repository names.
+
+            **Multi-term examples:**
+            • `constructEvent stripe webhook.ts`
+            • `jwt.verify( refreshToken src/auth/`
+            • `oauth callback github nextauth`
+            • `Invalid signature payments webhook`"""  # noqa: E501
         ),
+        max_length=150,
     )
-    intent: str = Field(..., description="A brief description of why you are searching for this code.")
+    intent: str = Field(
+        ...,
+        description=(
+            "Why you need this code, in one short sentence, to aid re-ranking. "
+            "Include the user's task and desired follow-up action."
+        ),
+        examples=[
+            "Count the agents defined in DAIV and list their names.",
+            "Find where AgentRegistry.register is called to trace registration flow.",
+            "Locate the enum that enumerates DAIV agents for documentation.",
+        ],
+    )
 
 
 class CrossSearchCodeSnippetsInput(SearchCodeSnippetsInput):
@@ -34,8 +52,8 @@ class CrossSearchCodeSnippetsInput(SearchCodeSnippetsInput):
     repository: str | None = Field(
         default=None,
         description=(
-            "The name of the repository to search in. "
-            "If not provided, the search will be performed in all repositories."
+            "Optional repository name to restrict the search. If null, searches across all available repositories. "
+            "Use the canonical repo name; omit paths."
         ),
     )
 

@@ -16,7 +16,6 @@ from .conf import settings
 declared_model_names = {
     code_describer_settings.MODEL_NAME,
     codebase_chat_settings.MODEL_NAME,
-    codebase_search_settings.REPHRASE_MODEL_NAME,
     codebase_search_settings.RERANKING_MODEL_NAME,
     image_url_extractor_settings.MODEL_NAME,
     issue_addressor_settings.ISSUE_EVALUATOR_MODEL_NAME,
