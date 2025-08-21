@@ -618,7 +618,7 @@ requires-dist = [
     { name = "langchain-voyageai", specifier = "==0.1.6" },
     { name = "langgraph", specifier = "==0.5.4" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.23" },
-    { name = "langsmith", specifier = "==0.4.10" },
+    { name = "langsmith", specifier = "==0.4.15" },
     { name = "pgvector", specifier = "==0.4.1" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.11.7" },
@@ -1884,7 +1884,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.4.10"
+version = "0.4.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1895,9 +1895,9 @@ dependencies = [
     { name = "requests-toolbelt" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/e2/cf4418b99e9ef1cef479a641c93fec8e8d610e1527e0e0a02c547c58796c/langsmith-0.4.10.tar.gz", hash = "sha256:257a39238fad7d079c8571fbb5d1dcd24f3dcf7fedb1144c34065f62759ae492", size = 918716, upload-time = "2025-08-01T23:37:21.955Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/7a/a17f61670bec8fea8194fb0fef79812d02fc7d2b9660eb2c9d2d514f265f/langsmith-0.4.15.tar.gz", hash = "sha256:c9a4ec4b7b0f5f70e7be204ee9c5b17db872cc3015cd04851e2703a0966b9ff1", size = 930330, upload-time = "2025-08-20T17:48:32.552Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/ef/5270af5d1e8aebbc989a9fe523fdb38eea1775d54ceba7fc4dadff6db126/langsmith-0.4.10-py3-none-any.whl", hash = "sha256:0bc07a060792c42b0333271f30c2ba51ce47a8d59a0b2bde855cede10f59b3fe", size = 372004, upload-time = "2025-08-01T23:37:19.795Z" },
+    { url = "https://files.pythonhosted.org/packages/07/05/fcd7ee91990399fb7e1042da4b196bc99174f5282c6cb266607770abe935/langsmith-0.4.15-py3-none-any.whl", hash = "sha256:633719f9fdafe4297459b0ab442f536d6c0734b36c186ded67343d335e5ea0b3", size = 375733, upload-time = "2025-08-20T17:48:30.254Z" },
 ]
 
 [[package]]
