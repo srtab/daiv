@@ -8,9 +8,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
-from automation.tools.repository import RepositoryStructureTool, RetrieveFileContentTool, SearchCodeSnippetsTool
-from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
+from automation.tools.toolkits import FileNavigationToolkit
 
 from .conf import settings
 from .prompts import codebase_chat_system
@@ -18,7 +16,9 @@ from .prompts import codebase_chat_system
 
 class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
     """
-    Agent for answering questions about codebases.
+    Agent for answering questions about specific repository.
+
+    Use `set_repository_ctx` to set the repository context before using this agent.
     """
 
     async def compile(self) -> CompiledStateGraph:
@@ -28,22 +28,14 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled graph.
         """
-        repo_client = RepoClient.create_instance()
-        index = CodebaseIndex(repo_client)
-
         return create_react_agent(
             BaseAgent.get_model(
                 model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
             ),
             store=InMemoryStore(),
-            tools=[
-                SearchCodeSnippetsTool(api_wrapper=index, all_repositories=True),
-                RepositoryStructureTool(api_wrapper=index, all_repositories=True),
-                RetrieveFileContentTool(api_wrapper=repo_client, all_repositories=True),
-            ],
+            tools=FileNavigationToolkit.get_tools(),
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                repositories=await index._get_all_repositories(), current_date_time=timezone.now().strftime("%d %B, %Y")
+                current_date_time=timezone.now().strftime("%d %B, %Y")
             ),
-            version="v2",
             name=settings.NAME,
         )

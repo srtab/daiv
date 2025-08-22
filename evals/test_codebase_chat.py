@@ -47,7 +47,7 @@ These can be set as environment variables or configured via the `CodebaseChatSet
 async def test_codebase_chat_correctness(question, reference_outputs):
     t.log_reference_outputs(reference_outputs)
 
-    codebase_chat = await CodebaseChatAgent().agent
+    codebase_chat = await CodebaseChatAgent.get_runnable()
 
     t.log_inputs({"question": question})
 

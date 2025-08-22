@@ -36,7 +36,7 @@ from .base import (
 from .conf import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
 
     from gitlab.v4.objects import ProjectHook
 
@@ -126,7 +126,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
+    def load_repo(self, repo_id: str, sha: str) -> Iterator[Path]:
         pass
 
     @abc.abstractmethod
@@ -665,26 +665,26 @@ class GitLabClient(RepoClient):
         project.commits.create(commits)
 
     @contextmanager
-    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:  # type: ignore
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Path]:
         """
         Load a repository to a temporary directory.
 
         Args:
-            repo_id: The repository ID.
+            repository: The repository.
             sha: The commit sha.
 
         Yields:
             The path to the repository directory.
         """
-        project = self.client.projects.get(repo_id)
+        project = self.client.projects.get(repository.slug, lazy=True)
         safe_sha = sha.replace("/", "_").replace(" ", "-")
 
-        tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{safe_sha}-repo")
+        tmpdir = tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo")
         logger.debug("Loading repository to %s", tmpdir)
 
         try:
             with tempfile.NamedTemporaryFile(
-                prefix=f"{project.get_id()}-{safe_sha}-archive", suffix=".zip"
+                prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
             ) as repo_archive:
                 project.repository_archive(streamed=True, action=repo_archive.write, format="zip", sha=sha)
                 repo_archive.flush()

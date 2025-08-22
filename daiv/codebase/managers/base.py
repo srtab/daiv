@@ -84,7 +84,7 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent().agent
+        pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
             config=RunnableConfig(

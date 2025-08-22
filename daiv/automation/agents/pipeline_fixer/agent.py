@@ -19,7 +19,7 @@ from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.tools import think
-from automation.tools.toolkits import ReadRepositoryToolkit
+from automation.tools.toolkits import FileNavigationToolkit
 
 from .conf import settings
 from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
@@ -86,7 +86,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        tools = ReadRepositoryToolkit.create_instance().get_tools() + [complete_task, think]
+        tools = FileNavigationToolkit.get_tools() + [complete_task, think]
 
         agent = create_react_agent(
             model=BaseAgent.get_model(
@@ -147,7 +147,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=self.checkpointer).agent
+        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=self.checkpointer)._runnable
 
         await plan_and_execute.ainvoke({
             "messages": await pipeline_fixer_human.aformat_messages(
@@ -188,7 +188,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # We need to check if the command output contains more errors, or indications of failures.
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
-        command_output_evaluator = await CommandOutputEvaluator().agent
+        command_output_evaluator = await CommandOutputEvaluator.get_runnable()
         result = await command_output_evaluator.ainvoke({"output": content})
 
         if result.has_errors and state.get("format_iteration", 0) < MAX_FORMAT_ITERATIONS:

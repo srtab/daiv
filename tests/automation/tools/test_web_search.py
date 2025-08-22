@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from automation.tools.web_search import WebSearchTool
+from automation.tools.web_search import web_search_tool
 
 
 class TestWebSearchTool:
@@ -17,8 +17,7 @@ class TestWebSearchTool:
         mock_wrapper.results.return_value = mock_results
         mock_wrapper_class.return_value = mock_wrapper
 
-        tool = WebSearchTool()
-        result = await tool._arun(query="test query", intent="Testing")
+        result = await web_search_tool(query="test query")
 
         assert "Test content" in result
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
@@ -36,8 +35,7 @@ class TestWebSearchTool:
         mock_wrapper.raw_results_async = AsyncMock(return_value=mock_results)
         mock_wrapper_class.return_value = mock_wrapper
 
-        tool = WebSearchTool()
-        result = await tool._arun(query="test query", intent="Testing")
+        result = await web_search_tool(query="test query")
 
         assert "Test tavily answer" in result
         assert "Test tavily content" in result
@@ -55,8 +53,7 @@ class TestWebSearchTool:
         mock_wrapper.results.return_value = []
         mock_wrapper_class.return_value = mock_wrapper
 
-        tool = WebSearchTool()
-        result = await tool._arun(query="test query", intent="Testing")
+        result = await web_search_tool(query="test query")
 
         assert "No relevant results found" in result
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
@@ -73,8 +70,7 @@ class TestWebSearchTool:
         mock_wrapper.raw_results_async = AsyncMock(return_value={"answer": None, "results": []})
         mock_wrapper_class.return_value = mock_wrapper
 
-        tool = WebSearchTool()
-        result = await tool._arun(query="test query", intent="Testing")
+        result = await web_search_tool(query="test query")
 
         assert "No relevant results found" in result
 
@@ -83,9 +79,8 @@ class TestWebSearchTool:
         # Configure settings with invalid engine
         mock_settings.WEB_SEARCH_ENGINE = "invalid_engine"
 
-        tool = WebSearchTool()
         try:
-            await tool._arun(query="test query", intent="Testing")
+            await web_search_tool(query="test query")
             raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "Invalid web search engine: invalid_engine" in str(e)
@@ -103,8 +98,7 @@ class TestWebSearchTool:
         mock_wrapper.results.return_value = mock_results
         mock_wrapper_class.return_value = mock_wrapper
 
-        tool = WebSearchTool()
-        result = await tool._arun(query="test query", intent="Testing")
+        result = await web_search_tool(query="test query")
 
         # Check all results are included and properly formatted
         assert "First result" in result

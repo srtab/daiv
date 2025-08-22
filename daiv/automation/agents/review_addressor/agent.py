@@ -17,7 +17,7 @@ from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.prompts import plan_system
 from automation.tools import think
-from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
+from automation.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
@@ -57,7 +57,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
+        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
         repo_client = RepoClient.create_instance()
 
         return create_react_agent(
@@ -115,7 +115,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "reply_reviewer"]]: The next step in the workflow.
         """
-        review_comment_evaluator = await ReviewCommentEvaluator().agent
+        review_comment_evaluator = await ReviewCommentEvaluator.get_runnable()
         response = await review_comment_evaluator.ainvoke({"messages": state["notes"]})
 
         if response.request_for_changes:
@@ -155,7 +155,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
             checkpointer=False,
-        ).agent
+        )._runnable
 
         result = await plan_and_execute.ainvoke({"messages": state["notes"]})
 
@@ -177,7 +177,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        reply_reviewer_agent = await ReplyReviewerAgent(store=store).agent
+        reply_reviewer_agent = await ReplyReviewerAgent(store=store)._runnable
 
         result = await reply_reviewer_agent.ainvoke({"messages": state["notes"], "diff": state["diff"]})
 

@@ -15,7 +15,7 @@ class PlanAndExecuteSettings(BaseSettings):
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
     RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan and execute agent.")
     PLANNING_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5, description="Model name to be used to plan tasks."
+        default=ModelName.CLAUDE_SONNET_4, description="Model name to be used to plan tasks."
     )
     PLANNING_THINKING_LEVEL: ThinkingLevel | None = Field(
         default=ThinkingLevel.MEDIUM, description="Thinking level to be used for planning."

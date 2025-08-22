@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from functools import cached_property
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import init_chat_model
@@ -48,16 +47,23 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     Base agent class for creating agents that interact with a model.
     """
 
+    _runnable: T
+    """
+    The runnable instance that can be used to invoke the agent.
+    """
+
     def __init__(self, *, checkpointer: BaseCheckpointSaver | None = None, store: BaseStore | None = None):
         self.checkpointer = checkpointer
         self.store = store
 
-    @cached_property
-    async def agent(self) -> T:
+    @classmethod
+    async def get_runnable(cls, *args, **kwargs) -> T:
         """
-        The compiled agent.
+        Get the compiled agent instance.
         """
-        return await self.compile()
+        instance = cls(*args, **kwargs)
+        instance._runnable = await instance.compile()
+        return instance._runnable
 
     @abstractmethod
     async def compile(self) -> T:
@@ -172,9 +178,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             str: The Mermaid graph
         """
-        if isinstance(self.agent, CompiledStateGraph):
-            return (await self.agent.aget_graph(xray=True)).draw_mermaid_png()
-        return (await self.agent.aget_graph()).draw_mermaid_png()
+        if isinstance(self._runnable, CompiledStateGraph):
+            return (await self._runnable.aget_graph(xray=True)).draw_mermaid_png()
+        return (await self._runnable.aget_graph()).draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """

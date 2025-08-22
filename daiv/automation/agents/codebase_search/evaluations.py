@@ -48,7 +48,7 @@ class CodebaseSearchEvaluator(BaseAgent[Runnable[dict[str, str | list[str]], lis
 
 
 async def evaluate(question, result):
-    codebase_search_evaluator = await CodebaseSearchEvaluator().agent
+    codebase_search_evaluator = await CodebaseSearchEvaluator.get_runnable()
 
     response = await codebase_search_evaluator.ainvoke({
         "question": question,
@@ -60,7 +60,7 @@ async def evaluate(question, result):
 async def run_evaluations(rephrase: bool = False):
     index = CodebaseIndex(RepoClient.create_instance())
 
-    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever(), rephrase=rephrase).agent
+    codebase_search = await CodebaseSearchAgent.get_runnable(retriever=await index.as_retriever(), rephrase=rephrase)
 
     results = await asyncio.gather(*[codebase_search.ainvoke(question) for question in questions])
 

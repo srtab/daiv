@@ -138,7 +138,9 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            issue_addressor = await IssueAddressorAgent(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )._runnable
             current_state = None
 
             if should_reset_plan:
@@ -191,7 +193,9 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            issue_addressor = await IssueAddressorAgent(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )._runnable
 
             current_state = await issue_addressor.aget_state(self._config, subgraphs=True)
 
@@ -246,7 +250,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent().agent
+        pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {
                 "changes": file_changes,

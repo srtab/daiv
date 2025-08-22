@@ -91,7 +91,9 @@ class PipelineRepairManager(BaseManager):
         Plan the pipeline fix for a job.
         """
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            pipeline_fixer = await PipelineFixerAgent(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )._runnable
             current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
             if not current_state.next and current_state.created_at is None:
@@ -130,7 +132,9 @@ class PipelineRepairManager(BaseManager):
         Execute the pipeline fix for a job.
         """
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            pipeline_fixer = await PipelineFixerAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            pipeline_fixer = await PipelineFixerAgent(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )._runnable
 
             current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 

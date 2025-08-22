@@ -19,5 +19,5 @@ class ModelName(StrEnum):
     GPT_5 = "openrouter:openai/gpt-5"
     GPT_5_MINI = "openrouter:openai/gpt-5-mini"
     GPT_5_NANO = "openrouter:openai/gpt-5-nano"
-    DEEPSEEK_CHAT_V3_0324 = "openrouter:deepseek/deepseek-chat-v3-0324"
+    DEEPSEEK_CHAT_V3_1 = "openrouter:deepseek/deepseek-chat-v3.1"
     GEMINI_2_5_PRO = "openrouter:google/gemini-2.5-pro"

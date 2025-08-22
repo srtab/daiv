@@ -16,15 +16,15 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code
 from automation.tools import think
-from automation.tools.repository import REPOSITORY_STRUCTURE_NAME, RETRIEVE_FILE_CONTENT_NAME, SEARCH_CODE_SNIPPETS_NAME
+from automation.tools.navigation import NAVIGATION_TOOLS
 from automation.tools.toolkits import (
+    FileEditingToolkit,
+    FileNavigationToolkit,
     MCPToolkit,
-    ReadRepositoryToolkit,
     SandboxToolkit,
     WebSearchToolkit,
-    WriteRepositoryToolkit,
 )
-from automation.utils import file_changes_namespace
+from automation.utils import has_file_changes
 from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
@@ -60,8 +60,6 @@ def wrapped_prepare_plan_model(
     """
     base_tools = [tool for tool in tools if tool.name not in FINALIZE_TOOLS]
 
-    print("##############", base_tools)  # noqa: T201
-
     def prepare_plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
         """
         Prepare the model for the planning step with the correct tools at each stage of the conversation.
@@ -82,13 +80,11 @@ def wrapped_prepare_plan_model(
         if len(state["messages"]) <= 2:
             return model.bind_tools([plan_think], tool_choice="plan_think")
 
-        # only add the finalize tools if at least one of the inspection tools was called
+        # only add the finalize tools if at least one of the navigation tool was called
         if any(
             message
             for message in state["messages"]
-            if message.type == "tool"
-            and message.status == "success"
-            and message.name in [REPOSITORY_STRUCTURE_NAME, RETRIEVE_FILE_CONTENT_NAME, SEARCH_CODE_SNIPPETS_NAME]
+            if message.type == "tool" and message.status == "success" and message.name in NAVIGATION_TOOLS
         ):
             tools += [finalize_with_plan, finalize_with_targeted_questions]
 
@@ -158,7 +154,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        all_tools = await PlanAndExecuteAgent._get_plan_tools()
+        all_tools = await self._get_plan_tools()
         model = BaseAgent.get_model(
             model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
         )
@@ -255,10 +251,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
         })
 
-        if not self.skip_format_code and await store.asearch(
-            file_changes_namespace(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"]),
-            limit=1,
-        ):
+        if not self.skip_format_code and await has_file_changes(self.store):
             return Command(goto="apply_format_code")
         return Command(goto=END)
 
@@ -279,21 +272,20 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         await apply_format_code(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store)
         return Command(goto=END)
 
-    @staticmethod
-    async def _get_plan_tools() -> list[BaseTool]:
+    async def _get_plan_tools(self) -> list[BaseTool]:
         """
         Get the tools for the planning step.
 
         Returns:
             list[BaseTool]: The tools for the planning step.
         """
-        mcp_tools = await MCPToolkit.create_instance()
-        repository_tools = ReadRepositoryToolkit.create_instance()
-        web_search_tools = WebSearchToolkit.create_instance()
+        mcp_tools = await MCPToolkit.get_tools()
+        repository_tools = FileNavigationToolkit.get_tools()
+        web_search_tools = WebSearchToolkit.get_tools()
         return (
-            repository_tools.get_tools()
-            + web_search_tools.get_tools()
-            + mcp_tools.get_tools()
+            repository_tools
+            + web_search_tools
+            + mcp_tools
             + [plan_think, finalize_with_plan, finalize_with_targeted_questions]
         )
 
@@ -307,6 +299,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             list[BaseTool]: The tools for the execution step.
         """
-        repository_tools = WriteRepositoryToolkit.create_instance()
-        sandbox_tools = SandboxToolkit.create_instance() if commands_enabled else None
-        return repository_tools.get_tools() + (sandbox_tools.get_tools() if sandbox_tools else []) + [think]
+        repository_tools = FileEditingToolkit.get_tools()
+        sandbox_tools = SandboxToolkit.get_tools() if commands_enabled else []
+        return repository_tools + sandbox_tools + [think]

@@ -24,6 +24,7 @@ RUN apt-get update \
         unzip \
         gnupg \
         ca-certificates \
+        ripgrep \
         # Cleaning up unused files
     && apt-get purge -y --auto-remove \
         -o APT::AutoRemove::RecommendsImportant=0 \

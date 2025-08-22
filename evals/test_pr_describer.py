@@ -84,7 +84,7 @@ file_changes = [
 async def test_pr_describer_correctness(branch_name_convention, extra_context, reference_outputs):
     t.log_reference_outputs(reference_outputs)
 
-    pr_describer = await PullRequestDescriberAgent().agent
+    pr_describer = await PullRequestDescriberAgent.get_runnable()
 
     inputs = {"changes": [change.model_dump() for change in file_changes]}
 

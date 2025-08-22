@@ -269,7 +269,9 @@ class ReviewAddressorManager(BaseManager):
         await self._set_file_changes(await self._get_file_changes(), store=file_changes_store)
 
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
-            reviewer_addressor = await ReviewAddressorAgent(store=file_changes_store, checkpointer=checkpointer).agent
+            reviewer_addressor = await ReviewAddressorAgent(
+                store=file_changes_store, checkpointer=checkpointer
+            )._runnable
 
             current_state = await reviewer_addressor.aget_state(config, subgraphs=True)
             if current_state.created_at is not None:

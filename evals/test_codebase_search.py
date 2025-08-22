@@ -35,7 +35,7 @@ retrieval_relevance_evaluator = create_llm_as_judge(
 )
 async def test_codebase_search_relevance(question, rephrase):
     index = CodebaseIndex(RepoClient.create_instance())
-    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever(), rephrase=rephrase).agent
+    codebase_search = await CodebaseSearchAgent(retriever=await index.as_retriever(), rephrase=rephrase)._runnable
 
     t.log_inputs({"question": question})
 

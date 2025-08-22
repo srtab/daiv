@@ -2,68 +2,48 @@ from __future__ import annotations
 
 import logging
 from abc import ABCMeta, abstractmethod
+from typing import TYPE_CHECKING
 
-from langchain_core.tools.base import BaseTool
-from langchain_core.tools.base import BaseToolkit as LangBaseToolkit
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from .repository import (
-    CreateNewRepositoryFileTool,
-    DeleteRepositoryFileTool,
-    RenameRepositoryFileTool,
-    ReplaceSnippetInFileTool,
-    RepositoryStructureTool,
-    RetrieveFileContentTool,
-    SearchCodeSnippetsTool,
-)
+from .editing import delete_tool, edit_tool, rename_tool, write_tool
+from .navigation import glob_tool, grep_tool, ls_tool, read_tool
 from .sandbox import RunSandboxCommandsTool
-from .web_search import WebSearchTool
+from .web_search import web_search_tool
+
+if TYPE_CHECKING:
+    from langchain_core.tools.base import BaseTool
 
 logger = logging.getLogger("daiv.tools")
 
 
-class BaseToolkit(LangBaseToolkit, metaclass=ABCMeta):
-    tools: list[BaseTool]
-
+class BaseToolkit(metaclass=ABCMeta):
     @classmethod
     @abstractmethod
-    def create_instance(cls) -> BaseToolkit:
-        pass
-
-    def get_tools(self) -> list[BaseTool]:
+    def get_tools(cls) -> list[BaseTool]:
         """
         Get the tools for the toolkit.
         """
-        return self.tools
 
 
-class ReadRepositoryToolkit(BaseToolkit):
+class FileNavigationToolkit(BaseToolkit):
     """
-    Toolkit for inspecting codebases.
+    Toolkit with tools to navigate files in codebases.
     """
 
     @classmethod
-    def create_instance(cls) -> BaseToolkit:
-        return cls(tools=[SearchCodeSnippetsTool(), RetrieveFileContentTool(), RepositoryStructureTool()])
+    def get_tools(cls) -> list[BaseTool]:
+        return [glob_tool, grep_tool, ls_tool, read_tool]
 
 
-class WriteRepositoryToolkit(ReadRepositoryToolkit):
+class FileEditingToolkit(FileNavigationToolkit):
     """
-    Toolkit for modifying codebases.
+    Toolkit for modifying files in codebases.
     """
-
-    tools: list[BaseTool]
 
     @classmethod
-    def create_instance(cls) -> BaseToolkit:
-        super_instance = super().create_instance()
-        super_instance.tools.extend([
-            ReplaceSnippetInFileTool(),
-            CreateNewRepositoryFileTool(),
-            RenameRepositoryFileTool(),
-            DeleteRepositoryFileTool(),
-        ])
-        return super_instance
+    def get_tools(cls) -> list[BaseTool]:
+        return super().get_tools() + [write_tool, edit_tool, delete_tool, rename_tool]
 
 
 class SandboxToolkit(BaseToolkit):
@@ -72,8 +52,8 @@ class SandboxToolkit(BaseToolkit):
     """
 
     @classmethod
-    def create_instance(cls) -> BaseToolkit:
-        return cls(tools=[RunSandboxCommandsTool()])
+    def get_tools(cls) -> list[BaseTool]:
+        return [RunSandboxCommandsTool()]
 
 
 class WebSearchToolkit(BaseToolkit):
@@ -82,8 +62,8 @@ class WebSearchToolkit(BaseToolkit):
     """
 
     @classmethod
-    def create_instance(cls) -> BaseToolkit:
-        return cls(tools=[WebSearchTool()])
+    def get_tools(cls) -> list[BaseTool]:
+        return [web_search_tool]
 
 
 class MCPToolkit(BaseToolkit):
@@ -92,7 +72,7 @@ class MCPToolkit(BaseToolkit):
     """
 
     @classmethod
-    async def create_instance(cls) -> BaseToolkit:
+    async def get_tools(cls) -> list[BaseTool]:
         from .mcp.registry import mcp_registry
 
         client = MultiServerMCPClient(mcp_registry.get_connections())
@@ -103,4 +83,4 @@ class MCPToolkit(BaseToolkit):
             logger.warning("Error getting tools from MCP servers: Connection refused.")
             tools = []
 
-        return cls(tools=tools)
+        return tools

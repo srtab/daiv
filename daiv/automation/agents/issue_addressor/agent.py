@@ -75,7 +75,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["prepare_data", "__end__"]]: The next step in the workflow.
         """
-        evaluator = await IssueEvaluator().agent
+        evaluator = await IssueEvaluator.get_runnable()
         response = await evaluator.ainvoke({
             "issue_title": state["issue_title"],
             "issue_description": state["issue_description"],
@@ -99,7 +99,7 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
 
-        extractor = await ImageURLExtractorAgent().agent
+        extractor = await ImageURLExtractorAgent.get_runnable()
         extracted_images = await extractor.ainvoke(
             {"markdown_text": state["issue_description"]},
             {
@@ -135,4 +135,4 @@ class IssueAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled subgraph.
         """
-        return await PlanAndExecuteAgent(checkpointer=checkpointer, store=store).agent
+        return await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=store)
