@@ -1,4 +1,4 @@
-from automation.agents.snippet_replacer.utils import compute_similarity, find_original_snippet
+from automation.agents.utils import compute_similarity, find_original_snippet
 
 
 def test_compute_similarity_exact_match():

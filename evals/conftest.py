@@ -1,12 +1,9 @@
 import pytest
 
-from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
+from codebase.context import set_repository_ctx
 
 
-@pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_blocker):
-    with django_db_blocker.unblock():
-        index = CodebaseIndex(RepoClient.create_instance())
-        index.update("srtab/daiv", "main")
-        yield
+@pytest.fixture(autouse=True, scope="session")
+def repository_ctx():
+    with set_repository_ctx(repo_id="srtab/daiv", ref="main") as ctx:
+        yield ctx

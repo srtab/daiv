@@ -147,7 +147,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=self.checkpointer)._runnable
+        plan_and_execute = await PlanAndExecuteAgent.get_runnable(store=store, checkpointer=self.checkpointer)
 
         await plan_and_execute.ainvoke({
             "messages": await pipeline_fixer_human.aformat_messages(

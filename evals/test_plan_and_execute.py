@@ -11,7 +11,6 @@ from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.schemas import ChangeInstructions
 from automation.agents.plan_and_execute.tools import FINALIZE_WITH_PLAN_NAME, FINALIZE_WITH_TARGETED_QUESTIONS_NAME
 from automation.utils import get_file_changes
-from codebase.context import set_repository_ctx
 
 evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
@@ -20,14 +19,6 @@ evaluator = create_llm_as_judge(
 )
 
 config = {"configurable": {"thread_id": "1", "source_repo_id": "srtab/daiv", "source_ref": "main"}}
-
-
-@pytest.fixture(autouse=True, scope="module")
-def repository_ctx():
-    with set_repository_ctx(
-        repo_id=config["configurable"]["source_repo_id"], ref=config["configurable"]["source_ref"]
-    ) as ctx:
-        yield ctx
 
 
 @pytest.mark.django_db
@@ -146,7 +137,7 @@ async def test_plan_complete_requirements_correctness(messages, reference_output
 
     store = InMemoryStore()
     checkpointer = InMemorySaver()
-    plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=checkpointer)._runnable
+    plan_and_execute = await PlanAndExecuteAgent.get_runnable(store=store, checkpointer=checkpointer)
 
     inputs = {"messages": messages}
 

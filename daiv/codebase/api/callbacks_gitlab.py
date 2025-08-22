@@ -10,9 +10,8 @@ from automation.quick_actions.registry import quick_action_registry
 from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
-from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
-from codebase.tasks import address_issue_task, address_review_task, update_index_repository
+from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
 from core.config import RepositoryConfig
 
@@ -244,7 +243,7 @@ class PushCallback(BaseCallback):
         """
         Accept the webhook if the push is to the default branch or to any branch with MR created.
         """
-        return self.ref.endswith(self.project.default_branch) or any(mr.is_daiv() for mr in self.related_merge_requests)
+        return self.ref.endswith(self.project.default_branch)
 
     async def process_callback(self):
         """
@@ -254,24 +253,3 @@ class PushCallback(BaseCallback):
         if self.project.default_branch and self.ref.endswith(self.project.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
-            await sync_to_async(
-                update_index_repository.si(
-                    repo_id=self.project.path_with_namespace, ref=self.project.default_branch
-                ).delay
-            )()
-
-        for merge_request in self.related_merge_requests:
-            if merge_request.is_daiv():
-                await sync_to_async(
-                    update_index_repository.si(
-                        repo_id=self.project.path_with_namespace, ref=merge_request.source_branch
-                    ).delay
-                )()
-
-    @cached_property
-    def related_merge_requests(self) -> list[BaseMergeRequest]:
-        """
-        Get the merge requests related to the push.
-        """
-        client = RepoClient.create_instance()
-        return client.get_commit_related_merge_requests(self.project.path_with_namespace, commit_sha=self.checkout_sha)

@@ -138,9 +138,9 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(
+            issue_addressor = await IssueAddressorAgent.get_runnable(
                 checkpointer=checkpointer, store=self._file_changes_store
-            )._runnable
+            )
             current_state = None
 
             if should_reset_plan:
@@ -193,9 +193,9 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(
+            issue_addressor = await IssueAddressorAgent.get_runnable(
                 checkpointer=checkpointer, store=self._file_changes_store
-            )._runnable
+            )
 
             current_state = await issue_addressor.aget_state(self._config, subgraphs=True)
 

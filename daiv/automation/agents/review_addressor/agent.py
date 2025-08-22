@@ -19,7 +19,6 @@ from automation.agents.plan_and_execute.prompts import plan_system
 from automation.tools import think
 from automation.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
 from core.config import RepositoryConfig
 from core.constants import BOT_NAME
 
@@ -80,10 +79,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to address reviews by providing feedback and asking questions.
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.codebase_index = CodebaseIndex(RepoClient.create_instance())
 
     async def compile(self) -> CompiledStateGraph:
         """
@@ -149,13 +144,13 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             ),
         )
 
-        plan_and_execute = await PlanAndExecuteAgent(
+        plan_and_execute = await PlanAndExecuteAgent.get_runnable(
             plan_system_template=plan_system,
             store=store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
             checkpointer=False,
-        )._runnable
+        )
 
         result = await plan_and_execute.ainvoke({"messages": state["notes"]})
 
@@ -177,7 +172,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        reply_reviewer_agent = await ReplyReviewerAgent(store=store)._runnable
+        reply_reviewer_agent = await ReplyReviewerAgent.get_runnable(store=store)
 
         result = await reply_reviewer_agent.ainvoke({"messages": state["notes"], "diff": state["diff"]})
 

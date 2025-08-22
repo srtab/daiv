@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from langchain.tools import tool
 from langgraph.prebuilt import InjectedStore
 
-from automation.agents.snippet_replacer.utils import find_original_snippet
+from automation.agents.utils import find_original_snippet
 from automation.utils import check_file_read, register_file_change
 from codebase.base import FileChangeAction
 from codebase.context import get_repository_ctx
