@@ -16,9 +16,10 @@ from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code_node
-from automation.tools import think
-from automation.tools.navigation import NAVIGATION_TOOLS
-from automation.tools.toolkits import (
+from automation.agents.schemas import ImageTemplate
+from automation.agents.tools import think
+from automation.agents.tools.navigation import NAVIGATION_TOOLS
+from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
     MCPToolkit,
@@ -31,7 +32,7 @@ from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
-from .schemas import ImageTemplate, ImageURLExtractorOutput
+from .schemas import ImageURLExtractorOutput
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import FINALIZE_TOOLS, finalize_with_plan, finalize_with_targeted_questions, plan_think
 

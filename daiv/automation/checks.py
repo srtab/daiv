@@ -14,7 +14,6 @@ declared_model_names = {
     pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
     plan_and_execute_settings.EXECUTION_MODEL_NAME,
     plan_and_execute_settings.PLANNING_MODEL_NAME,
-    plan_and_execute_settings.HUMAN_APPROVAL_MODEL_NAME,
     pr_describer_settings.MODEL_NAME,
     review_addressor_settings.REPLY_MODEL_NAME,
     review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,

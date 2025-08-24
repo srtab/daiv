@@ -3,11 +3,11 @@ from functools import cached_property
 from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
+from quick_actions.base import Scope
+from quick_actions.parser import QuickActionCommand, parse_quick_action
+from quick_actions.registry import quick_action_registry
+from quick_actions.tasks import execute_quick_action_task
 
-from automation.quick_actions.base import Scope
-from automation.quick_actions.parser import QuickActionCommand, parse_quick_action
-from automation.quick_actions.registry import quick_action_registry
-from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient

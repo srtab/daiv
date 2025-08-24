@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from automation.tools.sandbox import bash_tool
+from automation.agents.tools.sandbox import bash_tool
 from codebase.context import get_repository_ctx
 
 if TYPE_CHECKING:

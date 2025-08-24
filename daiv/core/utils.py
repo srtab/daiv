@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import hashlib
 import logging
 import mimetypes
@@ -45,7 +44,7 @@ def build_uri(uri: str, path: str):
     return urlunparse(uri_parts)
 
 
-def extract_image_mimetype_openai(image_url: str) -> str | None:
+def extract_valid_image_mimetype(image_url: str) -> str | None:
     """
     Check if the image URL has a supported mimetype.
     """
@@ -53,42 +52,39 @@ def extract_image_mimetype_openai(image_url: str) -> str | None:
     return mimetype in SUPPORTED_MIMETYPES and mimetype or None
 
 
-async def _async_url_to_data_url(client: httpx.AsyncClient, url: str) -> str | None:
+async def _async_download_url(client: httpx.AsyncClient, url: str) -> bytes | None:
     """
-    Asynchronously convert an image URL to a data URL.
+    Asynchronously download an URL.
     Returns None if the URL is invalid or the request fails.
     """
-    if not (content_type := extract_image_mimetype_openai(url)):
-        return None
     try:
         response = await client.get(url)
         response.raise_for_status()
     except Exception:
         return None
     else:
-        base64_image = base64.b64encode(response.content).decode("utf-8")
-        return f"data:{content_type};base64,{base64_image}"
+        return response.content
 
 
-async def async_url_to_data_url(url: str, headers: dict[str, str] | None = None) -> str | None:
+async def async_download_url(url: str, headers: dict[str, str] | None = None) -> bytes | None:
     """
-    Asynchronously convert an image URL to a data URL.
+    Asynchronously download an URL.
     Returns None if the URL is invalid or the request fails.
     """
     async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-        return await _async_url_to_data_url(client, url)
+        return await _async_download_url(client, url)
 
 
-async def batch_async_url_to_data_url(urls: Iterable[str], headers: dict[str, str] | None = None) -> dict[str, str]:
+async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] | None = None) -> dict[str, bytes]:
     """
-    Convert multiple URLs to data URLs asynchronously.
-    Returns a dictionary of URL to data URL mappings.
+    Download multiple URLs asynchronously.
+    Returns a dictionary of URL to content mappings.
     """
     result = {}
 
     # Using a single client for all requests
     async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-        responses = await asyncio.gather(*[_async_url_to_data_url(client, url) for url in urls], return_exceptions=True)
+        responses = await asyncio.gather(*[_async_download_url(client, url) for url in urls], return_exceptions=True)
 
         for url, response in zip(urls, responses, strict=False):
             if isinstance(response, Exception):

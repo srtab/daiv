@@ -16,8 +16,8 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.prompts import plan_system
-from automation.tools import think
-from automation.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
+from automation.agents.tools import think
+from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from core.config import RepositoryConfig
 from core.constants import BOT_NAME

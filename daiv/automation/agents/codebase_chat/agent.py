@@ -8,7 +8,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
-from automation.tools.toolkits import FileNavigationToolkit
+from automation.agents.tools.toolkits import FileNavigationToolkit
 from codebase.context import get_repository_ctx
 
 from .conf import settings

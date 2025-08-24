@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from textwrap import dedent
-from typing import TYPE_CHECKING, Literal
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
-from codebase.base import ClientType
-from codebase.conf import settings
-from core.utils import async_url_to_data_url, build_uri, is_valid_url
-
 if TYPE_CHECKING:
     from langchain_core.messages import AnyMessage
+
+    from automation.agents.schemas import Image
 
 
 FINALIZE_WITH_PLAN_DESCRIPTION = """\
@@ -40,70 +37,8 @@ If either is false, do NOT call this tool.
 Use this tool when ambiguity remains after inspection, when any required execution detail is still missing, or when external sources are conflicting."""  # NOQA: E501
 
 
-class ImageURLTemplate(BaseModel):
-    url: str = Field(description="URL of the image.")
-    detail: str | None = Field(description="Detail of the image.", default=None)
-
-
-class ImageTemplate(BaseModel):
-    type: Literal["image", "text"]
-    image_url: ImageURLTemplate
-
-    @staticmethod
-    async def from_images(
-        images: list[Image],
-        repo_client_slug: ClientType | None = None,
-        project_id: int | None = None,
-        text: str | None = None,
-    ) -> list[ImageTemplate]:
-        """
-        Create a list of image templates from a list of images.
-
-        Args:
-            project_id (int): The project ID.
-            images (list[Image]): The list of images.
-            text (str): The text of the user request.
-
-        Returns:
-            list[ImageTemplate]: The list of image templates.
-        """
-        image_templates = []
-
-        for image in images:
-            image_url = None
-
-            if is_valid_url(image.url):
-                image_url = image.url
-
-            elif (
-                (parsed_url := urlparse(image.url))
-                and not parsed_url.netloc
-                and not parsed_url.scheme
-                and repo_client_slug == ClientType.GITLAB
-                and project_id
-                and parsed_url.path.startswith(("/uploads/", "uploads/"))
-            ):
-                assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
-                _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
-                image_url = await async_url_to_data_url(
-                    _repo_image_url, headers={"PRIVATE-TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value()}
-                )
-
-            if image_url:
-                image_templates.append(
-                    ImageTemplate(type="image", image_url=ImageURLTemplate(url=image_url)).model_dump(exclude_none=True)
-                )
-
-        return image_templates
-
-
-class Image(BaseModel):
-    url: str = Field(description="URL of the image.")
-    filename: str = Field(description="Filename of image. Leave empty if not available.")
-
-
 class ImageURLExtractorOutput(BaseModel):
-    images: list[Image] = Field(description="List of images found in the user request.")
+    images: list[Image] = Field(description="List of images found in the task.")
 
 
 class HumanApprovalInput(TypedDict):

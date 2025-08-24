@@ -18,8 +18,8 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code_node
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.tools import think
-from automation.tools.toolkits import FileNavigationToolkit
+from automation.agents.tools import think
+from automation.agents.tools.toolkits import FileNavigationToolkit
 
 from .conf import settings
 from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
