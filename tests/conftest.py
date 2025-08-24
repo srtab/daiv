@@ -31,7 +31,6 @@ def mock_repo_client():
         )
         mock_client.list_repositories.return_value = []
         mock_client.get_repository_file.return_value = None
-        mock_client.repository_file_exists.return_value = False
         mock_client.repository_branch_exists.return_value = True
 
         # Mock repository modification operations
@@ -40,10 +39,6 @@ def mock_repo_client():
         mock_client.update_or_create_merge_request.return_value = 1
         mock_client.comment_merge_request.return_value = None
         mock_client.commit_changes.return_value = None
-
-        # Mock repository inspection operations
-        mock_client.get_repo_head_sha.return_value = "abc123"
-        mock_client.get_commit_changed_files.return_value = ([], [], [])
 
         # Mock issue operations
         mock_client.get_issue.return_value = Mock()

@@ -20,15 +20,4 @@ def check_api_keys(app_configs, **kwargs):
             )
         )
 
-    if (
-        any(settings.EMBEDDINGS_MODEL_NAME.startswith(provider) for provider in ("openai/", "voyageai/"))
-        and not settings.EMBEDDINGS_API_KEY
-    ):
-        errors.append(
-            Error(
-                f"No API key found for {settings.EMBEDDINGS_MODEL_NAME}. "
-                "Please set the API key using the environment variable CODEBASE_EMBEDDINGS_API_KEY."
-            )
-        )
-
     return errors

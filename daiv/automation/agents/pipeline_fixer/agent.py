@@ -16,7 +16,7 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
-from automation.agents.nodes import apply_format_code
+from automation.agents.nodes import apply_format_code_node
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.tools import think
 from automation.tools.toolkits import FileNavigationToolkit
@@ -175,9 +175,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        content = await apply_format_code(
-            config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store
-        )
+        content = await apply_format_code_node(store)
 
         if content is None:
             # If format code is disabled, we need to try to fix the linting issues by planning the remediation steps.

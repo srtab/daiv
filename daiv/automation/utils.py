@@ -123,6 +123,27 @@ async def get_file_changes(store: BaseStore) -> list[FileChange]:
     return [cast("FileChange", change.value["data"]) for change in await store.asearch(namespace)]
 
 
+async def get_file_change(store: BaseStore, file_path: str) -> FileChange | None:
+    """
+    Get a file change from the store.
+
+    Args:
+        store: The store to use for caching.
+        file_path: The path to the file to get the change for.
+
+    Returns:
+        The file change for the given file path, or None if no change has been registered.
+    """
+    ctx = get_repository_ctx()
+
+    namespace = file_changes_namespace(ctx.repo_id, ctx.ref)
+
+    if stored_file_change := await store.aget(namespace=namespace, key=file_path):
+        return cast("FileChange", stored_file_change.value["data"])
+
+    return None
+
+
 async def register_file_read(store: BaseStore, file_path: str):
     """
     Register file read in the store.

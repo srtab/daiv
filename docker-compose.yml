@@ -12,8 +12,6 @@ x-app-defaults: &x_app_default
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
     - ./data/mcp-proxy:/home/app/data/mcp-proxy
-    - ./data/tantivy_index_v1:/home/app/data/tantivy_index_v1
-    - ./data/embeddings:/home/app/data/embeddings
     - .:/home/app/src
   depends_on:
     db:
@@ -29,7 +27,7 @@ x-app-defaults: &x_app_default
 
 services:
   db:
-    image: pgvector/pgvector:pg17
+    image: postgres:17.6
     container_name: daiv-db
     restart: unless-stopped
     environment:

@@ -12,7 +12,7 @@ from langgraph.store.memory import InMemoryStore
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile, PatchSet
 from unidiff.patch import Line
 
-from automation.agents.nodes import apply_format_code
+from automation.agents.nodes import apply_format_code_node
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
@@ -225,7 +225,7 @@ class ReviewAddressorManager(BaseManager):
                 logger.exception("Error processing discussion: %s", context.discussion.id)
 
         if await manager._get_file_changes():
-            await apply_format_code(repo_id, ref, manager._file_changes_store)
+            await apply_format_code_node(manager._file_changes_store)
             await manager._commit_changes(file_changes=await manager._get_file_changes())
 
         for discussion_id, note_id in resolved_discussions:

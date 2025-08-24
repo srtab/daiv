@@ -12,16 +12,8 @@ INPUT PAYLOAD
 
 <changes>
 {%- for change in changes %}
-  <change>
-    <title>{{ change.title | escape }}</title>
-
-    {%- if change.commit_messages %}
-    <commit_messages>
-      {%- for msg in change.commit_messages %}
-      <message>{{ msg | escape }}</message>
-      {%- endfor %}
-    </commit_messages>
-    {%- endif %}
+  <change action="{{ change.action }}">
+    {{ change.diff_hunk|indent(4) }}
   </change>
 {%- endfor %}
 </changes>
@@ -46,7 +38,7 @@ ADDITIONAL CONTEXT
 OUTPUT REQUIREMENTS
 
 - Factuality & scope:
-  - Use only information present in `<changes>`, their `commit_messages`, and `Additional context` (if provided).
+  - Use only information present in `<changes>`, in diff hunks format, and `Additional context` (if provided).
   - Do **not** invent or infer; avoid hedging and speculation.
   - Forbid words/phrases like: "likely", "probably", "possibly", "appears", "seems", "presumably".
   - Use precise and accurate terminology.

@@ -9,6 +9,7 @@ from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
 from automation.tools.toolkits import FileNavigationToolkit
+from codebase.context import get_repository_ctx
 
 from .conf import settings
 from .prompts import codebase_chat_system
@@ -32,10 +33,10 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
             BaseAgent.get_model(
                 model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
             ),
-            store=InMemoryStore(),
             tools=FileNavigationToolkit.get_tools(),
+            store=InMemoryStore(),
             prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y")
+                current_date_time=timezone.now().strftime("%d %B, %Y"), repository=get_repository_ctx().repo_id
             ),
             name=settings.NAME,
         )

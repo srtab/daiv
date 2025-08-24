@@ -5,7 +5,7 @@ from automation.agents.constants import ModelName
 
 
 class PRDescriberSettings(BaseSettings):
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PR_DESCRIBER_")
+    model_config = SettingsConfigDict(env_prefix="PR_DESCRIBER_")
 
     NAME: str = Field(default="PullRequestDescriber", description="Name of the PR describer agent.")
     MODEL_NAME: ModelName | str = Field(

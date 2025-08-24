@@ -4,23 +4,13 @@ from typing import Literal, cast, override
 
 from django.conf import settings as django_settings
 
+from langchain_core.prompts import HumanMessagePromptTemplate
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
-from automation.agents.issue_addressor import IssueAddressorAgent
-from automation.agents.issue_addressor.conf import settings as issue_addressor_settings
-from automation.agents.issue_addressor.templates import (
-    ISSUE_MERGE_REQUEST_TEMPLATE,
-    ISSUE_PLANNING_TEMPLATE,
-    ISSUE_PROCESSED_TEMPLATE,
-    ISSUE_QUESTIONS_TEMPLATE,
-    ISSUE_REVIEW_PLAN_TEMPLATE,
-    ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
-    ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
-    ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
-)
+from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.base import FileChange, Issue
@@ -30,12 +20,34 @@ from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
 from .base import BaseManager
+from .templates import (
+    ISSUE_MERGE_REQUEST_TEMPLATE,
+    ISSUE_PLANNING_TEMPLATE,
+    ISSUE_PROCESSED_TEMPLATE,
+    ISSUE_QUESTIONS_TEMPLATE,
+    ISSUE_REVIEW_PLAN_TEMPLATE,
+    ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
+    ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
+    ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
+)
 
 logger = logging.getLogger("daiv.managers")
 
 
 EXECUTE_PLAN_COMMAND = "@{bot_username} plan execute"
 REVISE_PLAN_COMMAND = "@{bot_username} plan revise"
+
+ISSUE_ADDRESSING_TEMPLATE = HumanMessagePromptTemplate.from_template(
+    """\
+# TASK: {{ issue_title }}
+{{ issue_description }}
+
+{% if project_description -%}
+## Project Context
+<project_description>{{ project_description }}</project_description>
+{% endif %}""",
+    "jinja2",
+)  # noqa: E501
 
 
 class IssueAddressorError(Exception):
@@ -138,7 +150,7 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent.get_runnable(
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
                 checkpointer=checkpointer, store=self._file_changes_store
             )
             current_state = None
@@ -146,14 +158,19 @@ class IssueAddressorManager(BaseManager):
             if should_reset_plan:
                 await checkpointer.adelete_thread(self.thread_id)
             else:
-                current_state = await issue_addressor.aget_state(config, subgraphs=True)
+                current_state = await plan_and_execute.aget_state(config)
 
             # If the plan needs to be reseted, or the agent has not been run yet, run it
             if should_reset_plan or (
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
-                async for event in issue_addressor.astream_events(
-                    {"issue_title": self.issue.title, "issue_description": self.issue.description},
+                human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat_messages(
+                    issue_title=self.issue.title,
+                    issue_description=self.issue.description,
+                    project_description=self.repo_config.repository_description,
+                )
+                async for event in plan_and_execute.astream_events(  # TODO: migrate to plan and execute agent
+                    {"messages": [human_message]},
                     config,
                     include_names=["plan_and_execute"],
                     include_types=["on_chain_start"],
@@ -161,7 +178,7 @@ class IssueAddressorManager(BaseManager):
                     if event["event"] == "on_chain_start":
                         self._add_workflow_step_note(event["name"], planning=True)
 
-                after_run_state = await issue_addressor.aget_state(config, subgraphs=True)
+                after_run_state = await plan_and_execute.aget_state(config)
 
                 if "plan_and_execute" in after_run_state.next and after_run_state.interrupts:
                     values = after_run_state.interrupts[0].value
@@ -193,16 +210,16 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent.get_runnable(
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
                 checkpointer=checkpointer, store=self._file_changes_store
             )
 
-            current_state = await issue_addressor.aget_state(self._config, subgraphs=True)
+            current_state = await plan_and_execute.aget_state(self._config)
 
             # If the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
             # We resume the execution of the plan_and_execute node.
             if "plan_and_execute" in current_state.next and current_state.interrupts:
-                async for event in issue_addressor.astream_events(
+                async for event in plan_and_execute.astream_events(
                     Command(resume="Plan approved"),
                     self._config,
                     include_names=["plan_and_execute", "apply_format_code"],
@@ -224,7 +241,7 @@ class IssueAddressorManager(BaseManager):
         Get the config for the agent.
         """
         return RunnableConfig(
-            tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
+            tags=[str(self.client.client_slug)],
             metadata={"author": self.issue.author.username},
             configurable={
                 "thread_id": self.thread_id,

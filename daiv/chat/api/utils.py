@@ -56,7 +56,7 @@ async def generate_stream(
     created = int(datetime.now().timestamp())
 
     try:
-        async for event_data in codebase_chat.astream_events(input_data, version="v2", config=config):
+        async for event_data in codebase_chat.astream_events(input_data, config=config):
             if event_data["event"] == "on_chat_model_stream" and event_data["metadata"]["langgraph_node"] == "agent":
                 chat_chunk = ChatCompletionChunk(
                     id=chunk_uuid,

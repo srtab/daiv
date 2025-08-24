@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
 
+from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import RunnableConfig, RunnableLambda  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -14,7 +15,7 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.nodes import apply_format_code
+from automation.agents.nodes import apply_format_code_node
 from automation.tools import think
 from automation.tools.navigation import NAVIGATION_TOOLS
 from automation.tools.toolkits import (
@@ -25,10 +26,12 @@ from automation.tools.toolkits import (
     WebSearchToolkit,
 )
 from automation.utils import has_file_changes
+from codebase.context import get_repository_ctx
 from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
-from .prompts import execute_plan_human, execute_plan_system, plan_system
+from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
+from .schemas import ImageTemplate, ImageURLExtractorOutput
 from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
 from .tools import FINALIZE_TOOLS, finalize_with_plan, finalize_with_targeted_questions, plan_think
 
@@ -43,6 +46,24 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agents")
+
+
+async def _image_extrator_post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> list[ImageTemplate]:
+    """
+    Post-process the extracted images.
+
+    Args:
+        output (ImageURLExtractorOutput): The extracted images.
+        config (RunnableConfig): The configuration for the agent.
+
+    Returns:
+        list[ImageTemplate]: The processed images ready to be used on prompt templates.
+    """
+    return await ImageTemplate.from_images(
+        output.images,
+        repo_client_slug=config["configurable"].get("repo_client_slug"),
+        project_id=config["configurable"].get("project_id"),
+    )
 
 
 def wrapped_prepare_plan_model(
@@ -139,6 +160,44 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         workflow.set_entry_point("plan")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
+
+    async def pre_plan(self, state: PlanAndExecuteState, config: RunnableConfig) -> Command[Literal["plan"]]:
+        """
+        Prepare the data for the plan node before the planning step.
+        This node will extract the images from the messages.
+
+        Args:
+            state (PlanAndExecuteState): The state of the agent.
+
+        Returns:
+            Command[Literal["plan"]]: The next step in the workflow.
+        """
+
+        ctx = get_repository_ctx()
+
+        image_extractor = (
+            ChatPromptTemplate.from_messages([image_extractor_system, image_extractor_human])
+            | BaseAgent.get_model(model=settings.IMAGE_EXTRACTOR_MODEL_NAME).with_structured_output(
+                ImageURLExtractorOutput
+            )
+            | RunnableLambda(_image_extrator_post_process, name="post_process_extracted_images")
+        )
+
+        latest_message = state["messages"][-1]
+        extracted_images = await image_extractor.ainvoke(
+            {"body": latest_message.content},
+            {"configurable": {"repo_client_slug": ctx.repo_id, "project_id": config["configurable"].get("project_id")}},
+        )
+
+        return Command[Literal["plan"]](
+            goto="plan",
+            update={
+                "messages": [
+                    RemoveMessage(id=latest_message.id),
+                    HumanMessage([latest_message.content] + extracted_images),
+                ]
+            },
+        )
 
     async def plan(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
@@ -269,7 +328,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        await apply_format_code(config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store)
+        await apply_format_code_node(store)
         return Command(goto=END)
 
     async def _get_plan_tools(self) -> list[BaseTool]:

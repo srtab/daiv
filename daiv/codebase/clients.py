@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError
+from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 
 from core.constants import BOT_NAME
 from core.utils import build_uri
@@ -70,10 +70,6 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
-        pass
-
-    @abc.abstractmethod
     def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
         pass
 
@@ -127,16 +123,6 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def load_repo(self, repo_id: str, sha: str) -> Iterator[Path]:
-        pass
-
-    @abc.abstractmethod
-    def get_repo_head_sha(self, repo_id: str, branch: str) -> str:
-        pass
-
-    @abc.abstractmethod
-    def get_commit_changed_files(
-        self, repo_id: str, from_sha: str, to_sha: str
-    ) -> tuple[list[str], list[str], list[str]]:
         pass
 
     @abc.abstractmethod
@@ -342,27 +328,6 @@ class GitLabClient(RepoClient):
         Get the link to a file in a repository.
         """
         return build_uri(self.codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
-
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
-        """
-        Check if a file exists in a repository.
-
-        Args:
-            repo_id: The repository ID.
-            file_path: The file path.
-            ref: The branch or tag name.
-
-        Returns:
-            True if the file exists, otherwise False.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        try:
-            project.files.head(file_path=file_path, ref=ref)
-        except GitlabHeadError as e:
-            if e.response_code == 404:
-                return False
-            raise e
-        return True
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
         """
@@ -700,47 +665,6 @@ class GitLabClient(RepoClient):
             yield Path(tmpdir.name).joinpath(repo_dirname)
         finally:
             tmpdir.cleanup()
-
-    def get_repo_head_sha(self, repo_id: str | int, branch: str) -> str:
-        """
-        Get the head sha of a repository.
-
-        Args:
-            repo_id: The repository ID.
-            branch: The branch name.
-
-        Returns:
-            The head sha of the repository.
-        """
-        project = self.client.projects.get(repo_id, lazy=branch is not None)
-        return project.branches.get(branch).commit["id"]
-
-    def get_commit_changed_files(
-        self, repo_id: str, from_sha: str, to_sha: str
-    ) -> tuple[list[str], list[str], list[str]]:
-        """
-        Get the changed files between two commits.
-
-        Args:
-            repo_id: The repository ID.
-            from_sha: The from commit sha.
-            to_sha: The to commit sha.
-
-        Returns:
-            The tuple of new files, changed files, and deleted files.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        new_files = []
-        changed_files = []
-        deleted_files = []
-        for diff in project.repository_compare(from_sha, to_sha)["diffs"]:
-            if diff["new_file"]:
-                new_files.append(diff["new_path"])
-            elif diff["deleted_file"]:
-                deleted_files.append(diff["old_path"])
-            else:
-                changed_files.append(diff["new_path"])
-        return new_files, changed_files, deleted_files
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
