@@ -35,4 +35,4 @@ async def apply_format_code_node(store: BaseStore) -> str | None:
         "commands": [ctx.config.commands.install_dependencies, ctx.config.commands.format_code],
         "store": store,
     })
-    return tool_message.artifact and tool_message.artifact["output"]  # Return the output of the last command
+    return tool_message.artifact and tool_message.artifact.output  # Return the output of the last command

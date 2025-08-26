@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
 from codebase.base import ClientType
-from codebase.conf import settings
-from core.utils import async_download_url, build_uri, extract_valid_image_mimetype, is_valid_url
+from codebase.clients import RepoClient
+from codebase.context import get_repository_ctx
+from core.utils import extract_valid_image_mimetype, is_valid_url
 
 
 class Image(BaseModel):
@@ -24,20 +25,18 @@ class ImageTemplate(BaseModel):
     mime_type: str | None = None
 
     @staticmethod
-    async def from_images(
-        images: list[Image], repo_client_slug: ClientType | None = None, project_id: int | None = None
-    ) -> list[ImageTemplate]:
+    async def from_images(images: list[Image]) -> list[ImageTemplate]:
         """
         Create a list of image templates from a list of images.
 
         Args:
             images (list[Image]): The list of images.
-            repo_client_slug (ClientType): The repository client slug.
-            project_id (int): The project ID.
 
         Returns:
             list[ImageTemplate]: The list of image templates.
         """
+        ctx = get_repository_ctx()
+        repo_client = RepoClient.create_instance()
         image_templates = []
 
         for image in images:
@@ -48,22 +47,16 @@ class ImageTemplate(BaseModel):
                 (parsed_url := urlparse(image.url))
                 and not parsed_url.netloc
                 and not parsed_url.scheme
-                and repo_client_slug == ClientType.GITLAB
-                and project_id
+                and repo_client.client_slug == ClientType.GITLAB
                 and parsed_url.path.startswith(("/uploads/", "uploads/"))
+                and (mime_type := extract_valid_image_mimetype(image.url))
             ):
-                assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
+                image_content = await repo_client.get_project_uploaded_file(ctx.repo_id, image.url)
 
-                _repo_image_url = build_uri(f"{settings.GITLAB_URL}api/v4/projects/{project_id}/", image.url)
-
-                if mime_type := extract_valid_image_mimetype(_repo_image_url):
-                    image_content = await async_download_url(
-                        _repo_image_url, headers={"PRIVATE-TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value()}
-                    )
-                    image_templates.append(
-                        ImageTemplate(
-                            source_type="base64", data=base64.b64encode(image_content).decode(), mime_type=mime_type
-                        ).model_dump(exclude_none=True)
-                    )
+                image_templates.append(
+                    ImageTemplate(
+                        source_type="base64", data=base64.b64encode(image_content).decode(), mime_type=mime_type
+                    ).model_dump(exclude_none=True)
+                )
 
         return image_templates

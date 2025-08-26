@@ -242,17 +242,8 @@ class IssueAddressorManager(BaseManager):
         """
         return RunnableConfig(
             tags=[str(self.client.client_slug)],
-            metadata={"author": self.issue.author.username},
-            configurable={
-                "thread_id": self.thread_id,
-                "project_id": self.repository.pk,
-                "source_repo_id": self.repo_id,
-                "source_ref": self.ref,
-                "issue_id": self.issue.iid,
-                "repo_client": self.client.client_slug,
-                "bot_username": self.client.current_user.username,
-                "commands_enabled": self.repo_config.commands.enabled(),
-            },
+            metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
+            configurable={"thread_id": self.thread_id, "bot_username": self.client.current_user.username},
         )
 
     @override

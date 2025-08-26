@@ -33,7 +33,7 @@ from core.constants import BOT_LABEL, BOT_NAME
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
 from .schemas import ImageURLExtractorOutput
-from .state import ExecuteState, PlanAndExecuteConfig, PlanAndExecuteState
+from .state import ExecuteState, PlanAndExecuteState
 from .tools import FINALIZE_TOOLS, finalize_with_plan, finalize_with_targeted_questions, plan_think
 
 if TYPE_CHECKING:
@@ -49,22 +49,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agents")
 
 
-async def _image_extrator_post_process(output: ImageURLExtractorOutput, config: RunnableConfig) -> list[ImageTemplate]:
+async def _image_extrator_post_process(output: ImageURLExtractorOutput) -> list[ImageTemplate]:
     """
     Post-process the extracted images.
 
     Args:
         output (ImageURLExtractorOutput): The extracted images.
-        config (RunnableConfig): The configuration for the agent.
 
     Returns:
         list[ImageTemplate]: The processed images ready to be used on prompt templates.
     """
-    return await ImageTemplate.from_images(
-        output.images,
-        repo_client_slug=config["configurable"].get("repo_client_slug"),
-        project_id=config["configurable"].get("project_id"),
-    )
+    return await ImageTemplate.from_images(output.images)
 
 
 def wrapped_prepare_plan_model(
@@ -139,6 +134,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self.plan_system_template = plan_system_template or plan_system
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
+        self.ctx = get_repository_ctx()
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -148,7 +144,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled workflow.
         """
-        workflow = StateGraph(PlanAndExecuteState, config_schema=PlanAndExecuteConfig)
+        workflow = StateGraph(PlanAndExecuteState)
 
         workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
@@ -162,7 +158,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
-    async def pre_plan(self, state: PlanAndExecuteState, config: RunnableConfig) -> Command[Literal["plan"]]:
+    async def pre_plan(self, state: PlanAndExecuteState) -> Command[Literal["plan"]]:
         """
         Prepare the data for the plan node before the planning step.
         This node will extract the images from the messages.
@@ -174,8 +170,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["plan"]]: The next step in the workflow.
         """
 
-        ctx = get_repository_ctx()
-
         image_extractor = (
             ChatPromptTemplate.from_messages([image_extractor_system, image_extractor_human])
             | BaseAgent.get_model(model=settings.IMAGE_EXTRACTOR_MODEL_NAME).with_structured_output(
@@ -185,10 +179,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         latest_message = state["messages"][-1]
-        extracted_images = await image_extractor.ainvoke(
-            {"body": latest_message.content},
-            {"configurable": {"repo_client_slug": ctx.repo_id, "project_id": config["configurable"].get("project_id")}},
-        )
+        extracted_images = await image_extractor.ainvoke({"body": latest_message.content})
 
         return Command[Literal["plan"]](
             goto="plan",
@@ -209,7 +200,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Args:
             state (PlanAndExecuteState): The state of the agent.
             store (BaseStore): The store to use for caching.
-            config (RunnableConfig): The config for the agent.
 
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
@@ -231,7 +221,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
-                commands_enabled=config["configurable"].get("commands_enabled", False),
+                commands_enabled=self.ctx.config.commands.enabled,
                 role=self.plan_system_template.prompt.partial_variables.get("role", ""),
                 before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
@@ -270,23 +260,19 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return Command(goto="execute_plan")
 
-    async def execute_plan(
-        self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
-    ) -> Command[Literal["__end__"]]:
+    async def execute_plan(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
         Node to execute the plan.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
             store (BaseStore): The store to use for caching.
-            config (RunnableConfig): The config for the agent.
 
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
-        commands_enabled = config["configurable"].get("commands_enabled", False)
+        all_tools = await self._get_execute_tools()
 
-        all_tools = await self._get_execute_tools(commands_enabled=commands_enabled)
         react_agent = create_react_agent(
             BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME),
             state_schema=ExecuteState,
@@ -298,7 +284,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
-                commands_enabled=commands_enabled,
+                commands_enabled=self.ctx.config.commands.enabled,
                 tools_names=[tool.name for tool in all_tools],
             ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
@@ -315,16 +301,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             return Command(goto="apply_format_code")
         return Command(goto=END)
 
-    async def apply_format_code(
-        self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
-    ) -> Command[Literal["__end__"]]:
+    async def apply_format_code(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
         Apply format code to the file changes made by the agent.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
             store (BaseStore): The store to use for caching.
-            config (RunnableConfig): The config for the agent.
 
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
@@ -349,7 +332,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             + [plan_think, finalize_with_plan, finalize_with_targeted_questions]
         )
 
-    async def _get_execute_tools(self, commands_enabled: bool) -> list[BaseTool]:
+    async def _get_execute_tools(self) -> list[BaseTool]:
         """
         Get the tools for the execution step.
 
@@ -360,5 +343,5 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             list[BaseTool]: The tools for the execution step.
         """
         repository_tools = FileEditingToolkit.get_tools()
-        sandbox_tools = SandboxToolkit.get_tools() if commands_enabled else []
+        sandbox_tools = await SandboxToolkit.get_tools()
         return repository_tools + sandbox_tools + [think]

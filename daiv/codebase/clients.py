@@ -14,7 +14,7 @@ from zipfile import ZipFile
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 
 from core.constants import BOT_NAME
-from core.utils import build_uri
+from core.utils import async_download_url, build_uri
 
 from .base import (
     ClientType,
@@ -71,6 +71,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
+        pass
+
+    @abc.abstractmethod
+    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -328,6 +332,14 @@ class GitLabClient(RepoClient):
         Get the link to a file in a repository.
         """
         return build_uri(self.codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
+
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
+        """
+        Download a markdown uploaded file from a repository.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        url = build_uri(self.codebase_url, f"/api/v4/projects/{project.get_id()}/{file_path}")
+        return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
         """

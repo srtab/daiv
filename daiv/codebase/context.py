@@ -1,20 +1,12 @@
-import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 from codebase.clients import RepoClient
 from core.config import RepositoryConfig
-
-
-def generate_session_id() -> str:
-    """
-    Generate a session identifier.
-    """
-    return str(uuid.uuid4())
 
 
 @dataclass(frozen=True)
@@ -28,9 +20,6 @@ class RepositoryCtx:
 
     The context is reset at the end of the request lifecycle or celery task.
     """
-
-    session_id: str = field(default_factory=generate_session_id, init=False)
-    """The session identifier. Unique for each request or celery task lifecycle."""
 
     repo_id: str
     """The repository identifier"""

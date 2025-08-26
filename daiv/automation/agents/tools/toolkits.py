@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import logging
 from abc import ABCMeta, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from langchain_core.runnables import chain
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+from codebase.context import get_repository_ctx
+from core.sandbox import DAIVSandboxClient, StartSessionRequest
 
 from .editing import delete_tool, edit_tool, rename_tool, write_tool
 from .navigation import glob_tool, grep_tool, ls_tool, read_tool
@@ -52,8 +56,21 @@ class SandboxToolkit(BaseToolkit):
     """
 
     @classmethod
-    def get_tools(cls) -> list[BaseTool]:
-        return [bash_tool()]
+    async def get_tools(cls) -> list[BaseTool]:
+        config = get_repository_ctx().config
+
+        if not config.commands.enabled:
+            return []
+
+        client = DAIVSandboxClient()
+        session_id = await client.start_session(StartSessionRequest(base_image=config.commands.base_image))
+
+        @chain
+        def inject_session_id(inputs: dict[str, Any]) -> dict[str, Any]:
+            inputs["session_id"] = session_id
+            return inputs
+
+        return [inject_session_id | bash_tool]
 
 
 class WebSearchToolkit(BaseToolkit):

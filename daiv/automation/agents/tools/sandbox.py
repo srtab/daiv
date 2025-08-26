@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import logging
@@ -8,13 +7,14 @@ import tarfile
 from typing import TYPE_CHECKING, Annotated, Any
 
 import httpx
-from langchain_core.tools import ToolException, tool
+from langchain_core.tools import InjectedToolArg, tool
 from langgraph.prebuilt import InjectedStore
 
 from automation.utils import register_file_change
 from codebase.base import FileChangeAction
 from codebase.context import get_repository_ctx
 from core.conf import settings
+from core.sandbox import DAIVSandboxClient, RunCommandResult, RunCommandsRequest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,7 +59,9 @@ async def _update_store_and_ctx(archive: bytes, store: BaseStore, repository_roo
 
 
 @tool("bash", parse_docstring=True, response_format="content_and_artifact")
-async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()]) -> tuple[str, dict[str, Any] | None]:
+async def bash_tool(
+    commands: list[str], store: Annotated[Any, InjectedStore()], session_id: Annotated[str, InjectedToolArg]
+) -> tuple[str, RunCommandResult | None]:
     """
     Executes a given list of bash commands in a persistent shell session relative to the repository root directory, ensuring proper handling and security measures.
 
@@ -91,48 +93,40 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
         tar.add(ctx.repo_dir, arcname=ctx.repo_dir.name)
 
+    client = DAIVSandboxClient()
+
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{settings.SANDBOX_URL}run/commands/",
-                json={
-                    "session_id": ctx.session_id,
-                    "base_image": ctx.config.commands.base_image,
-                    "commands": commands,
-                    "workdir": ctx.repo_dir.name,
-                    "archive": base64.b64encode(tar_archive.getvalue()).decode(),
-                    "fail_fast": True,
-                },
-                headers={"X-API-KEY": settings.SANDBOX_API_KEY.get_secret_value()},
-                timeout=settings.SANDBOX_TIMEOUT,
-            )
-    except httpx.RequestError as e:
-        raise ToolException(e) from e
-    finally:
-        tar_archive.close()
+        response = await client.run_commands(
+            session_id,
+            RunCommandsRequest(
+                commands=commands,
+                workdir=ctx.repo_dir.name,
+                archive=tar_archive.getvalue(),
+                fail_fast=True,
+                extract_changed_files=True,
+            ),
+        )
+    except httpx.RequestError:
+        return "error: Failed to run commands. The bash tool is not working properly.", None
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 200:
+            logger.error("[%s] Error running commands: %s", bash_tool.name, e.response.text)
 
-    if response.status_code != 200:
-        logger.error("[%s] Error running commands: %s", bash_tool.name, response.content)
-
-        if response.status_code == 400:
+        if e.response.status_code == 400:
             return (
                 "error: Failed to run commands. Verify that the commands are valid. "
                 "If the commands are valid, maybe the bash tool is not working properly."
             ), None
+
         return "error: Failed to run commands. The bash tool is not working properly.", None
+    finally:
+        tar_archive.close()
 
-    sandbox_response = response.json()
-
-    if sandbox_response["archive"]:
+    if response.archive:
         try:
-            await _update_store_and_ctx(sandbox_response["archive"], store, ctx.repo_dir)
+            await _update_store_and_ctx(response.archive, store, ctx.repo_dir)
         except Exception:
             logger.exception("[%s] Error updating store and ctx.", bash_tool.name)
             return "error: Failed to finalize the commands.", None
 
-    truncated_results = [
-        {"command": result["command"], "output": result["output"][:MAX_OUTPUT_LENGTH], "exit_code": result["exit_code"]}
-        for result in sandbox_response["results"]
-    ]
-
-    return json.dumps(truncated_results), truncated_results[-1]
+    return json.dumps([result.model_dump(mode="json") for result in response.results]), response.results[-1]

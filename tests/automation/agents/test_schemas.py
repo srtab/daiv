@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 from pydantic import SecretStr
 
 from automation.agents.schemas import Image, ImageTemplate
-from codebase.base import ClientType
 
 
 class TestImageTemplate:
@@ -35,7 +34,7 @@ class TestImageTemplate:
             mock_settings.GITLAB_URL = "http://gitlab.com"
             mock_settings.GITLAB_AUTH_TOKEN = SecretStr("token123")  # noqa: S105
 
-            result = await ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB, project_id=1)
+            result = await ImageTemplate.from_images(images)
 
         assert len(result) == 1
         assert "type" in result[0] and result[0]["type"] == "image"
@@ -49,6 +48,4 @@ class TestImageTemplate:
         mock_is_valid_url.return_value = False
         images = [Image(url="invalid_url", filename="")]
 
-        assert len(await ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB, project_id=1)) == 0
-        assert len(await ImageTemplate.from_images(images, repo_client_slug=ClientType.GITLAB)) == 0
-        assert len(await ImageTemplate.from_images(images, project_id=1)) == 0
+        assert len(await ImageTemplate.from_images(images)) == 0
