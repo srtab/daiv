@@ -107,7 +107,7 @@ plan_system = SystemMessagePromptTemplate.from_template(
 
 ────────────────────────────────────────────────────────
 CURRENT DATE-TIME : {{ current_date_time }}
-
+REPOSITORY: {{ repository }}
 AVAILABLE TOOLS
 {%- for tool in tools_names %}
   - `{{ tool }}`

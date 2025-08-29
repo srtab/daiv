@@ -52,7 +52,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref},
     )
 
-    with set_repository_ctx(repo_id=repo_id, ref=ref):
+    async with set_repository_ctx(repo_id=repo_id, ref=ref):
         codebase_chat = await CodebaseChatAgent.get_runnable()
 
         if payload.stream:

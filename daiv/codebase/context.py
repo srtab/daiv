@@ -1,11 +1,12 @@
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 from codebase.clients import RepoClient
+from codebase.signals import before_reset_repository_ctx
 from core.config import RepositoryConfig
 
 
@@ -37,8 +38,8 @@ class RepositoryCtx:
 repository_ctx: ContextVar[RepositoryCtx | None] = ContextVar[RepositoryCtx | None]("repository_ctx", default=None)
 
 
-@contextmanager
-def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterator[RepositoryCtx]:
+@asynccontextmanager
+async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterator[RepositoryCtx]:
     """
     Set the repository context and load repository files to a temporary directory.
 
@@ -64,6 +65,7 @@ def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterator[Repo
         try:
             yield ctx
         finally:
+            await before_reset_repository_ctx.asend(None)
             repository_ctx.reset(token)
 
 
@@ -79,6 +81,6 @@ def get_repository_ctx() -> RepositoryCtx:
         raise RuntimeError(
             "Repository context not set. "
             "It needs to be set as early as possible on the request lifecycle or celery task. "
-            "Use the `set_repository_ctx` context manager to set the context."
+            "Use the `codebase.context.set_repository_ctx` context manager to set the context."
         )
     return ctx

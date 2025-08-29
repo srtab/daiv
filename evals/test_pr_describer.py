@@ -11,19 +11,54 @@ from codebase.base import FileChange, FileChangeAction
 evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=BaseAgent.get_model(model=ModelName.O4_MINI, thinking_level=ThinkingLevel.MEDIUM),
+    judge=BaseAgent.get_model(model=ModelName.O3, thinking_level=ThinkingLevel.MEDIUM),
 )
 
 file_changes = [
     FileChange(
         action=FileChangeAction.UPDATE,
-        file_path="codebase/managers/issue_addressor.py",
-        commit_messages=["Update issue addressor"],
+        file_path="README.md",
+        diff_hunk="""--- a/README.md
++++ b/README.md
+@@ -1,1 +1,1 @@
++ **Pull Request Describer Agent**
++
++ Create a new PR describer agent that can describe changes in a pull request.
+""",
     ),
     FileChange(
         action=FileChangeAction.CREATE,
         file_path="automation/agents/pr_describer/agent.py",
-        commit_messages=["Add pr describer agent"],
+        diff_hunk="""--- /dev/null
++++ b/automation/agents/pr_describer/agent.py
+@@ -0,0 + 1,1 @@
++ from __future__ import annotations
+
++ from django.utils import timezone
+
++ from langchain_core.prompts import ChatPromptTemplate
++ from langchain_core.runnables import Runnable
+
++ from automation.agents import BaseAgent
+
++ from .conf import settings
++ from .prompts import system
++ from .schemas import PullRequestDescriberInput, PullRequestMetadata
+
+
++ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestMetadata]]):
++     \"""
++     Agent to describe changes in a pull request.
++     \"""
++
++    async def compile(self) -> Runnable:
++        prompt = ChatPromptTemplate.from_messages([system]).partial(
++            branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
++        )
++        return (
++            prompt | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestMetadata)
++        ).with_config({"run_name": settings.NAME})
+""",
     ),
 ]
 
@@ -35,49 +70,59 @@ file_changes = [
         (
             None,
             None,
-            {
-                "title": "Update issue addressor and add PR describer agent",
-                "branch": "update-issue-addressor-add-pr-describer-agent",
-                "description": "This change updates the issue addressor component and adds a new PR describer agent. The update to the issue addressor likely involves modifications to how issues are referenced or handled. The addition of the PR describer agent introduces functionality to describe pull requests, potentially improving PR metadata or automation.",  # noqa: E501
-                "summary": ["Update issue addressor", "Add PR describer agent"],
-                "commit_message": "Update issue addressor and add PR describer agent",
-            },
+            """{
+  "title": "Add pull request describer agent to describe PR changes",
+  "branch": "feature/pr-describer-agent",
+  "description": "This change introduces a new pull request describer agent designed to describe changes in a pull request. It adds a new Python module `automation/agents/pr_describer/agent.py` which defines the `PullRequestDescriberAgent` class inheriting from `BaseAgent`. The agent compiles a runnable that uses a chat prompt template combined with a language model configured to output structured `PullRequestMetadata`. Additionally, the `README.md` file is updated to document the new pull request describer agent and its purpose.",
+  "summary": [
+    "Add new agent `PullRequestDescriberAgent` in `automation/agents/pr_describer/agent.py` to describe pull request changes",
+    "Update `README.md` to document the pull request describer agent and its functionality"
+  ],
+  "commit_message": "Add pull request describer agent and update README to document it"
+}""",  # noqa: E501
         ),
         (
             "Use 'feat/', 'fix/', or 'chore/' prefixes.",
             None,
-            {
-                "title": "Update issue addressor and add PR describer agent",
-                "branch": "feat/update-issue-addressor-add-pr-describer-agent",
-                "description": "This update modifies the issue addressor component and introduces a new PR describer agent. The changes enhance the handling and description of pull requests by adding functionality to describe PRs more effectively and updating the mechanism that addresses issues.",  # noqa: E501
-                "summary": [
-                    "Update issue addressor to improve issue handling",
-                    "Add PR describer agent to enhance pull request descriptions",
-                ],
-                "commit_message": "Update issue addressor and add PR describer agent",
-            },
+            """{
+  "title": "Add pull request describer agent to describe PR changes",
+  "branch": "feat/pr-describer-agent",
+  "description": "This change introduces a new pull request describer agent designed to describe changes in a pull request. It includes the creation of a new agent class `PullRequestDescriberAgent` in `automation/agents/pr_describer/agent.py` that compiles a runnable prompt using a chat prompt template and a model configured with structured output for `PullRequestMetadata`. Additionally, the `README.md` is updated to document the new pull request describer agent and its purpose.",
+  "summary": [
+    "Add new agent class `PullRequestDescriberAgent` in `automation/agents/pr_describer/agent.py`",
+    "Add method to compile a runnable prompt with structured output for pull request metadata",
+    "Update `README.md` to document the pull request describer agent and its functionality"
+  ],
+  "commit_message": "Add pull request describer agent and update README to document it"
+}""",  # noqa: E501
         ),
         (
             None,
             "The changes are related to the issue #123.",
-            {
-                "title": "Update issue addressor and add PR describer agent",
-                "branch": "update-issue-addressor-add-pr-describer-agent",
-                "description": "This change updates the issue addressor component and adds a PR describer agent. The updates relate to issue #123. The modifications enhance how issues are addressed and introduce a new agent to describe pull requests, improving issue and PR handling processes.",  # noqa: E501
-                "summary": ["Update issue addressor", "Add PR describer agent"],
-                "commit_message": "Update issue addressor and add PR describer agent",
-            },
+            """{
+  "title": "Add pull request describer agent to describe PR changes",
+  "branch": "feature/pr-describer-agent",
+  "description": "This change introduces a new agent called `PullRequestDescriberAgent` designed to describe changes in a pull request. The agent is implemented in a new file `automation/agents/pr_describer/agent.py` and uses a chat prompt template combined with a language model to generate structured output conforming to the `PullRequestMetadata` schema. The README is updated to document the addition of this new PR describer agent. This work is related to issue #123.",
+  "summary": [
+    "Add new agent `PullRequestDescriberAgent` in `automation/agents/pr_describer/agent.py` to describe pull request changes",
+    "Update `README.md` to document the new pull request describer agent"
+  ],
+  "commit_message": "Add pull request describer agent and update README to document it"
+}""",  # noqa: E501
         ),
         (
             "Use 'feat/', 'fix/', or 'chore/' prefixes.",
             "The changes are related to the issue #123.",
-            {
-                "title": "Update issue addressor and add PR describer agent",
-                "branch": "feat/update-issue-addressor-add-pr-describer-agent",
-                "description": "This update addresses issue #123 by implementing two main changes:\n\n- Updated the issue addressor component to improve its functionality.\n- Added a PR describer agent to enhance pull request descriptions.\n\nThese changes aim to streamline issue handling and improve the clarity of pull request descriptions.",  # noqa: E501
-                "summary": ["Update issue addressor", "Add PR describer agent"],
-                "commit_message": "Update issue addressor and add PR describer agent",
-            },
+            """{
+  "title": "Add pull request describer agent to describe PR changes",
+  "branch": "feat/pr-describer-agent",
+  "description": "This change introduces a new pull request describer agent designed to describe changes in a pull request. It includes the creation of a new agent class `PullRequestDescriberAgent` in `automation/agents/pr_describer/agent.py` that compiles a runnable prompt using a chat prompt template and a model configured with structured output for `PullRequestMetadata`. The README is updated to document the addition of this new agent. This addresses issue #123.",
+  "summary": [
+    "Add `PullRequestDescriberAgent` class in `automation/agents/pr_describer/agent.py` to describe pull request changes",
+    "Update `README.md` to document the new pull request describer agent"
+  ],
+  "commit_message": "Add pull request describer agent to describe PR changes"
+}""",  # noqa: E501
         ),
     ],
 )

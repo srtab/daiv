@@ -3,13 +3,11 @@ from __future__ import annotations
 import difflib
 from typing import TYPE_CHECKING, cast
 
-from codebase.base import FileChange
+from codebase.base import FileChange, FileChangeAction
 from codebase.context import get_repository_ctx
 
 if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
-
-    from codebase.base import FileChangeAction
 
 
 def file_changes_namespace(repo_id: str, ref: str) -> tuple[str, ...]:
@@ -67,9 +65,9 @@ async def register_file_change(
     diff_from_file = f"a/{old_file_path}"
     diff_to_file = f"b/{new_file_path}"
 
-    if action.CREATE:
+    if action == FileChangeAction.CREATE:
         diff_from_file = "a/dev/null"
-    elif action.DELETE:
+    elif action == FileChangeAction.DELETE:
         diff_to_file = "a/dev/null"
 
     diff_hunk = difflib.unified_diff(
@@ -85,7 +83,11 @@ async def register_file_change(
         key=new_file_path,
         value={
             "data": FileChange(
-                action=action, file_path=new_file_path, content=new_file_content, diff_hunk="\n".join(diff_hunk)
+                action=action,
+                file_path=new_file_path,
+                previous_path=old_file_path,
+                content=new_file_content,
+                diff_hunk="\n".join(diff_hunk),
             )
         },
     )

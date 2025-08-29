@@ -21,3 +21,4 @@ class ModelName(StrEnum):
     GPT_5_NANO = "openrouter:openai/gpt-5-nano"
     DEEPSEEK_CHAT_V3_1 = "openrouter:deepseek/deepseek-chat-v3.1"
     GEMINI_2_5_PRO = "openrouter:google/gemini-2.5-pro"
+    GROK_CODE_FAST_1 = "openrouter:x-ai/grok-code-fast-1"

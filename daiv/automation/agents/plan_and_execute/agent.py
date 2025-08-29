@@ -34,7 +34,13 @@ from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
 from .schemas import ImageURLExtractorOutput
 from .state import ExecuteState, PlanAndExecuteState
-from .tools import FINALIZE_TOOLS, finalize_with_plan, finalize_with_targeted_questions, plan_think
+from .tools import (
+    FINALIZE_WITH_PLAN_NAME,
+    PLAN_THINK_NAME,
+    finalize_with_plan,
+    finalize_with_targeted_questions,
+    plan_think,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,7 +81,7 @@ def wrapped_prepare_plan_model(
     Returns:
         Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike]: The prepared model.
     """
-    base_tools = [tool for tool in tools if tool.name not in FINALIZE_TOOLS]
+    base_tools = [tool for tool in tools if tool.name != FINALIZE_WITH_PLAN_NAME]
 
     def prepare_plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
         """
@@ -92,20 +98,21 @@ def wrapped_prepare_plan_model(
         nonlocal model
 
         tools = base_tools.copy()
+        tool_choice = "any"
 
         # if the agent has not called any tool, we force the model to think
         if len(state["messages"]) <= 2:
-            return model.bind_tools([plan_think], tool_choice="plan_think")
+            tool_choice = PLAN_THINK_NAME
 
-        # only add the finalize tools if at least one of the navigation tool was called
+        # only add the finalize_with_plan tool if at least one of the navigation tool was called
         if any(
             message
             for message in state["messages"]
             if message.type == "tool" and message.status == "success" and message.name in NAVIGATION_TOOLS
         ):
-            tools += [finalize_with_plan, finalize_with_targeted_questions]
+            tools += [finalize_with_plan]
 
-        return model.bind_tools(tools, tool_choice="any")
+        return model.bind_tools(tools, tool_choice=tool_choice)
 
     return prepare_plan_model
 
@@ -218,10 +225,11 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
+                repository=self.ctx.repo_id,
                 tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
-                commands_enabled=self.ctx.config.commands.enabled,
+                commands_enabled=self.ctx.config.commands.enabled(),
                 role=self.plan_system_template.prompt.partial_variables.get("role", ""),
                 before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
@@ -284,7 +292,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
-                commands_enabled=self.ctx.config.commands.enabled,
+                commands_enabled=self.ctx.config.commands.enabled(),
                 tools_names=[tool.name for tool in all_tools],
             ),
             checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store

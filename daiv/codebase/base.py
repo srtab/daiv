@@ -84,9 +84,8 @@ class FileChange(BaseModel):
     action: FileChangeAction
     file_path: str
     previous_path: str | None = None
-    content: str | None = None
+    content: str | None = Field(default=None, exclude=True)
     diff_hunk: str | None = None
-    commit_messages: list[str] = Field(default_factory=list)
 
     def to_markdown(self):
         if self.action == FileChangeAction.CREATE:

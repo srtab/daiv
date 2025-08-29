@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import fnmatch
 import json
 import logging
 import subprocess  # noqa: S404
@@ -55,12 +56,12 @@ def glob_tool(pattern: str, path: str | None = None) -> str:
         return f"error: The '{path}' does not exist or is not a directory."
 
     if Path(pattern).anchor:
-        return "error: Non-relative patterns are unsupported. Please use a relative pattern."
+        return "error: Non-relative patterns are unsupported. Use a relative pattern."
 
     files = sorted(p.resolve().relative_to(root).as_posix() for p in root.rglob(pattern) if p.is_file())
 
     if not files:
-        return "No files found matching the pattern found."
+        return "No files found matching the pattern."
 
     return "\n".join(files)
 
@@ -129,7 +130,7 @@ def grep_tool(pattern: str, path: str | None = None, include: str | None = None)
         return "error: Failed to run ripgrep, revise the arguments and try again."
 
     if not files:
-        return "No files found matching the pattern. Please check the pattern and try again."
+        return "No files found matching the pattern."
 
     return "\n".join(files)
 
@@ -158,7 +159,7 @@ def ls_tool(path: str) -> str:
         return f"error: The '{path}' does not exist or is not a directory."
 
     if Path(path).anchor:
-        return "error: Non-relative paths are unsupported. Please use a relative path."
+        return "error: Non-relative paths are unsupported. Use a relative path."
 
     results = []
     for child in sorted(root.iterdir(), key=lambda p: p.name):
@@ -194,9 +195,18 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
     ctx = get_repository_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
 
-    if not resolved_file_path.exists() or not resolved_file_path.is_file():
+    if (
+        not resolved_file_path.exists()
+        or not resolved_file_path.is_file()
+        or any(fnmatch.fnmatch(file_path, pattern) for pattern in ctx.config.combined_exclude_patterns)
+    ):
         logger.warning("[%s] The '%s' does not exist or is not a file.", read_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
+
+    if any(fnmatch.fnmatch(file_path, pattern) for pattern in ctx.config.omit_content_patterns):
+        # We can't return None on this cases, otherwise the llm will think the file does not exist and
+        # try to create it on some specific scenarios.
+        return "[File content was intentionally excluded by the repository configuration]"
 
     if not (content := resolved_file_path.read_text()):
         return "warning: The file exists but is empty."
