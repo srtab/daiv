@@ -1,11 +1,10 @@
 import base64
-from unittest.mock import AsyncMock, patch
-
-from pydantic import SecretStr
+from unittest.mock import Mock, patch
 
 from automation.agents.schemas import Image, ImageTemplate
 
 
+@patch("automation.agents.schemas.get_repository_ctx", new=Mock())
 class TestImageTemplate:
     @patch("automation.agents.schemas.is_valid_url")
     async def test_from_images_valid_url(self, mock_is_valid_url):
@@ -21,20 +20,10 @@ class TestImageTemplate:
         assert "data" not in result[0]
         assert "mime_type" not in result[0]
 
-    @patch("automation.agents.schemas.build_uri")
-    @patch("automation.agents.schemas.async_download_url", new_callable=AsyncMock, return_value=b"image content")
     @patch("automation.agents.schemas.is_valid_url")
-    async def test_from_images_needs_build_uri(
-        self, mock_is_valid_url, mock_async_download_url, mock_build_uri, settings
-    ):
+    async def test_from_images_needs_build_uri(self, mock_is_valid_url, settings):
         mock_is_valid_url.return_value = False
-        mock_build_uri.return_value = "http://gitlab.com/api/v4/projects/1/image.png"
-        images = [Image(url="uploads/image.png", filename="image.png")]
-        with patch("automation.agents.schemas.settings", autospec=True) as mock_settings:
-            mock_settings.GITLAB_URL = "http://gitlab.com"
-            mock_settings.GITLAB_AUTH_TOKEN = SecretStr("token123")  # noqa: S105
-
-            result = await ImageTemplate.from_images(images)
+        result = await ImageTemplate.from_images([Image(url="uploads/image.png", filename="image.png")])
 
         assert len(result) == 1
         assert "type" in result[0] and result[0]["type"] == "image"

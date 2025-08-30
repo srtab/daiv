@@ -17,8 +17,8 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code_node
 from automation.agents.schemas import ImageTemplate
-from automation.agents.tools import think
-from automation.agents.tools.navigation import NAVIGATION_TOOLS
+from automation.agents.tools import THINK_TOOL_NAME, think_tool
+from automation.agents.tools.navigation import NAVIGATION_TOOLS, READ_TOOL_NAME
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
@@ -34,19 +34,12 @@ from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
 from .schemas import ImageURLExtractorOutput
 from .state import ExecuteState, PlanAndExecuteState
-from .tools import (
-    FINALIZE_WITH_PLAN_NAME,
-    PLAN_THINK_NAME,
-    finalize_with_plan,
-    finalize_with_targeted_questions,
-    plan_think,
-)
+from .tools import PLAN_THINK_TOOL_NAME, finalize_with_plan_tool, finalize_with_targeted_questions_tool, plan_think_tool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.language_models import LanguageModelLike
-    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.prompts import SystemMessagePromptTemplate
     from langchain_core.tools import BaseTool
     from langgraph.runtime import ContextT, Runtime
@@ -68,24 +61,32 @@ async def _image_extrator_post_process(output: ImageURLExtractorOutput) -> list[
     return await ImageTemplate.from_images(output.images)
 
 
-def wrapped_prepare_plan_model(
-    model: BaseChatModel, tools: list[BaseTool]
-) -> Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike]:
+async def prepare_plan_model_and_tools() -> tuple[
+    Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]
+]:
     """
-    Wrapper for the prepare_plan_model function.
-
-    Args:
-        model (BaseChatModel): The model to use for the planning step.
-        tools (list[BaseTool]): The tools to use for the planning step.
+    Wrapper for the plan_model function.
 
     Returns:
-        Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike]: The prepared model.
+        tuple[Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]]:
+            The callable to prepare the model and the tools.
     """
-    base_tools = [tool for tool in tools if tool.name != FINALIZE_WITH_PLAN_NAME]
+    mcp_tools = await MCPToolkit.get_tools()
+    file_navigation_tools = FileNavigationToolkit.get_tools()
+    web_search_tools = WebSearchToolkit.get_tools()
 
-    def prepare_plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
+    base_tools: list[BaseTool] = (
+        mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool, finalize_with_targeted_questions_tool]
+    )
+
+    def plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
         """
         Prepare the model for the planning step with the correct tools at each stage of the conversation.
+
+        Force the sequence to avoid the agent to call tools out of order:
+        - `plan_think` (force the agent to think)
+            -> any other tool to gather information or finalize with questions.
+            -> `finalize_with_plan` (finalizing the plan with a self-contained plan).
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
@@ -95,14 +96,14 @@ def wrapped_prepare_plan_model(
             LanguageModelLike: The prepared model.
         """
         nonlocal base_tools
-        nonlocal model
 
         tools = base_tools.copy()
-        tool_choice = "any"
+
+        tool_choice = "auto"
 
         # if the agent has not called any tool, we force the model to think
         if len(state["messages"]) <= 2:
-            tool_choice = PLAN_THINK_NAME
+            tool_choice = PLAN_THINK_TOOL_NAME
 
         # only add the finalize_with_plan tool if at least one of the navigation tool was called
         if any(
@@ -110,11 +111,70 @@ def wrapped_prepare_plan_model(
             for message in state["messages"]
             if message.type == "tool" and message.status == "success" and message.name in NAVIGATION_TOOLS
         ):
-            tools += [finalize_with_plan]
+            tools += [finalize_with_plan_tool]
 
-        return model.bind_tools(tools, tool_choice=tool_choice)
+        return BaseAgent.get_model(
+            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+        ).bind_tools(tools, tool_choice=tool_choice)
 
-    return prepare_plan_model
+    return plan_model, base_tools + [finalize_with_plan_tool]
+
+
+async def prepare_execute_model_and_tools() -> tuple[
+    Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]
+]:
+    """
+    Wrapper for the execute_model function.
+
+    Returns:
+        tuple[Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]]:
+            The callable to prepare the model and the tools.
+    """
+    file_navigation_tools = FileNavigationToolkit.get_tools()
+    file_editing_tools = FileEditingToolkit.get_tools()
+    sandbox_tools = await SandboxToolkit.get_tools()
+
+    base_tools: list[BaseTool] = file_navigation_tools + [think_tool]
+
+    def execute_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
+        """
+        Prepare the model for the execution step with the correct tools at each stage of the conversation.
+
+        Force the sequence to avoid the agent to call tools out of order:
+        - `read` (fetching the relevant files)
+            -> `think` (planning the edits)
+            -> `file_editing` or `sandbox` (applying the edits or running commands).
+
+        Args:
+            state (PlanAndExecuteState): The state of the agent.
+            runtime (Runtime[ContextT]): The runtime of the agent.
+
+        Returns:
+            LanguageModelLike: The prepared model.
+        """
+        nonlocal file_editing_tools
+        nonlocal sandbox_tools
+        nonlocal base_tools
+
+        tools = base_tools.copy()
+
+        tool_choice = "auto"
+
+        # if the agent has not called any tool, we force the model to read the files
+        if len(state["messages"]) <= 2:
+            tool_choice = READ_TOOL_NAME
+
+        # only add the file_editing and sandbox tools if the agent has called the think tool
+        if any(
+            message
+            for message in state["messages"]
+            if message.type == "tool" and message.status == "success" and message.name in THINK_TOOL_NAME
+        ):
+            tools += file_editing_tools + sandbox_tools
+
+        return BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME).bind_tools(tools, tool_choice=tool_choice)
+
+    return execute_model, base_tools + file_editing_tools + sandbox_tools
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -211,12 +271,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        all_tools = await self._get_plan_tools()
-        model = BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
-        )
+        plan_model, all_tools = await prepare_plan_model_and_tools()
+
         react_agent = create_react_agent(
-            model=wrapped_prepare_plan_model(model, all_tools),
+            model=plan_model,
             tools=all_tools,
             store=store,
             checkpointer=False,
@@ -234,8 +292,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
-            name="Planner",
-            version="v2",
+            name="planner_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
 
         response = await react_agent.ainvoke({"messages": state["messages"]})
@@ -279,10 +336,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
-        all_tools = await self._get_execute_tools()
+        execute_model, all_tools = await prepare_execute_model_and_tools()
 
         react_agent = create_react_agent(
-            BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME),
+            model=execute_model,
             state_schema=ExecuteState,
             tools=all_tools,
             store=store,
@@ -292,22 +349,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 MessagesPlaceholder("messages"),
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
+                repository=self.ctx.repo_id,
                 commands_enabled=self.ctx.config.commands.enabled(),
                 tools_names=[tool.name for tool in all_tools],
             ),
-            checkpointer=False,  # Disable checkpointer to avoid storing the execution in the store
-            name="PlanExecuter",
-            version="v2",
-        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+            checkpointer=False,
+            name="executor_react_agent",
+        ).with_config(RunnableConfig(recursion_limit=settings.EXECUTE_RECURSION_LIMIT))
 
-        await react_agent.ainvoke({
+        result = await react_agent.ainvoke({
             "plan_tasks": state["plan_tasks"],
             "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
         })
 
+        last_message = result["messages"][-1]
+
         if not self.skip_format_code and await has_file_changes(self.store):
-            return Command(goto="apply_format_code")
-        return Command(goto=END)
+            return Command(goto="apply_format_code", update={"messages": [last_message]})
+        return Command(goto=END, update={"messages": [last_message]})
 
     async def apply_format_code(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
@@ -322,34 +381,3 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         await apply_format_code_node(store)
         return Command(goto=END)
-
-    async def _get_plan_tools(self) -> list[BaseTool]:
-        """
-        Get the tools for the planning step.
-
-        Returns:
-            list[BaseTool]: The tools for the planning step.
-        """
-        mcp_tools = await MCPToolkit.get_tools()
-        repository_tools = FileNavigationToolkit.get_tools()
-        web_search_tools = WebSearchToolkit.get_tools()
-        return (
-            repository_tools
-            + web_search_tools
-            + mcp_tools
-            + [plan_think, finalize_with_plan, finalize_with_targeted_questions]
-        )
-
-    async def _get_execute_tools(self) -> list[BaseTool]:
-        """
-        Get the tools for the execution step.
-
-        Args:
-            commands_enabled (bool): Whether to include the sandbox tools.
-
-        Returns:
-            list[BaseTool]: The tools for the execution step.
-        """
-        repository_tools = FileEditingToolkit.get_tools()
-        sandbox_tools = await SandboxToolkit.get_tools()
-        return repository_tools + sandbox_tools + [think]

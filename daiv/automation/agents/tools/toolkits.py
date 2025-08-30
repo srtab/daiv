@@ -38,14 +38,14 @@ class FileNavigationToolkit(BaseToolkit):
         return [glob_tool, grep_tool, ls_tool, read_tool]
 
 
-class FileEditingToolkit(FileNavigationToolkit):
+class FileEditingToolkit(BaseToolkit):
     """
     Toolkit for modifying files in codebases.
     """
 
     @classmethod
     def get_tools(cls) -> list[BaseTool]:
-        return super().get_tools() + [write_tool, edit_tool, delete_tool, rename_tool]
+        return [write_tool, edit_tool, delete_tool, rename_tool]
 
 
 class SandboxToolkit(BaseToolkit):

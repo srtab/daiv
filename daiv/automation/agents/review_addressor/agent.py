@@ -16,7 +16,7 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.prompts import plan_system
-from automation.agents.tools import think
+from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from core.config import RepositoryConfig
@@ -62,7 +62,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
         return create_react_agent(
             BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
-            tools=tools + [think],
+            tools=tools + [think_tool],
             store=self.store,
             checkpointer=False,
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
@@ -70,8 +70,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
                 bot_name=BOT_NAME,
                 bot_username=repo_client.current_user.username,
             ),
-            name=settings.REPLY_NAME,
-            version="v2",
+            name="reply_reviewer_react_agent",
         )
 
 

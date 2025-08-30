@@ -18,7 +18,7 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code_node
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.tools import think
+from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit
 
 from .conf import settings
@@ -86,7 +86,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        tools = FileNavigationToolkit.get_tools() + [complete_task, think]
+        tools = FileNavigationToolkit.get_tools() + [complete_task, think_tool]
 
         agent = create_react_agent(
             model=BaseAgent.get_model(
@@ -106,7 +106,6 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid persisting the state in the store
             name="troubleshoot_react_agent",
-            version="v2",
         )
 
         await agent.ainvoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})

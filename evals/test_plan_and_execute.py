@@ -9,7 +9,10 @@ from automation.agents.base import BaseAgent, ThinkingLevel
 from automation.agents.constants import ModelName
 from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.schemas import ChangeInstructions
-from automation.agents.plan_and_execute.tools import FINALIZE_WITH_PLAN_NAME, FINALIZE_WITH_TARGETED_QUESTIONS_NAME
+from automation.agents.plan_and_execute.tools import (
+    FINALIZE_WITH_PLAN_TOOL_NAME,
+    FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME,
+)
 from automation.utils import get_file_changes
 
 evaluator = create_llm_as_judge(
@@ -86,7 +89,7 @@ async def test_plan_vague_requirements_correctness(messages, reference_outputs):
     outputs = await plan_and_execute.ainvoke(inputs, config=config)
 
     assert "plan_questions" in outputs, (
-        f"The agent should have called the `{FINALIZE_WITH_TARGETED_QUESTIONS_NAME}` tool"
+        f"The agent should have called the `{FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME}` tool"
     )
 
     t.log_outputs({"plan_questions": outputs["plan_questions"]})
@@ -100,7 +103,8 @@ async def test_plan_vague_requirements_correctness(messages, reference_outputs):
 @pytest.mark.parametrize(
     "messages,reference_outputs",
     [
-        ([("human", "Update django dependency to the latest version.")], "")(
+        ([("human", "Update django dependency to the latest version.")], ""),
+        (
             [
                 (
                     "human",
@@ -140,7 +144,7 @@ async def test_plan_vague_requirements_correctness(messages, reference_outputs):
                     },
                 ]
             },
-        )
+        ),
     ],
 )
 @pytest.mark.django_db
@@ -162,10 +166,10 @@ async def test_plan_complete_requirements_correctness(messages, reference_output
     outputs = await plan_and_execute.ainvoke(inputs, config=config)
 
     assert "plan_questions" not in outputs, (
-        f"The agent called the `{FINALIZE_WITH_TARGETED_QUESTIONS_NAME}` tool "
-        f"instead of the `{FINALIZE_WITH_PLAN_NAME}` tool"
+        f"The agent called the `{FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME}` tool "
+        f"instead of the `{FINALIZE_WITH_PLAN_TOOL_NAME}` tool"
     )
-    assert "plan_tasks" in outputs, f"The agent should have called the `{FINALIZE_WITH_PLAN_NAME}` tool"
+    assert "plan_tasks" in outputs, f"The agent should have called the `{FINALIZE_WITH_PLAN_TOOL_NAME}` tool"
 
     json_serializable_outputs = {"plan_tasks": [task.model_dump(mode="json") for task in outputs["plan_tasks"]]}
 

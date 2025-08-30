@@ -122,23 +122,24 @@ async def write_tool(file_path: str, content: str, store: Annotated[Any, Injecte
 
     ctx = get_repository_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
+    file_exists = resolved_file_path.exists()
 
-    if resolved_file_path.exists() and not resolved_file_path.is_file():
+    if file_exists and not resolved_file_path.is_file():
         logger.warning("[%s] The '%s' is not a file.", write_tool.name, file_path)
         return f"error: File '{file_path}' is not a file. Only use this tool to write to files."
 
-    if resolved_file_path.exists() and store and await check_file_read(store, file_path) is False:
+    if file_exists and store and await check_file_read(store, file_path) is False:
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
         return "error: You must read the file before writing to it."
 
-    previous_content = resolved_file_path.read_text() if resolved_file_path.exists() else ""
+    previous_content = resolved_file_path.read_text() if file_exists else ""
 
     resolved_file_path.write_text(content)
 
     if store:
         await register_file_change(
             store=store,
-            action=FileChangeAction.UPDATE if resolved_file_path.exists() else FileChangeAction.CREATE,
+            action=FileChangeAction.UPDATE if file_exists else FileChangeAction.CREATE,
             old_file_content=previous_content,
             old_file_path=file_path,
             new_file_content=content,

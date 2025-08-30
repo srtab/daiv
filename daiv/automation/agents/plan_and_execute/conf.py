@@ -13,7 +13,8 @@ class PlanAndExecuteSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PLAN_AND_EXECUTE_")
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
-    RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan and execute agent.")
+    PLAN_RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan and execute agent.")
+    EXECUTE_RECURSION_LIMIT: int = Field(default=50, description="Recursion limit for the execute and execute agent.")
     IMAGE_EXTRACTOR_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_NANO, description="Model name to be used to extract images from the task."
     )
