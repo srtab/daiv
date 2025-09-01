@@ -173,6 +173,5 @@ module = [
   "django_extensions.*",
   "unidiff.*",
   "redis.*",
-  "pgvector.*",
 ]
 ignore_missing_imports = true

@@ -15,7 +15,7 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.base import FileChange, Issue
 from codebase.clients import RepoClient
-from core.config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -165,9 +165,7 @@ class IssueAddressorManager(BaseManager):
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
                 human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat_messages(
-                    issue_title=self.issue.title,
-                    issue_description=self.issue.description,
-                    project_description=self.repo_config.repository_description,
+                    issue_title=self.issue.title, issue_description=self.issue.description, project_description=""
                 )
                 async for event in plan_and_execute.astream_events(  # TODO: migrate to plan and execute agent
                     {"messages": [human_message]},
@@ -270,7 +268,7 @@ class IssueAddressorManager(BaseManager):
                     Issue description: {description}
                     """
                 ).format(title=self.issue.title, description=self.issue.description),
-                "branch_name_convention": self.repo_config.branch_name_convention,
+                "branch_name_convention": self.repo_config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}

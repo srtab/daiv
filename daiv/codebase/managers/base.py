@@ -8,7 +8,7 @@ from automation.agents.pr_describer.conf import settings as pr_describer_setting
 from automation.utils import file_changes_namespace
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
-from core.config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig
 
 
 class BaseManager:
@@ -86,7 +86,7 @@ class BaseManager:
         """
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
-            {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
+            {"changes": file_changes, "branch_name_convention": self.repo_config.pull_request.branch_name_convention},
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
             ),

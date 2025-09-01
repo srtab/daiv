@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import cast
 
 from codebase.clients import RepoClient
+from codebase.repo_config import RepositoryConfig
 from codebase.signals import before_reset_repository_ctx
-from core.config import RepositoryConfig
 
 
 @dataclass(frozen=True)

@@ -41,7 +41,7 @@ unit:
   script:
     - make test
   services:
-    - name: pgvector/pgvector:pg17
+    - name: postgres:17.6
       alias: postgres
   needs:
     - lint

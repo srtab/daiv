@@ -5,7 +5,7 @@ from codebase.api.models import MergeRequest, Note, NoteableType, NoteAction, Pr
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
-from core.config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig
 
 
 class StubClient:

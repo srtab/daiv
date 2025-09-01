@@ -11,9 +11,9 @@ from quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient
+from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
-from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 
@@ -33,7 +33,7 @@ class IssueCallback(BaseCallback):
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).features.auto_address_issues_enabled
+            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if there are changes in the title, description, labels or state of the issue.
             and bool(self.changes.keys() & ISSUE_CHANGE_FIELDS)
@@ -150,7 +150,7 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(self._quick_action_command)
+        return bool(self._repo_config.quick_actions.enabled and self._quick_action_command)
 
     @cached_property
     def _is_merge_request_review(self) -> bool:
@@ -158,7 +158,7 @@ class NoteCallback(BaseCallback):
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         if (
-            not self._repo_config.features.auto_address_review_enabled
+            not self._repo_config.code_review.enabled
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
             or self.object_attributes.action != NoteAction.CREATE
             or not self.merge_request
@@ -185,7 +185,7 @@ class NoteCallback(BaseCallback):
         return bool(
             self.object_attributes.noteable_type == NoteableType.ISSUE
             and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.features.auto_address_issues_enabled
+            and self._repo_config.issue_addressing.enabled
             and self.object_attributes.action == NoteAction.CREATE
             and self.issue
             and self.issue.is_daiv()

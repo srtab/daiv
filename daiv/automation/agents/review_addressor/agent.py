@@ -19,7 +19,7 @@ from automation.agents.plan_and_execute.prompts import plan_system
 from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
-from core.config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_NAME
 
 from .conf import settings
