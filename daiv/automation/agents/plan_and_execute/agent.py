@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
@@ -273,6 +274,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         plan_model, all_tools = await prepare_plan_model_and_tools()
 
+        agents_md_path = Path(self.ctx.repo_dir, "AGENTS.md")
+        agents_md_content = agents_md_path.read_text() if agents_md_path.exists() else ""
+
         react_agent = create_react_agent(
             model=plan_model,
             tools=all_tools,
@@ -284,16 +288,17 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
                 repository=self.ctx.repo_id,
+                agents_md_content=agents_md_content,
                 tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
-                commands_enabled=self.ctx.config.commands.enabled(),
+                commands_enabled=self.ctx.config.sandbox.enabled,
                 role=self.plan_system_template.prompt.partial_variables.get("role", ""),
                 before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
             name="planner_react_agent",
-        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
+        ).with_config(RunnableConfig(recursion_limit=settings.PLAN_RECURSION_LIMIT))
 
         response = await react_agent.ainvoke({"messages": state["messages"]})
 
@@ -350,23 +355,21 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
                 repository=self.ctx.repo_id,
-                commands_enabled=self.ctx.config.commands.enabled(),
+                commands_enabled=self.ctx.config.sandbox.enabled,
                 tools_names=[tool.name for tool in all_tools],
             ),
             checkpointer=False,
             name="executor_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.EXECUTE_RECURSION_LIMIT))
 
-        result = await react_agent.ainvoke({
+        await react_agent.ainvoke({
             "plan_tasks": state["plan_tasks"],
             "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
         })
 
-        last_message = result["messages"][-1]
-
         if not self.skip_format_code and await has_file_changes(self.store):
-            return Command(goto="apply_format_code", update={"messages": [last_message]})
-        return Command(goto=END, update={"messages": [last_message]})
+            return Command(goto="apply_format_code")
+        return Command(goto=END)
 
     async def apply_format_code(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
         """

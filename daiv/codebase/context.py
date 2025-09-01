@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +66,30 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
             yield ctx
         finally:
             await before_reset_repository_ctx.asend(None)
+            repository_ctx.reset(token)
+
+
+@contextmanager
+def sync_set_repository_ctx(repo_id: str, ref: str | None = None):
+    """
+    Synchronous facade for set_repository_ctx so it can be used in Celery tasks.
+    """
+    repo_client = RepoClient.create_instance()
+
+    repository = repo_client.get_repository(repo_id)
+
+    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+
+    if ref is None:
+        ref = cast("str", config.default_branch)
+
+    with repo_client.load_repo(repository, sha=ref) as repo_dir:
+        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config)
+        token = repository_ctx.set(ctx)
+        try:
+            yield ctx
+        finally:
+            before_reset_repository_ctx.send(None)
             repository_ctx.reset(token)
 
 

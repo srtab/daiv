@@ -3,7 +3,7 @@ import logging
 from asgiref.sync import async_to_sync
 from celery import shared_task
 
-from codebase.context import set_repository_ctx
+from codebase.context import sync_set_repository_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import ReviewAddressorManager
 from core.utils import locked_task
@@ -23,7 +23,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    with async_to_sync(set_repository_ctx)(repo_id, ref=ref):
+    with sync_set_repository_ctx(repo_id, ref=ref):
         async_to_sync(IssueAddressorManager.plan_issue)(repo_id, issue_iid, ref, should_reset_plan)
 
 
@@ -38,5 +38,5 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
         merge_request_id (int): The merge request id.
         merge_request_source_branch (str): The merge request source branch.
     """
-    with async_to_sync(set_repository_ctx)(repo_id, ref=merge_request_source_branch):
+    with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch):
         async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)

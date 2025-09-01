@@ -113,6 +113,14 @@ AVAILABLE TOOLS
   - `{{ tool }}`
 {%- endfor %}
 
+{% if agents_md_content %}
+────────────────────────────────────────────────────────
+PROJECT RULES (AGENTS.md format)
+
+~~~markdown
+{{ agents_md_content }}
+~~~
+{% endif %}
 ────────────────────────────────────────────────────────
 GOLDEN PRINCIPLES
 

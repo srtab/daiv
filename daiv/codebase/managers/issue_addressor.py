@@ -164,10 +164,10 @@ class IssueAddressorManager(BaseManager):
             if should_reset_plan or (
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
-                human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat_messages(
+                human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
                     issue_title=self.issue.title, issue_description=self.issue.description, project_description=""
                 )
-                async for event in plan_and_execute.astream_events(  # TODO: migrate to plan and execute agent
+                async for event in plan_and_execute.astream_events(
                     {"messages": [human_message]},
                     config,
                     include_names=["plan_and_execute"],

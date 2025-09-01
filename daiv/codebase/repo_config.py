@@ -86,6 +86,7 @@ class Sandbox(BaseModel):
         description="Commands to be executed to format the code.",
     )
 
+    @property
     def enabled(self) -> bool:
         """
         Check if the sandbox is enabled.
