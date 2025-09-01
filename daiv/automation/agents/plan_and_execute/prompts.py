@@ -195,7 +195,7 @@ If the user supplied image(s), call `think` **again** to note only details relev
 
 ### Step 1 - Inspect code and/or external sources
 Execute the planned inspection tools:
-- **Batch** multiple paths in a single `read` call.
+- **Batch** `read` calls.
 - Download only what is strictly necessary.
 - Stop as soon as you have enough evidence to craft a plan (avoid full-repo scans).
 

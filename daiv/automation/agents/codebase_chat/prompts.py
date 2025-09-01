@@ -59,7 +59,7 @@ EVIDENCE GATHERING (default path)
    • Use `grep`, `ls` or `glob` to locate likely files/paths.
 
 2) **Retrieve in batches:**
-   • Use `read` with multiple paths at once to pull full context (imports, surrounding functions, etc).
+   • Use `read` to pull full context (imports, surrounding functions, etc).
    • If context is insufficient, make one follow-up retrieval for adjacent/linked files/paths.
 
 3) **Conflicts & coverage:**
