@@ -129,12 +129,7 @@ ABOUT THE DIFF HUNK
 
 review_plan_system_after_rules = """\
 ────────────────────────────────────────────────────────
-CONTEXT & DIFF
-{%- if project_description %}
-<project_context>
-{{ project_description }}
-</project_context>
-{%- endif %}
+DIFF HUNK
 
 <diff_hunk>
 {{ diff }}

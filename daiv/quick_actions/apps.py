@@ -9,4 +9,4 @@ class QuickActionsConfig(AppConfig):
     verbose_name = _("Quick Actions")
 
     def ready(self):
-        autodiscover_modules("quick_actions.actions")
+        autodiscover_modules("actions")

@@ -19,7 +19,6 @@ from automation.agents.plan_and_execute.prompts import plan_system
 from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
-from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -131,16 +130,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
-
         plan_system.prompt = plan_system.prompt.partial(
             role=review_plan_system_role,
             before_workflow=review_plan_system_before_workflow,
-            after_rules=jinja2_formatter(
-                review_plan_system_after_rules,
-                project_description=repo_config.repository_description,
-                diff=state["diff"],
-            ),
+            after_rules=jinja2_formatter(review_plan_system_after_rules, diff=state["diff"]),
         )
 
         plan_and_execute = await PlanAndExecuteAgent.get_runnable(

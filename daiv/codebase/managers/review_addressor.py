@@ -15,6 +15,7 @@ from unidiff.patch import Line
 from automation.agents.nodes import apply_format_code_node
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
+from automation.utils import get_file_changes
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
@@ -224,9 +225,9 @@ class ReviewAddressorManager(BaseManager):
                 # avoiding loosing the work done so far.
                 logger.exception("Error processing discussion: %s", context.discussion.id)
 
-        if await manager._get_file_changes():
+        if await get_file_changes(manager._file_changes_store):
             await apply_format_code_node(manager._file_changes_store)
-            await manager._commit_changes(file_changes=await manager._get_file_changes())
+            await manager._commit_changes(file_changes=await get_file_changes(manager._file_changes_store))
 
         for discussion_id, note_id in resolved_discussions:
             manager.client.update_merge_request_discussion_note(
@@ -266,7 +267,7 @@ class ReviewAddressorManager(BaseManager):
         # Create a new store for each discussion.
         file_changes_store = InMemoryStore()
         # Pre-populate the store with file changes that resulted from previous discussions resolution.
-        await self._set_file_changes(await self._get_file_changes(), store=file_changes_store)
+        await self._set_file_changes(await get_file_changes(file_changes_store), store=file_changes_store)
 
         async with AsyncPostgresSaver.from_conn_string(settings.DB_URI) as checkpointer:
             reviewer_addressor = await ReviewAddressorAgent.get_runnable(
@@ -301,7 +302,7 @@ class ReviewAddressorManager(BaseManager):
                 self.client.update_merge_request_discussion_note(
                     self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
                 )
-            elif files_to_commit := await self._get_file_changes(store=file_changes_store):
+            elif files_to_commit := await get_file_changes(store=file_changes_store):
                 # Update the global file changes store with file changes that resulted from the discussion resolution.
                 await self._set_file_changes(files_to_commit)
                 self._add_workflow_step_note("addressed", context.discussion.id, note_id)

@@ -57,7 +57,7 @@ class SandboxToolkit(BaseToolkit):
     async def get_tools(cls) -> list[BaseTool]:
         config = get_repository_ctx().config
 
-        if not config.commands.enabled:
+        if not config.sandbox.enabled:
             return []
 
         return [bash_tool]

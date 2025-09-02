@@ -5,6 +5,7 @@ from celery import shared_task
 from langchain_core.prompts import jinja2_formatter
 
 from codebase.clients import RepoClient
+from codebase.context import sync_set_repository_ctx
 
 from .base import Scope
 from .registry import quick_action_registry
@@ -71,16 +72,19 @@ def execute_quick_action_task(
         merge_request = client.get_merge_request(repo_id, merge_request_id)
 
     try:
-        action = action_classes[0]()
-        async_to_sync(action.execute)(
-            repo_id=repo_id,
-            args=action_args,
-            scope=action_scope,
-            discussion=discussion,
-            note=next(note for note in discussion.notes if note.id == note_id),
-            issue=issue,
-            merge_request=merge_request,
-        )
+        with sync_set_repository_ctx(
+            repo_id, ref=merge_request.source_branch if action_scope == Scope.MERGE_REQUEST else None
+        ):
+            action = action_classes[0]()
+            async_to_sync(action.execute)(
+                repo_id=repo_id,
+                args=action_args,
+                scope=action_scope,
+                discussion=discussion,
+                note=next(note for note in discussion.notes if note.id == note_id),
+                issue=issue,
+                merge_request=merge_request,
+            )
     except Exception as e:
         logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
 

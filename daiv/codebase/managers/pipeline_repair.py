@@ -18,6 +18,7 @@ from automation.agents.pipeline_fixer.templates import (
     PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE,
     PIPELINE_FIXER_TROUBLESHOOT_TEMPLATE,
 )
+from automation.utils import get_file_changes
 from codebase.base import ClientType, MergeRequestDiff
 from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
@@ -112,7 +113,7 @@ class PipelineRepairManager(BaseManager):
                 current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
                 # This is not supposed to happen, but just in case we need to commit the changes to avoid lost work.
-                if file_changes := await self._get_file_changes():
+                if file_changes := await get_file_changes(self._file_changes_store):
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
 
                 manual_fix_details = [
@@ -148,7 +149,7 @@ class PipelineRepairManager(BaseManager):
                     if event["event"] == "on_chain_start":
                         self._add_workflow_step_note(event["name"])
 
-                if file_changes := await self._get_file_changes():
+                if file_changes := await get_file_changes(self._file_changes_store):
                     self._add_workflow_step_note("commit_changes")
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
                     self._add_repair_plan_applied_note()

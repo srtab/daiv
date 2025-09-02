@@ -136,7 +136,7 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
 
     # Start the sandbox session to ensure that the sandbox session is started before running the commands.
     # If the sandbox session is already running, it will be reused.
-    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.commands.base_image))
+    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image))
 
     tar_archive = io.BytesIO()
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:

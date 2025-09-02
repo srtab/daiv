@@ -23,26 +23,13 @@ class BaseManager:
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
 
-    async def _get_file_changes(self, *, store: InMemoryStore | None = None) -> list[FileChange]:
-        """
-        Get the file changes from the store.
-        """
-        return [
-            cast("FileChange", item.value["data"])
-            for item in await (store or self._file_changes_store).asearch(
-                file_changes_namespace(self.repo_id, self.ref)
-            )
-        ]
-
     async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
         """
         Set the file changes in the store.
         """
         for file_change in file_changes:
             await (store or self._file_changes_store).aput(
-                file_changes_namespace(self.repo_id, self.ref),
-                file_change.file_path,
-                {"data": file_change, "action": file_change.action},
+                file_changes_namespace(self.repo_id, self.ref), file_change.file_path, {"data": file_change}
             )
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
