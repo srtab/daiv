@@ -10,13 +10,11 @@ Development teams spend countless hours on repetitive tasks: responding to code 
 
 ## 🎯 What DAIV Does
 
-DAIV automates four key development activities:
+DAIV automates three key development activities:
 
 - 🚀 **Issue Resolution** - Converts issue descriptions into working code automatically
 - 🔄 **Code Review Response** - Addresses reviewer feedback and updates pull requests
-- 🔍 **Pipeline Repair** - Monitors CI/CD failures and applies fixes automatically
-- 💬 **Codebase Questions** - Answers questions about your code using built-in search
-- ⚡ **Quick Actions** - Command-based interactions for common tasks on issues and merge requests
+- 🔍 **Pipeline Repair** - Repairs CI/CD failures and applies fixes after human approval
 
 ---
 

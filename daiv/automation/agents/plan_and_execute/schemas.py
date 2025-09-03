@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
+from automation.agents.schemas import Image  # noqa: TC001
+
 if TYPE_CHECKING:
     from langchain_core.messages import AnyMessage
-
-    from automation.agents.schemas import Image
 
 
 FINALIZE_WITH_PLAN_DESCRIPTION = """\

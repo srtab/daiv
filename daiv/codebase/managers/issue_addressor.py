@@ -171,7 +171,7 @@ class IssueAddressorManager(BaseManager):
                     include_types=["on_chain_start"],
                 ):
                     if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"], planning=True)
+                        self._add_workflow_step_note(event["name"])
 
                 after_run_state = await plan_and_execute.aget_state(config)
 

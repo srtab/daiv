@@ -214,6 +214,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState)
 
+        workflow.add_node("pre_plan", self.pre_plan)
         workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
 
@@ -222,7 +223,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if not self.skip_format_code:
             workflow.add_node("apply_format_code", self.apply_format_code)
 
-        workflow.set_entry_point("plan")
+        workflow.set_entry_point("pre_plan")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
@@ -249,12 +250,15 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         latest_message = state["messages"][-1]
         extracted_images = await image_extractor.ainvoke({"body": latest_message.content})
 
+        if not extracted_images:
+            return Command[Literal["plan"]](goto="plan")
+
         return Command[Literal["plan"]](
             goto="plan",
             update={
                 "messages": [
                     RemoveMessage(id=latest_message.id),
-                    HumanMessage([latest_message.content] + extracted_images),
+                    HumanMessage([{"type": "text", "text": latest_message.content}] + extracted_images),
                 ]
             },
         )
