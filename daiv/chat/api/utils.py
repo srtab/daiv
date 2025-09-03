@@ -80,7 +80,7 @@ async def generate_stream(
         )
         yield f"data: {chat_chunk.model_dump_json()}\n\n"
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error generating stream.")
         chat_chunk = ChatCompletionChunk(
             id=chunk_uuid,
