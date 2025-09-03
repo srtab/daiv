@@ -89,4 +89,4 @@ async def generate_stream(
             choices=[{"index": 0, "finish_reason": "stop", "delta": {"content": "", "role": "assistant"}}],
         )
         yield f"data: {chat_chunk.model_dump_json()}\n\n"
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield f"data: {json.dumps({'error': 'An internal error has occurred.'})}\n\n"
