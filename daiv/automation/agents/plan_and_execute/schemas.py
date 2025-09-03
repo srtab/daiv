@@ -7,17 +7,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
 from automation.agents.schemas import Image  # noqa: TC001
+from automation.agents.tools.navigation import NAVIGATION_TOOLS
 
 if TYPE_CHECKING:
     from langchain_core.messages import AnyMessage
 
 
-FINALIZE_WITH_PLAN_DESCRIPTION = """\
+FINALIZE_WITH_PLAN_DESCRIPTION = f"""\
 FINALIZER — Deliver a self-contained implementation plan that satisfies the user's request.
 
 Call this ONLY after completing Steps 0-1. Preconditions you MUST have satisfied earlier in this conversation:
 (1) you have called `think` at least once in Step 0, and
-(2) you have executed ≥1 inspection tool from {`repository_structure`, `search_code_snippets`, `retrieve_file_content`} to gather evidence.
+(2) you have executed ≥1 inspection tool from {", ".join(NAVIGATION_TOOLS)} to gather evidence.
 If either is false, do NOT call this tool; instead continue the workflow or use `post_inspection_clarify_final` if ambiguity remains after inspection.
 
 Requirements for the plan:
@@ -26,12 +27,12 @@ Requirements for the plan:
 - Self-contained: no external URLs; embed essential snippets/data (short snippets only) using safe fences.
 - Reference concrete files/functions/config keys discovered during inspection."""  # noqa: E501
 
-FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION = """\
+FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION = f"""\
 FINALIZER — targeted clarification questions asked ONLY after completing Steps 0-1.
 
 Preconditions you MUST have satisfied earlier in this conversation:
 (1) you have called `think` at least once in Step 0, and
-(2) you have executed ≥1 inspection tool from {`repository_structure`, `search_code_snippets`, `retrieve_file_content`} attempting to resolve the ambiguity.
+(2) you have executed ≥1 inspection tool from {", ".join(NAVIGATION_TOOLS)} attempting to resolve the ambiguity.
 If either is false, do NOT call this tool.
 
 Use this tool when ambiguity remains after inspection, when any required execution detail is still missing, or when external sources are conflicting."""  # NOQA: E501
@@ -136,13 +137,3 @@ class Plan(BaseModel):
 
 
 Plan.__doc__ = FINALIZE_WITH_PLAN_DESCRIPTION
-
-
-class FinalizeWithPlanOrTargetedQuestions(BaseModel):
-    """
-    FINALIZER — The self-contained plan that satisfies the user's request or targeted question(s) to ask the user for clarification.
-    """  # noqa: E501
-
-    model_config = ConfigDict(title="finalize_with_plan_or_targeted_questions")
-
-    action: Plan | AskForClarification = Field(description="The plan or the targeted question(s).")

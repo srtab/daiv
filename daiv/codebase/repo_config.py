@@ -104,6 +104,9 @@ class RepositoryConfig(BaseModel):
             "Specifies the default branch DAIV should use. If not set, the repository default branch will be used."
         ),
     )
+    context_file_name: str | None = Field(
+        default="AGENTS.md", description="File name to load from the repository in the format of https://agents.md/."
+    )
 
     # Codebase restrictions
     exclude_patterns: tuple[str, ...] = Field(

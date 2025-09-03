@@ -278,7 +278,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         plan_model, all_tools = await prepare_plan_model_and_tools()
 
-        agents_md_path = Path(self.ctx.repo_dir, "AGENTS.md")
+        agents_md_path = Path(self.ctx.repo_dir, self.ctx.config.context_file_name)
         agents_md_content = agents_md_path.read_text() if agents_md_path.exists() else ""
 
         react_agent = create_react_agent(
