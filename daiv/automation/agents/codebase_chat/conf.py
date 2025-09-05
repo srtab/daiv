@@ -9,7 +9,7 @@ class CodebaseChatSettings(BaseSettings):
     Settings for the codebase chat agent.
     """
 
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_CHAT_")
+    model_config = SettingsConfigDict(env_prefix="CODEBASE_CHAT_")
 
     NAME: str = Field(default="CodebaseChat", description="Name of the codebase chat agent.")
     MODEL_NAME: ModelName | str = Field(

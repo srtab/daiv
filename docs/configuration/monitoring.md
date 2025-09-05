@@ -8,7 +8,7 @@ This guide walks you through configuring LangSmith monitoring for DAIV. LangSmit
 
 Before configuring monitoring, ensure you have:
 
-- **DAIV installed and running** - Follow the [installation guide](up-and-running.md) first
+- **DAIV installed and running** - Follow the [installation guide](../getting-started/up-and-running.md) first
 - **LangSmith account** - Create a free account at [smith.langchain.com](https://smith.langchain.com)
 - **LangSmith API key** - Generated from your LangSmith dashboard
 
@@ -157,7 +157,7 @@ All agents include these tags in their traces:
 
 | Tag | Description | Example Values |
 |-----|-------------|----------------|
-| **Agent Name** | The specific agent type | `IssueAddressor`, `PipelineFixer`, `ReviewAddressor`, `CodebaseChat`, `PullRequestDescriber`, `CodeDescriber`, `SnippetReplacer`, `ImageURLExtractor`, `CodebaseSearch`, `PlanAndExecute` |
+| **Agent Name** | The specific agent type | `IssueAddressor`, `PipelineFixer`, `ReviewAddressor`, `CodebaseChat`, `PullRequestDescriber`, `PlanAndExecute` |
 | **Client Slug** | The repository client identifier | `gitlab`, `github` |
 
 #### Agent-Specific Metadata

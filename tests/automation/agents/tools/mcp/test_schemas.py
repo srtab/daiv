@@ -36,9 +36,9 @@ class TestMcpConfiguration:
     def test_mcp_configuration_populate_with_auth_token(self, mock_registry, mock_settings):
         """Test McpConfiguration.populate() with auth token."""
         # Mock settings
-        mock_settings.MCP_PROXY_AUTH_TOKEN.get_secret_value.return_value = "test-token"
-        mock_settings.MCP_PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
-        mock_settings.MCP_PROXY_ADDR = ":9090"
+        mock_settings.PROXY_AUTH_TOKEN.get_secret_value.return_value = "test-token"
+        mock_settings.PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
+        mock_settings.PROXY_ADDR = ":9090"
 
         # Mock registry
         mock_registry.get_mcp_servers_config.return_value = {"test_server": StdioMcpServer(command="test-command")}
@@ -59,9 +59,9 @@ class TestMcpConfiguration:
     def test_mcp_configuration_populate_without_auth_token(self, mock_registry, mock_settings):
         """Test McpConfiguration.populate() without auth token."""
         # Mock settings
-        mock_settings.MCP_PROXY_AUTH_TOKEN = None
-        mock_settings.MCP_PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
-        mock_settings.MCP_PROXY_ADDR = ":9090"
+        mock_settings.PROXY_AUTH_TOKEN = None
+        mock_settings.PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
+        mock_settings.PROXY_ADDR = ":9090"
 
         # Mock registry
         mock_registry.get_mcp_servers_config.return_value = {}

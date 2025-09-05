@@ -117,12 +117,12 @@ class McpConfiguration(BaseModel):
         from .conf import settings
         from .registry import mcp_registry
 
-        auth_tokens = [settings.MCP_PROXY_AUTH_TOKEN.get_secret_value()] if settings.MCP_PROXY_AUTH_TOKEN else []
+        auth_tokens = [settings.PROXY_AUTH_TOKEN.get_secret_value()] if settings.PROXY_AUTH_TOKEN else []
 
         return McpConfiguration(
             mcp_proxy=McpProxyConfig(
-                base_url=settings.MCP_PROXY_HOST.encoded_string(),
-                addr=settings.MCP_PROXY_ADDR,
+                base_url=settings.PROXY_HOST.encoded_string(),
+                addr=settings.PROXY_ADDR,
                 name="daiv-mcp-proxy",
                 version="0.1.0",
                 options=CommonOptions(auth_tokens=auth_tokens, panic_if_invalid=False, log_enabled=True),

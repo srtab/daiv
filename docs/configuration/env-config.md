@@ -1,6 +1,6 @@
-# Environment Variables
+# Environment Configuration
 
-DAIV provides a large number of environment variables that can be used to configure the application. This page lists all environment variables related to core, codebase, automation, and sandbox features.
+DAIV provides a large number of environment variables that can be used to configure DAIV behavior. This page lists all supported environment variables.
 
 Variables marked with:
 
@@ -43,7 +43,7 @@ Variables marked with:
 | `DB_HOST`       | Database host                              | `localhost`  | `db`            |
 | `DB_PORT`       | Database port                              | `5432`       | `5432`          |
 | `DB_SSLMODE`    | PostgreSQL SSL mode                        | `require`    | `prefer`        |
-| `DB_POOL_MAX_LIFETIME` | Maximum lifetime of a connection pool in seconds | `30` | `60` |
+| `DB_POOL_MAX_SIZE` | Maximum size of a connection pool | `15` | `30` |
 
 ### Redis
 
@@ -136,31 +136,16 @@ Variables marked with:
 !!! note
     The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a personal access token with the `api` scope.
 
-### Embeddings
-
-| Variable                        | Description                                 | Default                        | Example                        |
-|---------------------------------|---------------------------------------------|:------------------------------:|--------------------------------|
-| :material-asterisk: `CODEBASE_EMBEDDINGS_API_KEY`  :material-lock:   | API key for the embeddings provider         | *(none)*                       | `openai-api-key`               |
-| `CODEBASE_EMBEDDINGS_MODEL_NAME`| Name of the embeddings model                | `openai/text-embedding-3-large`| `voyageai/voyage-code-3` or `huggingface/Alibaba-NLP/gte-modernbert-base` |
-| `CODEBASE_EMBEDDINGS_DIMENSIONS`| Number of dimensions for embeddings         | `1536`                         | `2000`                         |
-| `CODEBASE_EMBEDDINGS_BATCH_SIZE`| Batch size for embeddings (OpenAI only)     | `500`                          | `500`                          |
-| `CODEBASE_CHUNK_SIZE`           | Size of chunks to split documents into      | `1500`                         | `1500`                         |
-| `CODEBASE_CHUNK_OVERLAP`        | Overlap between chunks (non-code languages) | `150`                          | `150`                          |
-
-!!! note
-    The `CODEBASE_EMBEDDINGS_MODEL_NAME` is the name of the embeddings model to use. OpenAI, HuggingFace or VoyageAI models are supported. For more embeddings models, check: [MTEB Leaderboard](https://mteb-leaderboard.hf.space/?benchmark_name=CoIR).
-
-!!! danger
-    If you change the `CODEBASE_EMBEDDINGS_DIMENSIONS` after the documents have been already indexed, you will need to recreate the `CodebaseDocument` table on the database and re-index all the documents.
-
 ---
 
-## Automation
+## Automation: LLM Providers
+
+This section documents the environment variables for each LLM provider.
 
 !!! note
-    At least one of the [supported providers](supported-providers.md) should be configured to use the automation features.
+    At least one of the [supported providers](../getting-started/supported-providers.md) should be configured to use the automation features.
 
-### OpenRouter (*default*).
+### OpenRouter (*default*)
 
 | Variable                        | Description                | Default                        | Example |
 |---------------------------------|----------------------------|:------------------------------:|---------|
@@ -185,6 +170,10 @@ Variables marked with:
 |---------------------------------|----------------------------|:----------:|---------|
 | `GOOGLE_API_KEY` :material-lock:     | Google API key             | *(none)*   |         |
 
+## Automation: Tools
+
+This section documents the environment variables for each tool configuration used by AI agents.
+
 ### Web Search
 
 | Variable                        | Description                                                    | Default        | Example |
@@ -205,7 +194,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_FETCH_ENABLED`             | Enable/disable Fetch MCP server for web scraping              | `true`                         | `false` |
 | `MCP_FETCH_VERSION`             | Version of the Fetch MCP server                               | `2025.4.7`                     | `2025.4.7` |
 | `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server for error monitoring         | `true`                         | `false` |
-| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.10.0`                       | `0.10.0` |
+| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.12.0`                       | `0.12.0` |
 | `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                        | *(none)*                       | `sntryu_abc123...` |
 | `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
 
@@ -223,86 +212,42 @@ This section documents the environment variables for each automation agent. Each
 
 All the default models where chosen to be the most effective models. You can change the models to use other models by setting the corresponding environment variables.
 
-### Codebase Search
-
-| Variable | Description | Default |
-|---------------------------|----------------------------------------------------------|------------------------|
-| `CODEBASE_SEARCH_NAME` | Name of the codebase search agent. | `CodebaseSearch` |
-| `CODEBASE_SEARCH_TOP_N` | Number of results to return from the codebase search. | `10` |
-| `CODEBASE_SEARCH_REPHRASE_MODEL_NAME` | Model to rephrase the codebase search query. | `openrouter:openai/gpt-4-1-mini` |
-| `CODEBASE_SEARCH_RERANKING_MODEL_NAME`| Model for listwise reranking. | `openrouter:openai/gpt-4-1-mini` |
-
-!!! note
-    The `CODEBASE_SEARCH_TOP_N` variable is used to specify the number of code snippets that will be provided to the LLM.
-
-### Code Describer
-
-| Variable | Description | Default |
-|-------------------------------|----------------------------------------------|--------------------|
-| `CODE_DESCRIBER_NAME` | Name of the code describer agent. | `CodeDescriber` |
-| `CODE_DESCRIBER_MODEL_NAME` | Model for code describer. | `openrouter:openai/gpt-4-1-mini` |
-
-### Pull Request Describer
-
-| Variable | Description | Default |
-|-------------------------------|----------------------------------------------|------------------------|
-| `PR_DESCRIBER_NAME` | Name of the PR describer agent. | `PullRequestDescriber` |
-| `PR_DESCRIBER_MODEL_NAME` | Model for PR describer. | `openrouter:openai/gpt-4-1-mini` |
-
-### Pipeline Fixer
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `PIPELINE_FIXER_NAME` | Name of the pipeline fixer agent. | `PipelineFixer` |
-| `PIPELINE_FIXER_TROUBLESHOOTING_MODEL_NAME` | Model for troubleshooting. | `openrouter:openai/o4-mini` |
-| `PIPELINE_FIXER_TROUBLESHOOTING_THINKING_LEVEL` | Thinking level for troubleshooting. | `high` |
-| `PIPELINE_FIXER_COMMAND_OUTPUT_MODEL_NAME` | Model for command output evaluator. | `openrouter:openai/gpt-4-1-mini` |
-
 ### Plan and Execute
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
-| `PLAN_AND_EXECUTE_NAME` | Name of the plan and execute agent. | `PlanAndExecute` |
-| `PLAN_AND_EXECUTE_RECURSION_LIMIT` | Recursion limit for planning and execution steps each. | `100` |
+| `PLAN_AND_EXECUTE_PLANNING_RECURSION_LIMIT` | Recursion limit for planning steps each. | `100` |
 | `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4` |
+| `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
 | `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4` |
-| `PLAN_AND_EXECUTE_HUMAN_APPROVAL_MODEL_NAME` | Model for plan approval evaluation. | `openrouter:openai/gpt-4-1-mini` |
-
-### Issue Addressor
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `ISSUE_ADDRESSOR_NAME` | Name of the issue addressor agent. | `IssueAddressor` |
-| `ISSUE_ADDRESSOR_ISSUE_EVALUATOR_MODEL_NAME` | Model for issue evaluation. | `openrouter:openai/gpt-4-1-mini` |
-
-### Snippet Replacer
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|------------------------|
-| `SNIPPET_REPLACER_NAME` | Name of the snippet replacer agent. | `SnippetReplacer` |
-| `SNIPPET_REPLACER_MODEL_NAME` | Model for snippet replacer (LLM strategy). | `openrouter:anthropic/claude-3-5-haiku` |
-| `SNIPPET_REPLACER_STRATEGY` | Strategy: `llm` or `find_and_replace`. | `find_and_replace` |
-
-### Codebase Chat
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `CODEBASE_CHAT_NAME` | Name of the codebase chat agent. | `CodebaseChat` |
-| `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:openai/gpt-4-1-mini` |
-| `CODEBASE_CHAT_TEMPERATURE` | Temperature for codebase chat. | `0.2` |
+| `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `50` |
+| `PLAN_AND_EXECUTE_IMAGE_EXTRACTOR_MODEL_NAME` | Model for image url extraction. | `openrouter:openai/gpt-4-1-nano` |
 
 ### Review Addressor
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
-| `REVIEW_ADDRESSOR_NAME` | Name of the review addressor agent. | `ReviewAddressor` |
 | `REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME` | Model for review assessment. | `openrouter:openai/gpt-4-1-mini` |
 | `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:openai/gpt-4-1` |
 | `REVIEW_ADDRESSOR_REPLY_TEMPERATURE` | Temperature for the reply model. | `0.2` |
 
-### Image URL Extractor
+### Pipeline Fixer (as quick action)
 
 | Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|------------------------|
-| `IMAGE_URL_EXTRACTOR_NAME` | Name of the image URL extractor agent. | `ImageURLExtractor` |
-| `IMAGE_URL_EXTRACTOR_MODEL_NAME` | Model for image URL extraction. | `openrouter:openai/gpt-4-1-nano` |
+|----------------------------------------|----------------------------------------------------------|--------------------|
+| `PIPELINE_FIXER_TROUBLESHOOTING_MODEL_NAME` | Model for troubleshooting. | `openrouter:anthropic/claude-sonnet-4` |
+| `PIPELINE_FIXER_TROUBLESHOOTING_THINKING_LEVEL` | Thinking level for troubleshooting. | `high` |
+| `PIPELINE_FIXER_COMMAND_OUTPUT_MODEL_NAME` | Model for command output evaluator. | `openrouter:openai/gpt-4-1-mini` |
+
+### Pull Request Describer
+
+| Variable | Description | Default |
+|-------------------------------|----------------------------------------------|------------------------|
+| `PR_DESCRIBER_MODEL_NAME` | Model for PR describer. | `openrouter:openai/gpt-4-1-mini` |
+
+### Codebase Chat
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|--------------------|
+| `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:openai/gpt-5-mini` |
+| `CODEBASE_CHAT_TEMPERATURE` | Temperature for codebase chat. | `0.2` |

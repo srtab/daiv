@@ -302,7 +302,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
             name="planner_react_agent",
-        ).with_config(RunnableConfig(recursion_limit=settings.PLAN_RECURSION_LIMIT))
+        ).with_config(RunnableConfig(recursion_limit=settings.PLANNING_RECURSION_LIMIT))
 
         response = await react_agent.ainvoke({"messages": state["messages"]})
 
@@ -364,7 +364,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ),
             checkpointer=False,
             name="executor_react_agent",
-        ).with_config(RunnableConfig(recursion_limit=settings.EXECUTE_RECURSION_LIMIT))
+        ).with_config(RunnableConfig(recursion_limit=settings.EXECUTION_RECURSION_LIMIT))
 
         await react_agent.ainvoke({
             "plan_tasks": state["plan_tasks"],

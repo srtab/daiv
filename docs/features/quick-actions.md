@@ -17,6 +17,54 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 - **Issues**: Available in issue comments and discussions
 - **Merge Requests**: Available in merge request comments and discussions
 
+**Command Parsing**:
+
+Quick Actions use shell-like parsing with support for:
+
+- **Simple commands**: `@daiv help`
+- **Commands with sub-actions**: `@daiv plan execute`, `@daiv pipeline repair`
+- **Multi-word sub-actions**: `@daiv pipeline repair apply`
+- **Case-insensitive**: `@DAIV HELP` works the same as `@daiv help`
+
+### Workflow
+
+```mermaid
+graph TD
+    A["👤 User"] --> B["💬 Comments with @daiv<br/>(e.g., '@daiv help')"]
+    B --> C["🔔 Comment Webhook"]
+    C --> D["📝 Quick Action Parser<br/>(extracts verb and args)"]
+    D --> E["📋 Registry Lookup<br/>(finds matching action)"]
+
+    E --> F["✅ Action Found?"]
+    F -->|Yes| G["⚡ Execute Action"]
+    F -->|No| H["❌ Unknown Action Error"]
+
+    G --> I["🔍 Validate Scope<br/>(Issue vs Merge Request)"]
+    I --> J["🛠️ Execute Specific Logic"]
+
+    J --> K["📖 Help Action<br/>(show available commands)"]
+    J --> L["📋 Plan Action<br/>(regenerate/approve plan)"]
+    J --> M["🔧 Pipeline Action<br/>(repair failed jobs)"]
+
+    K --> N["💬 Posts Help Message"]
+    L --> O["🔄 Triggers Plan Workflow"]
+    M --> P["🚦 Triggers Pipeline Repair"]
+
+    H --> Q["💬 Posts Error Message<br/>(suggests valid actions)"]
+
+    style B fill:#e1f5fe
+    style E fill:#fff3e0
+    style G fill:#e8f5e8
+    style H fill:#ffebee
+```
+
+### Basic Usage
+
+1. **Navigate** to any GitLab issue or merge request
+2. **Add a comment** mentioning DAIV with the desired action
+3. **Submit** the comment
+4. **DAIV responds** with the action result
+
 ---
 
 ## Available Quick Actions
@@ -105,36 +153,6 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 
 ---
 
-## Using Quick Actions
-
-### Basic Usage
-
-1. **Navigate** to any GitLab issue or merge request
-2. **Add a comment** mentioning DAIV with the desired action
-3. **Submit** the comment
-4. **DAIV responds** with the action result
-
-### Example Workflow
-
-```mermaid
-graph TD
-    A["👤 User comments<br/>@daiv help"] --> B["🔍 DAIV parses command"]
-    B --> C["📋 Registry lookup"]
-    C --> D["⚡ Execute action"]
-    D --> E["💬 Post response"]
-```
-
-### Command Parsing
-
-Quick Actions use shell-like parsing with support for:
-
-- **Simple commands**: `@daiv help`
-- **Commands with sub-actions**: `@daiv plan execute`, `@daiv pipeline repair`
-- **Multi-word sub-actions**: `@daiv pipeline repair apply`
-- **Case-insensitive**: `@DAIV HELP` works the same as `@daiv help`
-
----
-
 ## Troubleshooting
 
 ### Common Issues
@@ -195,37 +213,6 @@ Comment one of the commands below on this issue to trigger the bot:
 - `@daiv plan execute` - Run or launch the current plan.
 - `@daiv plan revise` - Discard current plan and create a new one from scratch.
 ```
-
-### Issue Management
-
-**Planning and Execution**:
-```
-@daiv plan execute
-```
-
-**Response**: DAIV executes the plan and posts the resulting merge request URL.
-
-```
-@daiv plan revise
-```
-
-**Response**: DAIV revises the plan and posts the revised plan.
-
-### Pipeline Management
-
-**In a merge request with failed pipeline**:
-```
-@daiv pipeline repair
-```
-
-**Response**: DAIV analyzes the failed jobs and posts a repair plan.
-
-**To apply the suggested repair**:
-```
-@daiv pipeline repair apply
-```
-
-**Response**: DAIV executes the repair plan to fix the pipeline.
 
 ---
 

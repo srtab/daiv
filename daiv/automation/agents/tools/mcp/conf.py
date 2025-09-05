@@ -5,9 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class MCPSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="MCP_")
 
-    MCP_PROXY_HOST: HttpUrl = Field(default=HttpUrl("http://mcp-proxy:9090"), description="The host of the MCP proxy")
-    MCP_PROXY_ADDR: str = Field(default=":9090", description="The address the MCP proxy listens on.")
-    MCP_PROXY_AUTH_TOKEN: SecretStr | None = Field(default=None, description="The auth token to the MCP proxy")
+    PROXY_HOST: HttpUrl = Field(default=HttpUrl("http://mcp-proxy:9090"), description="The host of the MCP proxy")
+    PROXY_ADDR: str = Field(default=":9090", description="The address the MCP proxy listens on.")
+    PROXY_AUTH_TOKEN: SecretStr | None = Field(default=None, description="The auth token to the MCP proxy")
 
     # Fetch MCP server
     FETCH_ENABLED: bool = Field(default=True, description="Whether to enable the Fetch MCP server")
