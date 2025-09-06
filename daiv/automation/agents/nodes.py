@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from automation.agents.tools.sandbox import bash_tool
@@ -31,5 +32,11 @@ async def apply_format_code_node(store: BaseStore) -> str | None:
         # linting errors like whitespaces can be challenging to fix by an agent, or even impossible.
         return None
 
-    tool_message = await bash_tool.ainvoke({"commands": ctx.config.sandbox.format_code, "store": store})
-    return tool_message.artifact and tool_message.artifact.output  # Return the output of the last command
+    # we need to pass a tool call in order to get the artifact, otherwise the tool will return only a string
+    tool_message = await bash_tool.ainvoke({
+        "name": bash_tool.name,
+        "id": uuid.uuid4(),
+        "args": {"commands": ctx.config.sandbox.format_code, "store": store},
+        "type": "tool_call",
+    })
+    return tool_message.artifact and tool_message.artifact.output
