@@ -196,7 +196,7 @@ services:
       <<: *deploy_defaults
 
   mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:latest
+    image: ghcr.io/tbxark/mcp-proxy:v0.39.1
     networks:
       - internal
     volumes:
@@ -396,7 +396,7 @@ services:
       - $HOME/.docker/config.json:/home/app/.docker/config.json
 
   mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:latest
+    image: ghcr.io/tbxark/mcp-proxy:v0.39.1
     restart: unless-stopped
     container_name: daiv-mcp-proxy
     volumes:
