@@ -43,6 +43,10 @@ RUN apt-get update \
   curl \
   # Translations
   gettext \
+  # Git
+  git \
+  # Ripgrep for file search
+  ripgrep \
   # Cleaning up unused files
   && apt-get purge -y --auto-remove \
   -o APT::AutoRemove::RecommendsImportant=0 \

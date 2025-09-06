@@ -56,7 +56,7 @@ async def generate_stream(
     created = int(datetime.now().timestamp())
 
     try:
-        async for event_data in codebase_chat.astream_events(input_data, version="v2", config=config):
+        async for event_data in codebase_chat.astream_events(input_data, config=config):
             if event_data["event"] == "on_chat_model_stream" and event_data["metadata"]["langgraph_node"] == "agent":
                 chat_chunk = ChatCompletionChunk(
                     id=chunk_uuid,
@@ -80,7 +80,7 @@ async def generate_stream(
         )
         yield f"data: {chat_chunk.model_dump_json()}\n\n"
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error generating stream.")
         chat_chunk = ChatCompletionChunk(
             id=chunk_uuid,
@@ -89,4 +89,4 @@ async def generate_stream(
             choices=[{"index": 0, "finish_reason": "stop", "delta": {"content": "", "role": "assistant"}}],
         )
         yield f"data: {chat_chunk.model_dump_json()}\n\n"
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield f"data: {json.dumps({'error': 'An internal error has occurred.'})}\n\n"

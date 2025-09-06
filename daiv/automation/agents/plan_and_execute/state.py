@@ -1,24 +1,7 @@
 from langgraph.graph import MessagesState
 from langgraph.prebuilt.chat_agent_executor import AgentState
-from typing_extensions import TypedDict
 
 from .schemas import ChangeInstructions
-
-
-class PlanAndExecuteConfig(TypedDict):
-    """
-    The configuration for the plan and execute agent.
-    """
-
-    source_repo_id: str
-    """
-    The ID of the source repository.
-    """
-
-    source_ref: str
-    """
-    The reference of the source repository.
-    """
 
 
 class PlanAndExecuteState(MessagesState):

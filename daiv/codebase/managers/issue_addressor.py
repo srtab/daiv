@@ -4,14 +4,24 @@ from typing import Literal, cast, override
 
 from django.conf import settings as django_settings
 
+from langchain_core.prompts import HumanMessagePromptTemplate
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
-from automation.agents.issue_addressor import IssueAddressorAgent
-from automation.agents.issue_addressor.conf import settings as issue_addressor_settings
-from automation.agents.issue_addressor.templates import (
+from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.utils import get_file_changes
+from codebase.base import FileChange, Issue
+from codebase.clients import RepoClient
+from codebase.repo_config import RepositoryConfig
+from core.constants import BOT_LABEL, BOT_NAME
+from core.utils import generate_uuid
+
+from .base import BaseManager
+from .templates import (
     ISSUE_MERGE_REQUEST_TEMPLATE,
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
@@ -21,21 +31,20 @@ from automation.agents.issue_addressor.templates import (
     ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
 )
-from automation.agents.pr_describer import PullRequestDescriberAgent
-from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from codebase.base import FileChange, Issue
-from codebase.clients import RepoClient
-from core.config import RepositoryConfig
-from core.constants import BOT_LABEL, BOT_NAME
-from core.utils import generate_uuid
-
-from .base import BaseManager
 
 logger = logging.getLogger("daiv.managers")
 
 
 EXECUTE_PLAN_COMMAND = "@{bot_username} plan execute"
 REVISE_PLAN_COMMAND = "@{bot_username} plan revise"
+
+ISSUE_ADDRESSING_TEMPLATE = HumanMessagePromptTemplate.from_template(
+    """\
+# TASK: {issue_title}
+
+{issue_description}
+"""
+)  # noqa: E501
 
 
 class IssueAddressorError(Exception):
@@ -138,30 +147,35 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )
             current_state = None
 
             if should_reset_plan:
                 await checkpointer.adelete_thread(self.thread_id)
             else:
-                current_state = await issue_addressor.aget_state(config, subgraphs=True)
+                current_state = await plan_and_execute.aget_state(config)
 
             # If the plan needs to be reseted, or the agent has not been run yet, run it
             if should_reset_plan or (
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
-                async for event in issue_addressor.astream_events(
-                    {"issue_title": self.issue.title, "issue_description": self.issue.description},
+                human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
+                    issue_title=self.issue.title, issue_description=self.issue.description
+                )
+                async for event in plan_and_execute.astream_events(
+                    {"messages": [human_message]},
                     config,
-                    include_names=["plan_and_execute"],
+                    include_names=["pre_plan", "plan"],
                     include_types=["on_chain_start"],
                 ):
                     if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"], planning=True)
+                        self._add_workflow_step_note(event["name"])
 
-                after_run_state = await issue_addressor.aget_state(config, subgraphs=True)
+                after_run_state = await plan_and_execute.aget_state(config)
 
-                if "plan_and_execute" in after_run_state.next and after_run_state.interrupts:
+                if "plan_approval" in after_run_state.next and after_run_state.interrupts:
                     values = after_run_state.interrupts[0].value
                 else:
                     values = after_run_state.values
@@ -191,17 +205,23 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            issue_addressor = await IssueAddressorAgent(checkpointer=checkpointer, store=self._file_changes_store).agent
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
+                checkpointer=checkpointer, store=self._file_changes_store
+            )
 
-            current_state = await issue_addressor.aget_state(self._config, subgraphs=True)
+            current_state = await plan_and_execute.aget_state(self._config)
 
             # If the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
             # We resume the execution of the plan_and_execute node.
-            if "plan_and_execute" in current_state.next and current_state.interrupts:
-                async for event in issue_addressor.astream_events(
+            if (
+                "plan_approval" in current_state.next
+                and current_state.interrupts
+                or "execute_plan" in current_state.next
+            ):
+                async for event in plan_and_execute.astream_events(
                     Command(resume="Plan approved"),
                     self._config,
-                    include_names=["plan_and_execute", "apply_format_code"],
+                    include_names=["execute_plan", "apply_format_code"],
                     include_types=["on_chain_start"],
                 ):
                     if event["event"] == "on_chain_start":
@@ -209,7 +229,7 @@ class IssueAddressorManager(BaseManager):
             else:
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 
-            if file_changes := await self._get_file_changes():
+            if file_changes := await get_file_changes(self._file_changes_store):
                 self._add_workflow_step_note("commit_changes")
                 if merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id):
                     self._add_issue_processed_note(merge_request_id)
@@ -220,18 +240,9 @@ class IssueAddressorManager(BaseManager):
         Get the config for the agent.
         """
         return RunnableConfig(
-            tags=[issue_addressor_settings.NAME, str(self.client.client_slug)],
-            metadata={"author": self.issue.author.username},
-            configurable={
-                "thread_id": self.thread_id,
-                "project_id": self.repository.pk,
-                "source_repo_id": self.repo_id,
-                "source_ref": self.ref,
-                "issue_id": self.issue.iid,
-                "repo_client": self.client.client_slug,
-                "bot_username": self.client.current_user.username,
-                "commands_enabled": self.repo_config.commands.enabled(),
-            },
+            tags=[str(self.client.client_slug)],
+            metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
+            configurable={"thread_id": self.thread_id, "bot_username": self.client.current_user.username},
         )
 
     @override
@@ -246,7 +257,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent().agent
+        pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {
                 "changes": file_changes,
@@ -258,7 +269,7 @@ class IssueAddressorManager(BaseManager):
                     Issue description: {description}
                     """
                 ).format(title=self.issue.title, description=self.issue.description),
-                "branch_name_convention": self.repo_config.branch_name_convention,
+                "branch_name_convention": self.repo_config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
@@ -417,20 +428,20 @@ class IssueAddressorManager(BaseManager):
             self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
 
     def _add_workflow_step_note(
-        self, step_name: Literal["plan_and_execute", "apply_format_code", "commit_changes"], planning: bool = False
+        self, step_name: Literal["pre_plan", "plan", "execute_plan", "apply_format_code", "commit_changes"]
     ):
         """
         Add a note to the discussion that the workflow step is in progress.
 
         Args:
             step_name: The name of the step
-            planning: Whether the step is planning or executing
         """
-        if step_name == "plan_and_execute":
-            if planning:
-                note_message = "🛠️ Drafting a detailed plan to address the issue — *in progress* ..."
-            else:
-                note_message = "🚀 Executing the plan to address the issue — *in progress* ..."
+        if step_name == "pre_plan":
+            note_message = "🛠️ Analyzing the issue and preparing the necessary data — *in progress* ..."
+        elif step_name == "plan":
+            note_message = "🛠️ Drafting a detailed plan to address the issue — *in progress* ..."
+        elif step_name == "execute_plan":
+            note_message = "🚀 Executing the plan to address the issue — *in progress* ..."
         elif step_name == "apply_format_code":
             note_message = "🎨 Formatting code — *in progress* ..."
         elif step_name == "commit_changes":

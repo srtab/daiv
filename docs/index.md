@@ -1,22 +1,20 @@
-# **:material-robot-industrial-outline: DAIV** : Development AI Assistant
+# **:material-robot-industrial-outline: DAIV** : SWE's AI Assistant
 
 ![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml)
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
 [![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
 
-Development teams spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI automation directly to your existing Git workflow.
+Software engineers spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI automation directly to their existing Git workflow. It's like having a pair programming assistant directly in your Platform.
 
 **DAIV is an open-source AI assistant that automates development tasks using intelligent agents.** It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.
 
 ## 🎯 What DAIV Does
 
-DAIV automates four key development activities:
+DAIV automates three key software engineering activities:
 
 - 🚀 **Issue Resolution** - Converts issue descriptions into working code automatically
-- 🔄 **Code Review Response** - Addresses reviewer feedback and updates pull requests
-- 🔍 **Pipeline Repair** - Monitors CI/CD failures and applies fixes automatically
-- 💬 **Codebase Questions** - Answers questions about your code using built-in search
-- ⚡ **Quick Actions** - Command-based interactions for common tasks on issues and merge requests
+- 🔄 **Code Review Response** - Addresses reviewer feedback and updates merge requests
+- 🔍 **Pipeline Repair** - Repairs CI/CD failures and applies fixes after human approval
 
 ---
 
@@ -26,46 +24,32 @@ DAIV automates four key development activities:
 
 ### Workflow Overview
 
+DAIV responds to different GitLab events with specialized workflows for each feature (Issue Addressor, Code Review Response, Quick Actions):
+
 ```mermaid
 graph TD
-    A["👤 Developer"] --> B["📝 Creates Issue"]
-    B --> C["🤖 DAIV Agent"]
-    C --> D["📋 Generates Plan"]
-    D --> E["💬 Posts Plan Comment"]
+    A["🔔 GitLab Webhooks"] --> B["🤖 DAIV"]
 
-    A --> F["✅ Approves Plan"]
-    F --> C
-    C --> G["🔨 Executes Changes"]
-    G --> H["📤 Creates Pull Request"]
+    B --> C["📝 Issue Created/Updated<br/>(title: 'DAIV: ...')"]
+    B --> D["💬 Comment on Issue/MR<br/>(review feedback or @daiv command)"]
+    B --> F["📤 Code Push<br/>(repository updates)"]
 
-    I["🚦 CI/CD Pipeline"] --> J["❌ Fails"]
-    J --> C
-    C --> K["🔍 Analyzes Logs"]
-    K --> L["🛠️ Applies Fixes"]
+    C --> G["🚀 Issue Addressor<br/>Plan → Approve → Execute"]
+    D --> H["🔍 Comment Analysis"]
+    F --> J["🗂️ Clear cache"]
 
-    M["👥 Code Reviewer"] --> N["💬 Requests Changes"]
-    N --> C
-    C --> O["🔄 Updates Code"]
-    O --> H
+    H --> K["💬 Code Review Response<br/>(changes or answers)"]
+    H --> L["⚡ Quick Action<br/>(help, plan, pipeline commands)"]
 
-    P["📤 Code Push"] --> C
-    C --> Q["🗂️ Re-indexes Codebase"]
+    G --> M["📤 Creates Merge Request"]
+    K --> N["📝 Updates Code or Replies"]
+    L --> P["💬 Execute command and Response"]
+
+    style A fill:#e3f2fd
+    style G fill:#e8f5e8
+    style K fill:#fff3e0
+    style L fill:#f3e5f5
 ```
-
-### Supported Events and Actions
-
-DAIV monitors these repository events and responds automatically:
-
-| Repository Event | DAIV Response | Example |
-|:------|:-------|:-------|
-| ✨ **Issue created** | Generates implementation plan | "Add user authentication" → detailed technical plan |
-| 📝 **Issue updated** | Updates plan if title/description changed | Issue scope changes → revised plan |
-| 💬 **Comment on issue** | Executes approved plan or Quick Action | Developer approves → creates pull request with code |
-| 💬 **Comment on merge request** | Addresses review feedback, answers questions, or Quick Action | "Fix the bug in line 45" → updates code |
-| 🚦 **Pipeline failure** | Analyzes logs and applies fixes | Test failures → code fixes + updated tests |
-| 📤 **Repository push** | Updates codebase index for future queries | New commits → refreshed code understanding |
-
----
 
 ## 🔌 Supported Platforms
 
@@ -94,7 +78,7 @@ DAIV monitors these repository events and responds automatically:
 
 ### **Step 3: Customize**
 - **[Configure agents](ai-agents/overview.md)** - Adjust how DAIV's AI agents behave for your codebase
-- **[Advanced settings](getting-started/configuration.md)** - Fine-tune DAIV for your team's needs
+- **[Advanced settings](configuration/yaml-config.md)** - Fine-tune DAIV for your team's needs
 
 ### **Step 4: Learn More**
 - **[Join discussions](https://github.com/srtab/daiv/discussions)** - Ask questions and share experiences
@@ -109,7 +93,7 @@ Here's what a typical DAIV interaction looks like:
 1. **Developer creates issue:** "Add rate limiting to the API endpoints"
 2. **DAIV generates plan:** Analyzes codebase and posts detailed implementation steps
 3. **Developer approves:** Comments "Looks good, go ahead"
-4. **DAIV implements:** Creates pull request with rate limiting code, tests, and documentation
+4. **DAIV implements:** Creates merge request with rate limiting code, tests, and documentation
 5. **Reviewer requests changes:** "Use Redis instead of in-memory storage"
 6. **DAIV updates code:** Automatically modifies the implementation to use Redis
 

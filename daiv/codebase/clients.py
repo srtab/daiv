@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from zipfile import ZipFile
 
-from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabHeadError, GitlabOperationError
+from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 
 from core.constants import BOT_NAME
+from core.utils import async_download_url, build_uri
 
 from .base import (
     ClientType,
@@ -35,7 +36,7 @@ from .base import (
 from .conf import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
 
     from gitlab.v4.objects import ProjectHook
 
@@ -69,7 +70,11 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
+    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
+        pass
+
+    @abc.abstractmethod
+    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -121,17 +126,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:
-        pass
-
-    @abc.abstractmethod
-    def get_repo_head_sha(self, repo_id: str, branch: str) -> str:
-        pass
-
-    @abc.abstractmethod
-    def get_commit_changed_files(
-        self, repo_id: str, from_sha: str, to_sha: str
-    ) -> tuple[list[str], list[str], list[str]]:
+    def load_repo(self, repo_id: str, sha: str) -> Iterator[Path]:
         pass
 
     @abc.abstractmethod
@@ -320,7 +315,7 @@ class GitLabClient(RepoClient):
         Returns:
             The content of the file. If the file is binary or not a text file, it returns None.
         """
-        project = self.client.projects.get(repo_id)
+        project = self.client.projects.get(repo_id, lazy=True)
         try:
             project_file = project.files.get(file_path=file_path, ref=ref)
         except GitlabOperationError as e:
@@ -332,26 +327,19 @@ class GitLabClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    def repository_file_exists(self, repo_id: str, file_path: str, ref: str) -> bool:
+    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
         """
-        Check if a file exists in a repository.
-
-        Args:
-            repo_id: The repository ID.
-            file_path: The file path.
-            ref: The branch or tag name.
-
-        Returns:
-            True if the file exists, otherwise False.
+        Get the link to a file in a repository.
         """
-        project = self.client.projects.get(repo_id)
-        try:
-            project.files.head(file_path=file_path, ref=ref)
-        except GitlabHeadError as e:
-            if e.response_code == 404:
-                return False
-            raise e
-        return True
+        return build_uri(self.codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
+
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
+        """
+        Download a markdown uploaded file from a repository.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        url = build_uri(self.codebase_url, f"/api/v4/projects/{project.get_id()}/{file_path}")
+        return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
         """
@@ -654,26 +642,26 @@ class GitLabClient(RepoClient):
         project.commits.create(commits)
 
     @contextmanager
-    def load_repo(self, repo_id: str, sha: str) -> AbstractContextManager[Path]:  # type: ignore
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Path]:
         """
         Load a repository to a temporary directory.
 
         Args:
-            repo_id: The repository ID.
+            repository: The repository.
             sha: The commit sha.
 
         Yields:
             The path to the repository directory.
         """
-        project = self.client.projects.get(repo_id)
+        project = self.client.projects.get(repository.slug, lazy=True)
         safe_sha = sha.replace("/", "_").replace(" ", "-")
 
-        tmpdir = tempfile.TemporaryDirectory(prefix=f"{project.get_id()}-{safe_sha}-repo")
+        tmpdir = tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo")
         logger.debug("Loading repository to %s", tmpdir)
 
         try:
             with tempfile.NamedTemporaryFile(
-                prefix=f"{project.get_id()}-{safe_sha}-archive", suffix=".zip"
+                prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
             ) as repo_archive:
                 project.repository_archive(streamed=True, action=repo_archive.write, format="zip", sha=sha)
                 repo_archive.flush()
@@ -689,47 +677,6 @@ class GitLabClient(RepoClient):
             yield Path(tmpdir.name).joinpath(repo_dirname)
         finally:
             tmpdir.cleanup()
-
-    def get_repo_head_sha(self, repo_id: str | int, branch: str) -> str:
-        """
-        Get the head sha of a repository.
-
-        Args:
-            repo_id: The repository ID.
-            branch: The branch name.
-
-        Returns:
-            The head sha of the repository.
-        """
-        project = self.client.projects.get(repo_id, lazy=branch is not None)
-        return project.branches.get(branch).commit["id"]
-
-    def get_commit_changed_files(
-        self, repo_id: str, from_sha: str, to_sha: str
-    ) -> tuple[list[str], list[str], list[str]]:
-        """
-        Get the changed files between two commits.
-
-        Args:
-            repo_id: The repository ID.
-            from_sha: The from commit sha.
-            to_sha: The to commit sha.
-
-        Returns:
-            The tuple of new files, changed files, and deleted files.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        new_files = []
-        changed_files = []
-        deleted_files = []
-        for diff in project.repository_compare(from_sha, to_sha)["diffs"]:
-            if diff["new_file"]:
-                new_files.append(diff["new_path"])
-            elif diff["deleted_file"]:
-                deleted_files.append(diff["old_path"])
-            else:
-                changed_files.append(diff["new_path"])
-        return new_files, changed_files, deleted_files
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """

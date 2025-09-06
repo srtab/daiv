@@ -1,34 +1,22 @@
 from django.core.checks import Error, register
 
 from .agents.base import BaseAgent, ModelProvider
-from .agents.code_describer.conf import settings as code_describer_settings
 from .agents.codebase_chat.conf import settings as codebase_chat_settings
-from .agents.codebase_search.conf import settings as codebase_search_settings
-from .agents.image_url_extractor.conf import settings as image_url_extractor_settings
-from .agents.issue_addressor.conf import settings as issue_addressor_settings
 from .agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
 from .agents.plan_and_execute.conf import settings as plan_and_execute_settings
 from .agents.pr_describer.conf import settings as pr_describer_settings
 from .agents.review_addressor.conf import settings as review_addressor_settings
-from .agents.snippet_replacer.conf import settings as snippet_replacer_settings
 from .conf import settings
 
 declared_model_names = {
-    code_describer_settings.MODEL_NAME,
     codebase_chat_settings.MODEL_NAME,
-    codebase_search_settings.REPHRASE_MODEL_NAME,
-    codebase_search_settings.RERANKING_MODEL_NAME,
-    image_url_extractor_settings.MODEL_NAME,
-    issue_addressor_settings.ISSUE_EVALUATOR_MODEL_NAME,
     pipeline_fixer_settings.COMMAND_OUTPUT_MODEL_NAME,
     pipeline_fixer_settings.TROUBLESHOOTING_MODEL_NAME,
     plan_and_execute_settings.EXECUTION_MODEL_NAME,
     plan_and_execute_settings.PLANNING_MODEL_NAME,
-    plan_and_execute_settings.HUMAN_APPROVAL_MODEL_NAME,
     pr_describer_settings.MODEL_NAME,
     review_addressor_settings.REPLY_MODEL_NAME,
     review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,
-    snippet_replacer_settings.MODEL_NAME,
 }
 
 

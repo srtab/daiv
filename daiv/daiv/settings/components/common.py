@@ -9,7 +9,7 @@ SITE_ID = 1
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "automation", "codebase", "core"]
+LOCAL_APPS = ["accounts", "automation", "codebase", "core", "quick_actions"]
 
 THIRD_PARTY_APPS = ["django_extensions"]
 

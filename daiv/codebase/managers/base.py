@@ -8,7 +8,7 @@ from automation.agents.pr_describer.conf import settings as pr_describer_setting
 from automation.utils import file_changes_namespace
 from codebase.base import FileChange
 from codebase.clients import AllRepoClient
-from core.config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig
 
 
 class BaseManager:
@@ -23,26 +23,13 @@ class BaseManager:
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
 
-    async def _get_file_changes(self, *, store: InMemoryStore | None = None) -> list[FileChange]:
-        """
-        Get the file changes from the store.
-        """
-        return [
-            cast("FileChange", item.value["data"])
-            for item in await (store or self._file_changes_store).asearch(
-                file_changes_namespace(self.repo_id, self.ref)
-            )
-        ]
-
     async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
         """
         Set the file changes in the store.
         """
         for file_change in file_changes:
             await (store or self._file_changes_store).aput(
-                file_changes_namespace(self.repo_id, self.ref),
-                file_change.file_path,
-                {"data": file_change, "action": file_change.action},
+                file_changes_namespace(self.repo_id, self.ref), file_change.file_path, {"data": file_change}
             )
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
@@ -84,9 +71,9 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent().agent
+        pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
-            {"changes": file_changes, "branch_name_convention": self.repo_config.branch_name_convention},
+            {"changes": file_changes, "branch_name_convention": self.repo_config.pull_request.branch_name_convention},
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
             ),

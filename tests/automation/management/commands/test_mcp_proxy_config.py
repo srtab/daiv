@@ -7,7 +7,7 @@ from django.core.management import call_command
 
 import pytest
 
-from automation.tools.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
+from automation.agents.tools.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def mock_mcp_configuration():
     )
 
 
-@patch("automation.tools.mcp.schemas.McpConfiguration.populate")
+@patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate")
 def test_mcp_proxy_config_prints_to_stdout_by_default(mock_populate, mock_mcp_configuration):
     """Test that the command prints JSON configuration to stdout when no output file is specified."""
     mock_populate.return_value = mock_mcp_configuration
@@ -44,7 +44,7 @@ def test_mcp_proxy_config_prints_to_stdout_by_default(mock_populate, mock_mcp_co
     assert '"test-command"' in output
 
 
-@patch("automation.tools.mcp.schemas.McpConfiguration.populate")
+@patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate")
 def test_mcp_proxy_config_writes_to_file(mock_populate, mock_mcp_configuration):
     """Test that the command writes JSON configuration to specified output file."""
     mock_populate.return_value = mock_mcp_configuration
@@ -72,7 +72,7 @@ def test_mcp_proxy_config_writes_to_file(mock_populate, mock_mcp_configuration):
             temp_path.unlink()
 
 
-@patch("automation.tools.mcp.schemas.McpConfiguration.populate")
+@patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate")
 def test_mcp_proxy_config_uses_alias_names(mock_populate, mock_mcp_configuration):
     """Test that the JSON output uses proper alias names (camelCase)."""
     mock_populate.return_value = mock_mcp_configuration

@@ -10,148 +10,86 @@ DAIV uses specialized AI agents to automate various development workflows in you
 
 DAIV agents are built on a modular architecture that combines several key components:
 
-**LangGraph Framework**: All agents use [LangGraph](https://langchain-ai.github.io/langgraph/) to create sophisticated workflows with state management, decision-making capabilities, and error handling.
+**LangChain Framework**: uses [LangChain](https://python.langchain.com/) as a foundation for the agents.
+
+**LangGraph Framework**: uses [LangGraph](https://langchain-ai.github.io/langgraph/) to create sophisticated workflows with state management, decision-making capabilities, and error handling.
 
 **Language Models**: Agents support multiple LLM providers including:
 
 - **Anthropic Claude** (Sonnet, Opus variants with thinking capabilities)
-- **OpenAI GPT** (including reasoning models like o1, o3, o4)
-- **Google Gemini**
-- **OpenRouter** (access to various models)
+- **OpenAI GPT** (including reasoning models like o1, o3, o4, etc.)
+- **Google Gemini** (including Gemini 2.5 Pro, etc.)
+- **OpenRouter** (access to various models from multiple providers)
 
 **Repository Integration**: Direct integration with GitLab through webhooks and APIs for real-time repository monitoring and interaction.
 
-**Context-Aware Processing**: Agents have access to indexed repository content, allowing them to understand your codebase structure, dependencies, and coding patterns.
-
-### Agent Lifecycle
-
-```mermaid
-graph TD
-    A["🔔 Trigger Event<br/>(Issue, PR, Pipeline Failure)"] --> B["📋 Agent Assessment<br/>(Analyze request and context)"]
-    B --> C["📊 Data Preparation<br/>(Gather repository context)"]
-    C --> D["🧠 Planning Phase<br/>(Generate action plan)"]
-    D --> E["✅ Human Approval<br/>(Review and approve plan)"]
-    E --> F["⚙️ Execution Phase<br/>(Implement changes)"]
-    F --> G["🔍 Code Formatting<br/>(Apply repository standards)"]
-    G --> H["📝 Create Merge Request<br/>(Submit for review)"]
-    H --> I["💬 Feedback & Monitoring<br/>(Track progress and respond)"]
-```
+**Context-Aware Processing**: Agents have access to the entire repository content, allowing them to understand your codebase structure, dependencies, and coding patterns.
 
 ---
 
 ## Core Available AI Agents
 
-### 🚀 Issue Addressor Agent
+### 🎯 Plan and Execute Agent
 
-**Purpose**: Automatically resolves issues by implementing requested features or fixing bugs.
-
-**Key Capabilities**:
-
-- Analyzes issue descriptions and attached images
-- Generates step-by-step implementation plans
-- Creates code changes across multiple files
-- Handles complex refactoring and new feature development
-
-**Workflow**:
-
-1. Triggered when issues are labeled with `daiv` or title starts with "DAIV:"
-2. Analyzes issue context and repository structure
-3. Generates an actionable plan for human review
-4. Executes approved changes
-5. Creates merge request with implemented solution
-
-**[Learn more →](issue-addressor.md)**
-
-### 🧠 Codebase Chat Agent
-
-**Purpose**: Interactive Q&A assistant for your repository.
+**Purpose**: This is the core agent that is used by other agents. It is responsible for planning and executing the tasks.
 
 **Key Capabilities**:
 
-- Answers questions about code structure and functionality
-- Explains complex code patterns and implementations
-- Provides development guidance and best practices
-- Searches across repository content semantically and keyword-based
-- OpenAI API compatible (chat completions)
+- Breaks down complex tasks into self contained actionable steps
+- Handles error recovery and replanning
+- Coordinates between different tools and systems
+- Analyzes attached images (if any)
+- Uses MCP tools to extend its capabilities (e.g. Fetch, Sentry, etc.)
+- Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)
+- Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)
+- Support to `AGENTS.md` file to understand the repository context
 
-**Workflow**:
-
-- Available through chat interfaces like [OpenWebUI](https://openwebui.com/)
-- Maintains conversation context
-- Searches repository indexes for relevant information
-- Provides code examples, explanations and references
-
-**[Learn more →](codebase-chat.md)**
 
 ### 🔧 Pipeline Fixer Agent
 
-**Purpose**: Automatically diagnoses and fixes failed CI/CD pipelines.
+**Purpose**: Automatically diagnoses and plan repairs for failed CI/CD pipelines.
 
 **Key Capabilities**:
 
 - Analyzes pipeline failure logs and error messages
 - Identifies root causes (syntax errors, test failures, dependency issues)
-- Implements targeted fixes
-- Applies code formatting to resolve linting issues
+- Plans repairs for the failed pipeline using the Plan and Execute agent
 
 **Workflow**:
 
-1. Triggered automatically on pipeline failures
-2. Analyzes failure logs and repository state
-3. Generates remediation plan
-4. Applies fixes and re-runs validation
+1. User triggers the agent via a quick action on merge request notes
+2. The agent does a troubleshooting analysis to identify the root causes using failure logs and code diff
+3. The agent plans repairs using the Plan and Execute agent for human review
+4. User approves the plan and the agent executes the repairs
 
-**[Learn more →](pipeline-fixing.md)**
-
-### 📝 PR Describer Agent
-
-**Purpose**: Generates comprehensive pull request descriptions.
-
-**Key Capabilities**:
-
-- Analyzes code changes and their impact
-- Generates clear, detailed PR descriptions
-
-**Workflow**:
-
-- Triggered when PRs are created or updated
-- Analyzes commits and changed files
-- Generates structured description
-- Updates PR with comprehensive details
 
 ### 🔍 Code Review Addressor Agent
 
-**Purpose**: Responds to code review feedback by implementing requested changes.
+**Purpose**: Responds to code review feedback by implementing requested changes or answering questions.
 
 **Key Capabilities**:
 
 - Interprets reviewer comments and suggestions
 - Implements code changes based on feedback
-- Handles style, logic, and structural improvements
-- Maintains conversation context across review cycles
+- Answers questions about the codebase
 
 **Workflow**:
 
-1. Triggered by review comments on merge requests
+1. Triggered by review comments on merge requests that mention the bot
 2. Evaluates if comment requests code changes
-3. Plans and implements requested modifications
+3. Plans and implements requested modifications using the Plan and Execute agent
 4. Updates the merge request with changes
 5. Responds to reviewer with explanation, if no changes requested
 
-**[Learn more →](code-review-addressor.md)**
 
-### 🎯 Plan and Execute Agent
+### 📝 PR Describer Agent
 
-**Purpose**: Core planning and execution engine used by other agents.
+**Purpose**: Generates comprehensive pull request metadata (title, description, summary, commit message, etc.).
 
 **Key Capabilities**:
 
-- Breaks down complex tasks into actionable steps
-- Manages multi-step workflows with approval gates
-- Handles error recovery and replanning
-- Coordinates between different tools and systems
-
-**Used by**: Issue Addressor, Pipeline Fixer, and Review Addressor agents for their execution workflows.
+- Analyzes code changes and their impact
+- Generates clear, detailed PR metadata
 
 ---
 
@@ -169,13 +107,18 @@ Agents can use [Model Context Protocol (MCP)](mcp-tools.md) tools to extend thei
 
 All agents have access to powerful repository manipulation tools:
 
-- **Code Search**: Semantic and keyword-based code discovery
-- **File Operations**: Create, modify, rename, and delete files
-- **Snippet Replacement**: Precise code modification with context awareness
+- **File Navigation**: List, grep (using `ripgrep`), glob and read files and directories.
+- **File Editing**: Read, write, edit, rename and delete files.
+
+### 🌐 Web Search Tools
+
+Agents can use web search tools to gather information from the web:
+
+- **Web Search**: Search the web for information using DuckDuckGo or Tavily.
 
 ### 🏗️ Sandbox Environment
 
-Agents can execute commands in isolated sandbox environments [daiv-sandbox](https://github.com/srtab/daiv-sandbox):
+Agents can execute commands in isolated sandbox environments using [daiv-sandbox](https://github.com/srtab/daiv-sandbox):
 
 - **Code Formatting**: Apply repository-specific formatting rules (e.g. ruff, black, isort, etc.)
 - **Custom Commands**: Execute repository-specific commands (e.g. install dependencies, etc.)
@@ -188,7 +131,7 @@ Agents can execute commands in isolated sandbox environments [daiv-sandbox](http
 
 Control agent behavior using a `.daiv.yml` file in your repository root.
 
-**[Learn more about configuration →](../getting-started/repository-configurations.md)**
+**[Learn more about configuration →](../configuration/yaml-config.md)**
 
 ### Model Selection
 
@@ -202,7 +145,7 @@ PLAN_AND_EXECUTE_PLANNING_MODEL_NAME=openrouter:openai/gpt-4.1
 PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME=openrouter:openai/gpt-4.1
 ```
 
-**[Learn more about model configuration →](../getting-started/environment-variables.md#automation-ai-agents)**
+**[Learn more about model configuration →](../configuration/env-config.md#automation-ai-agents)**
 
 ---
 
@@ -246,7 +189,7 @@ Agents use **LangGraph** for sophisticated workflow management:
 
 **Sensitive Data**: Ensure no secrets are exposed in repository configurations
 
-**Audit Trails**: Monitor agent activities through [LangSmith](../getting-started/monitoring.md)
+**Audit Trails**: Monitor agent activities through [LangSmith](../configuration/monitoring.md)
 
 ---
 
@@ -275,6 +218,6 @@ Agents use **LangGraph** for sophisticated workflow management:
 Now that you understand how DAIV's agents work:
 
 - **[Configure your first repository](../getting-started/configuration.md)** - Set up DAIV integration
-- **[Explore specific agents](issue-addressor.md)** - Deep dive into individual agent capabilities
-- **[Customize behavior](../getting-started/repository-configurations.md)** - Fine-tune agents for your workflow
-- **[Monitor performance](../getting-started/monitoring.md)** - Track agent effectiveness and usage
+- **[Explore MCP tools](mcp-tools.md)** - Understand how MCP tools can be used to extend agent capabilities
+- **[Customize behavior](../configuration/yaml-config.md)** - Fine-tune agents for your workflow
+- **[Monitor performance](../configuration/monitoring.md)** - Track agent effectiveness and usage

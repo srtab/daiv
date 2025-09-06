@@ -4,11 +4,6 @@
   "python.testing.unittestEnabled": true,
   "python.analysis.extraPaths": ["./daiv"],
   "python.analysis.typeCheckingMode": "off",
-  "stylelint.enable": true,
-  "stylelint.configBasedir": "./daiv/static",
-  "stylelint.configFile": "./daiv/static/.stylelintrc.json",
-  "stylelint.validate": ["css", "scss"],
-  "stylelint.snippet": ["css", "scss"],
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true,
@@ -16,7 +11,6 @@
       "source.fixAll.ruff": "explicit"
     }
   },
-  "jupyter.notebookFileRoot": "${workspaceFolder}",
   "cursorpyright.analysis.extraPaths": [
     "./daiv"
   ],

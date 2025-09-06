@@ -3,18 +3,17 @@ from functools import cached_property
 from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
+from quick_actions.base import Scope
+from quick_actions.parser import QuickActionCommand, parse_quick_action
+from quick_actions.registry import quick_action_registry
+from quick_actions.tasks import execute_quick_action_task
 
-from automation.quick_actions.base import Scope
-from automation.quick_actions.parser import QuickActionCommand, parse_quick_action
-from automation.quick_actions.registry import quick_action_registry
-from automation.quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
-from codebase.base import MergeRequest as BaseMergeRequest
 from codebase.clients import RepoClient
-from codebase.tasks import address_issue_task, address_review_task, update_index_repository
+from codebase.repo_config import RepositoryConfig
+from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
-from core.config import RepositoryConfig
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 
@@ -34,7 +33,7 @@ class IssueCallback(BaseCallback):
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).features.auto_address_issues_enabled
+            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if there are changes in the title, description, labels or state of the issue.
             and bool(self.changes.keys() & ISSUE_CHANGE_FIELDS)
@@ -151,7 +150,7 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(self._quick_action_command)
+        return bool(self._repo_config.quick_actions.enabled and self._quick_action_command)
 
     @cached_property
     def _is_merge_request_review(self) -> bool:
@@ -159,7 +158,7 @@ class NoteCallback(BaseCallback):
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         if (
-            not self._repo_config.features.auto_address_review_enabled
+            not self._repo_config.code_review.enabled
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
             or self.object_attributes.action != NoteAction.CREATE
             or not self.merge_request
@@ -186,7 +185,7 @@ class NoteCallback(BaseCallback):
         return bool(
             self.object_attributes.noteable_type == NoteableType.ISSUE
             and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.features.auto_address_issues_enabled
+            and self._repo_config.issue_addressing.enabled
             and self.object_attributes.action == NoteAction.CREATE
             and self.issue
             and self.issue.is_daiv()
@@ -244,7 +243,7 @@ class PushCallback(BaseCallback):
         """
         Accept the webhook if the push is to the default branch or to any branch with MR created.
         """
-        return self.ref.endswith(self.project.default_branch) or any(mr.is_daiv() for mr in self.related_merge_requests)
+        return self.ref.endswith(self.project.default_branch)
 
     async def process_callback(self):
         """
@@ -254,24 +253,3 @@ class PushCallback(BaseCallback):
         if self.project.default_branch and self.ref.endswith(self.project.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
-            await sync_to_async(
-                update_index_repository.si(
-                    repo_id=self.project.path_with_namespace, ref=self.project.default_branch
-                ).delay
-            )()
-
-        for merge_request in self.related_merge_requests:
-            if merge_request.is_daiv():
-                await sync_to_async(
-                    update_index_repository.si(
-                        repo_id=self.project.path_with_namespace, ref=merge_request.source_branch
-                    ).delay
-                )()
-
-    @cached_property
-    def related_merge_requests(self) -> list[BaseMergeRequest]:
-        """
-        Get the merge requests related to the push.
-        """
-        client = RepoClient.create_instance()
-        return client.get_commit_related_merge_requests(self.project.path_with_namespace, commit_sha=self.checkout_sha)

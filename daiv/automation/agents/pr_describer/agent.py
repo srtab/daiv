@@ -19,13 +19,8 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
 
     async def compile(self) -> Runnable:
         prompt = ChatPromptTemplate.from_messages([system]).partial(
-            branch_name_convention=None,
-            extra_context="",
-            current_date_time=timezone.now().isoformat(timespec="minutes"),
+            branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
         )
         return (
-            prompt
-            | self.get_model(model=settings.MODEL_NAME).with_structured_output(
-                PullRequestMetadata, method="function_calling"
-            )
+            prompt | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestMetadata)
         ).with_config({"run_name": settings.NAME})

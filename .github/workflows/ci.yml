@@ -17,7 +17,7 @@ jobs:
       - name: Install libomp-dev
         run: sudo apt-get install -y libomp-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -43,7 +43,7 @@ jobs:
 
     services:
       db:
-        image: pgvector/pgvector:pg17
+        image: postgres:17.6
         env:
           POSTGRES_USER: dbuser
           POSTGRES_PASSWORD: dbpass
@@ -60,7 +60,7 @@ jobs:
       - name: Install libomp-dev
         run: sudo apt-get install -y libomp-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6

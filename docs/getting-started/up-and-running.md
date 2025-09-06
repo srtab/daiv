@@ -1,6 +1,6 @@
 # Up and Running
 
-This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. **DAIV is an AI-powered development assistant** that helps teams with code insights, automated issue resolution, and development workflow automation. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
+This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
 
 ## What You'll Deploy
 
@@ -8,14 +8,14 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 **Required Core Services:**
 
- * **[PostgreSQL](https://www.postgresql.org/)** with [pgvector](https://github.com/pgvector/pgvector) extension - Stores application data and vector embeddings;
+ * **[PostgreSQL](https://www.postgresql.org/)** - Stores application data;
  * **[Redis](https://redis.io/)** - Handles caching and message queueing;
  * **[DAIV Application](https://github.com/srtab/daiv)** - Main API;
  * **[DAIV Worker](https://docs.celeryq.dev/)** - Background task processor.
 
 **Optional Service:**
 
- * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary code;
+ * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary commands;
  * **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** - Proxy MCP server to run other MCP servers inside a container.
 
 ---
@@ -40,7 +40,6 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 * **`db_password`** - Random password for the PostgreSQL database
 * **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
 * **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
-* **`codebase_embeddings_api_key`** - [OpenAI API key](https://platform.openai.com/api-keys) with access to `text-embedding-3-large` model
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
 * **`mcp_proxy_auth_token`** - Random API key for MCP Proxy service authentication
@@ -52,14 +51,14 @@ docker secret create django_secret_key <secret_key>
 ```
 
 !!! warning "Additional Secrets May Be Required"
-    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](environment-variables.md) page for additional secrets needed for specific features or services.
+    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](../configuration/env-config.md) page for additional secrets needed for specific features or services.
 
 ### Step 2: Create `stack.yml` file
 
 **Create your deployment configuration file**. This YAML file defines all services, networks, and volumes needed for DAIV.
 
 !!! warning "Customize Environment Variables"
-    **Replace all annotated values with your own configuration**. See the [Environment Variables](environment-variables.md) page for complete configuration options.
+    **Replace all annotated values with your own configuration**. See the [Environment Variables](../configuration/env-config.md) page for complete configuration options.
 
 <div class="annotate" markdown>
 
@@ -96,7 +95,7 @@ x-deploy-defaults: &deploy_defaults
 
 services:
   db:
-    image: pgvector/pgvector:pg17
+    image: postgres:17.6
     environment:
       - POSTGRES_DB=daiv
       - POSTGRES_USER=daiv_admin
@@ -145,7 +144,6 @@ services:
       - db_password
       - codebase_gitlab_auth_token
       - codebase_gitlab_webhook_secret
-      - codebase_embeddings_api_key
       - daiv_sandbox_api_key
       - openrouter_api_key
       - mcp_proxy_auth_token
@@ -155,8 +153,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - tantivy-volume:/home/daiv/data/tantivy_index_v1
-      - embeddings-volume:/home/daiv/data/embeddings
       - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
@@ -172,15 +168,12 @@ services:
       - db_password
       - codebase_gitlab_auth_token
       - codebase_gitlab_webhook_secret
-      - codebase_embeddings_api_key
       - daiv_sandbox_api_key
       - openrouter_api_key
       - mcp_proxy_auth_token
     networks:
       - internal
     volumes:
-      - tantivy-volume:/home/daiv/data/tantivy_index_v1
-      - embeddings-volume:/home/daiv/data/embeddings
       - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     healthcheck:
       test: celery -A daiv inspect ping
@@ -223,10 +216,6 @@ volumes:
     driver: local
   redis-volume:
     driver: local
-  tantivy-volume:
-    driver: local
-  embeddings-volume:
-    driver: local
   mcp-proxy-volume:
     driver: local
 
@@ -238,8 +227,6 @@ secrets:
   codebase_gitlab_auth_token:
     external: true
   codebase_gitlab_webhook_secret:
-    external: true
-  codebase_embeddings_api_key:
     external: true
   daiv_sandbox_api_key:
     external: true
@@ -302,7 +289,7 @@ docker ps
 **Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
 
 !!! info "Environment Variable Configuration"
-    **Replace all annotated values with your specific configuration**. See the [Environment Variables](environment-variables.md) page for additional options.
+    **Replace all annotated values with your specific configuration**. See the [Environment Variables](../configuration/env-config.md) page for additional options.
 
 <div class="annotate" markdown>
 
@@ -327,7 +314,6 @@ x-app-defaults: &x_app_default
     CODEBASE_GITLAB_URL: https://gitlab.com (4)
     CODEBASE_GITLAB_AUTH_TOKEN: gitlab-auth-token (5)
     CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret (6)
-    CODEBASE_EMBEDDINGS_API_KEY: openai-api-key (7)
     # LLM Providers settings
     OPENROUTER_API_KEY: openrouter-api-key (8)
     # Sandbox settings
@@ -335,13 +321,11 @@ x-app-defaults: &x_app_default
     # MCP Proxy settings
     MCP_PROXY_AUTH_TOKEN: mcp-proxy-auth-token (13)
   volumes:
-    - tantivy-volume:/home/app/data/tantivy_index_v1
-    - embeddings-volume:/home/app/data/embeddings
     - mcp-proxy-volume:/home/app/data/mcp-proxy
 
 services:
   db:
-    image: pgvector/pgvector:pg17
+    image: postgres:17.6
     container_name: daiv-db
     restart: unless-stopped
     environment:
@@ -429,10 +413,6 @@ volumes:
     driver: local
   redis-volume:
     driver: local
-  tantivy-volume:
-    driver: local
-  embeddings-volume:
-    driver: local
   mcp-proxy-volume:
     driver: local
 ```
@@ -445,7 +425,6 @@ volumes:
 4.   **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
 5.   **Create a GitLab personal access token** with `api` scope permissions (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
 6.   **Generate a random webhook secret** for GitLab webhook validation
-7.   **Get an OpenAI API key** with access to `text-embedding-3-large` model
 8.   **Get an OpenRouter API key** for LLM model access
 9.   **Generate a random API key** for Sandbox service authentication
 10.  **Use the same password** as defined in annotation 3
@@ -572,7 +551,6 @@ systemctl restart nginx
 
 - Creating GitLab personal access tokens
 - Configuring repository webhooks
-- Indexing repository content
 - Setting up automated workflows\
 
 **📖 Follow the complete repository setup guide**: [Repository Configuration](configuration.md)
@@ -584,7 +562,6 @@ systemctl restart nginx
 - **Respond to issues** - DAIV analyzes issues and suggests solutions or implementation plans
 - **Review pull requests** - Automated code review and suggestions for improvements
 - **Address pipeline failures** - Investigates CI/CD failures and proposes fixes
-- **Answer code questions** - Provides context-aware responses about your codebase
 
 ### 3. Monitoring Your Instance
 
@@ -606,7 +583,7 @@ docker logs <container_name>
 **If you encounter issues during setup**:
 
 - **Check the logs** for error messages and debugging information
-- **Review the [Environment Variables](environment-variables.md)** for configuration options
+- **Review the [Environment Variables](../configuration/env-config.md)** for configuration options
 - **Verify network connectivity** between services and external APIs
 - **Ensure all secrets and API keys** are valid and have proper permissions
 - **Ask for help** on the [GitHub Discussions](https://github.com/srtab/daiv/discussions)

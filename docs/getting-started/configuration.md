@@ -1,6 +1,6 @@
 # Repository Configuration
 
-This guide walks you through connecting DAIV to your GitLab repository. Once configured, DAIV will automatically respond to issues, pull requests, and pipeline failures.
+This guide walks you through connecting DAIV to your GitLab repository. Once configured, DAIV will automatically implement the issues, respond to code reviews, and more...
 
 ---
 
@@ -119,37 +119,11 @@ If you prefer to set up webhooks manually or for specific repositories:
 
 ---
 
-## Step 4: Index Repository Content
-
-DAIV needs to index your repository content to provide context-aware assistance.
-
-```bash
-# Enter the DAIV container
-docker compose exec -it app bash
-
-# Index all accessible repositories
-django-admin update_index
-
-# Index a specific repository
-django-admin update_index --repo-id "group/repository-name"
-```
-
-The indexing process will:
-- Clone the repository content
-- Extract and chunk code files
-- Generate embeddings for semantic search
-- Build search indices for fast retrieval
-
-!!! info "Indexing Time"
-    Initial indexing may take several seconds depending on repository size. Subsequent updates are incremental and faster.
-
----
-
 ## Step 5: Configure Repository Behavior
 
-Create a `.daiv.yml` file in your repository's root to customize DAIV's behavior.
+To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
 
-For complete configuration options, see [Repository Configurations](repository-configurations.md).
+For complete configuration options, see [Repository Configurations](../configuration/yaml-config.md).
 
 ---
 
@@ -159,8 +133,8 @@ Verify that DAIV is properly connected to your repository.
 
 1. **Create a Test Issue**:
     - Go to your GitLab repository
-    - Create a new issue with title: "Add hello world function"
-    - Add the `daiv` label to the issue
+    - Create a new issue with title: "Add hello world function" (or any other issue you want to address)
+    - Add the `daiv` label to the issue or start the issue title with "DAIV:"
 
 2. **Wait for DAIV Response**:
     - DAIV should automatically comment with a plan to address the issue
@@ -197,5 +171,5 @@ Verify that DAIV is properly connected to your repository.
 With your repository configured, you can now:
 
 - **[Learn about AI agents](../ai-agents/overview.md)** - Understand how DAIV's agents work
-- **[Customize agent behavior](repository-configurations.md)** - Fine-tune DAIV for your workflow
-- **[Configure monitoring](monitoring.md)** - Configure LangSmith for monitoring
+- **[Customize agent behavior](../configuration/yaml-config.md)** - Fine-tune DAIV for your workflow
+- **[Configure monitoring](../configuration/monitoring.md)** - Configure LangSmith for monitoring

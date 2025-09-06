@@ -1,21 +1,45 @@
-from textwrap import dedent
-from typing import Annotated
+from __future__ import annotations
 
-from langchain_core.messages import AnyMessage
-from langchain_core.tools import InjectedToolCallId
+from textwrap import dedent
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
-COMPLETE_WITH_PLAN_DESCRIPTION = """\
-A complete implementation plan that satisfies the user's request.
+from automation.agents.schemas import Image  # noqa: TC001
+from automation.agents.tools.navigation import NAVIGATION_TOOLS
 
-The plan must be an ordered list of granular `ChangeInstructions`. Keep items in the order they should be executed.
-Related instructions affecting the same file should appear in consecutive order to aid batching and review."""
+if TYPE_CHECKING:
+    from langchain_core.messages import AnyMessage
 
-COMPLETE_WITH_CLARIFICATION_DESCRIPTION = """\
-Use this tool to ask for clarification only after workflow retrieval.
-Ask the user follow-up questions when their request is vague, ambiguous, incomplete, or self-contradictory.
-Do not ask for clarification before workflow retrieval."""
+
+FINALIZE_WITH_PLAN_DESCRIPTION = f"""\
+FINALIZER — Deliver a self-contained implementation plan that satisfies the user's request.
+
+Call this ONLY after completing Steps 0-1. Preconditions you MUST have satisfied earlier in this conversation:
+(1) you have called `think` at least once in Step 0, and
+(2) you have executed ≥1 inspection tool from {", ".join(NAVIGATION_TOOLS)} to gather evidence.
+If either is false, do NOT call this tool; instead continue the workflow or use `post_inspection_clarify_final` if ambiguity remains after inspection.
+
+Requirements for the plan:
+- Ordered list of granular ChangeInstructions in execution order.
+- Related instructions that touch the same file appear consecutively to aid batching/review.
+- Self-contained: no external URLs; embed essential snippets/data (short snippets only) using safe fences.
+- Reference concrete files/functions/config keys discovered during inspection."""  # noqa: E501
+
+FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION = f"""\
+FINALIZER — targeted clarification questions asked ONLY after completing Steps 0-1.
+
+Preconditions you MUST have satisfied earlier in this conversation:
+(1) you have called `think` at least once in Step 0, and
+(2) you have executed ≥1 inspection tool from {", ".join(NAVIGATION_TOOLS)} attempting to resolve the ambiguity.
+If either is false, do NOT call this tool.
+
+Use this tool when ambiguity remains after inspection, when any required execution detail is still missing, or when external sources are conflicting."""  # NOQA: E501
+
+
+class ImageURLExtractorOutput(BaseModel):
+    images: list[Image] = Field(description="List of images found in the task.")
 
 
 class HumanApprovalInput(TypedDict):
@@ -51,28 +75,22 @@ class AskForClarification(BaseModel):
     # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    tool_call_id: Annotated[str, InjectedToolCallId]
     questions: str = Field(
         description=dedent(
             """\
-            The question(s) should be targeted and phrased **in the same language** as the user's request.
-             - Provide at least one question and no superfluous chit-chat.
-             - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
+            Targeted questions in the same language as the user's request. No chit-chat. Ground them in the codebase and inspection results; use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
             """  # noqa: E501
         )
     )
 
 
-AskForClarification.__doc__ = COMPLETE_WITH_CLARIFICATION_DESCRIPTION
+AskForClarification.__doc__ = FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION
 
 
 class ChangeInstructions(BaseModel):
     """
-    A single, self-contained description of what must change in the code-base.
-
-    Each instance represents one atomic piece of work that a developer can tackle independently.
-    If several edits are tightly coupled, group them in the same `ChangeInstructions` object and reference the
-    shared file with `file_path`.
+    One atomic piece of work a developer can tackle independently.
+    If several edits are tightly coupled, group them in the same object and reference the shared `file_path`.
     """
 
     # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
@@ -81,23 +99,21 @@ class ChangeInstructions(BaseModel):
     relevant_files: list[str] = Field(
         description=dedent(
             """\
-            Every file path that a developer should open to implement this change (implementation, helpers, tests, docs, configs...). Include *all* files that provide necessary context.
+            Every file path a developer should open to implement this change (implementation, helpers, tests, docs, configs...). Include ALL files that provide necessary context.
             """  # noqa: E501
         )
     )
     file_path: str = Field(
         description=dedent(
             """\
-            The primary file that will be modified.
-             - Use an empty string ("") if the instruction is repository-wide or not tied to a single file (e.g., “add GitHub Action”).
-             - Otherwise give the canonical path, relative to the repo root.
+            Primary file to be modified. Use an empty string ("") if the instruction is repository-wide (e.g., 'add CI workflow'). Otherwise use the canonical path relative to repo root.
             """  # noqa: E501
         )
     )
     details: str = Field(
         description=dedent(
             """\
-            A clear, human-readable explanation of the required change—algorithms, naming conventions, error handling, edge cases, test approach, performance notes, shell commands to run, etc.
+            Clear, human-readable instructions covering the required change: affected symbols/APIs, algorithms, naming conventions, error handling, edge cases, test approach, performance notes, shell commands to run, etc.
              - **Do NOT** write or paste a full diff / complete implementation you have invented;
              - You **may** embed short illustrative snippets **or** verbatim user-supplied code **only if it is syntactically correct**. If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code;
              - Use the safe format: fenced with tildes `~~~language` … `~~~` for markdown code blocks;
@@ -111,20 +127,13 @@ class Plan(BaseModel):
     # Need to add manually `additionalProperties=False` to allow use the schema  as tool with strict mode
     model_config = ConfigDict(json_schema_extra={"additionalProperties": False})
 
-    tool_call_id: Annotated[str, InjectedToolCallId]
     changes: list[ChangeInstructions] = Field(
-        description="Sorted so that related edits to the same file are adjacent.", min_length=1
+        description=(
+            "List of ChangeInstructions in the order they should be executed. "
+            "Group adjacent items when they affect the same file."
+        ),
+        min_length=1,
     )
 
 
-Plan.__doc__ = COMPLETE_WITH_PLAN_DESCRIPTION
-
-
-class CompleteWithPlanOrClarification(BaseModel):
-    """
-    The plan or question(s) to ask the user for clarification.
-    """
-
-    model_config = ConfigDict(title="complete_with_plan_or_clarification")
-
-    action: Plan | AskForClarification = Field(description="The plan or question(s) to ask the user for clarification.")
+Plan.__doc__ = FINALIZE_WITH_PLAN_DESCRIPTION

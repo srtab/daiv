@@ -16,10 +16,10 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
-from automation.agents.nodes import apply_format_code
+from automation.agents.nodes import apply_format_code_node
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.tools import think
-from automation.tools.toolkits import ReadRepositoryToolkit
+from automation.agents.tools import think_tool
+from automation.agents.tools.toolkits import FileNavigationToolkit
 
 from .conf import settings
 from .prompts import command_output_evaluator_human, pipeline_fixer_human, troubleshoot_human, troubleshoot_system
@@ -42,7 +42,7 @@ class CommandOutputEvaluator(BaseAgent[Runnable[CommandOuputInput, CommandOuputE
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([command_output_evaluator_human])
-            | self.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
+            | BaseAgent.get_model(model=settings.COMMAND_OUTPUT_MODEL_NAME).with_structured_output(
                 CommandOuputEvaluation, method="function_calling"
             )
         ).with_config({"run_name": "CommandOutputEvaluator"})
@@ -86,10 +86,10 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        tools = ReadRepositoryToolkit.create_instance().get_tools() + [complete_task, think]
+        tools = FileNavigationToolkit.get_tools() + [complete_task, think_tool]
 
         agent = create_react_agent(
-            model=self.get_model(
+            model=BaseAgent.get_model(
                 model=settings.TROUBLESHOOTING_MODEL_NAME, thinking_level=settings.TROUBLESHOOTING_THINKING_LEVEL
             ),
             tools=tools,
@@ -106,7 +106,6 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
             store=store,
             checkpointer=False,  # Disable checkpointer to avoid persisting the state in the store
             name="troubleshoot_react_agent",
-            version="v2",
         )
 
         await agent.ainvoke({"job_logs": state["job_logs"], "diff": state["diff"], "messages": []})
@@ -147,7 +146,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan_and_execute = await PlanAndExecuteAgent(store=store, checkpointer=self.checkpointer).agent
+        plan_and_execute = await PlanAndExecuteAgent.get_runnable(store=store, checkpointer=self.checkpointer)
 
         await plan_and_execute.ainvoke({
             "messages": await pipeline_fixer_human.aformat_messages(
@@ -175,9 +174,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "__end__"]]: The next step in the workflow.
         """
-        content = await apply_format_code(
-            config["configurable"]["source_repo_id"], config["configurable"]["source_ref"], store
-        )
+        content = await apply_format_code_node(store)
 
         if content is None:
             # If format code is disabled, we need to try to fix the linting issues by planning the remediation steps.
@@ -188,7 +185,7 @@ class PipelineFixerAgent(BaseAgent[CompiledStateGraph]):
         # We need to check if the command output contains more errors, or indications of failures.
         # The command may not have been enough to fix the problems, so we need to check if there are any
         # errors left.
-        command_output_evaluator = await CommandOutputEvaluator().agent
+        command_output_evaluator = await CommandOutputEvaluator.get_runnable()
         result = await command_output_evaluator.ainvoke({"output": content})
 
         if result.has_errors and state.get("format_iteration", 0) < MAX_FORMAT_ITERATIONS:

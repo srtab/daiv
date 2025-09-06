@@ -31,35 +31,12 @@ MCP_FETCH_VERSION=2025.4.7                   # Default: 2025.4.7
 
 # Sentry MCP Server
 MCP_SENTRY_ENABLED=true                      # Default: true
-MCP_SENTRY_VERSION=0.11.0                    # Default: 0.11.0
+MCP_SENTRY_VERSION=0.12.0                    # Default: 0.12.0
 MCP_SENTRY_ACCESS_TOKEN=your-sentry-token    # Required for Sentry functionality
 MCP_SENTRY_HOST=your-sentry-host             # Your Sentry instance host
 ```
 
-See [Environment Variables Reference](../getting-started/environment-variables.md#mcp-tools) for more details.
-
-## Agent Integration
-
-### Which Agents Use MCP Tools?
-
-Currently, MCP tools are available in the following agents:
-
-#### Plan and Execute Agent
-
-The Plan and Execute agent has access to all configured MCP tools through the `MCPToolkit`. This agent can:
-
-- Use the Fetch server to research solutions online
-- Access Sentry to understand error contexts when fixing issues
-- Combine MCP tools with repository tools for comprehensive problem-solving
-
-**Example Usage:**
-
-When addressing an issue, the agent might:
-
-1. Use Sentry tools to analyze error details
-2. Use Fetch tools to research similar issues or documentation
-3. Apply repository tools to implement the fix
-
+See [Environment Variables Reference](../configuration/env-config.md#mcp-tools) for more details.
 
 ## Advanced Configuration
 
@@ -106,8 +83,14 @@ To debug MCP tool issues:
 
 ## Security Considerations
 
+DAIV uses [MCP Proxy](https://github.com/TBXark/mcp-proxy) to allow installing and running MCP servers on a containerized environment. This means that the MCP servers are not directly installed/running on your machine, but rather on the MCP Proxy docker container, improving security by isolating the MCP servers from your machine.
+
+This doesn't mean that you're safe from attacks. You still need to be careful about the MCP servers you use [following the MCP protocol security best practices](https://modelcontextprotocol.io/specification/draft/basic/security_best_practices).
+
+Here are some best practices to follow when using MCP servers in DAIV:
+
 - **API Tokens**: Store sensitive tokens like `MCP_SENTRY_ACCESS_TOKEN` securely using Docker secrets
-- **Network Access**: MCP servers may require network access to external services
+- **Network Access**: MCP servers may require network access to external services (e.g. Sentry)
 - **Authentication**: Configure `MCP_PROXY_AUTH_TOKEN` for additional security in production environments
 
 ## Additional Resources
@@ -115,4 +98,4 @@ To debug MCP tool issues:
 - [MCP Protocol Specification](https://spec.modelcontextprotocol.io/)
 - [Fetch MCP Server Documentation](https://pypi.org/project/mcp-server-fetch/)
 - [Sentry MCP Server Documentation](https://www.npmjs.com/package/@sentry/mcp-server)
-- [Environment Variables Reference](../getting-started/environment-variables.md)
+- [Environment Variables Reference](../configuration/env-config.md)

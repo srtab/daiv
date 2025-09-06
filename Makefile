@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: help test test-ci lint lint-check lint-format lint-fix lint-typing
+.PHONY: help test test-ci lint lint-check lint-format lint-fix lint-typing evals
 
 help:
 	@echo "Available commands:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with mypy"
 	@echo "  make lock           - Update uv lock"
+	@echo "  make evals          - Run evals"
 
 test:
 	uv run pytest tests
@@ -40,3 +41,6 @@ makemessages:
 
 compilemessages:
 	uv run django-admin compilemessages
+
+evals:
+	LANGSMITH_TEST_SUITE="DAIV evals" uv run pytest --reuse-db evals --no-cov -k test_execute_plan_correctness --log-level=INFO

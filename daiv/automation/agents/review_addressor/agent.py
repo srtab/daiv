@@ -16,11 +16,9 @@ from langgraph.types import Command
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.prompts import plan_system
-from automation.tools import think
-from automation.tools.toolkits import ReadRepositoryToolkit, WebSearchToolkit
+from automation.agents.tools import think_tool
+from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
-from codebase.indexes import CodebaseIndex
-from core.config import RepositoryConfig
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -45,7 +43,9 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
-            | self.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(ReviewCommentEvaluation)
+            | BaseAgent.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(
+                ReviewCommentEvaluation
+            )
         ).with_config({"run_name": "ReviewCommentEvaluator"})
 
 
@@ -55,13 +55,13 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        tools = ReadRepositoryToolkit.create_instance().get_tools() + WebSearchToolkit.create_instance().get_tools()
+        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
         repo_client = RepoClient.create_instance()
 
         return create_react_agent(
-            self.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
+            BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
-            tools=tools + [think],
+            tools=tools + [think_tool],
             store=self.store,
             checkpointer=False,
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
@@ -69,8 +69,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
                 bot_name=BOT_NAME,
                 bot_username=repo_client.current_user.username,
             ),
-            name=settings.REPLY_NAME,
-            version="v2",
+            name="reply_reviewer_react_agent",
         )
 
 
@@ -78,10 +77,6 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
     """
     Agent to address reviews by providing feedback and asking questions.
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.codebase_index = CodebaseIndex(RepoClient.create_instance())
 
     async def compile(self) -> CompiledStateGraph:
         """
@@ -113,7 +108,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_and_execute", "reply_reviewer"]]: The next step in the workflow.
         """
-        review_comment_evaluator = await ReviewCommentEvaluator().agent
+        review_comment_evaluator = await ReviewCommentEvaluator.get_runnable()
         response = await review_comment_evaluator.ainvoke({"messages": state["notes"]})
 
         if response.request_for_changes:
@@ -135,25 +130,19 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        repo_config = RepositoryConfig.get_config(config["configurable"]["source_repo_id"])
-
         plan_system.prompt = plan_system.prompt.partial(
             role=review_plan_system_role,
             before_workflow=review_plan_system_before_workflow,
-            after_rules=jinja2_formatter(
-                review_plan_system_after_rules,
-                project_description=repo_config.repository_description,
-                diff=state["diff"],
-            ),
+            after_rules=jinja2_formatter(review_plan_system_after_rules, diff=state["diff"]),
         )
 
-        plan_and_execute = await PlanAndExecuteAgent(
+        plan_and_execute = await PlanAndExecuteAgent.get_runnable(
             plan_system_template=plan_system,
             store=store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
             checkpointer=False,
-        ).agent
+        )
 
         result = await plan_and_execute.ainvoke({"messages": state["notes"]})
 
@@ -175,7 +164,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        reply_reviewer_agent = await ReplyReviewerAgent(store=store).agent
+        reply_reviewer_agent = await ReplyReviewerAgent.get_runnable(store=store)
 
         result = await reply_reviewer_agent.ainvoke({"messages": state["notes"], "diff": state["diff"]})
 

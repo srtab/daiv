@@ -1,12 +1,10 @@
-import base64
-
 import httpx
 
 from core.utils import (
-    async_url_to_data_url,
-    batch_async_url_to_data_url,
+    async_download_url,
+    batch_async_download_url,
     build_uri,
-    extract_image_mimetype_openai,
+    extract_valid_image_mimetype,
     is_valid_url,
 )
 
@@ -39,21 +37,21 @@ class BuildUriTest:
 
 class ExtractImageMimetypeOpenaiTest:
     def test_supported_image_formats(self):
-        assert extract_image_mimetype_openai("image.jpg") == "image/jpeg"
-        assert extract_image_mimetype_openai("image.jpeg") == "image/jpeg"
-        assert extract_image_mimetype_openai("image.png") == "image/png"
-        assert extract_image_mimetype_openai("image.gif") == "image/gif"
-        assert extract_image_mimetype_openai("image.webp") == "image/webp"
+        assert extract_valid_image_mimetype("image.jpg") == "image/jpeg"
+        assert extract_valid_image_mimetype("image.jpeg") == "image/jpeg"
+        assert extract_valid_image_mimetype("image.png") == "image/png"
+        assert extract_valid_image_mimetype("image.gif") == "image/gif"
+        assert extract_valid_image_mimetype("image.webp") == "image/webp"
 
     def test_unsupported_image_formats(self):
-        assert extract_image_mimetype_openai("image.bmp") is None
-        assert extract_image_mimetype_openai("image.tiff") is None
-        assert extract_image_mimetype_openai("not-an-image.txt") is None
+        assert extract_valid_image_mimetype("image.bmp") is None
+        assert extract_valid_image_mimetype("image.tiff") is None
+        assert extract_valid_image_mimetype("not-an-image.txt") is None
 
     def test_unsupported_mimetype_returns_none(self):
         """Test that valid but unsupported mimetypes return None."""
-        assert extract_image_mimetype_openai("image.svg") is None  # image/svg+xml is valid but not supported
-        assert extract_image_mimetype_openai("image.ico") is None  # image/x-icon is valid but not supported
+        assert extract_valid_image_mimetype("image.svg") is None  # image/svg+xml is valid but not supported
+        assert extract_valid_image_mimetype("image.ico") is None  # image/x-icon is valid but not supported
 
 
 class AsyncUrlToDataUrlTest:
@@ -64,15 +62,15 @@ class AsyncUrlToDataUrlTest:
         mock_client = mocker.patch("httpx.AsyncClient")
         mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
 
-        expected_data_url = f"data:image/jpeg;base64,{base64.b64encode(b'fake-image-data').decode('utf-8')}"
-        result = await async_url_to_data_url("https://example.com/image.jpg")
+        expected_data_url = b"fake-image-data"
+        result = await async_download_url("https://example.com/image.jpg")
         assert result == expected_data_url
 
     async def test_failed_request(self, mocker):
         mock_client = mocker.patch("httpx.AsyncClient")
         mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("Request failed")
 
-        result = await async_url_to_data_url("https://example.com/image.jpg")
+        result = await async_download_url("https://example.com/image.jpg")
         assert result is None
 
 
@@ -85,8 +83,8 @@ class BatchAsyncUrlToDataUrlTest:
         mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
 
         urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        expected_data_url = f"data:image/jpeg;base64,{base64.b64encode(b'fake-image-data').decode('utf-8')}"
-        result = await batch_async_url_to_data_url(urls, headers={})
+        expected_data_url = b"fake-image-data"
+        result = await batch_async_download_url(urls, headers={})
         assert len(result) == 2
         assert all(url in result for url in urls)
         assert all(data_url == expected_data_url for data_url in result.values())
@@ -107,7 +105,7 @@ class BatchAsyncUrlToDataUrlTest:
         client.get.side_effect = get_side_effect
 
         urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        result = await batch_async_url_to_data_url(urls, headers={})
+        result = await batch_async_download_url(urls, headers={})
 
         assert len(result) == 1
         assert "https://example.com/1.jpg" in result
@@ -141,10 +139,10 @@ class BatchAsyncUrlToDataUrlTest:
             "https://example.com/error.jpg",
         ]
 
-        result = await batch_async_url_to_data_url(urls, headers={})
+        result = await batch_async_download_url(urls, headers={})
 
         # Only the successful URL should be in the result
         assert len(result) == 1
         assert "https://example.com/success.jpg" in result
-        assert isinstance(result["https://example.com/success.jpg"], str)
-        assert result["https://example.com/success.jpg"].startswith("data:image/jpeg;base64,")
+        assert isinstance(result["https://example.com/success.jpg"], bytes)
+        assert result["https://example.com/success.jpg"].startswith(b"fake-image-data")

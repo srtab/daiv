@@ -6,30 +6,30 @@
 
 DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** repositories to streamline your development process. It uses AI agents and configurable actions to automate common software development tasks such as:
 
-- **Issue Addressing**: Planning and executing solutions directly from issue titles and descriptions.
-- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests.
-- **Pipeline Failures**: Monitoring CI/CD logs and applying fixes automatically when a pipeline fails.
-- **Codebase Chat**: A ChatGPT-like experience to chat with your codebase and get answers.
+- **Issue Addressing**: Planning and, after human approval, executing solutions directly from issue titles and descriptions.
+- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests on demand.
+- **Pipeline Fixer**: Repairing failed CI/CD pipeline jobs by suggesting fixes and applying them after human approval.
 
 ## Key Features
 
 - 🚀 **Automated Issue Resolution**: When an issue is created in your repository, DAIV can parse the description, propose a step-by-step plan, and, after human approval, execute code changes and open a merge request for you to review.
 - 💬 **Code Review Addressor**: Assists with code review comments by providing context-aware answers or directly applying requested changes. This reduces the overhead of going back and forth on merge requests.
-- 🔧 **Pipeline Fixing**: Identifies failing pipeline jobs, analyzes logs, and attempts auto-remediations (e.g., lint fixes and unit tests) to get the CI/CD pipeline back to green.
 - 🧠 **Codebase Chat**: Chat with your codebase for context-aware answers. An OpenAI-compatible API is available for easy integration with tools such as [Open-WebUI](https://github.com/open-webui/open-webui).
-- ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing or pipeline autofix).
+- ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing).
+- ⚡ **Quick Actions**: Command-based interactions for common tasks on issues and merge requests, such as regenerating plan, approving plan, repairing pipeline, etc.
+- 🔧 **MCP Tools**: Supporting [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools to extend the capabilities of the agents.
+- 📦 **Sandbox**: Running commands in a secure sandbox to allow the agents to perform actions on the codebase, such as installing/updating dependencies, generating translations, etc. with your own docker image.
+- 📊 **Monitoring**: Monitoring the behavior of the agents to allow you to analyze the performance and identify potential issues.
+- 🤖 **Providers Support**: [OpenAI](https://openai.com/api/), [Anthropic](https://www.anthropic.com/api), [Gemini](https://ai.google.dev/gemini) and [OpenRouter](https://openrouter.ai/) are the supported LLM providers.
 
 ## Technology Stack
 
 - **Backend Framework**: [Django](https://www.djangoproject.com/) for building robust APIs and managing database models.
-- **Async Tasks**: [Celery](https://docs.celeryproject.org/) with Redis, orchestrating indexing, processing merges, and applying code changes in the background.
+- **Async Tasks**: [Celery](https://docs.celeryproject.org/) with Redis, applying actions in the background and scaling the agents to handle multiple requests.
 - **LLM Frameworks**: [LangChain](https://python.langchain.com/) and [LangGraph](https://langchain-ai.github.io/langgraph), integrating various LLM agents for intent understanding, query transformation, and natural language reasoning about code changes.
-- **Search Engines**:
-  - **Semantic**: [PGVector](https://github.com/pgvector/pgvector) (PostgreSQL extension) for embedding-based semantic retrieval.
-  - **Lexical**: [Tantivy](https://github.com/quickwit-oss/tantivy) for keyword-driven code search.
-- **Code Executor**: Tools and managers for fetching files from GitLab, applying code changes via merge requests, and running code in a secure [sandbox](https://github.com/srtab/daiv-sandbox/).
+- **Code Executor**: [Sandbox](https://github.com/srtab/daiv-sandbox/) for running commands in a secure sandbox to allow the agents to perform actions on the codebase.
 - **Observability**: [LangSmith](https://www.langchain.com/langsmith) for tracing and monitoring all the interactions between DAIV and your codebase.
-- **AI Providers**: [OpenAI](https://openai.com/api/), [Anthropic](https://www.anthropic.com/api), [Gemini](https://ai.google.dev/gemini) and [OpenRouter](https://openrouter.ai/) are the supported LLM providers.
+- **Error Handling**: [Sentry](https://sentry.io/) for tracking and analyzing errors.
 
 ## Getting Started
 
@@ -130,14 +130,14 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 ## Roadmap
 
-- [x] 📚 [WIP] Add documentation to the project: https://srtab.github.io/daiv/.
+- [ ] Add support to Github.
+- [ ] Add support to [AGENTS.md](https://agents.md/) format to guide agents.
 - [x] 🌐 [WIP] Add support to MCP servers: #274.
-- [ ] 🧩 Include knowledge graphs that collect and correlate information from the codebases. This will help DAIV to obtain structured context about the codebase.
-- [ ] 🚀 Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
-- [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
 - [x] ⚡ [WIP] Add support to quick actions on Merge Requests and Issues, such as Update Changelog, Add unittest, Update docs, Format code...
+- [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.
 - [ ] 🔍 Add support to automated code review.
-- [ ] 📊 Add an evaluation system to measure the quality of DAIV's agents.
+- [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
+- [ ] 🚀 Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
 
 
 ## Contributing

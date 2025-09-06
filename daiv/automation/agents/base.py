@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from functools import cached_property
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import init_chat_model
-from langchain_community.callbacks import OpenAICallbackHandler
 from langchain_core.runnables import Runnable  # noqa: TC002
 from langgraph.graph.state import CompiledStateGraph
 
@@ -35,6 +33,7 @@ class ModelProvider(StrEnum):
 
 
 class ThinkingLevel(StrEnum):
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -48,23 +47,23 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     Base agent class for creating agents that interact with a model.
     """
 
-    def __init__(
-        self,
-        *,
-        usage_handler: OpenAICallbackHandler | None = None,
-        checkpointer: BaseCheckpointSaver | None = None,
-        store: BaseStore | None = None,
-    ):
-        self.usage_handler = usage_handler or OpenAICallbackHandler()
+    _runnable: T
+    """
+    The runnable instance that can be used to invoke the agent.
+    """
+
+    def __init__(self, *, checkpointer: BaseCheckpointSaver | None = None, store: BaseStore | None = None):
         self.checkpointer = checkpointer
         self.store = store
 
-    @cached_property
-    async def agent(self) -> T:
+    @classmethod
+    async def get_runnable(cls, *args, **kwargs) -> T:
         """
-        The compiled agent.
+        Get the compiled agent instance.
         """
-        return await self.compile()
+        instance = cls(*args, **kwargs)
+        instance._runnable = await instance.compile()
+        return instance._runnable
 
     @abstractmethod
     async def compile(self) -> T:
@@ -75,20 +74,22 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         pass
 
-    def get_model(self, *, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
+    @staticmethod
+    def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
 
         Returns:
             BaseChatModel: The model instance
         """
-        model_kwargs = self.get_model_kwargs(
+        model_kwargs = BaseAgent.get_model_kwargs(
             model=model, model_provider=BaseAgent.get_model_provider(model), thinking_level=thinking_level, **kwargs
         )
         return init_chat_model(**model_kwargs)
 
+    @staticmethod
     def get_model_kwargs(
-        self, *, model_provider: ModelProvider, thinking_level: ThinkingLevel | None = None, **kwargs
+        *, model_provider: ModelProvider, thinking_level: ThinkingLevel | None = None, **kwargs
     ) -> dict:
         """
         Get the keyword arguments to pass to the model.
@@ -96,13 +97,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             dict: The keyword arguments
         """
-        _kwargs = {
-            "temperature": 0,
-            "callbacks": [self.usage_handler],
-            "model_kwargs": {},
-            "model_provider": model_provider,
-            **kwargs,
-        }
+        _kwargs = {"temperature": 0, "model_kwargs": {}, "model_provider": model_provider, **kwargs}
 
         if model_provider == ModelProvider.ANTHROPIC:
             assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
@@ -110,7 +105,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
+                max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
                     thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                 )
                 # When using thinking the temperature need to be set to 1
@@ -146,7 +141,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["temperature"] = 1
 
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                    max_tokens, thinking_tokens = self._get_anthropic_thinking_tokens(
+                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
                         thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                     )
                     _kwargs["max_tokens"] = max_tokens
@@ -164,7 +159,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         return _kwargs
 
-    def _get_anthropic_thinking_tokens(self, *, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
+    @staticmethod
+    def _get_anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
         """
         Get the thinking tokens and max tokens for the model.
         """
@@ -182,9 +178,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             str: The Mermaid graph
         """
-        if isinstance(self.agent, CompiledStateGraph):
-            return (await self.agent.aget_graph(xray=True)).draw_mermaid_png()
-        return (await self.agent.aget_graph()).draw_mermaid_png()
+        if isinstance(self._runnable, CompiledStateGraph):
+            return (await self._runnable.aget_graph(xray=True)).draw_mermaid_png()
+        return (await self._runnable.aget_graph()).draw_mermaid_png()
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
         """
@@ -197,7 +193,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             int: The number of tokens
         """
-        return self.get_model(model=model_name).get_num_tokens_from_messages(messages)
+        return BaseAgent.get_model(model=model_name).get_num_tokens_from_messages(messages)
 
     def get_max_token_value(self, model_name: str) -> int:
         """
@@ -215,7 +211,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 return 8192
 
             case ModelProvider.OPENAI:
-                _, encoding_model = cast("ChatOpenAI", self.get_model(model=model_name))._get_encoding_model()
+                _, encoding_model = cast("ChatOpenAI", BaseAgent.get_model(model=model_name))._get_encoding_model()
                 return encoding_model.max_token_value
 
             case ModelProvider.GOOGLE_GENAI:

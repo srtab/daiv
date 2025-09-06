@@ -80,16 +80,16 @@ nav:
   - Getting Started:
     - Up and Running: getting-started/up-and-running.md
     - Configuration: getting-started/configuration.md
-    - Environment Variables: getting-started/environment-variables.md
-    - Repository Configurations: getting-started/repository-configurations.md
     - Supported Providers: getting-started/supported-providers.md
-    - Monitoring: getting-started/monitoring.md
+  - Configuration:
+    - YAML Configuration: configuration/yaml-config.md
+    - Environment Variables: configuration/env-config.md
+    - Monitoring: configuration/monitoring.md
+  - Features:
+    - Issue Addressor: features/issue-addressor.md
+    - Review Addressor: features/review-addressor.md
+    - Quick Actions: features/quick-actions.md
   - AI Agents:
     - Overview: ai-agents/overview.md
-    - 🤖 Issue Addressor: ai-agents/issue-addressor.md
-    - 🤖 Code Review Addressor: ai-agents/code-review-addressor.md
-    - 🤖 Pipeline Fixing: ai-agents/pipeline-fixing.md
-    - 🤖 Codebase Chat: ai-agents/codebase-chat.md
     - MCP Tools: ai-agents/mcp-tools.md
-    - Quick Actions: ai-agents/quick-actions.md
   - Community: community.md

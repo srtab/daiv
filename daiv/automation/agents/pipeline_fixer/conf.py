@@ -10,7 +10,7 @@ class PipelineFixerSettings(BaseSettings):
     Settings for the pipeline fixer agent.
     """
 
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="PIPELINE_FIXER_")
+    model_config = SettingsConfigDict(env_prefix="PIPELINE_FIXER_")
 
     NAME: str = Field(default="PipelineFixer", description="Name of the pipeline fixer agent.")
     TROUBLESHOOTING_MODEL_NAME: ModelName | str = Field(

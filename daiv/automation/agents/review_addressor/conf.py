@@ -5,13 +5,12 @@ from automation.agents.constants import ModelName
 
 
 class ReviewAddressorSettings(BaseSettings):
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="REVIEW_ADDRESSOR_")
+    model_config = SettingsConfigDict(env_prefix="REVIEW_ADDRESSOR_")
 
     NAME: str = Field(default="ReviewAddressor", description="Name of the review addressor agent.")
     REVIEW_COMMENT_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for review assessment."
     )
-    REPLY_NAME: str = Field(default="ReplyReviewer", description="Name of the reply reviewer agent.")
     REPLY_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1, description="Model name to be used for reply to comments or questions."
     )
