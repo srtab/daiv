@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/getting-started/configuration/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/quick-actions/">
       
       
-        <link rel="prev" href="../up-and-running/">
+        <link rel="prev" href="../review-addressor/">
       
       
-        <link rel="next" href="../supported-providers/">
+        <link rel="next" href="../../ai-agents/overview/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Configuration - DAIV</title>
+        <title>Quick Actions - DAIV</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#repository-configuration" class="md-skip">
+        <a href="#quick-actions" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Configuration
+              Quick Actions
             
           </span>
         </div>
@@ -293,20 +293,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -322,7 +320,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Getting Started
@@ -336,7 +334,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../up-and-running/" class="md-nav__link">
+      <a href="../../getting-started/up-and-running/" class="md-nav__link">
         
   
   
@@ -356,32 +354,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Configuration
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
         
   
   
@@ -392,161 +368,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prerequisites
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-create-gitlab-personal-access-token" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 1: Create GitLab Personal Access Token
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-configure-environment-variables" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 2: Configure Environment Variables
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 2: Configure Environment Variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-compose-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      For Docker Compose Setup
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      For Docker Swarm Setup
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-set-up-repository-webhooks" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 3: Set Up Repository Webhooks
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 3: Set Up Repository Webhooks">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#automatic-webhook-setup-recommended" class="md-nav__link">
-    <span class="md-ellipsis">
-      Automatic Webhook Setup (Recommended)
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#manual-webhook-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      Manual Webhook Setup
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-5-configure-repository-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 5: Configure Repository Behavior
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-6-test-the-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 6: Test the Integration
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      Troubleshooting
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      Common Issues
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      ⏭️ Next Steps
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -559,7 +380,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../supported-providers/" class="md-nav__link">
+      <a href="../../getting-started/supported-providers/" class="md-nav__link">
         
   
   
@@ -700,18 +521,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -727,7 +550,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Features
@@ -741,7 +564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/issue-addressor/" class="md-nav__link">
+      <a href="../issue-addressor/" class="md-nav__link">
         
   
   
@@ -764,7 +587,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/review-addressor/" class="md-nav__link">
+      <a href="../review-addressor/" class="md-nav__link">
         
   
   
@@ -784,10 +607,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../features/quick-actions/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Quick Actions
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -798,6 +643,248 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Overview
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-quick-actions-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      How Quick Actions Work
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Workflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-quick-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Available Quick Actions
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Available Quick Actions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#help-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      🆘 Help Action
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      📋 Plan Action
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📋 Plan Action">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#execute-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execute Plan
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#revise-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Revise Plan
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      🔧 Pipeline Action
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🔧 Pipeline Action">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repair-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Repair Plan
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply-repair" class="md-nav__link">
+    <span class="md-ellipsis">
+      Apply Repair
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common Issues
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debug-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debug Information
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#getting-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      Getting Help
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extension-and-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extension and Development
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Extension and Development">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-new-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding New Actions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -950,46 +1037,37 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
-      Prerequisites
+      Overview
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-create-gitlab-personal-access-token" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 1: Create GitLab Personal Access Token
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-configure-environment-variables" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step 2: Configure Environment Variables
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 2: Configure Environment Variables">
+    <nav class="md-nav" aria-label="Overview">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#for-docker-compose-setup" class="md-nav__link">
+  <a href="#how-quick-actions-work" class="md-nav__link">
     <span class="md-ellipsis">
-      For Docker Compose Setup
+      How Quick Actions Work
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup" class="md-nav__link">
+  <a href="#workflow" class="md-nav__link">
     <span class="md-ellipsis">
-      For Docker Swarm Setup
+      Workflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Usage
     </span>
   </a>
   
@@ -1001,28 +1079,47 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-set-up-repository-webhooks" class="md-nav__link">
+  <a href="#available-quick-actions" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 3: Set Up Repository Webhooks
+      Available Quick Actions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Step 3: Set Up Repository Webhooks">
+    <nav class="md-nav" aria-label="Available Quick Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#automatic-webhook-setup-recommended" class="md-nav__link">
+  <a href="#help-action" class="md-nav__link">
     <span class="md-ellipsis">
-      Automatic Webhook Setup (Recommended)
+      🆘 Help Action
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#manual-webhook-setup" class="md-nav__link">
+  <a href="#plan-action" class="md-nav__link">
     <span class="md-ellipsis">
-      Manual Webhook Setup
+      📋 Plan Action
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📋 Plan Action">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#execute-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execute Plan
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#revise-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Revise Plan
     </span>
   </a>
   
@@ -1032,22 +1129,42 @@
     </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#step-5-configure-repository-behavior" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-action" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 5: Configure Repository Behavior
+      🔧 Pipeline Action
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🔧 Pipeline Action">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repair-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Repair Plan
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#step-6-test-the-integration" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#apply-repair" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 6: Test the Integration
+      Apply Repair
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1070,17 +1187,74 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#debug-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debug Information
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
-      ⏭️ Next Steps
+      Examples
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#getting-help" class="md-nav__link">
+    <span class="md-ellipsis">
+      Getting Help
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extension-and-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extension and Development
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Extension and Development">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-new-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding New Actions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1100,7 +1274,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/getting-started/configuration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/quick-actions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1108,187 +1282,197 @@
   
 
 
-<h1 id="repository-configuration">Repository Configuration</h1>
-<p>This guide walks you through connecting DAIV to your GitLab repository. Once configured, DAIV will automatically implement the issues, respond to code reviews, and more...</p>
+<h1 id="quick-actions">⚡ Quick Actions</h1>
+<p>Quick Actions provide command-based interactions with DAIV directly from GitLab issues and merge requests. They are useful for common tasks and information requests.</p>
 <hr />
-<h2 id="prerequisites">Prerequisites</h2>
-<p>Before configuring a repository, ensure you have:</p>
+<h2 id="overview">Overview</h2>
+<p>Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge request comments.</p>
+<h3 id="how-quick-actions-work">How Quick Actions Work</h3>
+<p><strong>Command Format</strong>: <code>@&lt;daiv-username&gt; &lt;action&gt; [arguments]</code></p>
+<p><strong>Supported Scopes</strong>:</p>
 <ul>
-<li><strong>DAIV installed and running</strong> - Follow the <a href="../up-and-running/">installation guide</a> first</li>
-<li><strong>GitLab repository access</strong> - Admin or maintainer permissions on the repository you want to connect</li>
-<li><strong>GitLab personal access token</strong> - With <code>api</code> scope permissions</li>
+<li><strong>Issues</strong>: Available in issue comments and discussions</li>
+<li><strong>Merge Requests</strong>: Available in merge request comments and discussions</li>
 </ul>
-<hr />
-<h2 id="step-1-create-gitlab-personal-access-token">Step 1: Create GitLab Personal Access Token</h2>
-<p>DAIV needs a GitLab personal access token to interact with your repositories.</p>
+<p><strong>Command Parsing</strong>:</p>
+<p>Quick Actions use shell-like parsing with support for:</p>
+<ul>
+<li><strong>Simple commands</strong>: <code>@daiv help</code></li>
+<li><strong>Commands with sub-actions</strong>: <code>@daiv plan execute</code>, <code>@daiv pipeline repair</code></li>
+<li><strong>Multi-word sub-actions</strong>: <code>@daiv pipeline repair apply</code></li>
+<li><strong>Case-insensitive</strong>: <code>@DAIV HELP</code> works the same as <code>@daiv help</code></li>
+</ul>
+<h3 id="workflow">Workflow</h3>
+<pre class="mermaid"><code>graph TD
+    A["👤 User"] --&gt; B["💬 Comments with @daiv&lt;br/&gt;(e.g., '@daiv help')"]
+    B --&gt; C["🔔 Comment Webhook"]
+    C --&gt; D["📝 Quick Action Parser&lt;br/&gt;(extracts verb and args)"]
+    D --&gt; E["📋 Registry Lookup&lt;br/&gt;(finds matching action)"]
+
+    E --&gt; F["✅ Action Found?"]
+    F --&gt;|Yes| G["⚡ Execute Action"]
+    F --&gt;|No| H["❌ Unknown Action Error"]
+
+    G --&gt; I["🔍 Validate Scope&lt;br/&gt;(Issue vs Merge Request)"]
+    I --&gt; J["🛠️ Execute Specific Logic"]
+
+    J --&gt; K["📖 Help Action&lt;br/&gt;(show available commands)"]
+    J --&gt; L["📋 Plan Action&lt;br/&gt;(regenerate/approve plan)"]
+    J --&gt; M["🔧 Pipeline Action&lt;br/&gt;(repair failed jobs)"]
+
+    K --&gt; N["💬 Posts Help Message"]
+    L --&gt; O["🔄 Triggers Plan Workflow"]
+    M --&gt; P["🚦 Triggers Pipeline Repair"]
+
+    H --&gt; Q["💬 Posts Error Message&lt;br/&gt;(suggests valid actions)"]
+
+    style B fill:#e1f5fe
+    style E fill:#fff3e0
+    style G fill:#e8f5e8
+    style H fill:#ffebee</code></pre>
+<h3 id="basic-usage">Basic Usage</h3>
 <ol>
-<li>
-<p><strong>Navigate to GitLab Settings</strong>:</p>
-<ul>
-<li>Go to your GitLab instance (e.g., <code>https://gitlab.com</code>)</li>
-<li>Click your avatar → <strong>Edit profile</strong> → <strong>Access Tokens</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Create New Token</strong>:</p>
-<ul>
-<li><strong>Name</strong>: <code>DAIV Integration</code></li>
-<li><strong>Expiration</strong>: Set according to your security policy (recommended: 1 year)</li>
-<li><strong>Scopes</strong>: Select <code>api</code> (full API access)</li>
-<li>Click <strong>Create personal access token</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Copy the Token</strong>:</p>
-<ul>
-<li><strong>Important</strong>: Copy and save the token immediately - you won't see it again</li>
-<li>The token format looks like: <code>glpat-xxxxxxxxxxxxxxxxxxxx</code></li>
-</ul>
-</li>
+<li><strong>Navigate</strong> to any GitLab issue or merge request</li>
+<li><strong>Add a comment</strong> mentioning DAIV with the desired action</li>
+<li><strong>Submit</strong> the comment</li>
+<li><strong>DAIV responds</strong> with the action result</li>
 </ol>
-<div class="admonition warning">
-<p class="admonition-title">Token Security</p>
-<p>Store your token securely. Never commit it to version control or share it publicly.</p>
-</div>
 <hr />
-<h2 id="step-2-configure-environment-variables">Step 2: Configure Environment Variables</h2>
-<p>Add your GitLab token and webhook secret to DAIV's environment configuration.</p>
-<h3 id="for-docker-compose-setup">For Docker Compose Setup</h3>
-<p>Edit your <code>docker-compose.yml</code> file:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span>
-<span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span>
-<span class="normal"><a href="#__codelineno-0-6">6</a></span>
-<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="c1"># ...</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://gitlab.com</span><span class="w"> </span><span class="c1"># or your GitLab instance URL</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">glpat-xxxxxxxxxxxxxxxxxxxx</span><span class="w"> </span><span class="c1"># Your personal access token</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-webhook-secret-here</span><span class="w"> </span><span class="c1"># Random secret for webhook validation</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">  </span><span class="c1"># ...</span>
-</code></pre></div></td></tr></table></div>
-<h3 id="for-docker-swarm-setup">For Docker Swarm Setup</h3>
-<p>Create Docker secrets:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="c1"># Create secrets for GitLab integration</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;glpat-xxxxxxxxxxxxxxxxxxxx&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_gitlab_auth_token<span class="w"> </span>-
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;your-webhook-secret-here&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_gitlab_webhook_secret<span class="w"> </span>-
-</code></pre></div></td></tr></table></div>
-<div class="admonition tip">
-<p class="admonition-title">Generating Webhook Secret</p>
-<p>Generate a secure random webhook secret:
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
+<h2 id="available-quick-actions">Available Quick Actions</h2>
+<h3 id="help-action">🆘 Help Action</h3>
+<p><strong>Command</strong>: <code>@daiv help</code></p>
+<p><strong>Purpose</strong>: Displays all available Quick Actions for the current scope (issue or merge request).</p>
+<p><strong>Scopes</strong>: Issues, Merge Requests</p>
+<p><strong>Example</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv help
 </code></pre></div></td></tr></table></div></p>
-</div>
+<p><strong>Response</strong>: DAIV replies with a formatted list of all available Quick Actions and their descriptions.</p>
 <hr />
-<h2 id="step-3-set-up-repository-webhooks">Step 3: Set Up Repository Webhooks</h2>
-<p>DAIV uses webhooks to receive real-time notifications from GitLab about repository events.</p>
-<h3 id="automatic-webhook-setup-recommended">Automatic Webhook Setup (Recommended)</h3>
-<p>Use DAIV's management command to automatically set up webhooks for all accessible repositories:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span>
-<span class="normal"><a href="#__codelineno-3-3">3</a></span>
-<span class="normal"><a href="#__codelineno-3-4">4</a></span>
-<span class="normal"><a href="#__codelineno-3-5">5</a></span>
-<span class="normal"><a href="#__codelineno-3-6">6</a></span>
-<span class="normal"><a href="#__codelineno-3-7">7</a></span>
-<span class="normal"><a href="#__codelineno-3-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="c1"># Enter the DAIV container</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>app<span class="w"> </span>bash
-<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="c1"># Set up webhooks for all repositories</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5"></a>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--base-url<span class="w"> </span>https://your-daiv-instance.com
-<a id="__codelineno-3-6" name="__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="c1"># For local development with self-signed certificates</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8"></a>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--base-url<span class="w"> </span>https://your-daiv-instance.com<span class="w"> </span>--disable-ssl-verification
+<h3 id="plan-action">📋 Plan Action</h3>
+<p><strong>Command</strong>: <code>@daiv plan &lt;sub-action&gt;</code></p>
+<p><strong>Purpose</strong>: Manage issue resolution plans with execute and revise operations.</p>
+<p><strong>Scopes</strong>: Issues only</p>
+<p><strong>Sub-actions</strong>:</p>
+<h4 id="execute-plan">Execute Plan</h4>
+<ul>
+<li><strong>Command</strong>: <code>@daiv plan execute</code></li>
+<li><strong>Purpose</strong>: Run or launch the current plan for the issue</li>
+<li><strong>Usage</strong>: Comment in discussion to approve and execute the current plan</li>
+</ul>
+<h4 id="revise-plan">Revise Plan</h4>
+<ul>
+<li><strong>Command</strong>: <code>@daiv plan revise</code></li>
+<li><strong>Purpose</strong>: Discard current plan and create a new one from scratch</li>
+<li><strong>Usage</strong>: Comment in discussion to reset and regenerate the plan</li>
+</ul>
+<p><strong>Examples</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv plan execute
 </code></pre></div></td></tr></table></div>
-<h3 id="manual-webhook-setup">Manual Webhook Setup</h3>
-<p>If you prefer to set up webhooks manually or for specific repositories:</p>
-<ol>
-<li>
-<p><strong>Navigate to Repository Settings</strong>:</p>
-<ul>
-<li>Go to your GitLab repository</li>
-<li>Navigate to <strong>Settings</strong> → <strong>Webhooks</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Add New Webhook</strong>:</p>
-<ul>
-<li><strong>URL</strong>: <code>https://your-daiv-instance.com/api/codebase/callbacks/gitlab/</code></li>
-<li><strong>Secret token</strong>: Use the same secret from your environment variables</li>
-<li><strong>Trigger events</strong>: Select:<ul>
-<li>✅ Push events</li>
-<li>✅ Issues events</li>
-<li>✅ Comments (Note events)</li>
-<li>✅ Pipeline events</li>
-</ul>
-</li>
-<li><strong>SSL verification</strong>: Enable (unless using self-signed certificates)</li>
-</ul>
-</li>
-<li>
-<p><strong>Test the Webhook</strong>:</p>
-<ul>
-<li>Click <strong>Add webhook</strong></li>
-<li>Click <strong>Test</strong> → <strong>Push events</strong> to verify connectivity</li>
-</ul>
-</li>
-</ol>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv plan revise
+</code></pre></div></td></tr></table></div></p>
 <hr />
-<h2 id="step-5-configure-repository-behavior">Step 5: Configure Repository Behavior</h2>
-<p>To customize DAIV's behavior, create a <code>.daiv.yml</code> file in your repository's root.</p>
-<p>For complete configuration options, see <a href="../../configuration/yaml-config/">Repository Configurations</a>.</p>
-<hr />
-<h2 id="step-6-test-the-integration">Step 6: Test the Integration</h2>
-<p>Verify that DAIV is properly connected to your repository.</p>
-<ol>
-<li>
-<p><strong>Create a Test Issue</strong>:</p>
+<h3 id="pipeline-action">🔧 Pipeline Action</h3>
+<p><strong>Command</strong>: <code>@daiv pipeline &lt;sub-action&gt;</code></p>
+<p><strong>Purpose</strong>: Manage merge request pipeline failures with automated repair suggestions and execution.</p>
+<p><strong>Scopes</strong>: Merge Requests only</p>
+<p><strong>Sub-actions</strong>:</p>
+<h4 id="repair-plan">Repair Plan</h4>
 <ul>
-<li>Go to your GitLab repository</li>
-<li>Create a new issue with title: "Add hello world function" (or any other issue you want to address)</li>
-<li>Add the <code>daiv</code> label to the issue or start the issue title with "DAIV:"</li>
+<li><strong>Command</strong>: <code>@daiv pipeline repair</code></li>
+<li><strong>Purpose</strong>: Suggest a repair plan to fix the failed pipeline</li>
+<li><strong>Usage</strong>: Comment in discussion when pipeline has failed jobs</li>
+<li><strong>Trigger Location</strong>: Discussion (initial comment)</li>
 </ul>
-</li>
-<li>
-<p><strong>Wait for DAIV Response</strong>:</p>
+<h4 id="apply-repair">Apply Repair</h4>
 <ul>
-<li>DAIV should automatically comment with a plan to address the issue</li>
-<li>Check the issue comments for DAIV's response</li>
+<li><strong>Command</strong>: <code>@daiv pipeline repair apply</code></li>
+<li><strong>Purpose</strong>: Apply the repair plan to fix the pipeline</li>
+<li><strong>Usage</strong>: Reply to repair plan discussion to execute the suggested fix</li>
+<li><strong>Trigger Location</strong>: Reply (to existing repair discussion)</li>
 </ul>
-</li>
-</ol>
+<p><strong>Examples</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv pipeline repair
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv pipeline repair apply
+</code></pre></div></td></tr></table></div></p>
+<p><strong>Requirements</strong>:
+- Pipeline must be in "failed" status
+- Must have at least one failed job with script failure
+- Job must not be marked as allowed to fail</p>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <h3 id="common-issues">Common Issues</h3>
-<p><strong>Webhook delivery fails</strong>:</p>
+<p><strong>Action not recognized</strong>:</p>
 <ul>
-<li>Verify the webhook URL is accessible from GitLab</li>
-<li>Check SSL certificate validity</li>
-<li>Review firewall settings</li>
+<li>Check that the action supports the current scope (issue vs merge request)</li>
+<li>Ensure proper spelling and case (actions are case-insensitive)</li>
+<li>Verify sub-action syntax (e.g., <code>plan execute</code> not <code>plan-execute</code>)</li>
 </ul>
-<p><strong>Issues not being processed</strong>:</p>
+<p><strong>No response from DAIV</strong>:</p>
 <ul>
-<li>Ensure the <code>daiv</code> label is added to issues</li>
-<li>Verify <code>auto_address_issues_enabled: true</code> in <code>.daiv.yml</code></li>
-<li>Check DAIV logs for errors</li>
+<li>Confirm DAIV has access to the repository</li>
+<li>Check that webhooks are properly configured</li>
+<li>Verify the bot username is correct in the mention</li>
 </ul>
-<p><strong>No response to comments</strong>:</p>
+<p><strong>Permission errors</strong>:</p>
 <ul>
-<li>Verify webhook events include "Comments"</li>
-<li>Check that webhook secret matches environment variable</li>
-<li>Review repository permissions</li>
+<li>Ensure DAIV has sufficient GitLab permissions</li>
+<li>Confirm the user triggering the action has appropriate access levels</li>
+</ul>
+<p><strong>Pipeline action issues</strong>:</p>
+<ul>
+<li>Ensure the pipeline is in "failed" status</li>
+<li>Check that failed jobs have <code>script_failure</code> as the failure reason</li>
+<li>Verify jobs are not marked as <code>allow_failure</code></li>
+</ul>
+<p><strong>Plan action issues</strong>:</p>
+<ul>
+<li>Ensure you're commenting on an issue (not merge request)</li>
+<li>Check if there's an existing plan to execute or revise</li>
+</ul>
+<h3 id="debug-information">Debug Information</h3>
+<p>Quick Actions log detailed information for troubleshooting:</p>
+<ul>
+<li>Command parsing results</li>
+<li>Registry lookup attempts</li>
+<li>Execution success/failure</li>
+<li>Error details and stack traces</li>
 </ul>
 <hr />
-<h2 id="next-steps">⏭️ Next Steps</h2>
-<p>With your repository configured, you can now:</p>
+<h2 id="examples">Examples</h2>
+<h3 id="getting-help">Getting Help</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv help
+</code></pre></div></td></tr></table></div>
+<p><strong>Response</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span>
+<span class="normal"><a href="#__codelineno-6-5">5</a></span>
+<span class="normal"><a href="#__codelineno-6-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>### 🤖 DAIV Quick-Actions
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>Comment one of the commands below on this issue to trigger the bot:
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a>- `@daiv help` - Shows the help message with the available quick actions.
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a>- `@daiv plan execute` - Run or launch the current plan.
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a>- `@daiv plan revise` - Discard current plan and create a new one from scratch.
+</code></pre></div></td></tr></table></div></p>
+<hr />
+<h2 id="extension-and-development">Extension and Development</h2>
+<h3 id="adding-new-actions">Adding New Actions</h3>
+<ol>
+<li><strong>Create</strong> new action class in <code>automation/quick_actions/actions/</code></li>
+<li><strong>Implement</strong> required methods <code>execute_action</code> and <code>actions</code></li>
+<li><strong>Decorate</strong> with <code>@quick_action</code> specifying verb and scopes</li>
+<li><strong>Import</strong> in the actions module</li>
+<li><strong>Test</strong> the action in development environment</li>
+</ol>
+<h3 id="best-practices">Best Practices</h3>
 <ul>
-<li><strong><a href="../../ai-agents/overview/">Learn about AI agents</a></strong> - Understand how DAIV's agents work</li>
-<li><strong><a href="../../configuration/yaml-config/">Customize agent behavior</a></strong> - Fine-tune DAIV for your workflow</li>
-<li><strong><a href="../../configuration/monitoring/">Configure monitoring</a></strong> - Configure LangSmith for monitoring</li>
+<li><strong>Keep actions simple</strong>: Quick Actions should execute immediately</li>
+<li><strong>Provide clear descriptions</strong>: Help users understand what each action does</li>
+<li><strong>Handle errors gracefully</strong>: Post user-friendly error messages</li>
+<li><strong>Use appropriate scopes</strong>: Only enable actions where they make sense</li>
+<li><strong>Follow naming conventions</strong>: Use clear, descriptive verb names</li>
 </ul>
 
 

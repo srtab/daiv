@@ -12,25 +12,25 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/issue-addressor/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/review-addressor/">
       
       
-        <link rel="prev" href="../overview/">
+        <link rel="prev" href="../issue-addressor/">
       
       
-        <link rel="next" href="../code-review-addressor/">
+        <link rel="next" href="../quick-actions/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.18">
     
     
       
-        <title>🤖 Issue Addressor - DAIV</title>
+        <title>Review Addressor - DAIV</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#issue-addressor" class="md-skip">
+        <a href="#code-review-response-workflow" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              🤖 Issue Addressor
+              Review Addressor
             
           </span>
         </div>
@@ -211,7 +211,7 @@
         <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
@@ -257,7 +257,7 @@
       <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
@@ -380,7 +380,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/environment-variables/" class="md-nav__link">
+      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Supported Providers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Configuration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/yaml-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    YAML Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/env-config/" class="md-nav__link">
         
   
   
@@ -403,53 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/repository-configurations/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Repository Configurations
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/supported-providers/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Supported Providers
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/monitoring/" class="md-nav__link">
+      <a href="../../configuration/monitoring/" class="md-nav__link">
         
   
   
@@ -489,15 +534,15 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
-    AI Agents
+    Features
     
   </span>
   
@@ -505,10 +550,10 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
-            AI Agents
+            Features
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -519,12 +564,12 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../issue-addressor/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Overview
+    Issue Addressor
     
   </span>
   
@@ -548,15 +593,13 @@
       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
       
       
-        
-      
       
         <label class="md-nav__link md-nav__link--active" for="__toc">
           
   
   
   <span class="md-ellipsis">
-    🤖 Issue Addressor
+    Review Addressor
     
   </span>
   
@@ -569,7 +612,7 @@
   
   
   <span class="md-ellipsis">
-    🤖 Issue Addressor
+    Review Addressor
     
   </span>
   
@@ -582,8 +625,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -592,54 +633,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-is-the-issue-addressor" class="md-nav__link">
+  <a href="#code-review-response-workflow" class="md-nav__link">
     <span class="md-ellipsis">
-      What is the Issue Addressor?
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-features" class="md-nav__link">
-    <span class="md-ellipsis">
-      Key Features
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-the-issue-addressor-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      How the Issue Addressor Works
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-by-step-usage-guide" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step-by-Step Usage Guide
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting-and-faqs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Troubleshooting and FAQs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      Additional Resources
+      💬 Code Review Response Workflow
     </span>
   </a>
   
@@ -661,104 +657,103 @@
   
   
     <li class="md-nav__item">
-      <a href="../code-review-addressor/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    🤖 Code Review Addressor
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../pipeline-fixing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    🤖 Pipeline Fixing
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../codebase-chat/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    🤖 Codebase Chat
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../mcp-tools/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    MCP Tools
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../quick-actions/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Quick Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    AI Agents
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            AI Agents
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ai-agents/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ai-agents/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP Tools
     
   </span>
   
@@ -815,8 +810,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -825,54 +818,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-is-the-issue-addressor" class="md-nav__link">
+  <a href="#code-review-response-workflow" class="md-nav__link">
     <span class="md-ellipsis">
-      What is the Issue Addressor?
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-features" class="md-nav__link">
-    <span class="md-ellipsis">
-      Key Features
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-the-issue-addressor-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      How the Issue Addressor Works
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-by-step-usage-guide" class="md-nav__link">
-    <span class="md-ellipsis">
-      Step-by-Step Usage Guide
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting-and-faqs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Troubleshooting and FAQs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      Additional Resources
+      💬 Code Review Response Workflow
     </span>
   </a>
   
@@ -894,7 +842,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/issue-addressor.md" title="Edit this page" class="md-content__button md-icon">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/review-addressor.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -902,134 +850,34 @@
   
 
 
-<h1 id="issue-addressor">🚀 Issue Addressor</h1>
-<h2 id="what-is-the-issue-addressor">What is the Issue Addressor?</h2>
-<p>The Issue Addressor is an AI agent that automates the process of addressing issues in your codebase. It generates a step-by-step plan to resolve an issue, executes the necessary code changes, and creates a merge request for review—all with minimal human intervention.</p>
-<h2 id="key-features">Key Features</h2>
-<ul>
-<li><strong>Automated issue analysis and planning</strong>: Generates a detailed plan to address the issue.</li>
-<li><strong>Support for images</strong>: The agent can process images in the issue description.</li>
-<li><strong>Approval workflow</strong>: Waits for human approval before executing the plan.</li>
-<li><strong>Automated code changes</strong>: Applies code changes as per the approved plan.</li>
-<li><strong>Merge request creation</strong>: Opens a merge request with the changes for easy review.</li>
-<li><strong>Error handling and feedback</strong>: Notifies users if planning or execution fails, and requests additional information if needed.</li>
-</ul>
-<h2 id="how-the-issue-addressor-works">How the Issue Addressor Works</h2>
-<div align="center">
+  <h1>Review Addressor</h1>
 
-<pre class="mermaid"><code>---
-config:
-  flowchart:
-    curve: linear
----
-graph TD;
-        __start__([&lt;p&gt;__start__&lt;/p&gt;]):::first
-        assessment(assessment)
-        prepare_data(prepare_data)
-        __end__([&lt;p&gt;__end__&lt;/p&gt;]):::last
-        __start__ --&gt; assessment;
-        assessment -.-&gt; __end__;
-        assessment -.-&gt; prepare_data;
-        prepare_data -.-&gt; plan_and_execute_plan;
-        plan_and_execute___end__ --&gt; __end__;
-        subgraph plan_and_execute
-        plan_and_execute_plan(plan)
-        plan_and_execute_plan_approval(plan_approval)
-        plan_and_execute_execute_plan(execute_plan)
-        plan_and_execute_apply_format_code(apply_format_code)
-        plan_and_execute___end__(&lt;p&gt;__end__&lt;/p&gt;)
-        plan_and_execute_apply_format_code -.-&gt; plan_and_execute___end__;
-        plan_and_execute_execute_plan -.-&gt; plan_and_execute___end__;
-        plan_and_execute_execute_plan -.-&gt; plan_and_execute_apply_format_code;
-        plan_and_execute_plan --&gt; plan_and_execute_plan_approval;
-        plan_and_execute_plan_approval -.-&gt; plan_and_execute_execute_plan;
-        plan_and_execute_plan_approval -.-&gt; plan_and_execute_plan_approval;
-        end
-        classDef default line-height:1.2
-        classDef first fill-opacity:0
-        classDef last fill-opacity:0</code></pre>
+<h4 id="code-review-response-workflow">💬 Code Review Response Workflow</h4>
+<pre class="mermaid"><code>graph TD
+    A["👥 Code Reviewer"] --&gt; B["💬 Comments on Merge Request&lt;br/&gt;(requests changes or asks questions)"]
+    B --&gt; C["🔔 Comment Webhook"]
+    C --&gt; D["🤖 Review Addressor Agent"]
+    D --&gt; E["📊 Comment Assessment&lt;br/&gt;(ReviewCommentEvaluator)"]
 
-</div>
+    E --&gt; F["🔍 Change Request?"]
+    F --&gt;|Yes| G["🛠️ Plan &amp; Execute&lt;br/&gt;(code changes needed)"]
+    F --&gt;|No| H["💬 Reply to Reviewer&lt;br/&gt;(answer questions)"]
 
-<ul>
-<li>The agent starts by assessing the issue, analyzing its title, description, and any attached images.</li>
-<li>It prepares the necessary data and context for addressing the issue.</li>
-<li>
-<p>The agent delegates to the plan and execute subgraph, which:</p>
-<ol>
-<li>Generates a detailed step-by-step plan;</li>
-<li>Presents the plan for user approval;</li>
-<li>If approved, executes the plan and applies code formatting;</li>
-<li>If not approved, returns to planning.</li>
-</ol>
-</li>
-<li>
-<p>After successful execution, the agent creates or updates a merge request with the changes.</p>
-</li>
-<li>
-<p>The agent provides feedback throughout the process:</p>
-<ul>
-<li>If planning fails, it requests clarification or error details;</li>
-<li>If execution fails, it provides error details;</li>
-<li>If successful, it notifies the user with the merge request link.</li>
-</ul>
-</li>
-</ul>
-<h2 id="step-by-step-usage-guide">Step-by-Step Usage Guide</h2>
-<ol>
-<li>
-<p><strong>Create an Issue</strong></p>
-<p>Create a new issue in your repository with a title that starts with "DAIV:". For example, "DAIV: Fix login bug on mobile". The agent uses the issue's title and description to understand the problem.</p>
-</li>
-<li>
-<p><strong>Review the Proposed Plan</strong></p>
-<p>The agent analyzes the issue and generates a plan. This plan is posted as a comment for your review.</p>
-</li>
-<li>
-<p><strong>Approve or Edit the Plan</strong></p>
-<p>Review the plan. If it looks good, approve it. If not, edit the issue title and description to provide additional information and guide the agent to generate a new plan. The agent may also ask clarifying questions if the issue is ambiguous.</p>
-</li>
-<li>
-<p><strong>Execute the Plan</strong></p>
-<p>Once approved, the agent executes the plan, making the necessary code changes in your repository.</p>
-</li>
-<li>
-<p><strong>Review the Merge Request</strong></p>
-<p>The agent creates or updates a merge request with the changes. The agent will post a comment on the issue with the merge request link.</p>
-</li>
-</ol>
-<h2 id="troubleshooting-and-faqs">Troubleshooting and FAQs</h2>
-<ul>
-<li>
-<p><strong>How do I know if the agent is working?</strong></p>
-<p>The agent will comment on the issue with a welcome message as soon as you create an issue with a title starting with 'DAIV:'.</p>
-</li>
-<li>
-<p><strong>What if no welcome message is posted?</strong></p>
-<p>Confirm that the issue title starts with "DAIV:". If it does, confirm that DAIV has access to the repository and DAIV webhook is configured.</p>
-</li>
-<li>
-<p><strong>What if the agent cannot generate a plan?</strong></p>
-<p>The agent will notify you and may ask clarifying questions. Provide more details in the issue title and description.</p>
-</li>
-<li>
-<p><strong>What if the agent cannot execute the plan?</strong></p>
-<p>The agent will comment on the issue with an error message. You can update the issue title and description to try again.</p>
-</li>
-<li>
-<p><strong>Can I reset the plan?</strong></p>
-<p>Yes, you can trigger a plan reset if the initial plan is not satisfactory. You can do this by updating the issue title and description.</p>
-</li>
-<li>
-<p><strong>What if the agent already created a merge request and I updated the issue title and description?</strong></p>
-<p>The agent will create a new merge request and all previous commits will be discarded.</p>
-</li>
-</ul>
-<h2 id="additional-resources">Additional Resources</h2>
-<ul>
-<li><a href="../../getting-started/environment-variables/#issue-addressor">Issue Addressor Agent Configurations</a></li>
-<li><a href="../../getting-started/environment-variables/#plan-and-execute">Plan and Execute Agent Configurations</a></li>
-</ul>
+    G --&gt; I["📝 Analyzes Code Context"]
+    I --&gt; J["🔨 Applies Code Changes"]
+    J --&gt; K["🎨 Code Formatting"]
+    K --&gt; L["📤 Commits to MR Branch"]
+    L --&gt; M["✅ Marks Discussion Resolved&lt;br/&gt;'Review comment addressed'"]
+
+    H --&gt; N["🔍 Gathers Context&lt;br/&gt;(if needed)"]
+    N --&gt; O["💭 Thinks Through Response"]
+    O --&gt; P["💬 Posts Detailed Reply"]
+
+    style B fill:#e1f5fe
+    style E fill:#fff3e0
+    style G fill:#ffebee
+    style H fill:#e8f5e8
+    style M fill:#f3e5f5</code></pre>
 
 
 
@@ -1052,7 +900,7 @@ graph TD;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2025 23:16:09 UTC">July 19, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 6, 2025 21:33:34 UTC">September 6, 2025</span>
   </span>
 
     
@@ -1062,7 +910,7 @@ graph TD;
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2025 23:16:09 UTC">July 19, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 6, 2025 21:33:34 UTC">September 6, 2025</span>
   </span>
 
     
@@ -1107,10 +955,10 @@ graph TD;
     
     
       
-      <script id="__config" type="application/json">{"base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      <script src="../../assets/javascripts/bundle.92b07e13.min.js"></script>
       
     
   </body>
