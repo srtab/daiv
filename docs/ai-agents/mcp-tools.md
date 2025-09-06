@@ -31,7 +31,7 @@ MCP_FETCH_VERSION=2025.4.7                   # Default: 2025.4.7
 
 # Sentry MCP Server
 MCP_SENTRY_ENABLED=true                      # Default: true
-MCP_SENTRY_VERSION=0.12.0                    # Default: 0.12.0
+MCP_SENTRY_VERSION=0.17.1                    # Default: 0.17.1
 MCP_SENTRY_ACCESS_TOKEN=your-sentry-token    # Required for Sentry functionality
 MCP_SENTRY_HOST=your-sentry-host             # Your Sentry instance host
 ```
