@@ -47,7 +47,7 @@ async def register_file_change(
     new_file_path: str | None = None,
 ):
     """
-    Register file change in the store.
+    Register file change in the store to track changes in the repository to be committed later.
 
     Args:
         store: The store to use for caching.
@@ -59,8 +59,36 @@ async def register_file_change(
     """
     ctx = get_repository_ctx()
 
-    new_file_content = new_file_content or old_file_content
+    new_file_content = new_file_content if new_file_content is not None else old_file_content
     new_file_path = new_file_path or old_file_path
+
+    if previous_file_change := await get_file_change(store, old_file_path or new_file_path):
+        if previous_file_change.action == FileChangeAction.DELETE and action == FileChangeAction.CREATE:
+            # If the file was already registered as a delete action, it means that the file already existed.
+            # We need to update the file instead of creating it.
+            action = FileChangeAction.UPDATE
+            old_file_content = previous_file_change.content
+            old_file_path = previous_file_change.file_path
+        elif previous_file_change.action == FileChangeAction.CREATE and action == FileChangeAction.DELETE:
+            # If the file was already registered as a create action, it means that the file never existed.
+            # We need to delete the file change from the store to avoid trying to delete a file that's not on the repo.
+            await delete_file_change(store, old_file_path)
+            return
+        elif previous_file_change.action == FileChangeAction.CREATE and action == FileChangeAction.MOVE:
+            # If the file was already registered as a create action, it means that the file never existed.
+            # We need to maintain the create action and only update the content, as we can't move a file that
+            # never existed.
+            action = FileChangeAction.CREATE
+            old_file_content = ""
+            old_file_path = None
+        elif action == FileChangeAction.UPDATE:
+            # If the file was already registered with an action, we use the action from the registered file change.
+            # For instance, if the registered was a create action, we maintain the create action and only
+            # update the content.
+            # We don't need to deal with delete action because the file does not exist, so no update will be performed.
+            action = previous_file_change.action
+            old_file_content = previous_file_change.content
+            old_file_path = previous_file_change.file_path
 
     diff_from_file = f"a/{old_file_path}"
     diff_to_file = f"b/{new_file_path}"
@@ -86,7 +114,7 @@ async def register_file_change(
                 action=action,
                 file_path=new_file_path,
                 previous_path=old_file_path,
-                content=new_file_content,
+                content=new_file_content if action != FileChangeAction.DELETE else old_file_content,
                 diff_hunk="\n".join(diff_hunk),
             )
         },
@@ -144,6 +172,15 @@ async def get_file_change(store: BaseStore, file_path: str) -> FileChange | None
         return cast("FileChange", stored_file_change.value["data"])
 
     return None
+
+
+async def delete_file_change(store: BaseStore, file_path: str) -> bool:
+    """
+    Delete a file change from the store.
+    """
+    ctx = get_repository_ctx()
+    namespace = file_changes_namespace(ctx.repo_id, ctx.ref)
+    await store.adelete(namespace=namespace, key=file_path)
 
 
 async def register_file_read(store: BaseStore, file_path: str):
