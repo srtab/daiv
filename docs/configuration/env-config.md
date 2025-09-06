@@ -194,7 +194,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_FETCH_ENABLED`             | Enable/disable Fetch MCP server for web scraping              | `true`                         | `false` |
 | `MCP_FETCH_VERSION`             | Version of the Fetch MCP server                               | `2025.4.7`                     | `2025.4.7` |
 | `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server for error monitoring         | `true`                         | `false` |
-| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.12.0`                       | `0.12.0` |
+| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.17.1`                       | `0.17.1` |
 | `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                        | *(none)*                       | `sntryu_abc123...` |
 | `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
 
