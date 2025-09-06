@@ -211,8 +211,11 @@ class IssueAddressorManager(BaseManager):
 
             current_state = await plan_and_execute.aget_state(self._config)
 
-            # If the agent is waiting for the human to approve the plan on the sub-graph of the plan_and_execute node,
-            # We resume the execution of the plan_and_execute node.
+            if "apply_format_code" in current_state.next:
+                # something wrong happened, reset the previous execution and retry
+                await checkpointer.adelete_thread(self.thread_id)
+                current_state = await plan_and_execute.aget_state(self._config)
+
             if (
                 "plan_approval" in current_state.next
                 and current_state.interrupts
