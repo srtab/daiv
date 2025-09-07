@@ -9,17 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added to `PlanAndExecuteAgent` the capability to plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
-- Added `omit_content_patterns` to DAIV configuration to allow users to exclude files from being indexed by the codebase indexer, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
+- Added to `PlanAndExecuteAgent` the capability to:
+  - load images from the user message to help the agent to visualize them.
+  - plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
+  - load the repository instructions from a `AGENTS.md` file, which is a markdown file that follows the [AGENTS.md](https://agents.md/) format.
+- Added `AGENTS.md` file to the project.
+- Added `omit_content_patterns` to DAIV configuration to allow users to omit files content, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
+- Added evaluation tests for `CodebaseChatAgent`, `PullRequestDescriberAgent` and `PlanAndExecuteAgent`.
+- Added support to `gpt-5`, `gpt-5-nano` and `gpt-5-mini` models from OpenAI.
+- Added support to `grok-code-fast-1` model from Grok.
 
 ### Changed
 
-- Changed current date time format to exclude hours and minutes, making the prompt cacheable.
 - Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
+- Changed `CodebaseChatAgent` to only be able to answer questions about a repository at a time by passing the repository id as a header. This is direct consequence of removing codebase indexation, making it difficult to answer questions about multiple repositories at the same time. **BREAKING CHANGE**
+- Changed `PullRequestDescriberAgent` to use diffs to describe the changes instead of commit messages, making it more accurate and concise.
+- Replaced repository read tools `search_code_snippets`, `retrieve_file_content`, and `repository_structure` with the new `glob`, `grep`, `ls`, and `read` tools.
+- Replaced repository write tools `create_new_repository_file`, `replace_snippet_in_file`, `rename_repository_file` and `delete_repository_file` with the new `write`, `edit`, `delete` and `rename` tools.
+- Replaced sandbox tools `run_sandbox_commands` and `run_sandbox_code` with the new `bash` tool.
+- Migrated default database from `pgvector/pgvector:pg17` to `postgres:17.6`.
+- Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
+- Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
+- Moved quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.
+- Updated project dependencies.
+- Updated documentation.
 
 ### Fixed
 
-- `PlanAndExecuteAgent` was not calling `complete_with_plan` and `complete_with_clarification` tools for some models, leading to errors. Added fallback logic to format the agent response to be compatible with the expected output.
+- Current date time format is now excluded hours and minutes, making prompts cacheable.
+
+### Removed
+
+- Removed codebase indexation feature in favor of the new navigation tools.
+- Removed `CodeDescriberAgent`.
+- Removed `CodebaseSearchAgent`.
+- Removed `ImageURLExtractorAgent`.
+- Removed `SnippetReplacerAgent`.
+- Removed `RunSandboxCodeTool`.
+- Removed `IssueAddressorAgent` (replaced by `PlanAndExecuteAgent`).
+- Removed all notebooks from the project.
 
 ## [0.3.0] - 2025-07-25
 

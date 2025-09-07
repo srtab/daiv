@@ -130,10 +130,9 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 ## Roadmap
 
-- [ ] Add support to Github.
-- [ ] Add support to [AGENTS.md](https://agents.md/) format to guide agents.
-- [x] 🌐 [WIP] Add support to MCP servers: #274.
-- [x] ⚡ [WIP] Add support to quick actions on Merge Requests and Issues, such as Update Changelog, Add unittest, Update docs, Format code...
+- [ ] 🐙 Add support to Github.
+- [x] 🤖 Add support to [AGENTS.md](https://agents.md/) format to guide agents.
+- [x] 🌐 Add support to custom MCP servers.
 - [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.
 - [ ] 🔍 Add support to automated code review.
 - [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
