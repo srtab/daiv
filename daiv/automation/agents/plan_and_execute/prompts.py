@@ -257,7 +257,7 @@ AVAILABLE TOOLS:
 
 {% if agents_md_content %}
 ────────────────────────────────────────────────────────
-REPOSITORY RULES (AGENTS.md format)
+REPOSITORY INSTRUCTIONS
 
 ~~~markdown
 {{ agents_md_content }}
@@ -412,7 +412,7 @@ Interact with the codebase **only** through the tool APIs listed below and follo
 ────────────────────────────────────────────────────────
 SHELL COMMANDS RULES
 
-- **No ad-hoc commands.** Only call `bash` to run commands that are **explicitly** named in the plan details verbatim or Step-2-approved fallbacks (max 2). Otherwise, **do not** run `bash`.
+- **No ad-hoc commands.** Only call `bash` to run commands that are **explicitly** named in the plan details verbatim. Otherwise, **do not** run `bash`.
 - **No environment probing.** Never run `pytest`, `py_compile`, `python -c`, `pip`, `find`, or similar unless the plan explicitly tells you to.
 
 ────────────────────────────────────────────────────────
@@ -438,7 +438,6 @@ WORKFLOW (TOOL WHITELIST BY STEP — HARD GATE)
   - Security & privacy considerations (no secrets, no PII).
   - Edge-cases, performance, maintainability.
   - **Exact tool operations** you will perform.
-  - For each plan-mandated command, list **at most two** deterministic fallbacks in order (from Makefile/scripts/pyproject). If none exist, state **“no safe fallback.”**
 - **Output:** The exact sequence of edits/commands to perform.
 
 ### Step 3 — Apply & verify (repeatable cycle)
@@ -446,7 +445,7 @@ Each cycle consists of **edits → re-read edited files → verify**.
 
 1) **Apply edits/commands**
    - **Allowed tools:** `write`, `edit`, `delete`, `rename`.
-   - `bash` **only** for plan-mandated commands or Step-2-approved fallbacks (max 2 total).
+   - `bash` **only** for plan-mandated commands.
 2) **Re-read evidence**
    - Immediately batch `read` **only the files you just changed/created**.
 3) **Verify (single `think`)**

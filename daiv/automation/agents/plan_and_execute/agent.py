@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
@@ -19,7 +18,7 @@ from automation.agents import BaseAgent
 from automation.agents.nodes import apply_format_code_node
 from automation.agents.schemas import ImageTemplate
 from automation.agents.tools import THINK_TOOL_NAME, think_tool
-from automation.agents.tools.navigation import NAVIGATION_TOOLS, READ_TOOL_NAME
+from automation.agents.tools.navigation import NAVIGATION_TOOLS, READ_MAX_LINES, READ_TOOL_NAME
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
@@ -278,9 +277,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         plan_model, all_tools = await prepare_plan_model_and_tools()
 
-        agents_md_path = Path(self.ctx.repo_dir, self.ctx.config.context_file_name)
-        agents_md_content = agents_md_path.read_text() if agents_md_path.exists() else ""
-
         react_agent = create_react_agent(
             model=plan_model,
             tools=all_tools,
@@ -292,7 +288,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
                 repository=self.ctx.repo_id,
-                agents_md_content=agents_md_content,
+                agents_md_content=self._get_agent_md_content(),
                 tools_names=[tool.name for tool in all_tools],
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
@@ -388,3 +384,17 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         await apply_format_code_node(store)
         return Command(goto=END)
+
+    def _get_agent_md_content(self, max_lines: int = READ_MAX_LINES) -> str | None:
+        """
+        Get the agent instructions from the AGENTS.md file case insensitive.
+        If multiple files are found, return the first one.
+        If the file is too long, return the first `max_lines` lines.
+
+        Returns:
+            str | None: The agent instructions.
+        """
+        for path in self.ctx.repo_dir.glob(self.ctx.config.context_file_name, case_sensitive=False):
+            if path.is_file() and path.name.endswith(".md"):
+                return path.read_text()[:max_lines]
+        return None
