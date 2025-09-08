@@ -29,7 +29,7 @@ logger = logging.getLogger("daiv.tools")
 
 
 MAX_OUTPUT_LENGTH = 10000
-NUM_LEADING_SLASH = 2
+NUM_LEADING_SLASH = 1
 
 
 async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_dir: Path):

@@ -259,9 +259,7 @@ AVAILABLE TOOLS:
 ────────────────────────────────────────────────────────
 REPOSITORY INSTRUCTIONS
 
-~~~markdown
 {{ agents_md_content }}
-~~~
 {% endif %}
 ────────────────────────────────────────────────────────
 ROLE
