@@ -113,8 +113,11 @@ async def prepare_plan_model_and_tools() -> tuple[
         ):
             tools += [finalize_with_plan_tool]
 
+        # Anthropic models don't support thinking level for non-auto tool choice.
+        thinking_level = settings.PLANNING_THINKING_LEVEL if tool_choice == "auto" else None
+
         return BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=thinking_level
         ).bind_tools(tools, tool_choice=tool_choice)
 
     return plan_model, base_tools + [finalize_with_plan_tool]
@@ -394,6 +397,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             str | None: The agent instructions.
         """
+        if not self.ctx.config.context_file_name:
+            return None
+
         for path in self.ctx.repo_dir.glob(self.ctx.config.context_file_name, case_sensitive=False):
             if path.is_file() and path.name.endswith(".md"):
                 return path.read_text()[:max_lines]
