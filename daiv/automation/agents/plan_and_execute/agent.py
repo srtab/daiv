@@ -113,8 +113,13 @@ async def prepare_plan_model_and_tools() -> tuple[
         ):
             tools += [finalize_with_plan_tool]
 
+        # Determine thinking level based on tool_choice
+        thinking_level = settings.PLANNING_THINKING_LEVEL if tool_choice == "auto" else None
+
         return BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+            model=settings.PLANNING_MODEL_NAME, 
+            max_tokens=8_192, 
+            thinking_level=thinking_level
         ).bind_tools(tools, tool_choice=tool_choice)
 
     return plan_model, base_tools + [finalize_with_plan_tool]
