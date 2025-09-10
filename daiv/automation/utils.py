@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import difflib
 from typing import TYPE_CHECKING, cast
 
 from codebase.base import FileChange, FileChangeAction
@@ -62,7 +61,11 @@ async def register_file_change(
     new_file_content = new_file_content if new_file_content is not None else old_file_content
     new_file_path = new_file_path or old_file_path
 
+    original_content = None
+
     if previous_file_change := await get_file_change(store, old_file_path or new_file_path):
+        original_content = previous_file_change.original_content
+
         if previous_file_change.action == FileChangeAction.DELETE and action == FileChangeAction.CREATE:
             # If the file was already registered as a delete action, it means that the file already existed.
             # We need to update the file instead of creating it.
@@ -90,22 +93,6 @@ async def register_file_change(
             old_file_content = previous_file_change.content
             old_file_path = previous_file_change.file_path
 
-    diff_from_file = f"a/{old_file_path}"
-    diff_to_file = f"b/{new_file_path}"
-
-    if action == FileChangeAction.CREATE:
-        diff_from_file = "a/dev/null"
-    elif action == FileChangeAction.DELETE:
-        diff_to_file = "a/dev/null"
-
-    diff_hunk = difflib.unified_diff(
-        old_file_content.splitlines(),
-        new_file_content.splitlines(),
-        fromfile=diff_from_file,
-        tofile=diff_to_file,
-        lineterm="",
-    )
-
     await store.aput(
         namespace=file_changes_namespace(ctx.repo_id, ctx.ref),
         key=new_file_path,
@@ -114,8 +101,8 @@ async def register_file_change(
                 action=action,
                 file_path=new_file_path,
                 previous_path=old_file_path,
-                content=new_file_content if action != FileChangeAction.DELETE else old_file_content,
-                diff_hunk="\n".join(diff_hunk),
+                original_content=original_content if original_content is not None else old_file_content,
+                content=new_file_content,
             )
         },
     )

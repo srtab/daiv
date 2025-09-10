@@ -4,7 +4,7 @@ troubleshoot_system = SystemMessagePromptTemplate.from_template(
     """You are an expert DevOps engineer tasked with diagnosing a failed CI/CD job.
 
 ────────────────────────────────────────────────────────
-CURRENT DATE-TIME : {{ current_date_time }}
+CURRENT DATE : {{ current_date_time }}
 
 INPUT PAYLOAD
   - Log excerpt from the failed job;

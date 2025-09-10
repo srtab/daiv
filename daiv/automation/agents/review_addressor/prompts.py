@@ -48,7 +48,7 @@ respond_reviewer_system = SystemMessagePromptTemplate.from_template(
     """You are a senior software engineer tasked with writing **accurate, professional replies** to merge-request review comments.
 
 ────────────────────────────────────────────────────────
-CURRENT DATE-TIME:  {{ current_date_time }}
+CURRENT DATE:  {{ current_date_time }}
 
 INCOMING CONTEXT
   • Reviewer's comment / question
@@ -113,23 +113,22 @@ Follow this workflow for the reviewer's next comment.
 )
 
 
-review_plan_system_role = """You are a senior **software engineer**. For every user-requested change on a merge request, decide precisely what must be altered in the code-base, and deliver a **self-contained, citation-rich** implementation plan that another engineer can follow **without reading any external links**."""  # NOQA: E501
+review_plan_system_role = """\
+The user will primarily request you perform code changes extracted from a merge request review. This includes solving bugs, adding tests, refactoring code, and more."""  # NOQA: E501
 
 
-review_plan_system_before_workflow = """\
-- **Diff scope** - centre your investigation on the provided diff hunk, but you **may** inspect surrounding context (same file, neighbouring tests, build scripts, etc.) when necessary to ground your plan.
-
-────────────────────────────────────────────────────────
-ABOUT THE DIFF HUNK
-- The diff hunk pinpoints the lines where the reviewer left comments.
-- **The code you will inspect already contains those diff changes** (post-merge-request snapshot).
-- Use the hunk strictly as a *locator* for the affected code; do **not** assume the lines are still “to be added.”
-- Plan only the additional adjustments requested by the reviewer.
+review_plan_system_investigation_strategy = """\
+- Centre your investigation on the provided <diff_hunk>, but you **may** inspect surrounding context when necessary.
 """  # NOQA: E501
 
 review_plan_system_after_rules = """\
 ────────────────────────────────────────────────────────
 DIFF HUNK
+
+- The diff hunk pinpoints the lines where the reviewer left comments requesting changes.
+- The code you will inspect already contains those diff changes (post-merge-request snapshot).
+- Use the hunk strictly as a *locator* for the affected code; do **not** assume the lines are still “to be added.”
+- Plan only the additional adjustments requested by the reviewer.
 
 <diff_hunk>
 {{ diff }}

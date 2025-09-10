@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import difflib
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from core.constants import BOT_LABEL
 
@@ -84,8 +85,8 @@ class FileChange(BaseModel):
     action: FileChangeAction
     file_path: str
     previous_path: str | None = None
-    content: str | None = Field(default=None, exclude=True)
-    diff_hunk: str | None = None
+    original_content: str = Field(default="", exclude=True)
+    content: str = Field(default="", exclude=True)
 
     def to_markdown(self):
         if self.action == FileChangeAction.CREATE:
@@ -96,6 +97,28 @@ class FileChange(BaseModel):
             return f"Deleted `{self.file_path}`"
         elif self.action == FileChangeAction.MOVE:  # pragma: no cover
             return f"Renamed `{self.previous_path}` to `{self.file_path}`"
+
+    @computed_field(return_type=str, repr=False)
+    def diff_hunk(self) -> str:
+        """
+        Get the diff hunk for the file change.
+        """
+        diff_from_file = f"a/{self.previous_path or self.file_path}"
+        diff_to_file = f"b/{self.file_path}"
+
+        if self.action == FileChangeAction.CREATE:
+            diff_from_file = "a/dev/null"
+        if self.action == FileChangeAction.DELETE:
+            diff_to_file = "a/dev/null"
+
+        diff_hunk = difflib.unified_diff(
+            self.original_content.splitlines(),
+            self.content.splitlines(),
+            fromfile=diff_from_file,
+            tofile=diff_to_file,
+            lineterm="",
+        )
+        return "\n".join(diff_hunk)
 
 
 class User(BaseModel):

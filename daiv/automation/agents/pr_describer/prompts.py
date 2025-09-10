@@ -5,7 +5,7 @@ system = SystemMessagePromptTemplate.from_template(
 Use only the provided inputs. Do not speculate. No extra commentary.
 
 ────────────────────────────────────────────────────────
-CURRENT DATE-TIME:  {{ current_date_time }}
+CURRENT DATE:  {{ current_date_time }}
 
 ────────────────────────────────────────────────────────
 INPUT PAYLOAD
