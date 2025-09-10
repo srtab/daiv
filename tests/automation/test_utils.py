@@ -79,6 +79,7 @@ class TestRegisterFileChange:
         assert file_change is not None
         assert file_change.action == FileChangeAction.CREATE
         assert file_change.file_path == new_path
+        assert file_change.original_content == old_content
         assert file_change.content == new_content
         assert "a/dev/null" in file_change.diff_hunk
         assert f"b/{new_path}" in file_change.diff_hunk
@@ -102,6 +103,7 @@ class TestRegisterFileChange:
         assert file_change is not None
         assert file_change.action == FileChangeAction.UPDATE
         assert file_change.file_path == file_path
+        assert file_change.original_content == old_content
         assert file_change.content == new_content
         assert f"a/{file_path}" in file_change.diff_hunk
         assert f"b/{file_path}" in file_change.diff_hunk
@@ -123,7 +125,8 @@ class TestRegisterFileChange:
         assert file_change is not None
         assert file_change.action == FileChangeAction.DELETE
         assert file_change.file_path == file_path
-        assert file_change.content == old_content
+        assert file_change.original_content == old_content
+        assert file_change.content == ""
         assert f"a/{file_path}" in file_change.diff_hunk
         assert "a/dev/null" in file_change.diff_hunk
 
@@ -147,6 +150,7 @@ class TestRegisterFileChange:
         assert file_change.action == FileChangeAction.MOVE
         assert file_change.file_path == new_path
         assert file_change.previous_path == old_path
+        assert file_change.original_content == old_content
         assert file_change.content == old_content
 
     async def test_register_file_change_defaults_to_old_values(self, store, mock_repository_ctx):
@@ -187,6 +191,7 @@ class TestRegisterFileChange:
         file_change = await get_file_change(store, file_path)
         assert file_change is not None
         assert file_change.action == FileChangeAction.UPDATE
+        assert file_change.original_content == original_content
         assert file_change.content == new_content
 
     async def test_register_file_change_create_then_delete_removes_change(self, store, mock_repository_ctx):
@@ -248,6 +253,8 @@ class TestRegisterFileChange:
         assert file_change.action == FileChangeAction.CREATE
         assert file_change.file_path == new_path
         assert file_change.previous_path is None
+        assert file_change.original_content == ""
+        assert file_change.content == content
 
     async def test_register_file_change_update_maintains_original_action(self, store, mock_repository_ctx):
         """Test that UPDATE on an existing change maintains the original action"""
@@ -278,6 +285,7 @@ class TestRegisterFileChange:
         file_change = await get_file_change(store, file_path)
         assert file_change is not None
         assert file_change.action == FileChangeAction.CREATE  # Should maintain CREATE
+        assert file_change.original_content == ""
         assert file_change.content == final_content
 
 

@@ -26,7 +26,7 @@ from .prompts import (
     respond_reviewer_system,
     review_comment_system,
     review_plan_system_after_rules,
-    review_plan_system_before_workflow,
+    review_plan_system_investigation_strategy,
     review_plan_system_role,
 )
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
@@ -132,7 +132,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         """
         plan_system.prompt = plan_system.prompt.partial(
             role=review_plan_system_role,
-            before_workflow=review_plan_system_before_workflow,
+            investigation_strategy=review_plan_system_investigation_strategy,
             after_rules=jinja2_formatter(review_plan_system_after_rules, diff=state["diff"]),
         )
 

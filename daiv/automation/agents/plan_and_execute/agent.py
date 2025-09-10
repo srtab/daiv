@@ -285,7 +285,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
                 commands_enabled=self.ctx.config.sandbox.enabled,
                 role=self.plan_system_template.prompt.partial_variables.get("role", ""),
-                before_workflow=self.plan_system_template.prompt.partial_variables.get("before_workflow", ""),
+                investigation_strategy=self.plan_system_template.prompt.partial_variables.get(
+                    "investigation_strategy", ""
+                ),
                 after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
             name="planner_react_agent",
