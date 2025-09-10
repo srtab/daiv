@@ -19,10 +19,30 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_THINKING_MODELS = ("claude-sonnet-4", "claude-opus-4", "anthropic/claude-sonnet-4", "anthropic/claude-opus-4")
+CLAUDE_THINKING_MODELS = (
+    "claude-sonnet-4",
+    "claude-opus-4",
+    "claude-opus-4.1",
+    "anthropic/claude-sonnet-4",
+    "anthropic/claude-opus-4",
+    "anthropic/claude-opus-4.1",
+)
 CLAUDE_MAX_TOKENS = 4_096
 
-OPENAI_THINKING_MODELS = ("o1", "o3", "o4", "openai/o1", "openai/o3", "openai/o4")
+OPENAI_THINKING_MODELS = (
+    "o1",
+    "o3",
+    "o4",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "openai/o1",
+    "openai/o3",
+    "openai/o4",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+)
 
 
 class ModelProvider(StrEnum):
@@ -232,7 +252,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             ModelProvider: The model provider
         """
-        if any(model_name.startswith(pre) for pre in ("gpt-4", "o1", "o3", "o4")):
+        if any(model_name.startswith(pre) for pre in ("gpt-4", "gpt-5", "o1", "o3", "o4")):
             return ModelProvider.OPENAI
         elif model_name.startswith("claude"):
             return ModelProvider.ANTHROPIC

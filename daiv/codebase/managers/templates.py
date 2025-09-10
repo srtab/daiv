@@ -51,6 +51,12 @@ I need more information before I can create a clear implementation plan. Please 
 """  # noqa: E501
 
 
+ISSUE_NO_CHANGES_NEEDED_TEMPLATE = """### ✅ ***No Changes Needed***
+
+{{ no_changes_needed }}
+"""  # noqa: E501
+
+
 ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """### 🤔 Can't Draft a Plan Yet
 
 I couldn't generate a detailed plan because the issue is missing a few key details.

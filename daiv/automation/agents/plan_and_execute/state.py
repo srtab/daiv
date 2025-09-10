@@ -19,6 +19,11 @@ class PlanAndExecuteState(MessagesState):
     The code changes to be applied to the codebase.
     """
 
+    no_changes_needed: str
+    """
+    The message to inform the user that the plan has no changes needed.
+    """
+
 
 class ExecuteState(AgentState):
     """
