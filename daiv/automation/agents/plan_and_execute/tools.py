@@ -27,7 +27,11 @@ FINALIZE_TOOLS = [PLAN_TOOL_NAME, CLARIFY_TOOL_NAME, COMPLETE_TOOL_NAME]
 )
 def plan_tool(changes: list[ChangeInstructions]) -> tuple[str, dict]:
     """
-    Plan the inspection with a self-contained plan.
+    Deliver a self-contained implementation plan that satisfies the user's request.
+
+    **Usage rules:**
+    - The requirements are clear and changes are needed.
+    - The context is sufficient to deliver the plan with confidence.
 
     Args:
         changes (list[ChangeInstructions]): The plan to execute.
@@ -43,7 +47,12 @@ def plan_tool(changes: list[ChangeInstructions]) -> tuple[str, dict]:
 @tool(CLARIFY_TOOL_NAME, return_direct=True, response_format="content_and_artifact", parse_docstring=True)
 def clarify_tool(questions: str) -> tuple[str, dict]:
     """
-    Clarify the inspection with targeted grounded questions.
+    Deliver targeted grounded questions to clarify the inspection.
+
+    **Usage rules:**
+    - There's uncertainty about the requirements/changes needed.
+    - The context is insufficient to deliver the plan with confidence.
+    - The user needs to provide additional details that could not be covered by the context.
 
     Args:
         questions (str): Targeted concise, direct and to the point questions. No chit-chat. Ground them in the codebase and search results; use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
@@ -59,7 +68,11 @@ def clarify_tool(questions: str) -> tuple[str, dict]:
 @tool(COMPLETE_TOOL_NAME, return_direct=True, response_format="content_and_artifact", parse_docstring=True)
 def complete_tool(message: str) -> tuple[str, dict]:
     """
-    Complete the inspection when no changes needed.
+    Deliver a message to confirm no changes or actions are needed.
+
+    **Usage rules:**
+    - The context is sufficient to confirm no changes or actions are needed.
+    - The current state meets the requirements.
 
     Args:
         message (str): The message to demonstrate how current state meets requirements with specific evidence.
@@ -74,12 +87,12 @@ def complete_tool(message: str) -> tuple[str, dict]:
 @tool(PLAN_THINK_TOOL_NAME, parse_docstring=True)
 def plan_think_tool(plan: str):
     """
-    Use this tool to outline what you need to investigate. This helps you track progress and organize complex tasks.
+    Use this tool to outline what you need to investigate to assist the user. This helps you track progress and organize complex tasks in a structured way.
 
     **Usage rules:**
-    - Does NOT fetch new information or modify anything.
-    - Use this tool to plan the tasks you will perform to assist the user.
-    - **Important:** It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
+    - Does NOT fetch new information or modify anything, it's just a placeholder to help you track progress.
+    - Update tasks as you learn new information to help you track progress.
+    - **Important:** It is critical that you mark tasks as completed as soon as you are done with them. Do not batch up multiple tasks before marking them as completed.
 
     **Skip using this tool when:**
     - There is only a single, straightforward task
@@ -91,7 +104,7 @@ def plan_think_tool(plan: str):
         plan (str): The plan to investigate.
 
     Returns:
-        A message indicating that the thought has been logged.
+        A message indicating that the thought has been registered.
     """  # noqa: E501
     logger.info("[%s] Thinking about: %s", plan_think_tool.name, plan)
-    return "Plan registered."
+    return "Thought registered."
