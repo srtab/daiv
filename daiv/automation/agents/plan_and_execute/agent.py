@@ -34,7 +34,7 @@ from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
 from .schemas import ImageURLExtractorOutput
 from .state import ExecuteState, PlanAndExecuteState
-from .tools import PLAN_THINK_TOOL_NAME, finalize_with_plan_tool, finalize_with_targeted_questions_tool, plan_think_tool
+from .tools import clarify_tool, complete_tool, plan_think_tool, plan_tool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,18 +75,13 @@ async def prepare_plan_model_and_tools() -> tuple[
     file_navigation_tools = FileNavigationToolkit.get_tools()
     web_search_tools = WebSearchToolkit.get_tools()
 
-    base_tools: list[BaseTool] = (
-        mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool, finalize_with_targeted_questions_tool]
-    )
+    base_tools: list[BaseTool] = mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool, clarify_tool]
 
     def plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
         """
         Prepare the model for the planning step with the correct tools at each stage of the conversation.
 
-        Force the sequence to avoid the agent to call tools out of order:
-        - `plan_think` (force the agent to think)
-            -> any other tool to gather information or finalize with questions.
-            -> `finalize_with_plan` (finalizing the plan with a self-contained plan).
+        Force the sequence when possible to avoid the agent to call tools out of order.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
@@ -99,28 +94,20 @@ async def prepare_plan_model_and_tools() -> tuple[
 
         tools = base_tools.copy()
 
-        tool_choice = "auto"
-
-        # if the agent has not called any tool, we force the model to think
-        if len(state["messages"]) <= 2:
-            tool_choice = PLAN_THINK_TOOL_NAME
-
-        # only add the finalize_with_plan tool if at least one of the navigation tool was called
+        # only add the plan_tool and complete_tool tools if at least one of the navigation tool was called
+        # ensure that the agent has collected context from the codebase
         if any(
             message
             for message in state["messages"]
             if message.type == "tool" and message.status == "success" and message.name in NAVIGATION_TOOLS
         ):
-            tools += [finalize_with_plan_tool]
-
-        # Anthropic models don't support thinking level for non-auto tool choice.
-        thinking_level = settings.PLANNING_THINKING_LEVEL if tool_choice == "auto" else None
+            tools += [plan_tool, complete_tool]
 
         return BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=thinking_level
-        ).bind_tools(tools, tool_choice=tool_choice)
+            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+        ).bind_tools(tools)
 
-    return plan_model, base_tools + [finalize_with_plan_tool]
+    return plan_model, base_tools + [plan_tool, complete_tool]
 
 
 async def prepare_execute_model_and_tools() -> tuple[
@@ -164,6 +151,7 @@ async def prepare_execute_model_and_tools() -> tuple[
         tool_choice = "auto"
 
         # if the agent has not called any tool, we force the model to read the files
+        # careful, this only work if thinking is disabled
         if len(state["messages"]) <= 2:
             tool_choice = READ_TOOL_NAME
 
@@ -312,6 +300,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             return Command(goto="plan_approval", update={"plan_tasks": last_message_artifact["plan_tasks"]})
         elif "plan_questions" in last_message_artifact:
             return Command(goto=END, update={"plan_questions": last_message_artifact["plan_questions"]})
+        elif "no_changes_needed" in last_message_artifact:
+            return Command(goto=END, update={"no_changes_needed": last_message_artifact["no_changes_needed"]})
         else:
             logger.warning("The agent didn't call any tool and can't return a formatted response.")
 
@@ -329,7 +319,11 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["execute_plan"]]: The next step in the workflow.
         """
         if not self.skip_approval:
-            interrupt({"plan_tasks": state.get("plan_tasks"), "plan_questions": state.get("plan_questions")})
+            interrupt({
+                "plan_tasks": state.get("plan_tasks"),
+                "plan_questions": state.get("plan_questions"),
+                "no_changes_needed": state.get("no_changes_needed"),
+            })
 
         return Command(goto="execute_plan")
 
@@ -365,14 +359,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             name="executor_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.EXECUTION_RECURSION_LIMIT))
 
-        await react_agent.ainvoke({
+        response = await react_agent.ainvoke({
             "plan_tasks": state["plan_tasks"],
             "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
         })
 
         if not self.skip_format_code and await has_file_changes(self.store):
             return Command(goto="apply_format_code")
-        return Command(goto=END)
+        return Command(goto=END, update={"no_changes_needed": response["messages"][-1].content})
 
     async def apply_format_code(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
         """
@@ -402,5 +396,5 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         for path in self.ctx.repo_dir.glob(self.ctx.config.context_file_name, case_sensitive=False):
             if path.is_file() and path.name.endswith(".md"):
-                return path.read_text()[:max_lines]
+                return "\n".join(path.read_text().splitlines()[:max_lines])
         return None

@@ -23,6 +23,7 @@ from core.utils import generate_uuid
 from .base import BaseManager
 from .templates import (
     ISSUE_MERGE_REQUEST_TEMPLATE,
+    ISSUE_NO_CHANGES_NEEDED_TEMPLATE,
     ISSUE_PLANNING_TEMPLATE,
     ISSUE_PROCESSED_TEMPLATE,
     ISSUE_QUESTIONS_TEMPLATE,
@@ -197,6 +198,8 @@ class IssueAddressorManager(BaseManager):
         # We share the questions with the human to answer
         elif plan_questions := state.get("plan_questions"):
             self._add_plan_questions_note(plan_questions)
+        elif no_changes_needed := state.get("no_changes_needed"):
+            self._add_no_changes_needed_note(no_changes_needed)
         else:
             raise ValueError(f"Unexpected state returned: {state}")
 
@@ -231,6 +234,11 @@ class IssueAddressorManager(BaseManager):
                 self._add_workflow_step_note("commit_changes")
                 if merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id):
                     self._add_issue_processed_note(merge_request_id)
+            else:
+                after_run_state = await plan_and_execute.aget_state(self._config)
+
+                no_changes_needed = after_run_state.values.get("no_changes_needed")
+                self._add_no_changes_needed_note(no_changes_needed)
 
     @property
     def _config(self):
@@ -410,6 +418,17 @@ class IssueAddressorManager(BaseManager):
             self.client.create_issue_discussion_note(
                 self.repo_id, cast("int", self.issue.iid), note_message, self.discussion_id
             )
+        else:
+            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+
+    def _add_no_changes_needed_note(self, no_changes_needed: str):
+        """
+        Add a note to the issue to inform the user that the plan has no changes needed.
+        """
+        note_message = jinja2_formatter(ISSUE_NO_CHANGES_NEEDED_TEMPLATE, no_changes_needed=no_changes_needed)
+
+        if self.discussion_id:
+            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
         else:
             self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
 

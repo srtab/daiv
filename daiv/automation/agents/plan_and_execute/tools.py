@@ -5,34 +5,33 @@ import logging
 
 from langchain_core.tools import tool
 
-from .schemas import (
-    FINALIZE_WITH_PLAN_DESCRIPTION,
-    FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION,
-    AskForClarification,
-    ChangeInstructions,
-    Plan,
-)
+from .schemas import PLAN_DESCRIPTION, ChangeInstructions, Plan
 
 logger = logging.getLogger("daiv.tools")
 
 
-FINALIZE_WITH_PLAN_TOOL_NAME = "finalize_with_plan"
-FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME = "finalize_with_targeted_questions"
+PLAN_TOOL_NAME = "plan"
+CLARIFY_TOOL_NAME = "clarify"
+COMPLETE_TOOL_NAME = "complete"
 PLAN_THINK_TOOL_NAME = "think"
 
-FINALIZE_TOOLS = [FINALIZE_WITH_PLAN_TOOL_NAME, FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME]
+FINALIZE_TOOLS = [PLAN_TOOL_NAME, CLARIFY_TOOL_NAME, COMPLETE_TOOL_NAME]
 
 
 @tool(
-    FINALIZE_WITH_PLAN_TOOL_NAME,
+    PLAN_TOOL_NAME,
     args_schema=Plan,
-    description=FINALIZE_WITH_PLAN_DESCRIPTION,
+    description=PLAN_DESCRIPTION,
     return_direct=True,
     response_format="content_and_artifact",
 )
-def finalize_with_plan_tool(changes: list[ChangeInstructions]) -> tuple[str, dict]:
+def plan_tool(changes: list[ChangeInstructions]) -> tuple[str, dict]:
     """
-    Finalize the inspection with a self-contained plan.
+    Deliver a self-contained implementation plan that satisfies the user's request.
+
+    **Usage rules:**
+    - The requirements are clear and changes are needed.
+    - The context is sufficient to deliver the plan with confidence.
 
     Args:
         changes (list[ChangeInstructions]): The plan to execute.
@@ -40,58 +39,72 @@ def finalize_with_plan_tool(changes: list[ChangeInstructions]) -> tuple[str, dic
     Returns:
         tuple[str, dict]: The plan to execute.
     """  # noqa: E501
-    logger.info("[%s] The plan to execute: %s", FINALIZE_WITH_PLAN_TOOL_NAME, repr(changes))
+    logger.info("[%s] The plan to execute: %s", PLAN_TOOL_NAME, repr(changes))
 
     return json.dumps([change.model_dump() for change in changes]), {"plan_tasks": changes}
 
 
-@tool(
-    FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME,
-    args_schema=AskForClarification,
-    description=FINALIZE_WITH_TARGETED_QUESTIONS_DESCRIPTION,
-    return_direct=True,
-    response_format="content_and_artifact",
-)
-def finalize_with_targeted_questions_tool(questions: str) -> tuple[str, dict]:
+@tool(CLARIFY_TOOL_NAME, return_direct=True, response_format="content_and_artifact", parse_docstring=True)
+def clarify_tool(questions: str) -> tuple[str, dict]:
     """
-    Finalize the inspection with targeted questions.
+    Deliver targeted grounded questions to clarify the inspection.
+
+    **Usage rules:**
+    - There's uncertainty about the requirements/changes needed.
+    - The context is insufficient to deliver the plan with confidence.
+    - The user needs to provide additional details that could not be covered by the context.
 
     Args:
-        questions (str): The question(s) to ask the user for clarification.
+        questions (str): Targeted concise, direct and to the point questions. No chit-chat. Ground them in the codebase and search results; use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
 
     Returns:
-        tuple[str, dict]: The question(s) to ask the user for clarification.
+        tuple[str, dict]: The targeted grounded questions to ask the user for clarification.
     """  # noqa: E501
-    logger.info(
-        "[%s] The question(s) to ask the user for clarification: %s",
-        FINALIZE_WITH_TARGETED_QUESTIONS_TOOL_NAME,
-        repr(questions),
-    )
+    logger.info("[%s] Clarifying the inspection: %s", CLARIFY_TOOL_NAME, questions)
 
     return questions, {"plan_questions": questions}
 
 
-@tool(PLAN_THINK_TOOL_NAME, parse_docstring=True)
-def plan_think_tool(thought: str):
+@tool(COMPLETE_TOOL_NAME, return_direct=True, response_format="content_and_artifact", parse_docstring=True)
+def complete_tool(message: str) -> tuple[str, dict]:
     """
-    Private scratchpad for reasoning only. Does NOT fetch new information or modify anything; it records concise plans/notes you will follow.
+    Deliver a message to confirm no changes or actions are needed.
 
-    Step 0 — Mandatory first call: On your first action you MUST call `think` once to draft the minimal inspection plan (tools to call, batched paths/queries, specific extraction goals, and stop criteria). If you attempted any other tool first, self-correct by calling `think` now.
-
-    Step 0 — Call limits: You may call `think` up to 3 times in Step 0:
-        (1) initial outline (required),
-        (2) image analysis notes (only if images present),
-        (3) shell/risks notes (if relevant). Include “External Context” extraction goals whenever external sources are referenced.
-
-    Step 1 — Iterative reasoning: After each inspection tool result, you may call `think` as many times as needed to extract concrete details, resolve references (files/functions/config keys), and update the plan until it is self-contained. Do not ask the user questions here; questions, if any remain, are raised only via the final clarification tool.
-
-    Content rules: Each note ≤ 200 words; use bullets/checklists; no external URLs; no shell commands; no user-facing prose.
+    **Usage rules:**
+    - The context is sufficient to confirm no changes or actions are needed.
+    - The current state meets the requirements.
 
     Args:
-        thought (str): Your private notes/plan (≤ 200 words). Use bullets/checklists; focus on inspection steps, extraction goals, and stop criteria.
+        message (str): The message to demonstrate how current state meets requirements with specific evidence.
 
     Returns:
-        A message indicating that the thought has been logged.
+        tuple[str, dict]: The message to complete the inspection.
+    """
+    logger.info("[%s] No changes needed: %s", COMPLETE_TOOL_NAME, message)
+    return message, {"no_changes_needed": message}
+
+
+@tool(PLAN_THINK_TOOL_NAME, parse_docstring=True)
+def plan_think_tool(plan: str):
+    """
+    Use this tool to outline what you need to investigate to assist the user. This helps you track progress and organize complex tasks in a structured way.
+
+    **Usage rules:**
+    - Does NOT fetch new information or modify anything, it's just a placeholder to help you track progress.
+    - Update tasks as you learn new information to help you track progress.
+    - **Important:** It is critical that you mark tasks as completed as soon as you are done with them. Do not batch up multiple tasks before marking them as completed.
+
+    **Skip using this tool when:**
+    - There is only a single, straightforward task
+    - The task is trivial and tracking it provides no organizational benefit
+    - The task can be completed in less than 3 trivial steps
+    - The task is purely conversational or informational
+
+    Args:
+        plan (str): The plan to investigate.
+
+    Returns:
+        A message indicating that the thought has been registered.
     """  # noqa: E501
-    logger.info("[%s] Thinking about: %s", plan_think_tool.name, thought)
+    logger.info("[%s] Thinking about: %s", plan_think_tool.name, plan)
     return "Thought registered."
