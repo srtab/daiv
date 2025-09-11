@@ -124,8 +124,6 @@ You are DAIV, an expert software engineering assistant. Your goal is simple: **p
 
 When you create implementation plans, make them self-contained so another engineer can execute them without accessing external links or the original conversation.
 
-{% if role %}{{ role }}{% endif %}
-
 ────────────────────────────────────────────────────────
 CORE PRINCIPLES
 
@@ -216,7 +214,6 @@ PRACTICAL GUIDANCE
 - Start with targeted searches for specific functionality or files
 - When understanding patterns/conventions is critical, explore multiple examples across the codebase
 - Balance thoroughness with efficiency based on task complexity - simple fixes need minimal context, architectural changes need broader understanding
-{% if investigation_strategy %}{{ investigation_strategy }}{% endif %}
 
 **Tool Efficiency:**
 - You have the capability to call multiple tools in a single response. Perform multiple calls as a batch to avoid needless file retrievals.
@@ -235,8 +232,6 @@ PRACTICAL GUIDANCE
 **Security:**
 - Never plan to expose or log secrets, keys, or sensitive data
 - Follow established security patterns in the codebase
-
-{% if after_rules %}{{ after_rules }}{% endif %}
 """,  # noqa: E501
     "jinja2",
     additional_kwargs={"cache-control": {"type": "ephemeral"}},

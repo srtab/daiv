@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import SystemMessagePromptTemplate
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 review_comment_system = SystemMessage(
     """You are an AI assistant that classifies **individual code-review comments**.
@@ -113,24 +113,61 @@ Follow this workflow for the reviewer's next comment.
 )
 
 
-review_plan_system_role = """\
-The user will primarily request you perform code changes extracted from a merge request review. This includes solving bugs, adding tests, refactoring code, and more."""  # NOQA: E501
+review_human = HumanMessagePromptTemplate.from_template(
+    """────────────────────────────────────────────────────────
+CODE REVIEW CHANGE REQUEST
 
+You are analyzing a code review comment to identify which lines need changes. The diff hunk shows the CURRENT state of the code after initial changes were made. The reviewer is requesting ADDITIONAL changes to these lines. Your job: pinpoint exactly which lines the reviewer is discussing.
 
-review_plan_system_investigation_strategy = """\
-- Centre your investigation on the provided <diff_hunk>, but you **may** inspect surrounding context when necessary.
-"""  # NOQA: E501
+Inputs:
+- diff hunk: unified diff snippet(s). May include multiple files and hunks. Lines with `+` indicate content added in the PR (now present in post-merge); `-` are historical context (not present).
+- reviewer comment: the reviewer's request. Deictic terms like "this", "this line", "this block", "here", "above/below" refer to code inside diff hunk.
 
-review_plan_system_after_rules = """\
-────────────────────────────────────────────────────────
-DIFF HUNK
+## Core Rules
+- The diff hunk serves as a location reference showing where the reviewer commented
+- The `+` lines show the current state of the code (not the final desired state)
+- Do NOT claim the reviewer was "not specific" because they used deictic words; resolve them within the hunk's scope.
+- If requested changes live outside the hunk (e.g., “add unit tests,” “update changelog”), use the hunk to determine scope (which features/files changed) and target appropriate files/modules accordingly.
 
-- The diff hunk pinpoints the lines where the reviewer left comments requesting changes.
-- The code you will inspect already contains those diff changes (post-merge-request snapshot).
-- Use the hunk strictly as a *locator* for the affected code; do **not** assume the lines are still “to be added.”
-- Plan only the additional adjustments requested by the reviewer.
+## Targeting order (apply in sequence)
+1) Anchored line present? Use it as primary target. If multiple anchors, address each.
+2) Single candidate? If the hunk has exactly one code line (ignoring headers) or one clearly delimited added block, target it.
+3) Prefer edited lines. When removing/replacing/renaming, choose `+` lines over context or `-` lines.
+4) Lexical cues. Match identifiers, strings, literals, operators, or snippet fragments from the comment to lines in the hunk.
+5) Directional cues. Interpret “above/below/next/previous” relative to the anchor or the first matching edited line.
+6) Tie-breakers. If several lines still match, select the first added line that fits.
+7) Drift handling. If a targeted line isn't found verbatim in post-merge code, use fuzzy matching (token/AST-aware if possible). If still not found, ask for clarification.
 
-<diff_hunk>
+## When to Request Clarification
+Use `clarify` tool when:
+- Comment references code not visible in the hunk
+- Multiple equally valid interpretations exist after applying all rules
+- Reviewer's intent conflicts with code syntax or logic
+
+## Multi-file / global requests
+- If the reviewer requests tests or documentation updates for all changes, enumerate affected modules/functions inferred from `<diff_hunk>` and propose test/doc edits across appropriate files.
+- For changelogs, follow repository conventions if provided; else propose a conservative entry and request confirmation.
+
+## Constraints
+- Do not modify unrelated code.
+- Do not invent content not supported by the repo's conventions.
+- Keep rationales concise and tied to the reviewer's words.
+- When multiple files/hunks are relevant, include multiple targets.
+
+## Lightweight examples (for validation)
+- Rename within an anchored hunk: "Rename this to user_id" anchored on `+ const uid = …` → target the `+` line in that file; replace `uid` with `user_id`.
+- Add tests for all new functions: hunk shows additions in `src/foo.ts` and `src/bar.ts` → propose targets in `tests/foo.spec.ts` and `tests/bar.spec.ts` (or create if absent), with focused test blocks naming the changed functions.
+- Update changelog: hunk shows a new feature in `src/api/client.ts` → propose an entry under the next unreleased version in `CHANGELOG.md`.
+
+## Inputs
+
+### Diff Hunk
+```diff
 {{ diff }}
-</diff_hunk>
-"""
+```
+
+### Reviewer Comment
+{{ reviewer_comment }}
+""",  # noqa: E501
+    "jinja2",
+)
