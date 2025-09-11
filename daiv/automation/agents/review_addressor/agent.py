@@ -5,7 +5,7 @@ from typing import Literal
 
 from django.utils import timezone
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, jinja2_formatter
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -15,20 +15,13 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.prompts import plan_system
 from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from core.constants import BOT_NAME
 
 from .conf import settings
-from .prompts import (
-    respond_reviewer_system,
-    review_comment_system,
-    review_plan_system_after_rules,
-    review_plan_system_investigation_strategy,
-    review_plan_system_role,
-)
+from .prompts import respond_reviewer_system, review_comment_system, review_human
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
 from .state import OverallState, ReplyAgentState
 
@@ -130,21 +123,18 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        plan_system.prompt = plan_system.prompt.partial(
-            role=review_plan_system_role,
-            investigation_strategy=review_plan_system_investigation_strategy,
-            after_rules=jinja2_formatter(review_plan_system_after_rules, diff=state["diff"]),
-        )
 
         plan_and_execute = await PlanAndExecuteAgent.get_runnable(
-            plan_system_template=plan_system,
             store=store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
             checkpointer=False,
         )
 
-        result = await plan_and_execute.ainvoke({"messages": state["notes"]})
+        review_human_messages = review_human.aformat_messages(
+            diff=state["diff"], reviewer_comment=state["notes"][0].content
+        )
+        result = await plan_and_execute.ainvoke({"messages": review_human_messages + state["notes"][1:]})
 
         if plan_questions := result.get("plan_questions"):
             return Command(goto=END, update={"reply": plan_questions})

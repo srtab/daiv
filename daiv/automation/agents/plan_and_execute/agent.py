@@ -284,11 +284,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 bot_name=BOT_NAME,
                 bot_username=config["configurable"].get("bot_username", BOT_LABEL),
                 commands_enabled=self.ctx.config.sandbox.enabled,
-                role=self.plan_system_template.prompt.partial_variables.get("role", ""),
-                investigation_strategy=self.plan_system_template.prompt.partial_variables.get(
-                    "investigation_strategy", ""
-                ),
-                after_rules=self.plan_system_template.prompt.partial_variables.get("after_rules", ""),
             ),
             name="planner_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.PLANNING_RECURSION_LIMIT))

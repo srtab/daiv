@@ -18,46 +18,44 @@ file_changes = [
     FileChange(
         action=FileChangeAction.UPDATE,
         file_path="README.md",
-        diff_hunk="""--- a/README.md
-+++ b/README.md
-@@ -1,1 +1,1 @@
-+ **Pull Request Describer Agent**
-+
-+ Create a new PR describer agent that can describe changes in a pull request.
+        original_content="""# **Pull Request Describer Agent**
+
+Create a new PR describer agent that can describe changes in a pull request.
+""",
+        content="""# **PR Describer Agent**
+
+New PR describer agent that can extract and describe changes in a pull request.
 """,
     ),
     FileChange(
         action=FileChangeAction.CREATE,
         file_path="automation/agents/pr_describer/agent.py",
-        diff_hunk="""--- /dev/null
-+++ b/automation/agents/pr_describer/agent.py
-@@ -0,0 + 1,1 @@
-+ from __future__ import annotations
+        content="""from __future__ import annotations
 
-+ from django.utils import timezone
+from django.utils import timezone
 
-+ from langchain_core.prompts import ChatPromptTemplate
-+ from langchain_core.runnables import Runnable
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 
-+ from automation.agents import BaseAgent
+from automation.agents import BaseAgent
 
-+ from .conf import settings
-+ from .prompts import system
-+ from .schemas import PullRequestDescriberInput, PullRequestMetadata
+from .conf import settings
+from .prompts import system
+from .schemas import PullRequestDescriberInput, PullRequestMetadata
 
 
-+ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestMetadata]]):
-+     \"""
-+     Agent to describe changes in a pull request.
-+     \"""
-+
-+    async def compile(self) -> Runnable:
-+        prompt = ChatPromptTemplate.from_messages([system]).partial(
-+            branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
-+        )
-+        return (
-+            prompt | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestMetadata)
-+        ).with_config({"run_name": settings.NAME})
+class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestMetadata]]):
+    \"""
+    Agent to describe changes in a pull request.
+    \"""
+
+   async def compile(self) -> Runnable:
+       prompt = ChatPromptTemplate.from_messages([system]).partial(
+           branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
+       )
+       return (
+           prompt | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestMetadata)
+       ).with_config({"run_name": settings.NAME})
 """,
     ),
 ]
