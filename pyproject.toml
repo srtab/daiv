@@ -58,7 +58,7 @@ dev = [
   "pyproject-fmt==2.6",
   "pytest==8.4.2",
   "pytest-asyncio==1.1",
-  "pytest-cov==6.3",
+  "pytest-cov==7.0.0",
   "pytest-django==4.11.1",
   "pytest-env==1.1.5",
   "pytest-mock==3.15",
