@@ -131,7 +131,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             checkpointer=False,
         )
 
-        review_human_messages = review_human.aformat_messages(
+        review_human_messages = await review_human.aformat_messages(
             diff=state["diff"], reviewer_comment=state["notes"][0].content
         )
         result = await plan_and_execute.ainvoke({"messages": review_human_messages + state["notes"][1:]})
