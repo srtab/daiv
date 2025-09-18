@@ -110,15 +110,15 @@ I have created a merge request with the requested changes.
 
 - **Review Changes:** Please review the changes in the merge request.
 - **Follow Instructions:** Follow the instructions provided in the merge request description.
-
+{% if show_merge_request_link %}
 🔗 {{ source_repo_id }}!{{ merge_request_id }}+
+{% endif %}
 """
 
 
-ISSUE_MERGE_REQUEST_TEMPLATE = """### Description
-{{ description }}
+ISSUE_MERGE_REQUEST_TEMPLATE = """{{ description }}
 
-Closes: {{ source_repo_id }}#{{ issue_id }}+
+Closes: {{ source_repo_id }}#{{ issue_id }}{% if is_gitlab %}+{% endif %}
 
 > ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
 

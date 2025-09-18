@@ -348,7 +348,7 @@ class GitHubClient(RepoClient):
         try:
             target_ref = repo.get_git_ref(f"heads/{target_branch}")
         except UnknownObjectException:
-            target_ref = repo.create_git_ref(ref=f"heads/{target_branch}", sha=head_sha)
+            target_ref = repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=head_sha)
 
         # Create the new tree and commit
         elements = self._create_git_tree_element(repo, file_changes, head_sha)
@@ -466,7 +466,62 @@ class GitHubClient(RepoClient):
         """
         Get the related merge requests of an issue.
         """
-        return []
+        query = """
+            query($owner: String!, $repo: String!, $issue: Int!) {
+                repository(owner: $owner, name: $repo) {
+                    issue(number: $issue) {
+                        number
+                        timelineItems(itemTypes: [CONNECTED_EVENT], first: 20) {
+                            nodes {
+                                ... on ConnectedEvent {
+                                    subject {
+                                        ... on PullRequest {
+                                            number
+                                            state
+                                            title
+                                            body
+                                            labels(first: 10) {
+                                                nodes {
+                                                    name
+                                                }
+                                            }
+                                            headRefName
+                                            baseRefName
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """
+        repo = self.client.get_repo(repo_id)
+
+        _, result = self.client.requester.graphql_query(
+            query, {"owner": repo.owner.login, "repo": repo.name, "issue": issue_id}
+        )
+
+        linked_prs = []
+
+        for item in result["data"]["repository"]["issue"]["timelineItems"]["nodes"]:
+            if (node := item.get("subject")) and (
+                label is None or (labels := node.get("labels")) and any(mr_label.name == label for mr_label in labels)
+            ):
+                linked_prs.append(
+                    MergeRequest(
+                        repo_id=repo_id,
+                        merge_request_id=node["number"],
+                        source_branch=node["headRefName"],
+                        target_branch=node["baseRefName"],
+                        title=node["title"],
+                        description=node["body"],
+                        labels=[mr_label.name for mr_label in labels] if labels else [],
+                        state=node["state"],
+                    )
+                )
+
+        return linked_prs
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int):
         raise NotImplementedError()

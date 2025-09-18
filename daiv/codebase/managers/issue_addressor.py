@@ -14,7 +14,7 @@ from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import get_file_changes
-from codebase.base import FileChange, Issue
+from codebase.base import ClientType, FileChange, Issue
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
@@ -309,7 +309,7 @@ class IssueAddressorManager(BaseManager):
             target_branch=self.ref,
             labels=[BOT_LABEL],
             title=changes_description.title,
-            assignee_id=self.issue.assignee.id if self.issue.assignee else None,
+            assignee_id=self.issue.assignee.username if self.issue.assignee else None,
             description=jinja2_formatter(
                 ISSUE_MERGE_REQUEST_TEMPLATE,
                 description=changes_description.description,
@@ -318,6 +318,7 @@ class IssueAddressorManager(BaseManager):
                 issue_id=self.issue.iid,
                 bot_name=BOT_NAME,
                 bot_username=self.client.current_user.username,
+                is_gitlab=self.client.client_slug == ClientType.GITLAB,
             ),
         )
 
@@ -386,7 +387,13 @@ class IssueAddressorManager(BaseManager):
         Add a note to the issue to inform the user that the issue has been processed.
         """
         self._create_or_update_comment(
-            jinja2_formatter(ISSUE_PROCESSED_TEMPLATE, source_repo_id=self.repo_id, merge_request_id=merge_request_id)
+            jinja2_formatter(
+                ISSUE_PROCESSED_TEMPLATE,
+                source_repo_id=self.repo_id,
+                merge_request_id=merge_request_id,
+                # GitHub already shows the merge request link right after the comment.
+                show_merge_request_link=self.client.client_slug == ClientType.GITLAB,
+            )
         )
 
     def _add_plan_questions_note(self, plan_questions: list[str]):
