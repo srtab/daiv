@@ -10,13 +10,11 @@ I'm **{{ bot_name }}**, your assistant for refactoring the codebase. Here's the 
 """  # noqa: E501
 
 ISSUE_REVIEW_PLAN_TEMPLATE = """### 📋 ***Please take a moment to review the planned tasks:***
+
+---
+
 {% for plan_task in plan_tasks %}
-<details>
-<summary>
-
-**Changes to apply {% if plan_task.file_path %}to `{{ plan_task.file_path }}`{% else %}to the repository{% endif %}**
-
-</summary>
+<details><summary><b>Changes to apply {% if plan_task.file_path %}to <code>{{ plan_task.file_path }}</code>{% else %}to the repository{% endif %}</b></summary>
 
 {{ plan_task.details }}
 {% if plan_task.relevant_files %}

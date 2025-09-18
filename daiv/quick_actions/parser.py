@@ -17,7 +17,6 @@ class QuickActionCommand:
 _COMMAND_RE_TEMPLATE = r"""
     (?<![\w@])           # negative look-behind: don't match e-mail addresses
     @(?P<bot>{bot})      # literal @bot-name mention
-    \b                   # word boundary so '@botx' doesn't match '@bot'
     \s+                  # at least one space or tab
     (?P<cmd>[^\n\r]+)    # capture the rest of the line (until newline)
 """

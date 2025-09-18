@@ -1,7 +1,7 @@
 from ninja import NinjaAPI
 
 from chat.api.views import chat_router, models_router
-from codebase.api.views import router as codebase_router
+from codebase.api.router import router as codebase_router
 
 from . import __version__
 

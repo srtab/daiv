@@ -9,36 +9,6 @@ from codebase.conf import settings
 logger = logging.getLogger("daiv.webhooks")
 
 
-def validate_gitlab_webhook(request: HttpRequest) -> bool:
-    """
-    Validate GitLab webhook by checking the X-Gitlab-Token header against the configured secret.
-
-    Args:
-        request: The HTTP request containing the webhook payload
-
-    Returns:
-        True if the webhook is valid, False otherwise
-    """
-    if not settings.GITLAB_WEBHOOK_SECRET:
-        logger.warning("GitLab webhook validation skipped: No secret token configured")
-        return True
-
-    token = request.headers.get("X-Gitlab-Token")
-    if not token:
-        logger.warning("GitLab webhook validation failed: Missing X-Gitlab-Token header")
-        return False
-
-    # Use constant-time comparison to prevent timing attacks
-    is_valid = hmac.compare_digest(token, settings.GITLAB_WEBHOOK_SECRET.get_secret_value())
-
-    if is_valid:
-        logger.debug("GitLab webhook validation successful")
-    else:
-        logger.warning("GitLab webhook validation failed: Invalid token")
-
-    return is_valid
-
-
 def validate_github_webhook(request: HttpRequest) -> bool:
     """
     Validate GitHub webhook by computing an HMAC SHA256 hash of the request body
@@ -79,23 +49,3 @@ def validate_github_webhook(request: HttpRequest) -> bool:
         logger.warning("GitHub webhook validation failed: Invalid signature")
 
     return is_valid
-
-
-def validate_webhook(request: HttpRequest) -> bool:
-    """
-    Validate webhook by determining the source and calling the appropriate validation function.
-
-    Args:
-        request: The HTTP request containing the webhook payload
-
-    Returns:
-        True if the webhook is valid, False otherwise
-    """
-    # Determine the webhook source based on headers
-    if "X-Gitlab-Event" in request.headers:
-        return validate_gitlab_webhook(request)
-    elif "X-GitHub-Event" in request.headers:
-        return validate_github_webhook(request)
-    else:
-        logger.warning("Webhook validation failed: Unknown webhook source")
-        return False

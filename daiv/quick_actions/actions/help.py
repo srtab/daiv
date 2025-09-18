@@ -31,7 +31,6 @@ class HelpQuickAction(QuickAction):
         note: Note,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        is_reply: bool = False,
     ) -> None:
         """
         Execute the help action.
@@ -44,10 +43,11 @@ class HelpQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
-            is_reply: Whether the action was triggered as a reply.
         """
         actions = quick_action_registry.get_actions(scope=scope)
-        if actions_help := [action.help(self.client.current_user.username, is_reply=is_reply) for action in actions]:
+        if actions_help := [
+            action.help(self.client.current_user.username, is_reply=discussion.is_reply) for action in actions
+        ]:
             note_message = jinja2_formatter(
                 QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help
             )

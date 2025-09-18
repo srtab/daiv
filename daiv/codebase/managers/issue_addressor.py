@@ -77,11 +77,10 @@ class IssueAddressorManager(BaseManager):
     """
 
     def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
-        super().__init__(RepoClient.create_instance(), repo_id, ref)
+        super().__init__(RepoClient.create_instance(), repo_id, ref, discussion_id)
         self.repository = self.client.get_repository(repo_id)
         self.repo_config = RepositoryConfig.get_config(repo_id)
         self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
-        self.discussion_id = discussion_id
         self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
 
     @classmethod
@@ -101,7 +100,7 @@ class IssueAddressorManager(BaseManager):
             issue_iid: The issue ID.
             ref: The reference branch.
             should_reset_plan: Whether to reset the plan.
-            discussion_id: The discussion ID of the note that triggered the action.
+            discussion_id: The discussion ID.
         """
         manager = cls(repo_id, issue_iid, ref, discussion_id)
 
@@ -232,13 +231,14 @@ class IssueAddressorManager(BaseManager):
 
             if file_changes := await get_file_changes(self._file_changes_store):
                 self._add_workflow_step_note("commit_changes")
+
                 if merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id):
                     self._add_issue_processed_note(merge_request_id)
             else:
                 after_run_state = await plan_and_execute.aget_state(self._config)
 
-                no_changes_needed = after_run_state.values.get("no_changes_needed")
-                self._add_no_changes_needed_note(no_changes_needed)
+                if no_changes_needed := after_run_state.values.get("no_changes_needed"):
+                    self._add_no_changes_needed_note(no_changes_needed)
 
     @property
     def _config(self):
@@ -326,7 +326,7 @@ class IssueAddressorManager(BaseManager):
         Leave a welcome note if the issue has no bot comment.
         """
         if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
-            self.client.comment_issue(
+            self.client.create_issue_comment(
                 self.repo_id,
                 cast("int", self.issue.iid),
                 jinja2_formatter(
@@ -343,106 +343,73 @@ class IssueAddressorManager(BaseManager):
         Args:
             plan_tasks: The plan tasks.
         """
-        note_message = "✅ **Plan Ready for Review** - Please check the implementation plan below."
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
-
-        self.client.comment_issue(
-            self.repo_id,
-            cast("int", self.issue.iid),
+        self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_REVIEW_PLAN_TEMPLATE,
                 plan_tasks=plan_tasks,
                 approve_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
-            ),
+            )
         )
 
     def _add_unable_to_define_plan_note(self):
         """
         Add a note to the issue to inform the user that the plan could not be defined.
         """
-        note_message = ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
+        self._create_or_update_comment(ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
 
     def _add_unable_to_process_issue_note(self):
         """
         Add a note to the issue to inform the user that the issue could not be processed.
         """
-        note_message = jinja2_formatter(
-            ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
-            bot_name=BOT_NAME,
-            revise_plan_command=REVISE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+        self._create_or_update_comment(
+            jinja2_formatter(
+                ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
+                bot_name=BOT_NAME,
+                revise_plan_command=REVISE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+            )
         )
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
 
     def _add_unable_to_execute_plan_note(self):
         """
         Add a note to the issue to inform the user that the plan could not be executed.
         """
-        note_message = jinja2_formatter(
-            ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
-            bot_name=BOT_NAME,
-            execute_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+        self._create_or_update_comment(
+            jinja2_formatter(
+                ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
+                bot_name=BOT_NAME,
+                execute_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+            )
         )
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
 
     def _add_issue_processed_note(self, merge_request_id: int):
         """
         Add a note to the issue to inform the user that the issue has been processed.
         """
-        note_message = jinja2_formatter(
-            ISSUE_PROCESSED_TEMPLATE, source_repo_id=self.repo_id, merge_request_id=merge_request_id
+        self._create_or_update_comment(
+            jinja2_formatter(ISSUE_PROCESSED_TEMPLATE, source_repo_id=self.repo_id, merge_request_id=merge_request_id)
         )
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, self.issue.iid, note_message)
 
     def _add_plan_questions_note(self, plan_questions: list[str]):
         """
         Add a note to the issue to inform the user that the plan has questions.
         """
-        note_message = jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=plan_questions)
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(
-                self.repo_id, cast("int", self.issue.iid), note_message, self.discussion_id
-            )
-        else:
-            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+        self._create_or_update_comment(jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=plan_questions))
 
     def _add_no_changes_needed_note(self, no_changes_needed: str):
         """
         Add a note to the issue to inform the user that the plan has no changes needed.
         """
-        note_message = jinja2_formatter(ISSUE_NO_CHANGES_NEEDED_TEMPLATE, no_changes_needed=no_changes_needed)
-
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+        self._create_or_update_comment(
+            jinja2_formatter(ISSUE_NO_CHANGES_NEEDED_TEMPLATE, no_changes_needed=no_changes_needed)
+        )
 
     def _add_no_plan_to_execute_note(self, already_executed: bool = False):
         """
         Add a note to the issue to inform the user that the plan could not be executed.
         """
-        note_message = (
+        self._create_or_update_comment(
             "ℹ️ The plan has already been executed." if already_executed else "ℹ️ No pending plan to be executed."
         )
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
 
     def _add_workflow_step_note(
         self, step_name: Literal["pre_plan", "plan", "execute_plan", "apply_format_code", "commit_changes"]
@@ -454,7 +421,7 @@ class IssueAddressorManager(BaseManager):
             step_name: The name of the step
         """
         if step_name == "pre_plan":
-            note_message = "🛠️ Analyzing the issue and preparing the necessary data — *in progress* ..."
+            note_message = "🔍 Analyzing the issue and preparing the necessary data — *in progress* ..."
         elif step_name == "plan":
             note_message = "🛠️ Drafting a detailed plan to address the issue — *in progress* ..."
         elif step_name == "execute_plan":
@@ -464,7 +431,4 @@ class IssueAddressorManager(BaseManager):
         elif step_name == "commit_changes":
             note_message = "💾 Committing code changes — *in progress* ..."
 
-        if self.discussion_id:
-            self.client.create_issue_discussion_note(self.repo_id, self.issue.iid, note_message, self.discussion_id)
-        else:
-            self.client.comment_issue(self.repo_id, cast("int", self.issue.iid), note_message)
+        self._create_or_update_comment(note_message)

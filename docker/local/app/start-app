@@ -4,7 +4,7 @@ set -eu pipefail
 
 django-admin compilemessages --ignore=.venv
 django-admin migrate --noinput
-django-admin setup_webhooks --base-url https://app:8000 --disable-ssl-verification
+# django-admin setup_webhooks --base-url https://app:8000 --disable-ssl-verification
 django-admin mcp_proxy_config --output /home/app/data/mcp-proxy/config.json
 
 exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile /home/app/src/data/certs/cert.key --ssl-certfile /home/app/src/data/certs/cert.crt --reload --reload-dir 'daiv/' "daiv.asgi:application"

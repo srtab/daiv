@@ -42,12 +42,11 @@ class PipelineRepairManager(BaseManager):
         job_name: str,
         discussion_id: str | None = None,
     ):
-        super().__init__(RepoClient.create_instance(), repo_id, ref)
+        super().__init__(RepoClient.create_instance(), repo_id, ref, discussion_id)
         self.thread_id = generate_uuid(f"{repo_id}{merge_request_id}{discussion_id}")
         self.merge_request_id = merge_request_id
         self.job_id = job_id
         self.job_name = job_name
-        self.discussion_id = discussion_id
 
     @classmethod
     async def plan_fix(
@@ -258,35 +257,17 @@ class PipelineRepairManager(BaseManager):
         """
         Add a note to the discussion that the job could not be processed.
         """
-        note_message = (
+        self._create_or_update_comment(
             "❌ We were unable to process the job and fix the pipeline. **Please check the logs** and try again."
         )
-        if self.discussion_id:
-            self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                self.merge_request_id,
-                note_message,
-                discussion_id=self.discussion_id,
-                mark_as_resolved=True,
-            )
-        else:
-            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
 
     def _add_repair_plan_applied_note(self):
         """
         Add a note to the discussion that the repair plan was applied.
         """
-        note_message = jinja2_formatter(PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE, job_name=self.job_name)
-        if self.discussion_id:
-            self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                self.merge_request_id,
-                note_message,
-                discussion_id=self.discussion_id,
-                mark_as_resolved=True,
-            )
-        else:
-            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+        self._create_or_update_comment(
+            jinja2_formatter(PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE, job_name=self.job_name)
+        )
 
     def _add_manual_fix_note(self, troubleshooting: list[dict]):
         """
@@ -302,16 +283,7 @@ class PipelineRepairManager(BaseManager):
             bot_name=BOT_NAME,
             show_warning=True,
         )
-        if self.discussion_id:
-            self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                self.merge_request_id,
-                note_message,
-                discussion_id=self.discussion_id,
-                mark_as_resolved=True,
-            )
-        else:
-            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+        self._create_or_update_comment(note_message)
 
     def _add_plan_review_note(self, state: dict, manual_fix_details: list[TroubleshootingDetail]):
         """
@@ -334,29 +306,13 @@ class PipelineRepairManager(BaseManager):
             plan_tasks=state.get("plan_tasks", []),
             manual_fix_template=manual_fix_template,
         )
-        if self.discussion_id:
-            self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
-            )
-        else:
-            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+        self._create_or_update_comment(note_message)
 
     def _add_no_plan_to_execute_note(self):
         """
         Add a note to the merge request to inform the user that the plan could not be executed.
         """
-        note_message = "ℹ️ No pending automatic repair plan to apply."
-
-        if self.discussion_id:
-            self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                self.merge_request_id,
-                note_message,
-                discussion_id=self.discussion_id,
-                mark_as_resolved=True,
-            )
-        else:
-            self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
+        self._create_or_update_comment("ℹ️ No pending automatic repair plan to apply.")
 
     def _add_workflow_step_note(
         self,
@@ -382,6 +338,21 @@ class PipelineRepairManager(BaseManager):
         elif step_name == "commit_changes":
             note_message = "💾 Committing code changes — *in progress* ..."
 
-        self.client.create_merge_request_discussion_note(
-            self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id
-        )
+        self._create_or_update_comment(note_message)
+
+    def _create_or_update_comment(self, note_message: str):
+        """
+        Create or update a comment on the issue.
+        """
+        if self._comment_id is not None:
+            self.client.update_merge_request_discussion_note(
+                self.repo_id, self.merge_request_id, self.discussion_id, self._comment_id, note_message
+            )
+        else:
+            self._comment_id = self.client.create_merge_request_discussion_note(
+                self.repo_id,
+                self.merge_request_id,
+                note_message,
+                discussion_id=self.discussion_id,
+                mark_as_resolved=True,
+            )
