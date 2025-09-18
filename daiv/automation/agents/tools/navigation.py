@@ -174,7 +174,7 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def read_tool(file_path: str, offset: int = 0, limit: int | None = None, store: Annotated[Any, InjectedStore()] = None) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -187,10 +187,17 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
 
     Args:
         file_path (str): The relative path to the file to read.
+        offset (int): Starting line number (1-indexed). Defaults to 0 (start from beginning).
+        limit (int | None): Maximum number of lines to return. Defaults to 2000 lines. Use None for no limit.
 
     Returns:
-        str: The content of the file.
-    """  # noqa: E501
+        str: The content of the file with line numbers. Line numbers reflect actual file line numbers when using offset/limit.
+
+    Examples:
+        - `read_tool("file.py")` - Read first 2000 lines
+        - `read_tool("file.py", offset=100, limit=50)` - Read lines 101-150
+        - `read_tool("file.py", offset=0, limit=None)` - Read entire file
+    """
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
     ctx = get_repository_ctx()
@@ -222,4 +229,11 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
             source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
         ).model_dump(exclude_none=True)
 
-    return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(content.splitlines()))
+    # Apply offset and limit to content lines
+    lines = content.splitlines()
+    effective_limit = limit if limit is not None else READ_MAX_LINES
+    end_index = min(len(lines), offset + effective_limit)
+    selected_lines = lines[offset:end_index]
+
+    # Return with proper line numbering (actual file line numbers)
+    return "\n".join(f"{offset + i + 1}: {line}" for i, line in enumerate(selected_lines))
