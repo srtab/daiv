@@ -68,4 +68,6 @@ async def close_sandbox_session(**kwargs):
     await DAIVSandboxClient().close_session(sandbox_ctx.get().session_id)
 
 
-before_reset_repository_ctx.connect(close_sandbox_session, dispatch_uid="close_sandbox_session")
+before_reset_repository_ctx.connect(
+    close_sandbox_session, sender="set_repository_ctx", dispatch_uid="close_sandbox_session"
+)

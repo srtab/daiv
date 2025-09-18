@@ -49,7 +49,7 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
         source_path = patched_file.source_file.split("/", NUM_LEADING_SLASH)[-1]
         target_path = patched_file.target_file.split("/", NUM_LEADING_SLASH)[-1]
 
-        fs_file_path = repository_root_dir / patched_file.path.split("/", NUM_LEADING_SLASH)[-1]
+        fs_file_path = repository_root_dir / patched_file.path
 
         if patched_file.is_added_file:
             file_changes.append({

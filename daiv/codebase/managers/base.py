@@ -7,7 +7,7 @@ from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import file_changes_namespace
 from codebase.base import FileChange
-from codebase.clients import AllRepoClient
+from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
 
@@ -16,12 +16,16 @@ class BaseManager:
     Base class for all managers.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None):
+    _comment_id: str | None = None
+    """ The comment ID where DAIV comments are stored. """
+
+    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None, discussion_id: str | None = None):
         self.client = client
         self.repo_id = repo_id
         self.repo_config = RepositoryConfig.get_config(repo_id)
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
+        self.discussion_id = discussion_id
 
     async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
         """
@@ -83,3 +87,24 @@ class BaseManager:
             commit_message = f"[skip ci] {commit_message}"
 
         self.client.commit_changes(self.repo_id, self.ref, commit_message, file_changes)
+
+    def _create_or_update_comment(self, note_message: str):
+        """
+        Create or update a comment on the issue.
+        """
+        if self._comment_id is not None:
+            if self.discussion_id:
+                self.client.update_issue_discussion_note(
+                    self.repo_id, self.issue.iid, self.discussion_id, self._comment_id, note_message
+                )
+            else:
+                self.client.update_issue_comment(self.repo_id, self.issue.iid, self._comment_id, note_message)
+        else:
+            if self.discussion_id:
+                self._comment_id = self.client.create_issue_discussion_note(
+                    self.repo_id, self.issue.iid, note_message, self.discussion_id
+                )
+            else:
+                self._comment_id = self.client.create_issue_comment(
+                    self.repo_id, cast("int", self.issue.iid), note_message
+                )

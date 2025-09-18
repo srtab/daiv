@@ -5,8 +5,8 @@ from daiv.api import api
 from ninja.testing import TestAsyncClient
 from pydantic import SecretStr
 
-from codebase.api.callbacks_gitlab import PushCallback
-from codebase.api.models import Project
+from codebase.gitlab.api.callbacks import PushCallback
+from codebase.gitlab.api.models import Project
 
 
 @pytest.fixture
