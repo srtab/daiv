@@ -7,3 +7,5 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         autodiscover_modules("checks")
+        # Import sandbox module to register signal handlers
+        from . import sandbox  # noqa: F401
