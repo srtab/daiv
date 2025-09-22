@@ -31,11 +31,13 @@ class IssueCallback(BaseCallback):
     def accept_callback(self) -> bool:
         return (
             RepositoryConfig.get_config(self.repository.full_name).issue_addressing.enabled
-            and self.action in ["opened", "edited", "reopened", "labeled"]
-            # Only accept if the issue is a DAIV issue.
             and self.issue.is_daiv()
             and self.issue.state == "open"
-            and bool(self.changes and (self.changes.body.from_value != "" or self.changes.title.from_value != ""))
+            and (
+                self.action == "edited"
+                and bool(self.changes and (self.changes.body.from_value != "" or self.changes.title.from_value != ""))
+                or self.action in ["opened", "reopened", "labeled"]
+            )
         )
 
     async def process_callback(self):
