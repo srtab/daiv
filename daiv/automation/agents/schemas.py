@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
 from codebase.base import ClientType
-from codebase.clients import RepoClient
 from codebase.context import get_repository_ctx
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
@@ -36,7 +35,6 @@ class ImageTemplate(BaseModel):
             list[ImageTemplate]: The list of image templates.
         """
         ctx = get_repository_ctx()
-        repo_client = RepoClient.create_instance()
         image_templates = []
 
         for image in images:
@@ -47,11 +45,11 @@ class ImageTemplate(BaseModel):
                 (parsed_url := urlparse(image.url))
                 and not parsed_url.netloc
                 and not parsed_url.scheme
-                and repo_client.client_slug == ClientType.GITLAB
+                and ctx.client.client_slug == ClientType.GITLAB
                 and parsed_url.path.startswith(("/uploads/", "uploads/"))
                 and (mime_type := extract_valid_image_mimetype(image.url))
             ):
-                image_content = await repo_client.get_project_uploaded_file(ctx.repo_id, image.url)
+                image_content = await ctx.client.get_project_uploaded_file(ctx.repo_id, image.url)
 
                 image_templates.append(
                     ImageTemplate(

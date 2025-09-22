@@ -2,6 +2,8 @@ import logging
 
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
+from codebase.context import set_repository_ctx
+from codebase.github.client import GitHubClient
 
 from .callbacks import IssueCallback, IssueCommentCallback, PushCallback
 from .security import validate_github_webhook
@@ -20,13 +22,18 @@ async def callback(request, payload: IssueCallback | IssueCommentCallback | Push
         logger.warning("GitHub Hook: Unauthorized webhook '%s' for project '%s'", event, payload.repository.full_name)
         return 401, None
 
-    if payload.accept_callback():
-        logger.info("GitHub Hook: Processing hook '%s' for project '%s'", event, payload.repository.full_name)
-        await payload.process_callback()
-    else:
-        logger.info(
-            "GitHub Hook: Ignored hook '%s' for project '%s', conditions for acceptance not met.",
-            event,
-            payload.repository.full_name,
-        )
+    async with set_repository_ctx(
+        payload.repository.full_name, GitHubClient.create_instance(installation_id=payload.installation.id)
+    ) as ctx:
+        payload.set_ctx(ctx)
+
+        if payload.accept_callback():
+            logger.info("GitHub Hook: Processing hook '%s' for project '%s'", event, payload.repository.full_name)
+            await payload.process_callback()
+        else:
+            logger.info(
+                "GitHub Hook: Ignored hook '%s' for project '%s', conditions for acceptance not met.",
+                event,
+                payload.repository.full_name,
+            )
     return 204, None

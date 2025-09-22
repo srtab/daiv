@@ -28,6 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -43,6 +44,19 @@ class GitHubClient(RepoClient):
     client: Github
     client_installation: Installation.Installation
     client_slug = ClientType.GITHUB
+
+    @staticmethod
+    def create_instance(*, installation_id: int, **kwargs) -> GitHubClient:
+        assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
+        assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set."
+
+        return GitHubClient(
+            private_key=settings.GITHUB_PRIVATE_KEY.get_secret_value(),
+            app_id=settings.GITHUB_APP_ID,
+            installation_id=installation_id,
+            url=settings.GITHUB_URL and str(settings.GITHUB_URL) or None,
+            **kwargs,
+        )
 
     def __init__(self, private_key: str, app_id: int, installation_id: int, url: str | None = None):
         if url is None:

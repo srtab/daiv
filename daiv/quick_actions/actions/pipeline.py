@@ -29,7 +29,6 @@ class PipelineQuickAction(QuickAction):
 
     async def execute_action(
         self,
-        repo_id: str,
         *,
         args: str,
         scope: Scope,
@@ -42,7 +41,6 @@ class PipelineQuickAction(QuickAction):
         Execute the pipeline action.
 
         Args:
-            repo_id: The repository ID.
             scope: The scope of the quick action.
             discussion: The discussion that triggered the action.
             note: The note that triggered the action.
@@ -50,10 +48,10 @@ class PipelineQuickAction(QuickAction):
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        pipeline = self.client.get_merge_request_latest_pipeline(repo_id, merge_request.merge_request_id)
+        pipeline = self.ctx.client.get_merge_request_latest_pipeline(self.ctx.repo_id, merge_request.merge_request_id)
         if pipeline is None or pipeline.status != "failed" or not (failed_job := self._get_failed_job(pipeline)):
-            self.client.create_merge_request_discussion_note(
-                repo_id,
+            self.ctx.client.create_merge_request_discussion_note(
+                self.ctx.repo_id,
                 merge_request.merge_request_id,
                 jinja2_formatter(
                     PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE, pipeline_url=pipeline and pipeline.web_url or ""
@@ -66,8 +64,6 @@ class PipelineQuickAction(QuickAction):
         # Plan the fix if the action is the first note in the discussion
         if RepairAction.match(args or "", discussion.is_reply) and len(discussion.notes) == 1:
             await PipelineRepairManager.plan_fix(
-                repo_id,
-                merge_request.source_branch,
                 merge_request.merge_request_id,
                 job_id=failed_job.id,
                 job_name=failed_job.name,
@@ -75,8 +71,6 @@ class PipelineQuickAction(QuickAction):
             )
         elif RepairApplyAction.match(args or "", discussion.is_reply) and len(discussion.notes) > 1:
             await PipelineRepairManager.execute_fix(
-                repo_id,
-                merge_request.source_branch,
                 merge_request.merge_request_id,
                 job_id=failed_job.id,
                 job_name=failed_job.name,

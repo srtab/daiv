@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import Literal
 
 from asgiref.sync import sync_to_async
 from quick_actions.base import Scope
@@ -9,28 +9,35 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
-from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task
 
-from .models import Comment, Issue, IssueChanges, Repository
+from .models import Comment, Installation, Issue, IssueChanges, Repository
 
 logger = logging.getLogger("daiv.webhooks")
 
 
-class IssueCallback(BaseCallback):
+class GitHubCallback(BaseCallback):
+    """
+    GitHub Callback base class
+    """
+
+    repository: Repository
+    installation: Installation
+
+
+class IssueCallback(GitHubCallback):
     """
     Gitlab Issue Webhook
     """
 
     action: Literal["opened", "edited", "reopened", "labeled"]
     issue: Issue
-    repository: Repository
     changes: IssueChanges | None = None
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.repository.full_name).issue_addressing.enabled
+            self._ctx.config.issue_addressing.enabled
             and self.action in ["opened", "edited", "reopened", "labeled"]
             # Only accept if the issue is a DAIV issue.
             and self.issue.is_daiv()
@@ -44,6 +51,8 @@ class IssueCallback(BaseCallback):
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 should_reset_plan=self.should_reset_plan(),
+                client_type=self._ctx.client.client_slug,
+                client_kwargs={"installation_id": self._ctx.client.client_installation.id},
             ).delay
         )()
 
@@ -57,19 +66,14 @@ class IssueCallback(BaseCallback):
         )
 
 
-class IssueCommentCallback(BaseCallback):
+class IssueCommentCallback(GitHubCallback):
     """
     Gitlab Note Webhook
     """
 
     action: Literal["created", "edited", "deleted"]
     issue: Issue
-    repository: Repository
     comment: Comment
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
@@ -78,7 +82,7 @@ class IssueCommentCallback(BaseCallback):
         if (
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
-            or self.comment.user.id == self._client.current_user.id
+            or self.comment.user.id == self._ctx.client.current_user.id
         ):
             return False
 
@@ -93,7 +97,9 @@ class IssueCommentCallback(BaseCallback):
         if self._is_quick_action:
             logger.info("Found quick action in note: '%s'", self._quick_action_command.raw)
 
-            self._client.create_issue_note_emoji(self.repository.full_name, self.issue.number, "+1", self.comment.id)
+            self._ctx.client.create_issue_note_emoji(
+                self.repository.full_name, self.issue.number, "+1", self.comment.id
+            )
 
             await sync_to_async(
                 execute_quick_action_task.si(
@@ -105,12 +111,19 @@ class IssueCommentCallback(BaseCallback):
                     action_verb=self._quick_action_command.verb,
                     action_args=" ".join(self._quick_action_command.args),
                     action_scope=Scope.ISSUE,
+                    client_type=self._ctx.client.client_slug,
+                    client_kwargs={"installation_id": self._ctx.client.client_installation.id},
                 ).delay
             )()
 
         elif self._is_issue_to_address:
             await sync_to_async(
-                address_issue_task.si(repo_id=self.repository.full_name, issue_iid=self.issue.number).delay
+                address_issue_task.si(
+                    repo_id=self.repository.full_name,
+                    issue_iid=self.issue.number,
+                    client_type=self._ctx.client.client_slug,
+                    client_kwargs={"installation_id": self._ctx.client.client_installation.id},
+                ).delay
             )()
 
     @property
@@ -118,7 +131,7 @@ class IssueCommentCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(self._repo_config.quick_actions.enabled and self._quick_action_command)
+        return bool(self._ctx.config.quick_actions.enabled and self._quick_action_command)
 
     @property
     def _is_issue_to_address(self) -> bool:
@@ -126,7 +139,7 @@ class IssueCommentCallback(BaseCallback):
         Accept the webhook if the note is a comment for an issue.
         """
         return bool(
-            self._repo_config.issue_addressing.enabled
+            self._ctx.config.issue_addressing.enabled
             and self.issue
             and self.action == "created"
             and self.issue.is_daiv()
@@ -138,7 +151,7 @@ class IssueCommentCallback(BaseCallback):
         """
         Get the quick action command from the note body.
         """
-        quick_action_command = parse_quick_action(self.comment.body, self._client.current_user.username)
+        quick_action_command = parse_quick_action(self.comment.body, self._ctx.client.current_user.username)
 
         logger.debug("GitHub quick action command: %s", quick_action_command)
 
@@ -165,12 +178,11 @@ class IssueCommentCallback(BaseCallback):
         return quick_action_command
 
 
-class PushCallback(BaseCallback):
+class PushCallback(GitHubCallback):
     """
     GitHub Push Webhook for automatically update the codebase index.
     """
 
-    repository: Repository
     ref: str
 
     def accept_callback(self) -> bool:

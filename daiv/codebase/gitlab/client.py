@@ -28,6 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.conf import settings
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
 
@@ -46,6 +47,16 @@ class GitLabClient(RepoClient):
 
     client: Gitlab
     client_slug = ClientType.GITLAB
+
+    @staticmethod
+    def create_instance(**kwargs) -> GitLabClient:
+        assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
+
+        return GitLabClient(
+            auth_token=settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+            url=settings.GITLAB_URL and str(settings.GITLAB_URL) or None,
+            **kwargs,
+        )
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(

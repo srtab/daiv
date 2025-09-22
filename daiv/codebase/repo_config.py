@@ -12,6 +12,7 @@ from yaml.parser import ParserError
 
 if TYPE_CHECKING:
     from codebase.base import Repository
+    from codebase.clients import RepoClient
 
 CONFIGURATION_FILE_NAME = ".daiv.yml"
 CONFIGURATION_CACHE_KEY_PREFIX = "repo_config:"
@@ -171,7 +172,7 @@ class RepositoryConfig(BaseModel):
     )
 
     @staticmethod
-    def get_config(repo_id: str, repository: Repository | None = None) -> RepositoryConfig:
+    def get_config(repo_id: str, *, client: RepoClient, repository: Repository | None = None) -> RepositoryConfig:
         """
         Get the configuration for a repository.
         If the configuration file is not found, a default configuration is returned.
@@ -183,21 +184,16 @@ class RepositoryConfig(BaseModel):
         Returns:
             RepositoryConfig: The configuration for the repository.
         """
-        from codebase.clients import RepoClient
 
         cache_key = f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}"
 
         if (cached_config := cache.get(cache_key)) is not None:
             return RepositoryConfig(**cached_config)
 
-        repo_client = RepoClient.create_instance()
-
         if repository is None:
-            repository = repo_client.get_repository(repo_id)
+            repository = client.get_repository(repo_id)
 
-        if config_file := repo_client.get_repository_file(
-            repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch
-        ):
+        if config_file := client.get_repository_file(repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch):
             try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
             except (ValidationError, ParserError):

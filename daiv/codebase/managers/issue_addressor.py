@@ -15,8 +15,6 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import get_file_changes
 from codebase.base import ClientType, FileChange, Issue
-from codebase.clients import RepoClient
-from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -76,33 +74,22 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
-        super().__init__(RepoClient.create_instance(), repo_id, ref, discussion_id)
-        self.repository = self.client.get_repository(repo_id)
-        self.repo_config = RepositoryConfig.get_config(repo_id)
-        self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
-        self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
+    def __init__(self, issue_iid: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = self.ctx.client.get_repository(self.ctx.repo_id)
+        self.issue: Issue = self.ctx.client.get_issue(self.ctx.repo_id, issue_iid)
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}{issue_iid}")
 
     @classmethod
-    async def plan_issue(
-        cls,
-        repo_id: str,
-        issue_iid: int,
-        ref: str | None = None,
-        should_reset_plan: bool = False,
-        discussion_id: str | None = None,
-    ):
+    async def plan_issue(cls, issue_iid: int, should_reset_plan: bool = False, *args, **kwargs):
         """
         Plan the issue.
 
         Args:
-            repo_id: The repository ID.
             issue_iid: The issue ID.
-            ref: The reference branch.
             should_reset_plan: Whether to reset the plan.
-            discussion_id: The discussion ID.
         """
-        manager = cls(repo_id, issue_iid, ref, discussion_id)
+        manager = cls(issue_iid, *args, **kwargs)
 
         try:
             await manager._plan_issue(should_reset_plan)
@@ -117,17 +104,14 @@ class IssueAddressorManager(BaseManager):
             manager._add_unable_to_process_issue_note()
 
     @classmethod
-    async def approve_plan(cls, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
+    async def approve_plan(cls, issue_iid: int, *args, **kwargs):
         """
         Approve the plan for the given issue.
 
         Args:
-            repo_id: The repository ID.
             issue_iid: The issue ID.
-            ref: The reference branch.
-            discussion_id: The discussion ID.
         """
-        manager = cls(repo_id, issue_iid, ref, discussion_id)
+        manager = cls(issue_iid, *args, **kwargs)
 
         try:
             await manager._approve_plan()
@@ -246,9 +230,9 @@ class IssueAddressorManager(BaseManager):
         Get the config for the agent.
         """
         return RunnableConfig(
-            tags=[str(self.client.client_slug)],
+            tags=[str(self.ctx.client.client_slug)],
             metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
-            configurable={"thread_id": self.thread_id, "bot_username": self.client.current_user.username},
+            configurable={"thread_id": self.thread_id, "bot_username": self.ctx.client.current_user.username},
         )
 
     @override
@@ -278,11 +262,12 @@ class IssueAddressorManager(BaseManager):
                 "branch_name_convention": self.repo_config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+                tags=[pr_describer_settings.NAME, str(self.ctx.client.client_slug)],
+                configurable={"thread_id": thread_id},
             ),
         )
         merge_requests = self.client.get_issue_related_merge_requests(
-            self.repo_id, cast("int", self.issue.iid), label=BOT_LABEL
+            self.ctx.repo_id, cast("int", self.issue.iid), label=BOT_LABEL
         )
 
         if merge_requests:
@@ -295,18 +280,18 @@ class IssueAddressorManager(BaseManager):
             commit_message = f"[skip ci] {commit_message}"
 
         self.client.commit_changes(
-            self.repo_id,
+            self.ctx.repo_id,
             changes_description.branch,
             commit_message,
             file_changes,
-            start_branch=self.ref,
+            start_branch=self.ctx.ref,
             override_commits=True,
         )
 
         return self.client.update_or_create_merge_request(
-            repo_id=self.repo_id,
+            repo_id=self.ctx.repo_id,
             source_branch=changes_description.branch,
-            target_branch=self.ref,
+            target_branch=self.ctx.ref,
             labels=[BOT_LABEL],
             title=changes_description.title,
             assignee_id=self.issue.assignee.username if self.issue.assignee else None,
@@ -314,11 +299,11 @@ class IssueAddressorManager(BaseManager):
                 ISSUE_MERGE_REQUEST_TEMPLATE,
                 description=changes_description.description,
                 summary=changes_description.summary,
-                source_repo_id=self.repo_id,
+                source_repo_id=self.ctx.repo_id,
                 issue_id=self.issue.iid,
                 bot_name=BOT_NAME,
-                bot_username=self.client.current_user.username,
-                is_gitlab=self.client.client_slug == ClientType.GITLAB,
+                bot_username=self.ctx.client.current_user.username,
+                is_gitlab=self.ctx.client.client_slug == ClientType.GITLAB,
             ),
         )
 
@@ -326,9 +311,9 @@ class IssueAddressorManager(BaseManager):
         """
         Leave a welcome note if the issue has no bot comment.
         """
-        if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
-            self.client.create_issue_comment(
-                self.repo_id,
+        if not any(note.author.id == self.ctx.client.current_user.id for note in self.issue.notes):
+            self.ctx.client.create_issue_comment(
+                self.ctx.repo_id,
                 cast("int", self.issue.iid),
                 jinja2_formatter(
                     ISSUE_PLANNING_TEMPLATE,
@@ -348,7 +333,7 @@ class IssueAddressorManager(BaseManager):
             jinja2_formatter(
                 ISSUE_REVIEW_PLAN_TEMPLATE,
                 plan_tasks=plan_tasks,
-                approve_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                approve_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.ctx.client.current_user.username),
             )
         )
 
@@ -366,7 +351,7 @@ class IssueAddressorManager(BaseManager):
             jinja2_formatter(
                 ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
                 bot_name=BOT_NAME,
-                revise_plan_command=REVISE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                revise_plan_command=REVISE_PLAN_COMMAND.format(bot_username=self.ctx.client.current_user.username),
             )
         )
 
@@ -378,7 +363,7 @@ class IssueAddressorManager(BaseManager):
             jinja2_formatter(
                 ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
                 bot_name=BOT_NAME,
-                execute_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                execute_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.ctx.client.current_user.username),
             )
         )
 
@@ -389,10 +374,10 @@ class IssueAddressorManager(BaseManager):
         self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_PROCESSED_TEMPLATE,
-                source_repo_id=self.repo_id,
+                source_repo_id=self.ctx.repo_id,
                 merge_request_id=merge_request_id,
                 # GitHub already shows the merge request link right after the comment.
-                show_merge_request_link=self.client.client_slug == ClientType.GITLAB,
+                show_merge_request_link=self.ctx.client.client_slug == ClientType.GITLAB,
             )
         )
 
