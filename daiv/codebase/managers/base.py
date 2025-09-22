@@ -7,8 +7,7 @@ from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import file_changes_namespace
 from codebase.base import FileChange
-from codebase.clients import RepoClient
-from codebase.repo_config import RepositoryConfig
+from codebase.context import get_repository_ctx
 
 
 class BaseManager:
@@ -19,12 +18,9 @@ class BaseManager:
     _comment_id: str | None = None
     """ The comment ID where DAIV comments are stored. """
 
-    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None, discussion_id: str | None = None):
-        self.client = client
-        self.repo_id = repo_id
-        self.repo_config = RepositoryConfig.get_config(repo_id)
+    def __init__(self, discussion_id: str | None = None):
+        self.ctx = get_repository_ctx()
         self._file_changes_store = InMemoryStore()
-        self.ref = cast("str", ref or self.repo_config.default_branch)
         self.discussion_id = discussion_id
 
     async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
@@ -33,7 +29,7 @@ class BaseManager:
         """
         for file_change in file_changes:
             await (store or self._file_changes_store).aput(
-                file_changes_namespace(self.repo_id, self.ref), file_change.file_path, {"data": file_change}
+                file_changes_namespace(self.ctx.repo_id, self.ctx.ref), file_change.file_path, {"data": file_change}
             )
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
@@ -53,7 +49,7 @@ class BaseManager:
         suffix_count = 1
         branch_name = original_branch_name
 
-        while self.client.repository_branch_exists(self.repo_id, branch_name) and suffix_count < max_attempts:
+        while self.ctx.client.repository_branch_exists(self.ctx.repo_id, branch_name) and suffix_count < max_attempts:
             branch_name = f"{original_branch_name}-{suffix_count}"
             suffix_count += 1
 
@@ -77,16 +73,17 @@ class BaseManager:
         """
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
-            {"changes": file_changes, "branch_name_convention": self.repo_config.pull_request.branch_name_convention},
+            {"changes": file_changes, "branch_name_convention": self.ctx.config.pull_request.branch_name_convention},
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+                tags=[pr_describer_settings.NAME, str(self.ctx.client.client_slug)],
+                configurable={"thread_id": thread_id},
             ),
         )
         commit_message = changes_description.commit_message
         if skip_ci:
             commit_message = f"[skip ci] {commit_message}"
 
-        self.client.commit_changes(self.repo_id, self.ref, commit_message, file_changes)
+        self.ctx.client.commit_changes(self.ctx.repo_id, self.ctx.ref, commit_message, file_changes)
 
     def _create_or_update_comment(self, note_message: str):
         """
@@ -94,17 +91,17 @@ class BaseManager:
         """
         if self._comment_id is not None:
             if self.discussion_id:
-                self.client.update_issue_discussion_note(
-                    self.repo_id, self.issue.iid, self.discussion_id, self._comment_id, note_message
+                self.ctx.client.update_issue_discussion_note(
+                    self.ctx.repo_id, self.issue.iid, self.discussion_id, self._comment_id, note_message
                 )
             else:
-                self.client.update_issue_comment(self.repo_id, self.issue.iid, self._comment_id, note_message)
+                self.ctx.client.update_issue_comment(self.ctx.repo_id, self.issue.iid, self._comment_id, note_message)
         else:
             if self.discussion_id:
-                self._comment_id = self.client.create_issue_discussion_note(
-                    self.repo_id, self.issue.iid, note_message, self.discussion_id
+                self._comment_id = self.ctx.client.create_issue_discussion_note(
+                    self.ctx.repo_id, self.issue.iid, note_message, self.discussion_id
                 )
             else:
-                self._comment_id = self.client.create_issue_comment(
-                    self.repo_id, cast("int", self.issue.iid), note_message
+                self._comment_id = self.ctx.client.create_issue_comment(
+                    self.ctx.repo_id, cast("int", self.issue.iid), note_message
                 )

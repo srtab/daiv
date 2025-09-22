@@ -4,6 +4,7 @@ from asgiref.sync import async_to_sync
 from celery import shared_task
 from langchain_core.prompts import jinja2_formatter
 
+from codebase.base import ClientType
 from codebase.clients import RepoClient
 from codebase.context import sync_set_repository_ctx
 
@@ -22,6 +23,8 @@ def execute_quick_action_task(
     action_args: str,
     discussion_id: str,
     note_id: int,
+    client_type: ClientType,
+    client_kwargs: dict | None = None,
     issue_id: int | None = None,
     merge_request_id: int | None = None,
 ) -> None:
@@ -35,6 +38,8 @@ def execute_quick_action_task(
         action_args: Additional parameters from the command.
         discussion_id: The ID of the discussion to execute the action on.
         note_id: The ID of the note to execute the action on.
+        client_type: The type of the client to use.
+        client_kwargs: The kwargs to use to create the client.
         issue_id: The ID of the issue to execute the action on (if applicable).
         merge_request_id: The ID of the merge request to execute the action on (if applicable).
     """
@@ -56,7 +61,8 @@ def execute_quick_action_task(
         )
         return
 
-    client = RepoClient.create_instance()
+    client_kwargs = client_kwargs or {}
+    client = RepoClient.create_instance(client_type, **client_kwargs)
 
     issue = None
     merge_request = None
@@ -73,11 +79,10 @@ def execute_quick_action_task(
 
     try:
         with sync_set_repository_ctx(
-            repo_id, ref=merge_request.source_branch if action_scope == Scope.MERGE_REQUEST else None
+            repo_id, client=client, ref=merge_request.source_branch if action_scope == Scope.MERGE_REQUEST else None
         ):
             action = action_classes[0]()
             async_to_sync(action.execute)(
-                repo_id=repo_id,
                 args=action_args,
                 scope=action_scope,
                 discussion=discussion,

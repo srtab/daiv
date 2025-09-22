@@ -26,7 +26,6 @@ class PlanQuickAction(QuickAction):
 
     async def execute_action(
         self,
-        repo_id: str,
         *,
         args: str,
         scope: Scope,
@@ -39,7 +38,6 @@ class PlanQuickAction(QuickAction):
         Execute the plan approval action.
 
         Args:
-            repo_id: The repository ID.
             scope: The scope of the quick action.
             discussion: The discussion that triggered the action.
             note: The note that triggered the action.
@@ -48,6 +46,6 @@ class PlanQuickAction(QuickAction):
             args: Additional parameters from the command.
         """
         if PlanExecuteAction.match(args or "", discussion.is_reply):
-            await IssueAddressorManager.approve_plan(repo_id, issue.iid)
+            await IssueAddressorManager.approve_plan(issue.iid)
         elif PlanReviseAction.match(args or "", discussion.is_reply):
-            await IssueAddressorManager.plan_issue(repo_id, issue.iid, should_reset_plan=True)
+            await IssueAddressorManager.plan_issue(issue.iid, should_reset_plan=True)

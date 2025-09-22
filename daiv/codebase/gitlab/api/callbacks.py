@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import Literal
 
 from asgiref.sync import sync_to_async
 from quick_actions.base import Scope
@@ -9,7 +9,6 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
-from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
@@ -21,20 +20,27 @@ ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 logger = logging.getLogger("daiv.webhooks")
 
 
-class IssueCallback(BaseCallback):
+class GitLabCallback(BaseCallback):
+    """
+    Gitlab Callback base class
+    """
+
+    project: Project
+
+
+class IssueCallback(GitLabCallback):
     """
     Gitlab Issue Webhook
     """
 
     object_kind: Literal["issue", "work_item"]
-    project: Project
     user: User
     object_attributes: Issue
     changes: dict
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
+            self._ctx.config.issue_addressing.enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if there are changes in the title, description, labels or state of the issue.
             and bool(self.changes.keys() & ISSUE_CHANGE_FIELDS)
@@ -53,6 +59,7 @@ class IssueCallback(BaseCallback):
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
                 should_reset_plan=self.should_reset_plan(),
+                client_type=self._ctx.client.client_slug,
             ).delay
         )()
 
@@ -67,21 +74,16 @@ class IssueCallback(BaseCallback):
         )
 
 
-class NoteCallback(BaseCallback):
+class NoteCallback(GitLabCallback):
     """
     Gitlab Note Webhook
     """
 
     object_kind: Literal["note"]
-    project: Project
     user: User
     merge_request: MergeRequest | None = None
     issue: Issue | None = None
     object_attributes: Note
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
@@ -90,7 +92,7 @@ class NoteCallback(BaseCallback):
         if (
             self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
             or self.object_attributes.system
-            or self.user.id == self._client.current_user.id
+            or self.user.id == self._ctx.client.current_user.id
         ):
             return False
 
@@ -107,11 +109,11 @@ class NoteCallback(BaseCallback):
 
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
-                self._client.create_merge_request_note_emoji(
+                self._ctx.client.create_merge_request_note_emoji(
                     self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
                 )
             elif self._action_scope == Scope.ISSUE:
-                self._client.create_issue_note_emoji(
+                self._ctx.client.create_issue_note_emoji(
                     self.project.path_with_namespace, self.issue.iid, "thumbsup", self.object_attributes.id
                 )
 
@@ -125,11 +127,12 @@ class NoteCallback(BaseCallback):
                     action_verb=self._quick_action_command.verb,
                     action_args=" ".join(self._quick_action_command.args),
                     action_scope=self._action_scope,
+                    client_type=self._ctx.client.client_slug,
                 ).delay
             )()
 
         elif self._is_merge_request_review:
-            self._client.create_merge_request_note_emoji(
+            self._ctx.client.create_merge_request_note_emoji(
                 self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
             )
 
@@ -138,12 +141,17 @@ class NoteCallback(BaseCallback):
                     repo_id=self.project.path_with_namespace,
                     merge_request_id=self.merge_request.iid,
                     merge_request_source_branch=self.merge_request.source_branch,
+                    client_type=self._ctx.client.client_slug,
                 ).delay
             )()
 
         elif self._is_issue_to_address:
             await sync_to_async(
-                address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
+                address_issue_task.si(
+                    repo_id=self.project.path_with_namespace,
+                    issue_iid=self.issue.iid,
+                    client_type=self._ctx.client.client_slug,
+                ).delay
             )()
 
     @property
@@ -151,7 +159,7 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a quick action.
         """
-        return bool(self._repo_config.quick_actions.enabled and self._quick_action_command)
+        return bool(self._ctx.config.quick_actions.enabled and self._quick_action_command)
 
     @cached_property
     def _is_merge_request_review(self) -> bool:
@@ -159,7 +167,7 @@ class NoteCallback(BaseCallback):
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         if (
-            not self._repo_config.code_review.enabled
+            not self._ctx.config.code_review.enabled
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
             or self.object_attributes.action != NoteAction.CREATE
             or not self.merge_request
@@ -169,14 +177,14 @@ class NoteCallback(BaseCallback):
             return False
 
         # Shortcut to avoid fetching the discussion if the note mentions DAIV.
-        if note_mentions_daiv(self.object_attributes.note, self._client.current_user):
+        if note_mentions_daiv(self.object_attributes.note, self._ctx.client.current_user):
             return True
 
         # Fetch the discussion to check if it has any notes mentioning DAIV.
-        discussion = self._client.get_merge_request_discussion(
+        discussion = self._ctx.client.get_merge_request_discussion(
             self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
         )
-        return discussion_has_daiv_mentions(discussion, self._client.current_user)
+        return discussion_has_daiv_mentions(discussion, self._ctx.client.current_user)
 
     @property
     def _is_issue_to_address(self) -> bool:
@@ -186,7 +194,7 @@ class NoteCallback(BaseCallback):
         return bool(
             self.object_attributes.noteable_type == NoteableType.ISSUE
             and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.issue_addressing.enabled
+            and self._ctx.config.issue_addressing.enabled
             and self.object_attributes.action == NoteAction.CREATE
             and self.issue
             and self.issue.is_daiv()
@@ -198,7 +206,7 @@ class NoteCallback(BaseCallback):
         """
         Get the quick action command from the note body.
         """
-        quick_action_command = parse_quick_action(self.object_attributes.note, self._client.current_user.username)
+        quick_action_command = parse_quick_action(self.object_attributes.note, self._ctx.client.current_user.username)
 
         if not quick_action_command:
             return None
@@ -230,13 +238,12 @@ class NoteCallback(BaseCallback):
         return Scope.ISSUE if self.object_attributes.noteable_type == NoteableType.ISSUE else Scope.MERGE_REQUEST
 
 
-class PushCallback(BaseCallback):
+class PushCallback(GitLabCallback):
     """
     Gitlab Push Webhook for automatically update the codebase index.
     """
 
     object_kind: Literal["push"]
-    project: Project
     checkout_sha: str
     ref: str
 

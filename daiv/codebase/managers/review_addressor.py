@@ -17,7 +17,6 @@ from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from automation.utils import get_file_changes
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
-from codebase.clients import RepoClient
 from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
 from core.utils import generate_uuid
 
@@ -198,18 +197,17 @@ class ReviewAddressorManager(BaseManager):
     Manages the code review process.
     """
 
-    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None, **kwargs):
-        super().__init__(client, repo_id, ref)
-        self.merge_request_id = kwargs["merge_request_id"]
+    def __init__(self, merge_request_id: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.merge_request_id = merge_request_id
         self.note_processor = NoteProcessor()
 
     @classmethod
-    async def process_review(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
+    async def process_review(cls, merge_request_id: int, *args, **kwargs):
         """
         Process code review for merge request.
         """
-        client = RepoClient.create_instance()
-        manager = cls(client, repo_id, ref, merge_request_id=merge_request_id)
+        manager = cls(merge_request_id, *args, **kwargs)
 
         resolved_discussions: list[tuple[str, str]] = []
 
@@ -227,9 +225,9 @@ class ReviewAddressorManager(BaseManager):
             await manager._commit_changes(file_changes=await get_file_changes(manager._file_changes_store))
 
         for discussion_id, note_id in resolved_discussions:
-            manager.client.update_merge_request_discussion_note(
-                manager.repo_id,
-                manager.merge_request_id,
+            manager.ctx.client.update_merge_request_discussion_note(
+                manager.ctx.repo_id,
+                merge_request_id,
                 discussion_id,
                 note_id,
                 "✅ Review comment addressed—ready for your check!",
@@ -244,10 +242,10 @@ class ReviewAddressorManager(BaseManager):
         Each iteration of dicussions resolution will be processed with the changes from the previous iterations,
         ensuring that the file changes are processed correctly.
         """
-        thread_id = generate_uuid(f"{self.repo_id}{self.ref}{self.merge_request_id}{context.discussion.id}")
+        thread_id = generate_uuid(f"{self.ctx.repo_id}{self.ctx.ref}{self.merge_request_id}{context.discussion.id}")
 
         config = RunnableConfig(
-            tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
+            tags=[review_addressor_settings.NAME, str(self.ctx.client.client_slug)],
             metadata={
                 "merge_request_id": self.merge_request_id,
                 "discussion_id": context.discussion.id,
@@ -255,9 +253,9 @@ class ReviewAddressorManager(BaseManager):
             },
             configurable={
                 "thread_id": thread_id,
-                "source_repo_id": self.repo_id,
-                "source_ref": self.ref,
-                "bot_username": self.client.current_user.username,
+                "source_repo_id": self.ctx.repo_id,
+                "source_ref": self.ctx.ref,
+                "bot_username": self.ctx.client.current_user.username,
             },
         )
 
@@ -281,7 +279,7 @@ class ReviewAddressorManager(BaseManager):
 
             try:
                 async for event in reviewer_addressor.astream_events(
-                    {"notes": notes_to_messages(context.notes, self.client.current_user.id), "diff": context.diff},
+                    {"notes": notes_to_messages(context.notes, self.ctx.client.current_user.id), "diff": context.diff},
                     config,
                     include_names=["plan", "execute_plan"],
                     include_types=["on_chain_start"],
@@ -296,7 +294,7 @@ class ReviewAddressorManager(BaseManager):
             current_state = await reviewer_addressor.aget_state(config, subgraphs=True)
 
             if note := (current_state.values.get("reply") or current_state.values.get("plan_questions")):
-                self.client.update_merge_request_discussion_note(
+                self.ctx.client.update_merge_request_discussion_note(
                     self.repo_id, self.merge_request_id, context.discussion.id, note_id, note
                 )
             elif files_to_commit := await get_file_changes(store=file_changes_store):
@@ -314,7 +312,7 @@ class ReviewAddressorManager(BaseManager):
         merge_request_patches: dict[str, PatchedFile] = {}
         patch_set_all = PatchSet([])
 
-        for mr_diff in self.client.get_merge_request_diff(self.repo_id, self.merge_request_id):
+        for mr_diff in self.ctx.client.get_merge_request_diff(self.ctx.repo_id, self.merge_request_id):
             if mr_diff.diff:
                 patch_set = PatchSet.from_string(mr_diff.diff, encoding="utf-8")
                 merge_request_patches[patch_set[0].path] = patch_set[0]
@@ -329,18 +327,18 @@ class ReviewAddressorManager(BaseManager):
         """
         discussions = []
 
-        for discussion in self.client.get_merge_request_discussions(
-            self.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
+        for discussion in self.ctx.client.get_merge_request_discussions(
+            self.ctx.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
         ):
             if not discussion.notes:
                 logger.info("Ignoring discussion with no notes: %s", discussion.id)
                 continue
 
-            if discussion.notes[-1].author.id == self.client.current_user.id:
+            if discussion.notes[-1].author.id == self.ctx.client.current_user.id:
                 logger.info("Ignoring discussion, DAIV is the current user: %s", discussion.id)
                 continue
 
-            if not (discussion_has_daiv_mentions(discussion, self.client.current_user)):
+            if not (discussion_has_daiv_mentions(discussion, self.ctx.client.current_user)):
                 logger.info("Ignoring discussion, no DAIV mention or DAIV notes: %s", discussion.id)
                 continue
 
@@ -364,7 +362,9 @@ class ReviewAddressorManager(BaseManager):
                     if context.patch_file is None:
                         # This logic assumes that all notes will have the same patch file
                         context.patch_file = merge_request_patches[path]
-                        file_content = self.client.get_repository_file(self.repo_id, path, self.ref)
+                        file_content = self.ctx.client.get_repository_file(
+                            self.ctx.repo_id, path, self.ctx.ref, self.ctx.client.client_slug
+                        )
                         if not file_content:
                             raise ValueError(f"File content '{path}' for note: {note.id} not found")
                         context.diff = self.note_processor.extract_diff(note, context.patch_file, file_content)
@@ -396,10 +396,10 @@ class ReviewAddressorManager(BaseManager):
             note_message = "⚠️ I encountered an issue addressing this comment. Reply to this comment to retry!"
 
         if note_id:
-            self.client.update_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, discussion_id, note_id, note_message
+            self.ctx.client.update_merge_request_discussion_note(
+                self.ctx.repo_id, self.merge_request_id, discussion_id, note_id, note_message
             )
         else:
-            return self.client.create_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, note_message, discussion_id=discussion_id
+            return self.ctx.client.create_merge_request_discussion_note(
+                self.ctx.repo_id, self.merge_request_id, note_message, discussion_id=discussion_id
             )

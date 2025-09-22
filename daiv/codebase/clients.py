@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import functools
 import logging
 from functools import cached_property
 from typing import TYPE_CHECKING
@@ -18,7 +17,6 @@ from .base import (
     Repository,
     User,
 )
-from .conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -198,8 +196,7 @@ class RepoClient(abc.ABC):
         pass
 
     @staticmethod
-    @functools.cache
-    def create_instance() -> RepoClient:
+    def create_instance(client_type: ClientType, **kwargs) -> RepoClient:
         """
         Get the repository client based on the configuration.
 
@@ -209,24 +206,8 @@ class RepoClient(abc.ABC):
         from .github.client import GitHubClient
         from .gitlab.client import GitLabClient
 
-        if settings.CLIENT == ClientType.GITLAB:
-            assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
+        if client_type == ClientType.GITLAB:
+            return GitLabClient.create_instance(**kwargs)
 
-            return GitLabClient(
-                auth_token=settings.GITLAB_AUTH_TOKEN.get_secret_value(),
-                url=settings.GITLAB_URL and str(settings.GITLAB_URL) or None,
-            )
-
-        if settings.CLIENT == ClientType.GITHUB:
-            assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
-            assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
-            assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
-
-            return GitHubClient(
-                private_key=settings.GITHUB_PRIVATE_KEY.get_secret_value(),
-                app_id=settings.GITHUB_APP_ID,
-                installation_id=settings.GITHUB_INSTALLATION_ID,
-                url=settings.GITHUB_URL and str(settings.GITHUB_URL) or None,
-            )
-
-        raise ValueError("Invalid repository client configuration")
+        if client_type == ClientType.GITHUB:
+            return GitHubClient.create_instance(**kwargs)

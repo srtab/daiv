@@ -16,6 +16,14 @@ class User(BaseModel):
     username: str = Field(alias="login")
 
 
+class Installation(BaseModel):
+    """
+    GitHub Installation
+    """
+
+    id: int
+
+
 class Repository(BaseModel):
     """
     GitHub Repository

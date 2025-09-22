@@ -20,7 +20,6 @@ from automation.agents.pipeline_fixer.templates import (
 )
 from automation.utils import get_file_changes
 from codebase.base import ClientType, MergeRequestDiff
-from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -33,25 +32,15 @@ class PipelineRepairManager(BaseManager):
     Manages the pipeline fix process.
     """
 
-    def __init__(
-        self,
-        repo_id: str,
-        ref: str,
-        merge_request_id: int,
-        job_id: int,
-        job_name: str,
-        discussion_id: str | None = None,
-    ):
-        super().__init__(RepoClient.create_instance(), repo_id, ref, discussion_id)
-        self.thread_id = generate_uuid(f"{repo_id}{merge_request_id}{discussion_id}")
+    def __init__(self, merge_request_id: int, job_id: int, job_name: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}{merge_request_id}{self.discussion_id}")
         self.merge_request_id = merge_request_id
         self.job_id = job_id
         self.job_name = job_name
 
     @classmethod
-    async def plan_fix(
-        cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, discussion_id: str | None = None
-    ):
+    async def plan_fix(cls, merge_request_id: int, job_id: int, job_name: str, discussion_id: str | None = None):
         """
         Process pipeline fix for a job.
 
@@ -63,27 +52,35 @@ class PipelineRepairManager(BaseManager):
             job_name: The job name
             discussion_id: The discussion ID that triggered the pipeline fix (optional)
         """
-        manager = cls(repo_id, ref, merge_request_id, job_id, job_name, discussion_id)
+        manager = cls(merge_request_id, job_id, job_name, discussion_id)
 
         try:
             await manager._plan_fix()
         except Exception:
-            logger.exception("Error processing pipeline fix for job '%s[%s]:%d'.", repo_id, ref, merge_request_id)
+            logger.exception(
+                "Error processing pipeline fix for job '%s[%s]:%d'.",
+                manager.ctx.repo_id,
+                manager.ctx.ref,
+                merge_request_id,
+            )
             manager._add_unable_to_process_job_note()
 
     @classmethod
-    async def execute_fix(
-        cls, repo_id: str, ref: str, merge_request_id: int, job_id: int, job_name: str, discussion_id: str | None = None
-    ):
+    async def execute_fix(cls, merge_request_id: int, job_id: int, job_name: str, discussion_id: str | None = None):
         """
         Execute the pipeline fix for a job.
         """
-        manager = cls(repo_id, ref, merge_request_id, job_id, job_name, discussion_id)
+        manager = cls(merge_request_id, job_id, job_name, discussion_id)
 
         try:
             await manager._execute_fix()
         except Exception:
-            logger.exception("Error executing pipeline fix for job '%s[%s]:%d'.", repo_id, ref, merge_request_id)
+            logger.exception(
+                "Error executing pipeline fix for job '%s[%s]:%d'.",
+                manager.ctx.repo_id,
+                manager.ctx.ref,
+                merge_request_id,
+            )
             manager._add_unable_to_process_job_note()
 
     async def _plan_fix(self):
@@ -97,8 +94,8 @@ class PipelineRepairManager(BaseManager):
             current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
             if not current_state.next and current_state.created_at is None:
-                log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, self.job_id))
-                diffs = self.client.get_merge_request_diff(self.repo_id, self.merge_request_id)
+                log_trace = self._clean_logs(self.ctx.client.job_log_trace(self.ctx.repo_id, self.job_id))
+                diffs = self.ctx.client.get_merge_request_diff(self.ctx.repo_id, self.merge_request_id)
 
                 async for event in pipeline_fixer.astream_events(
                     {"diff": self._merge_request_diffs_to_str(diffs), "job_logs": log_trace, "need_manual_fix": False},
@@ -172,15 +169,15 @@ class PipelineRepairManager(BaseManager):
         Get the config for the agent.
         """
         return RunnableConfig(
-            tags=[pipeline_fixer_settings.NAME, str(self.client.client_slug)],
+            tags=[pipeline_fixer_settings.NAME, str(self.ctx.client.client_slug)],
             metadata={"merge_request_id": self.merge_request_id, "job_id": self.job_id},
             configurable={
                 "thread_id": self.thread_id,
-                "source_repo_id": self.repo_id,
-                "source_ref": self.ref,
+                "source_repo_id": self.ctx.repo_id,
+                "source_ref": self.ctx.ref,
                 "job_name": self.job_name,
                 "discussion_id": self.discussion_id,
-                "bot_username": self.client.current_user.username,
+                "bot_username": self.ctx.client.current_user.username,
             },
         )
 
@@ -194,7 +191,7 @@ class PipelineRepairManager(BaseManager):
         Returns:
             Cleaned logs
         """
-        if self.client.client_slug == ClientType.GITLAB:
+        if self.ctx.client.client_slug == ClientType.GITLAB:
             return self._extract_last_command_from_gitlab_logs(self._clean_gitlab_logs(log))
         return log
 
@@ -345,12 +342,12 @@ class PipelineRepairManager(BaseManager):
         Create or update a comment on the issue.
         """
         if self._comment_id is not None:
-            self.client.update_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, self.discussion_id, self._comment_id, note_message
+            self.ctx.client.update_merge_request_discussion_note(
+                self.ctx.repo_id, self.merge_request_id, self.discussion_id, self._comment_id, note_message
             )
         else:
-            self._comment_id = self.client.create_merge_request_discussion_note(
-                self.repo_id,
+            self._comment_id = self.ctx.client.create_merge_request_discussion_note(
+                self.ctx.repo_id,
                 self.merge_request_id,
                 note_message,
                 discussion_id=self.discussion_id,

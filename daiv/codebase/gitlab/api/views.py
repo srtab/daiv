@@ -2,6 +2,8 @@ import logging
 
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
+from codebase.context import set_repository_ctx
+from codebase.gitlab.client import GitLabClient
 
 from .callbacks import IssueCallback, NoteCallback, PushCallback
 from .security import validate_gitlab_webhook
@@ -22,13 +24,16 @@ async def callback(request, payload: IssueCallback | NoteCallback | PushCallback
         logger.warning("GitLab Hook: Unauthorized webhook request for project %d", payload.project.id)
         return 401, None
 
-    if payload.accept_callback():
-        logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
-        await payload.process_callback()
-    else:
-        logger.info(
-            "GitLab Hook: Ignored hook '%s' for project %d, conditions for acceptance not met.",
-            payload.object_kind,
-            payload.project.id,
-        )
+    async with set_repository_ctx(payload.project.path_with_namespace, GitLabClient.create_instance()) as ctx:
+        payload.set_ctx(ctx)
+
+        if payload.accept_callback():
+            logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
+            await payload.process_callback()
+        else:
+            logger.info(
+                "GitLab Hook: Ignored hook '%s' for project %d, conditions for acceptance not met.",
+                payload.object_kind,
+                payload.project.id,
+            )
     return 204, None

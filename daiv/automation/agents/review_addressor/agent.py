@@ -17,7 +17,7 @@ from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
-from codebase.clients import RepoClient
+from codebase.context import get_repository_ctx
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -49,7 +49,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
 
     async def compile(self) -> CompiledStateGraph:
         tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
-        repo_client = RepoClient.create_instance()
+        current_user = get_repository_ctx().client.current_user
 
         return create_react_agent(
             BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
@@ -60,7 +60,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
                 bot_name=BOT_NAME,
-                bot_username=repo_client.current_user.username,
+                bot_username=current_user.username,
             ),
             name="reply_reviewer_react_agent",
         )

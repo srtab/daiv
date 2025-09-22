@@ -23,7 +23,6 @@ class HelpQuickAction(QuickAction):
 
     async def execute_action(
         self,
-        repo_id: str,
         *,
         args: str,
         scope: Scope,
@@ -36,7 +35,6 @@ class HelpQuickAction(QuickAction):
         Execute the help action.
 
         Args:
-            repo_id: The repository ID.
             scope: The scope of the quick action.
             discussion: The discussion that triggered the action.
             note: The note that triggered the action.
@@ -46,15 +44,15 @@ class HelpQuickAction(QuickAction):
         """
         actions = quick_action_registry.get_actions(scope=scope)
         if actions_help := [
-            action.help(self.client.current_user.username, is_reply=discussion.is_reply) for action in actions
+            action.help(self.ctx.client.current_user.username, is_reply=discussion.is_reply) for action in actions
         ]:
             note_message = jinja2_formatter(
                 QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help
             )
             if scope == Scope.ISSUE:
-                self.client.create_issue_discussion_note(repo_id, issue.iid, note_message, discussion.id)
+                self.ctx.client.create_issue_discussion_note(self.ctx.repo_id, issue.iid, note_message, discussion.id)
 
             elif scope == Scope.MERGE_REQUEST:
-                self.client.create_merge_request_discussion_note(
-                    repo_id, merge_request.merge_request_id, note_message, discussion.id, mark_as_resolved=True
+                self.ctx.client.create_merge_request_discussion_note(
+                    self.ctx.repo_id, merge_request.merge_request_id, note_message, discussion.id, mark_as_resolved=True
                 )

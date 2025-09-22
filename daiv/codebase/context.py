@@ -34,12 +34,15 @@ class RepositoryCtx:
     config: RepositoryConfig
     """The repository configuration"""
 
+    client: RepoClient
+    """The repository client"""
+
 
 repository_ctx: ContextVar[RepositoryCtx | None] = ContextVar[RepositoryCtx | None]("repository_ctx", default=None)
 
 
 @asynccontextmanager
-async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterator[RepositoryCtx]:
+async def set_repository_ctx(repo_id: str, client: RepoClient, *, ref: str | None = None) -> Iterator[RepositoryCtx]:
     """
     Set the repository context and load repository files to a temporary directory.
 
@@ -50,17 +53,15 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
     Yields:
         RepositoryCtx: The repository context
     """
-    repo_client = RepoClient.create_instance()
+    repository = client.get_repository(repo_id)
 
-    repository = repo_client.get_repository(repo_id)
-
-    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, client=client)
 
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config)
+    with client.load_repo(repository, sha=ref) as repo_dir:
+        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, client=client)
         token = repository_ctx.set(ctx)
         try:
             yield ctx
@@ -70,21 +71,19 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
 
 
 @contextmanager
-def sync_set_repository_ctx(repo_id: str, ref: str | None = None):
+def sync_set_repository_ctx(repo_id: str, client: RepoClient, *, ref: str | None = None):
     """
     Synchronous facade for set_repository_ctx so it can be used in Celery tasks.
     """
-    repo_client = RepoClient.create_instance()
+    repository = client.get_repository(repo_id)
 
-    repository = repo_client.get_repository(repo_id)
-
-    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, client=client)
 
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config)
+    with client.load_repo(repository, sha=ref) as repo_dir:
+        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, client=client)
         token = repository_ctx.set(ctx)
         try:
             yield ctx
