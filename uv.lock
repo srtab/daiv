@@ -461,7 +461,7 @@ requires-dist = [
     { name = "ipython", specifier = "==9.5" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai"], specifier = "==0.3.27" },
-    { name = "langchain-mcp-adapters", specifier = "==0.1.9" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.10" },
     { name = "langgraph", specifier = "==0.6.7" },
     { name = "langgraph-checkpoint-postgres", specifier = "==2.0.23" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.4.27" },
@@ -1201,16 +1201,16 @@ wheels = [
 
 [[package]]
 name = "langchain-mcp-adapters"
-version = "0.1.9"
+version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "mcp" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b9/74/e36003a43136f9095a5f968c730fbfe894f94284ebe6d2b50bb17d41b8b5/langchain_mcp_adapters-0.1.9.tar.gz", hash = "sha256:0018cf7b5f7bc4c044e05ec20fcb9ebe345311c8d1060c61d411188001ab3aab", size = 22101, upload-time = "2025-07-09T15:56:14.455Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/75/78a5b9f900973376151f1cdce3617502c5991a1f3158244dbd2edcfa4b09/langchain_mcp_adapters-0.1.10.tar.gz", hash = "sha256:ef963bb64526b156de75fb48bb2f921e4f571f9d996185afcacc1d2f5c72fd8d", size = 23062, upload-time = "2025-09-19T15:36:21.877Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/eb/9e98822d3db22beff44449a8f61fca208d4f59d592a7ce67ce4c400b8f8f/langchain_mcp_adapters-0.1.9-py3-none-any.whl", hash = "sha256:fd131009c60c9e5a864f96576bbe757fc1809abd604891cb2e5d6e8aebd6975c", size = 15300, upload-time = "2025-07-09T15:56:13.316Z" },
+    { url = "https://files.pythonhosted.org/packages/12/4e/995bb694373d1cab3bfb7d8680714a3cd1eee4e927fc19065473415c6cf0/langchain_mcp_adapters-0.1.10-py3-none-any.whl", hash = "sha256:ed15229d46e816d8b5686f9d645af9d5aa5bb2895ea49a23b1a65f3e4225a992", size = 15749, upload-time = "2025-09-19T15:36:20.994Z" },
 ]
 
 [[package]]
