@@ -28,6 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.conf import settings
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
 
@@ -49,7 +50,12 @@ class GitLabClient(RepoClient):
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(
-            url=url, private_token=auth_token, timeout=10, keep_base_url=True, retry_transient_errors=True
+            url=url,
+            private_token=auth_token,
+            timeout=10,
+            keep_base_url=True,
+            retry_transient_errors=True,
+            user_agent=settings.CLIENT_USER_AGENT,
         )
 
     @property

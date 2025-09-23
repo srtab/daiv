@@ -11,6 +11,7 @@ from zipfile import ZipFile
 import httpx
 from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
 from github import Issue as GithubIssue
+from github import PullRequest as GithubPullRequest
 from github import Repository as GithubRepository
 from github.GithubException import GithubException
 
@@ -28,6 +29,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -48,7 +50,9 @@ class GitHubClient(RepoClient):
         if url is None:
             url = Consts.DEFAULT_BASE_URL
 
-        integration = GithubIntegration(auth=Auth.AppAuth(app_id, private_key), base_url=url, user_agent="srtab/daiv")
+        integration = GithubIntegration(
+            auth=Auth.AppAuth(app_id, private_key), base_url=url, user_agent=settings.CLIENT_USER_AGENT, per_page=100
+        )
         self.client_installation = integration.get_app_installation(installation_id)
         self.client = self.client_installation.get_github_for_installation()
 
@@ -176,7 +180,7 @@ class GitHubClient(RepoClient):
             if issue.assignee
             else None,
             author=User(id=issue.user.id, username=issue.user.login, name=issue.user.name) if issue.user else None,
-            notes=self._get_issue_notes(issue),
+            notes=self._serialize_comments(issue.get_comments()),
             labels=[label.name for label in issue.labels],
         )
 
@@ -220,24 +224,7 @@ class GitHubClient(RepoClient):
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
         # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=discussion_id, notes=self._get_issue_notes(issue), is_reply=False)
-
-    def _get_issue_notes(self, issue: GithubIssue.Issue) -> list[Note]:
-        """
-        Get the notes of an issue.
-        """
-        return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=NoteType.NOTE,
-                noteable_type=NoteableType.ISSUE,
-                system=False,
-                resolvable=False,
-                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
-            )
-            for note in issue.get_comments()
-        ]
+        return Discussion(id=discussion_id, notes=self._serialize_comments(issue.get_comments()), is_reply=False)
 
     def create_issue_discussion_note(
         self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None
@@ -524,10 +511,11 @@ class GitHubClient(RepoClient):
         return linked_prs
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int):
-        raise NotImplementedError()
+        return self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
 
     def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        raise NotImplementedError()
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        return Discussion(id=discussion_id, notes=self._serialize_comments(pr.get_comments()))
 
     def get_merge_request_discussions(self, repo_id: str, merge_request_id: int):
         raise NotImplementedError()
@@ -560,7 +548,9 @@ class GitHubClient(RepoClient):
                 tempfile.NamedTemporaryFile(
                     prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
                 ) as repo_archive,
-                httpx.stream("GET", archive_url, timeout=10.0) as response,
+                httpx.stream(
+                    "GET", archive_url, timeout=10.0, headers={"User-Agent": settings.CLIENT_USER_AGENT}
+                ) as response,
             ):
                 response.raise_for_status()
 
@@ -629,3 +619,24 @@ class GitHubClient(RepoClient):
             pr.add_to_assignees(assignee_id)
 
         return pr.number
+
+    def _serialize_comments(
+        self, comments: list[GithubIssue.IssueComment | GithubPullRequest.PullRequestComment]
+    ) -> list[Note]:
+        """
+        Get the notes of an issue or a merge request.
+        """
+        return [
+            Note(
+                id=note.id,
+                body=note.body,
+                type=NoteType.NOTE,
+                noteable_type=NoteableType.ISSUE
+                if isinstance(note, GithubIssue.IssueComment)
+                else NoteableType.MERGE_REQUEST,
+                system=False,
+                resolvable=False,
+                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
+            )
+            for note in comments
+        ]

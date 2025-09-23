@@ -6,7 +6,7 @@ import logging
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from .base import (
+from codebase.base import (
     ClientType,
     Discussion,
     FileChange,
@@ -18,7 +18,7 @@ from .base import (
     Repository,
     User,
 )
-from .conf import settings
+from codebase.conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -206,8 +206,8 @@ class RepoClient(abc.ABC):
         Returns:
             The repository client instance.
         """
-        from .github.client import GitHubClient
-        from .gitlab.client import GitLabClient
+        from .github import GitHubClient
+        from .gitlab import GitLabClient
 
         if settings.CLIENT == ClientType.GITLAB:
             assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"

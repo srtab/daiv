@@ -9,5 +9,5 @@ class CodebaseConfig(AppConfig):
     verbose_name = _("Codebase")
 
     def ready(self):
-        autodiscover_modules("github.api.views")
-        autodiscover_modules("gitlab.api.views")
+        autodiscover_modules("clients.github.api.views")
+        autodiscover_modules("clients.gitlab.api.views")
