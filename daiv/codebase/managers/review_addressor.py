@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from django.conf import settings
 
@@ -22,9 +22,6 @@ from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
 from core.utils import generate_uuid
 
 from .base import BaseManager
-
-if TYPE_CHECKING:
-    from codebase.clients import AllRepoClient
 
 logger = logging.getLogger("daiv.agents")
 
@@ -201,7 +198,7 @@ class ReviewAddressorManager(BaseManager):
     Manages the code review process.
     """
 
-    def __init__(self, client: AllRepoClient, repo_id: str, ref: str | None = None, **kwargs):
+    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None, **kwargs):
         super().__init__(client, repo_id, ref)
         self.merge_request_id = kwargs["merge_request_id"]
         self.note_processor = NoteProcessor()

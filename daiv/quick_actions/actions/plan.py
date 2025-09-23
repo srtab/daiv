@@ -34,7 +34,6 @@ class PlanQuickAction(QuickAction):
         note: Note,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        is_reply: bool = False,
     ) -> None:
         """
         Execute the plan approval action.
@@ -47,11 +46,8 @@ class PlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
-            is_reply: Whether the action was triggered as a reply.
         """
-        if PlanExecuteAction.match(args or "", is_reply):
-            await IssueAddressorManager.approve_plan(repo_id, issue.iid, discussion_id=discussion.id)
-        elif PlanReviseAction.match(args or "", is_reply):
-            await IssueAddressorManager.plan_issue(
-                repo_id, issue.iid, should_reset_plan=True, discussion_id=discussion.id
-            )
+        if PlanExecuteAction.match(args or "", discussion.is_reply):
+            await IssueAddressorManager.approve_plan(repo_id, issue.iid)
+        elif PlanReviseAction.match(args or "", discussion.is_reply):
+            await IssueAddressorManager.plan_issue(repo_id, issue.iid, should_reset_plan=True)
