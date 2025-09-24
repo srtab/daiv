@@ -54,7 +54,7 @@ dev = [
   "mypy==1.18.1",
   "openevals==0.1",
   "pre-commit==4.3",
-  "pyopenssl==25.1",
+  "pyopenssl==25.3.0",
   "pyproject-fmt==2.6",
   "pytest==8.4.2",
   "pytest-asyncio==1.1",
