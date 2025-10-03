@@ -1,29 +1,23 @@
 from __future__ import annotations
 
-import abc
-import functools
-import io
 import logging
 import tempfile
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
+from unidiff import PatchSet
 
-from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri
-
-from .base import (
+from codebase.base import (
     ClientType,
     Discussion,
     FileChange,
     Issue,
     Job,
     MergeRequest,
-    MergeRequestDiff,
     Note,
     NoteDiffPosition,
     NotePosition,
@@ -33,198 +27,17 @@ from .base import (
     Repository,
     User,
 )
-from .conf import settings
+from codebase.clients import RepoClient
+from codebase.conf import settings
+from core.constants import BOT_NAME
+from core.utils import async_download_url, build_uri
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Iterator
 
     from gitlab.v4.objects import ProjectHook
 
 logger = logging.getLogger("daiv.clients")
-
-
-class RepoClient(abc.ABC):
-    """
-    Abstract class for repository clients.
-    """
-
-    client_slug: ClientType
-
-    @property
-    @abc.abstractmethod
-    def codebase_url(self) -> str:
-        pass
-
-    @abc.abstractmethod
-    def get_repository(self, repo_id) -> Repository:
-        pass
-
-    @abc.abstractmethod
-    def list_repositories(
-        self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
-    ) -> list[Repository]:
-        pass
-
-    @abc.abstractmethod
-    def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
-        pass
-
-    @abc.abstractmethod
-    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        pass
-
-    @abc.abstractmethod
-    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
-        pass
-
-    @abc.abstractmethod
-    def set_repository_webhooks(
-        self,
-        repo_id: str,
-        url: str,
-        events: list[Literal["push_events", "issues_events", "note_events", "pipeline_events"]],
-        push_events_branch_filter: str | None = None,
-        enable_ssl_verification: bool = True,
-    ) -> bool:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
-        pass
-
-    @abc.abstractmethod
-    def update_or_create_merge_request(
-        self,
-        repo_id: str,
-        source_branch: str,
-        target_branch: str,
-        title: str,
-        description: str,
-        labels: list[str] | None = None,
-        assignee_id: int | None = None,
-    ) -> int | str | None:
-        pass
-
-    @abc.abstractmethod
-    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str):
-        pass
-
-    @abc.abstractmethod
-    def commit_changes(
-        self,
-        repo_id: str,
-        target_branch: str,
-        commit_message: str,
-        file_changes: list[FileChange],
-        start_branch: str | None = None,
-        override_commits: bool = False,
-    ):
-        pass
-
-    @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str) -> Iterator[Path]:
-        pass
-
-    @abc.abstractmethod
-    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
-        pass
-
-    @abc.abstractmethod
-    def comment_issue(self, repo_id: str, issue_id: int, body: str):
-        pass
-
-    @abc.abstractmethod
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: str, note_id: str):
-        pass
-
-    @abc.abstractmethod
-    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
-        pass
-
-    @abc.abstractmethod
-    def get_issue_discussions(self, repo_id: str, issue_id: int) -> list[Discussion]:
-        pass
-
-    @abc.abstractmethod
-    def get_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str) -> Discussion:
-        pass
-
-    @abc.abstractmethod
-    def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
-    ) -> list[MergeRequest]:
-        pass
-
-    @abc.abstractmethod
-    def create_issue_discussion_note(self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None):
-        pass
-
-    @abc.abstractmethod
-    @cached_property
-    def current_user(self) -> User:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_discussions(
-        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
-    ) -> list[Discussion]:  # noqa: A002
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str) -> Discussion:
-        pass
-
-    @abc.abstractmethod
-    def update_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
-    ):
-        pass
-
-    @abc.abstractmethod
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
-        pass
-
-    @abc.abstractmethod
-    def create_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
-    ):
-        pass
-
-    @abc.abstractmethod
-    def job_log_trace(self, repo_id: str, job_id: int) -> str:
-        pass
-
-    @abc.abstractmethod
-    def get_repository_archive(self, repo_id: str, commit_sha: str) -> AbstractContextManager[io.BytesIO]:
-        pass
-
-    @staticmethod
-    @functools.cache
-    def create_instance() -> AllRepoClient:
-        """
-        Get the repository client based on the configuration.
-
-        Returns:
-            The repository client instance.
-        """
-        if settings.CLIENT == ClientType.GITLAB:
-            assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
-            return GitLabClient(auth_token=settings.GITLAB_AUTH_TOKEN.get_secret_value(), url=str(settings.GITLAB_URL))
-        if settings.CLIENT == ClientType.GITHUB:
-            raise NotImplementedError("GitHub client is not implemented yet")
-        raise ValueError("Invalid repository client configuration")
 
 
 class GitLabClient(RepoClient):
@@ -237,11 +50,16 @@ class GitLabClient(RepoClient):
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(
-            url=url, private_token=auth_token, timeout=10, keep_base_url=True, retry_transient_errors=True
+            url=url,
+            private_token=auth_token,
+            timeout=10,
+            keep_base_url=True,
+            retry_transient_errors=True,
+            user_agent=settings.CLIENT_USER_AGENT,
         )
 
     @property
-    def codebase_url(self) -> str:
+    def _codebase_url(self) -> str:
         return self.client.url
 
     def get_repository(self, repo_id: str) -> Repository:
@@ -264,16 +82,13 @@ class GitLabClient(RepoClient):
             topics=project.topics,
         )
 
-    def list_repositories(
-        self, search: str | None = None, topics: list[str] | None = None, load_all: bool = False
-    ) -> list[Repository]:
+    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
         """
         List all repositories.
 
         Args:
             search: The search query.
             topics: The topics to filter the repositories.
-            load_all: Load all repositories.
 
         Returns:
             The list of repositories.
@@ -293,7 +108,7 @@ class GitLabClient(RepoClient):
                 topics=project.topics,
             )
             for project in self.client.projects.list(
-                all=load_all,
+                all=True,
                 iterator=True,
                 archived=False,
                 simple=True,
@@ -331,14 +146,14 @@ class GitLabClient(RepoClient):
         """
         Get the link to a file in a repository.
         """
-        return build_uri(self.codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
+        return build_uri(self._codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
 
     async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         """
         Download a markdown uploaded file from a repository.
         """
         project = self.client.projects.get(repo_id, lazy=True)
-        url = build_uri(self.codebase_url, f"/api/v4/projects/{project.get_id()}/{file_path}")
+        url = build_uri(self._codebase_url, f"/api/v4/projects/{project.get_id()}/{file_path}")
         return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
@@ -363,7 +178,6 @@ class GitLabClient(RepoClient):
         self,
         repo_id: str,
         url: str,
-        events: list[Literal["push_events", "issues_events", "note_events", "pipeline_events"]],
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
@@ -388,12 +202,9 @@ class GitLabClient(RepoClient):
             "url": url,
             "name": BOT_NAME,
             "description": f"WebHooks for {BOT_NAME} integration.",
-            "push_events": "push_events" in events,
-            "merge_requests_events": "merge_requests_events" in events,
-            "issues_events": "issues_events" in events,
-            "pipeline_events": "pipeline_events" in events,
-            "note_events": "note_events" in events,
-            "job_events": "job_events" in events,
+            "push_events": True,
+            "issues_events": True,
+            "note_events": True,
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
@@ -424,31 +235,6 @@ class GitLabClient(RepoClient):
             if hook.name == name:
                 return cast("ProjectHook", hook)
         return None
-
-    def get_commit_related_merge_requests(self, repo_id: str, commit_sha: str) -> list[MergeRequest]:
-        """
-        Get the related merge requests of a commit.
-
-        Args:
-            repo_id: The repository ID.
-            commit_sha: The commit sha.
-
-        Returns:
-            The list of merge requests.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        return [
-            MergeRequest(
-                repo_id=repo_id,
-                merge_request_id=cast("int", mr["iid"]),
-                source_branch=mr["source_branch"],
-                target_branch=mr["target_branch"],
-                title=mr["title"],
-                description=mr["description"],
-                labels=mr["labels"],
-            )
-            for mr in project.commits.get(commit_sha).merge_requests()
-        ]
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """
@@ -499,7 +285,7 @@ class GitLabClient(RepoClient):
             ],
         )
 
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
         """
         Get the latest diff of a merge request.
         https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
@@ -515,22 +301,14 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         # The first version is the one who has the latest changes, we don't need to get all history of the diffs.
         first_merge_request_version = merge_request.diffs.list(iterator=True).next()
-        for version_diff in merge_request.diffs.get(first_merge_request_version.id, unidiff="true").diffs:
-            if version_diff["generated_file"]:
-                # ignore generated files, for more details:
-                # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
-                continue
-            yield MergeRequestDiff(
-                repo_id=repo_id,
-                merge_request_id=merge_request_id,
-                ref=first_merge_request_version.head_commit_sha,
-                old_path=version_diff["old_path"],
-                new_path=version_diff["new_path"],
-                diff=version_diff["diff"],
-                new_file=version_diff["new_file"],
-                renamed_file=version_diff["renamed_file"],
-                deleted_file=version_diff["deleted_file"],
-            )
+        extracted_diffs = [
+            version_diff["diff"]
+            for version_diff in merge_request.diffs.get(first_merge_request_version.id, unidiff="true").diffs
+            # ignore generated files, for more details:
+            # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
+            if not version_diff["generated_file"]
+        ]
+        return PatchSet.from_string("\n".join(extracted_diffs), encoding="utf-8")
 
     def update_or_create_merge_request(
         self,
@@ -582,7 +360,7 @@ class GitLabClient(RepoClient):
                 return merge_request.get_id()
             raise e
 
-    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str):
+    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str) -> str | None:
         """
         Comment on a merge request.
 
@@ -593,7 +371,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        merge_request.notes.create({"body": body})
+        return merge_request.notes.create({"body": body}).id
 
     def commit_changes(
         self,
@@ -698,7 +476,7 @@ class GitLabClient(RepoClient):
             title=issue.title,
             description=issue.description,
             state=issue.state,
-            notes=self.get_issue_notes(repo_id, issue_id),
+            notes=self._get_issue_notes(repo_id, issue_id),
             labels=issue.labels,
             assignee=User(
                 id=issue.assignee.get("id"), username=issue.assignee.get("username"), name=issue.assignee.get("name")
@@ -708,10 +486,9 @@ class GitLabClient(RepoClient):
             author=User(
                 id=issue.author.get("id"), username=issue.author.get("username"), name=issue.author.get("name")
             ),
-            related_merge_requests=self.get_issue_related_merge_requests(repo_id, issue_id),
         )
 
-    def comment_issue(self, repo_id: str, issue_id: int, body: str):
+    def create_issue_comment(self, repo_id: str, issue_id: int, body: str) -> str | None:
         """
         Comment on an issue.
 
@@ -719,10 +496,29 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             issue_id: The issue ID.
             body: The comment body.
+
+        Returns:
+            The comment ID.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        issue.notes.create({"body": body})
+        return issue.notes.create({"body": body}).id
+
+    def update_issue_comment(self, repo_id: str, issue_id: int, comment_id: int, body: str):
+        """
+        Update a comment on an issue.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            comment_id: The comment ID.
+            body: The comment body.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        comment = issue.notes.get(comment_id)
+        comment.body = body
+        comment.save()
 
     def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: str, note_id: str):
         """
@@ -733,7 +529,7 @@ class GitLabClient(RepoClient):
         note = issue.notes.get(note_id, lazy=True)
         note.awardemojis.create({"name": emoji})
 
-    def get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
+    def _get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
         """
         Get the notes of an issue.
 
@@ -763,31 +559,6 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def get_issue_discussions(
-        self, repo_id: str, issue_id: int, note_types: list[NoteType] | None = None
-    ) -> list[Discussion]:  # noqa: A002
-        """
-        Get the discussions from a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The merge request ID.
-            note_type: The note type.
-
-        Returns:
-            The list of discussions.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-
-        discussions = []
-        for discussion in issue.discussions.list(get_all=True, iterator=True):
-            if discussion.individual_note is False and (
-                notes := self._serialize_notes(discussion.attributes["notes"], note_types)
-            ):
-                discussions.append(Discussion(id=discussion.id, notes=notes))
-        return discussions
-
     def get_issue_discussion(
         self, repo_id: str, issue_id: int, discussion_id: str, only_resolvable: bool = True
     ) -> Discussion:
@@ -805,10 +576,8 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         discussion = issue.discussions.get(discussion_id)
-        return Discussion(
-            id=discussion.id,
-            notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable),
-        )
+        notes = self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable)
+        return Discussion(id=discussion.id, notes=notes, is_reply=len(notes) > 1)
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
@@ -841,7 +610,9 @@ class GitLabClient(RepoClient):
             and (label is None or label in mr["labels"])
         ]
 
-    def create_issue_discussion_note(self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None):
+    def create_issue_discussion_note(
+        self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None
+    ) -> str | None:
         """
         Create a note in a discussion of a issue.
 
@@ -850,29 +621,37 @@ class GitLabClient(RepoClient):
             issue_id: The issue ID.
             body: The note body.
             discussion_id: The discussion ID.
+
+        Returns:
+            The note ID.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         if discussion_id:
             discussion = issue.discussions.get(discussion_id, lazy=True)
-            discussion.notes.create({"body": body})
-        else:
-            issue.discussions.create({"body": body})
+            note = discussion.notes.create({"body": body})
+            return note.id
 
-    def delete_issue_discussion(self, repo_id: str, issue_id: int, discussion_id: str):
+        discussion = issue.discussions.create({"body": body})
+        return discussion.attributes["notes"][0]["id"]
+
+    def update_issue_discussion_note(self, repo_id: str, issue_id: int, discussion_id: str, note_id: str, body: str):
         """
-        Delete a discussion in an issue.
+        Update a comment on an issue.
 
         Args:
             repo_id: The repository ID.
-            issue_id: The merge request ID.
+            issue_id: The issue ID.
             discussion_id: The discussion ID.
+            note_id: The note ID.
+            body: The comment body.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         discussion = issue.discussions.get(discussion_id, lazy=True)
-        for note in discussion.attributes["notes"]:
-            discussion.notes.delete(note["id"])
+        note = discussion.notes.get(note_id)
+        note.body = body
+        note.save()
 
     @cached_property
     def current_user(self) -> User:
@@ -992,6 +771,84 @@ class GitLabClient(RepoClient):
             and (note_types is None or note["type"] in note_types)
         ]
 
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
+        """
+        Create an emoji in a note of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            emoji: The emoji name.
+            note_id: The note ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        note = merge_request.notes.get(note_id, lazy=True)
+        note.awardemojis.create({"name": emoji})
+
+    def create_merge_request_review(
+        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
+    ) -> str:
+        """
+        Create a comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+            discussion_id: The discussion ID.
+
+        Returns:
+            The note ID.
+        """
+        return self.create_merge_request_discussion_note(repo_id, merge_request_id, body, discussion_id)
+
+    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        """
+        Mark a review as resolved.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        merge_request.discussions.update(discussion_id, {"resolved": True})
+
+    def create_merge_request_discussion_note(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        body: str,
+        discussion_id: str | None = None,
+        mark_as_resolved: bool = False,
+    ) -> str:
+        """
+        Create a note in a discussion of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The note body.
+            discussion_id: The discussion ID.
+            mark_as_resolved: Whether to mark the note as resolved.
+
+        Returns:
+            The note ID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        to_return = None
+
+        if discussion_id:
+            discussion = merge_request.discussions.get(discussion_id, lazy=True)
+            to_return = discussion.notes.create({"body": body}).id
+        else:
+            discussion = merge_request.discussions.create({"body": body})
+            discussion_id = discussion.attributes["notes"][0]["id"]
+            to_return = discussion_id
+
+        if mark_as_resolved:
+            self.mark_merge_request_review_as_resolved(repo_id, merge_request_id, discussion_id)
+
+        return to_return
+
     def update_merge_request_discussion_note(
         self,
         repo_id: str,
@@ -1021,54 +878,6 @@ class GitLabClient(RepoClient):
         if mark_as_resolved:
             merge_request.discussions.update(discussion_id, {"resolved": True})
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
-        """
-        Create an emoji in a note of a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            emoji: The emoji name.
-            note_id: The note ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        note = merge_request.notes.get(note_id, lazy=True)
-        note.awardemojis.create({"name": emoji})
-
-    def create_merge_request_discussion_note(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        discussion_id: str | None = None,
-        mark_as_resolved: bool = False,
-    ) -> str:
-        """
-        Create a note in a discussion of a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            body: The note body.
-            discussion_id: The discussion ID.
-            mark_as_resolved: Whether to mark the note as resolved.
-
-        Returns:
-            The note ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        if discussion_id:
-            discussion = merge_request.discussions.get(discussion_id, lazy=True)
-            note = discussion.notes.create({"body": body})
-            if mark_as_resolved:
-                merge_request.discussions.update(discussion_id, {"resolved": True})
-            return note.id
-        else:
-            discussion = merge_request.discussions.create({"body": body})
-            return discussion.attributes["notes"][0]["id"]
-
     def job_log_trace(self, repo_id: str, job_id: int) -> str:
         """
         Get the log trace of a job.
@@ -1083,36 +892,3 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         job = project.jobs.get(job_id, lazy=True)
         return job.trace().decode("utf-8")
-
-    @contextmanager
-    def get_repository_archive(self, repo_id: str, sha: str) -> AbstractContextManager[io.BytesIO]:  # type: ignore
-        """
-        Get the archive of a repository.
-
-        Args:
-            repo_id: The repository ID.
-            sha: The commit sha.
-
-        Yields:
-            The archive of the repository.
-        """
-        tarstream = io.BytesIO()
-        project = self.client.projects.get(repo_id)
-        project.repository_archive(sha=sha, streamed=True, action=tarstream.write)
-
-        tarstream.seek(0)
-        yield tarstream
-        tarstream.close()
-
-
-class GitHubClient(RepoClient):
-    """
-    GitHub client to interact with GitHub repositories.
-
-    Note: This class is not implemented yet. It is a placeholder for future development.
-    """
-
-    client_slug = ClientType.GITHUB
-
-
-AllRepoClient = GitHubClient | GitLabClient

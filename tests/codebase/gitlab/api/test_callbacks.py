@@ -1,10 +1,10 @@
 import pytest
 
-from codebase.api.callbacks_gitlab import NoteCallback
-from codebase.api.models import MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
+from codebase.gitlab.api.callbacks import NoteCallback
+from codebase.gitlab.api.models import MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.repo_config import RepositoryConfig
 
 

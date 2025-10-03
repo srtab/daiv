@@ -36,11 +36,10 @@ class Command(BaseCommand):
         elif not secret_token and settings.CLIENT == "github" and settings.GITHUB_WEBHOOK_SECRET:
             secret_token = settings.GITHUB_WEBHOOK_SECRET.get_secret_value()
 
-        for project in repo_client.list_repositories(load_all=True):
+        for project in repo_client.list_repositories():
             created = repo_client.set_repository_webhooks(
                 project.slug,
                 build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/"),
-                ["push_events", "issues_events", "note_events"],
                 enable_ssl_verification=not options["disable_ssl_verification"],
                 secret_token=secret_token,
             )

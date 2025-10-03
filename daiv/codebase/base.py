@@ -123,7 +123,7 @@ class FileChange(BaseModel):
 
 class User(BaseModel):
     id: int
-    name: str
+    name: str | None = None
     username: str
 
 
@@ -158,6 +158,11 @@ class NotePositionType(StrEnum):
     FILE = "file"
 
 
+class NoteLineInfo(BaseModel):
+    side: Literal["source", "target"]
+    line_no: int
+
+
 class NotePosition(BaseModel):
     head_sha: str
     old_path: str
@@ -166,6 +171,7 @@ class NotePosition(BaseModel):
     old_line: int | None = None
     new_line: int | None = None
     line_range: NotePositionLineRange | None = None
+    line_info: NoteLineInfo | None = None
 
 
 class NoteType(StrEnum):
@@ -188,8 +194,9 @@ class Note(BaseModel):
 
 
 class Discussion(BaseModel):
-    id: str
+    id: str | None = None
     notes: list[Note] = Field(default_factory=list)
+    is_reply: bool = False
 
 
 class IssueType(StrEnum):
@@ -207,7 +214,6 @@ class Issue(BaseModel):
     author: User
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
-    related_merge_requests: list[MergeRequest] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
 
     @field_validator("title", mode="after")

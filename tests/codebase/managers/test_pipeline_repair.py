@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from codebase.base import ClientType, MergeRequestDiff
-from codebase.clients import AllRepoClient
+from codebase.clients import RepoClient
 from codebase.managers.pipeline_repair import PipelineRepairManager
 
 
@@ -18,7 +18,7 @@ def pipeline_fixer() -> PipelineRepairManager:
         job_name="test-job",
         discussion_id="test-discussion",
     )
-    pipeline_fixer.client = Mock(spec=AllRepoClient)
+    pipeline_fixer.client = Mock(spec=RepoClient)
     return pipeline_fixer
 
 

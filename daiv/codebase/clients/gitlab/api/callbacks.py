@@ -9,11 +9,12 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
-from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
+
+from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 
@@ -93,7 +94,7 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_to_address)
+        return bool(self._is_quick_action or self._is_merge_request_review)
 
     async def process_callback(self):
         """
@@ -140,11 +141,6 @@ class NoteCallback(BaseCallback):
                 ).delay
             )()
 
-        elif self._is_issue_to_address:
-            await sync_to_async(
-                address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
-            )()
-
     @property
     def _is_quick_action(self) -> bool:
         """
@@ -176,21 +172,6 @@ class NoteCallback(BaseCallback):
             self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
         )
         return discussion_has_daiv_mentions(discussion, self._client.current_user)
-
-    @property
-    def _is_issue_to_address(self) -> bool:
-        """
-        Accept the webhook if the note is a comment for an issue.
-        """
-        return bool(
-            self.object_attributes.noteable_type == NoteableType.ISSUE
-            and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.issue_addressing.enabled
-            and self.object_attributes.action == NoteAction.CREATE
-            and self.issue
-            and self.issue.is_daiv()
-            and self.issue.state == "opened"
-        )
 
     @cached_property
     def _quick_action_command(self) -> QuickActionCommand | None:

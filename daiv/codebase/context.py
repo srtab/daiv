@@ -65,7 +65,7 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
         try:
             yield ctx
         finally:
-            await before_reset_repository_ctx.asend(None)
+            await before_reset_repository_ctx.asend_robust("set_repository_ctx")
             repository_ctx.reset(token)
 
 
@@ -89,7 +89,7 @@ def sync_set_repository_ctx(repo_id: str, ref: str | None = None):
         try:
             yield ctx
         finally:
-            before_reset_repository_ctx.send(None)
+            before_reset_repository_ctx.send_robust("set_repository_ctx")
             repository_ctx.reset(token)
 
 
