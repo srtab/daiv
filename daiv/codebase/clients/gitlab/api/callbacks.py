@@ -94,7 +94,7 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_to_address)
+        return bool(self._is_quick_action or self._is_merge_request_review)
 
     async def process_callback(self):
         """
@@ -141,11 +141,6 @@ class NoteCallback(BaseCallback):
                 ).delay
             )()
 
-        elif self._is_issue_to_address:
-            await sync_to_async(
-                address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
-            )()
-
     @property
     def _is_quick_action(self) -> bool:
         """
@@ -177,21 +172,6 @@ class NoteCallback(BaseCallback):
             self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
         )
         return discussion_has_daiv_mentions(discussion, self._client.current_user)
-
-    @property
-    def _is_issue_to_address(self) -> bool:
-        """
-        Accept the webhook if the note is a comment for an issue.
-        """
-        return bool(
-            self.object_attributes.noteable_type == NoteableType.ISSUE
-            and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.issue_addressing.enabled
-            and self.object_attributes.action == NoteAction.CREATE
-            and self.issue
-            and self.issue.is_daiv()
-            and self.issue.state == "opened"
-        )
 
     @cached_property
     def _quick_action_command(self) -> QuickActionCommand | None:

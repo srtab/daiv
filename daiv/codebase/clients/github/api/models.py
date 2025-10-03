@@ -36,14 +36,22 @@ class Issue(BaseModel):
     title: str
     state: Literal["open", "closed"]
     labels: list[dict] = Field(default_factory=list)
+    pull_request: dict | None = None
+    draft: bool = False
 
     def is_daiv(self) -> bool:
         """
-        Check if the issue is a DAIV issue
+        Check if the issue is a DAIV issue.
         """
         return any(label["name"].lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(
             BOT_LABEL
         )
+
+    def is_pull_request(self) -> bool:
+        """
+        Check if the issue is a pull request.
+        """
+        return self.pull_request is not None
 
 
 class IssueChange(BaseModel):
@@ -71,3 +79,36 @@ class Comment(BaseModel):
     id: int
     body: str
     user: User
+
+
+class Review(BaseModel):
+    """
+    GitHub Review
+    """
+
+    id: int
+    user: User
+    body: str | None = None
+
+
+class Ref(BaseModel):
+    """
+    GitHub Ref
+    """
+
+    ref: str
+    sha: str
+
+
+class PullRequest(BaseModel):
+    """
+    GitHub Pull Request
+    """
+
+    id: int
+    number: int
+    title: str
+    state: Literal["open", "closed"]
+    draft: bool = False
+    head: Ref
+    base: Ref

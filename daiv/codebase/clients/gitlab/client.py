@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
+from unidiff import PatchSet
 
 from codebase.base import (
     ClientType,
@@ -17,7 +18,6 @@ from codebase.base import (
     Issue,
     Job,
     MergeRequest,
-    MergeRequestDiff,
     Note,
     NoteDiffPosition,
     NotePosition,
@@ -33,7 +33,7 @@ from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Iterator
 
     from gitlab.v4.objects import ProjectHook
 
@@ -285,7 +285,7 @@ class GitLabClient(RepoClient):
             ],
         )
 
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
         """
         Get the latest diff of a merge request.
         https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
@@ -301,22 +301,14 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         # The first version is the one who has the latest changes, we don't need to get all history of the diffs.
         first_merge_request_version = merge_request.diffs.list(iterator=True).next()
-        for version_diff in merge_request.diffs.get(first_merge_request_version.id, unidiff="true").diffs:
-            if version_diff["generated_file"]:
-                # ignore generated files, for more details:
-                # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
-                continue
-            yield MergeRequestDiff(
-                repo_id=repo_id,
-                merge_request_id=merge_request_id,
-                ref=first_merge_request_version.head_commit_sha,
-                old_path=version_diff["old_path"],
-                new_path=version_diff["new_path"],
-                diff=version_diff["diff"],
-                new_file=version_diff["new_file"],
-                renamed_file=version_diff["renamed_file"],
-                deleted_file=version_diff["deleted_file"],
-            )
+        extracted_diffs = [
+            version_diff["diff"]
+            for version_diff in merge_request.diffs.get(first_merge_request_version.id, unidiff="true").diffs
+            # ignore generated files, for more details:
+            # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
+            if not version_diff["generated_file"]
+        ]
+        return PatchSet.from_string("\n".join(extracted_diffs), encoding="utf-8")
 
     def update_or_create_merge_request(
         self,
@@ -794,6 +786,31 @@ class GitLabClient(RepoClient):
         note = merge_request.notes.get(note_id, lazy=True)
         note.awardemojis.create({"name": emoji})
 
+    def create_merge_request_review(
+        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
+    ) -> str:
+        """
+        Create a comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+            discussion_id: The discussion ID.
+
+        Returns:
+            The note ID.
+        """
+        return self.create_merge_request_discussion_note(repo_id, merge_request_id, body, discussion_id)
+
+    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        """
+        Mark a review as resolved.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        merge_request.discussions.update(discussion_id, {"resolved": True})
+
     def create_merge_request_discussion_note(
         self,
         repo_id: str,
@@ -817,15 +834,20 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        to_return = None
+
         if discussion_id:
             discussion = merge_request.discussions.get(discussion_id, lazy=True)
-            note = discussion.notes.create({"body": body})
-            if mark_as_resolved:
-                merge_request.discussions.update(discussion_id, {"resolved": True})
-            return note.id
+            to_return = discussion.notes.create({"body": body}).id
         else:
             discussion = merge_request.discussions.create({"body": body})
-            return discussion.attributes["notes"][0]["id"]
+            discussion_id = discussion.attributes["notes"][0]["id"]
+            to_return = discussion_id
+
+        if mark_as_resolved:
+            self.mark_merge_request_review_as_resolved(repo_id, merge_request_id, discussion_id)
+
+        return to_return
 
     def update_merge_request_discussion_note(
         self,

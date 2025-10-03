@@ -9,28 +9,40 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
+from codebase.base import NoteType
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task
+from codebase.tasks import address_issue_task, address_review_task
+from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
 
-from .models import Comment, Issue, IssueChanges, Repository
+from .models import Comment, Issue, IssueChanges, PullRequest, Repository, Review
 
 logger = logging.getLogger("daiv.webhooks")
 
 
-class IssueCallback(BaseCallback):
+class GitHubCallback(BaseCallback):
     """
-    Gitlab Issue Webhook
+    Base class for GitHub callbacks.
+    """
+
+    repository: Repository
+
+
+class IssueCallback(GitHubCallback):
+    """
+    GitHub Issue Webhook for automatically address the issue.
     """
 
     action: Literal["opened", "edited", "reopened", "labeled"]
     issue: Issue
-    repository: Repository
     changes: IssueChanges | None = None
+
+    def model_post_init(self, __context: Any):
+        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
 
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.repository.full_name).issue_addressing.enabled
+            self._repo_config.issue_addressing.enabled
             and self.issue.is_daiv()
             and self.issue.state == "open"
             and (
@@ -59,14 +71,13 @@ class IssueCallback(BaseCallback):
         )
 
 
-class IssueCommentCallback(BaseCallback):
+class IssueCommentCallback(GitHubCallback):
     """
-    Gitlab Note Webhook
+    GitHub Note Webhook for automatically address the review feedback on an pull request or process quick actions.
     """
 
     action: Literal["created", "edited", "deleted"]
     issue: Issue
-    repository: Repository
     comment: Comment
 
     def model_post_init(self, __context: Any):
@@ -84,7 +95,7 @@ class IssueCommentCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_issue_to_address)
+        return bool(self._is_quick_action or self._is_merge_request_review)
 
     async def process_callback(self):
         """
@@ -110,9 +121,18 @@ class IssueCommentCallback(BaseCallback):
                 ).delay
             )()
 
-        elif self._is_issue_to_address:
+        elif self._is_merge_request_review:
+            self._client.create_issue_note_emoji(self.repository.full_name, self.issue.number, "+1", self.comment.id)
+
+            # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
+            merge_request = self._client.get_merge_request(self.repository.full_name, self.issue.number)
+
             await sync_to_async(
-                address_issue_task.si(repo_id=self.repository.full_name, issue_iid=self.issue.number).delay
+                address_review_task.si(
+                    repo_id=self.repository.full_name,
+                    merge_request_id=self.issue.number,
+                    merge_request_source_branch=merge_request.source_branch,
+                ).delay
             )()
 
     @property
@@ -123,16 +143,17 @@ class IssueCommentCallback(BaseCallback):
         return bool(self._repo_config.quick_actions.enabled and self._quick_action_command)
 
     @property
-    def _is_issue_to_address(self) -> bool:
+    def _is_merge_request_review(self) -> bool:
         """
-        Accept the webhook if the note is a comment for an issue.
+        Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         return bool(
-            self._repo_config.issue_addressing.enabled
-            and self.issue
-            and self.action == "created"
-            and self.issue.is_daiv()
+            self._repo_config.code_review.enabled
+            and self.issue.is_pull_request()
             and self.issue.state == "open"
+            # and not self.issue.draft
+            and self.action in ["created", "edited"]
+            and note_mentions_daiv(self.comment.body, self._client.current_user)
         )
 
     @cached_property
@@ -167,24 +188,67 @@ class IssueCommentCallback(BaseCallback):
         return quick_action_command
 
 
-class PushCallback(BaseCallback):
+class PullRequestReviewCallback(GitHubCallback):
     """
-    GitHub Push Webhook for automatically update the codebase index.
+    GitHub Pull Request Review Webhook for automatically address the review feedback.
     """
 
-    repository: Repository
+    action: Literal["submitted", "edited", "dismissed"]
+    pull_request: PullRequest
+    review: Review
+
+    def model_post_init(self, __context: Any):
+        self._client = RepoClient.create_instance()
+
+    def accept_callback(self) -> bool:
+        """
+        Check if the webhook is accepted.
+        """
+        return (
+            self.action in ["submitted", "edited"]
+            and self.pull_request.state == "open"
+            # and not self.pull_request.draft
+            # Ignore the DAIV review itself
+            and self.review.user.id != self._client.current_user.id
+            and (
+                discussions := self._client.get_merge_request_discussions(
+                    self.repository.full_name, self.pull_request.number, [NoteType.DIFF_NOTE]
+                )
+            )
+            and any(discussion_has_daiv_mentions(discussion, self._client.current_user) for discussion in discussions)
+        )
+
+    async def process_callback(self):
+        """
+        Trigger the task to address the review feedback or issue comment like the plan approval use case.
+
+        GitLab Note Webhook is called multiple times, one per note/discussion.
+        """
+        await sync_to_async(
+            address_review_task.si(
+                repo_id=self.repository.full_name,
+                merge_request_id=self.pull_request.number,
+                merge_request_source_branch=self.pull_request.head.ref,
+            ).delay
+        )()
+
+
+class PushCallback(GitHubCallback):
+    """
+    GitHub Push Webhook for automatically invalidate the cache for the repository configurations.
+    """
+
     ref: str
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the push is to the default branch or to any branch with MR created.
+        Accept the webhook if the push is to the default branch.
         """
         return self.ref.endswith(self.repository.default_branch)
 
     async def process_callback(self):
         """
-        Process the push webhook to update the codebase index and invalidate the cache for the
-        repository configurations.
+        Process the push webhook to invalidate the cache for the repository configurations.
         """
         if self.repository.default_branch and self.ref.endswith(self.repository.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.

@@ -6,27 +6,16 @@ import logging
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from codebase.base import (
-    ClientType,
-    Discussion,
-    FileChange,
-    Issue,
-    MergeRequest,
-    MergeRequestDiff,
-    NoteType,
-    Pipeline,
-    Repository,
-    User,
-)
+from codebase.base import ClientType, Discussion, FileChange, Issue, MergeRequest, NoteType, Pipeline, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Iterator
     from pathlib import Path
 
     from github import Github
     from gitlab import Gitlab
-
+    from unidiff import PatchSet
 
 logger = logging.getLogger("daiv.clients")
 
@@ -75,7 +64,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> Generator[MergeRequestDiff]:
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
         pass
 
     @abc.abstractmethod
@@ -169,11 +158,23 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str) -> Discussion:
+    def get_merge_request_discussion(
+        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
+    ) -> Discussion:
         pass
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
+        pass
+
+    @abc.abstractmethod
+    def create_merge_request_review(
+        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
+    ) -> str:
+        pass
+
+    @abc.abstractmethod
+    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
     @abc.abstractmethod
@@ -184,7 +185,7 @@ class RepoClient(abc.ABC):
         body: str,
         discussion_id: str | None = None,
         mark_as_resolved: bool = False,
-    ):
+    ) -> str:
         pass
 
     @abc.abstractmethod

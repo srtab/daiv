@@ -1,7 +1,6 @@
 import logging
 import re
 from collections.abc import Iterable
-from typing import Literal
 
 from django.conf import settings
 
@@ -100,14 +99,9 @@ class PipelineRepairManager(BaseManager):
                 log_trace = self._clean_logs(self.client.job_log_trace(self.repo_id, self.job_id))
                 diffs = self.client.get_merge_request_diff(self.repo_id, self.merge_request_id)
 
-                async for event in pipeline_fixer.astream_events(
-                    {"diff": self._merge_request_diffs_to_str(diffs), "job_logs": log_trace, "need_manual_fix": False},
-                    self._config,
-                    include_names=["troubleshoot", "plan_and_execute"],
-                    include_types=["on_chain_start"],
-                ):
-                    if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"], planning=True)
+                await pipeline_fixer.ainvoke(
+                    {"diff": diffs.__str__(), "job_logs": log_trace, "need_manual_fix": False}, self._config
+                )
 
                 current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
@@ -139,17 +133,9 @@ class PipelineRepairManager(BaseManager):
             current_state = await pipeline_fixer.aget_state(self._config, subgraphs=True)
 
             if "plan_and_execute" in current_state.next and current_state.interrupts:
-                async for event in pipeline_fixer.astream_events(
-                    Command(resume="Plan approved"),
-                    self._config,
-                    include_names=["plan_and_execute", "apply_format_code"],
-                    include_types=["on_chain_start"],
-                ):
-                    if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"])
+                await pipeline_fixer.ainvoke(Command(resume="Plan approved"), self._config)
 
                 if file_changes := await get_file_changes(self._file_changes_store):
-                    self._add_workflow_step_note("commit_changes")
                     await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id)
                     self._add_repair_plan_applied_note()
 
@@ -314,45 +300,10 @@ class PipelineRepairManager(BaseManager):
         """
         self._create_or_update_comment("ℹ️ No pending automatic repair plan to apply.")
 
-    def _add_workflow_step_note(
-        self,
-        step_name: Literal["troubleshoot", "plan_and_execute", "apply_format_code", "commit_changes"],
-        planning: bool = False,
-    ):
-        """
-        Add a note to the discussion that the workflow step is in progress.
-
-        Args:
-            step_name: The name of the step
-            planning: Whether the step is planning or executing
-        """
-        if step_name == "troubleshoot":
-            note_message = f"🔍 Reviewing `{self.job_name}` job logs and recent changes — *in progress* ..."
-        elif step_name == "plan_and_execute":
-            if planning:
-                note_message = f"🛠️ Drafting repair plan to fix `{self.job_name}` job — *in progress* ..."
-            else:
-                note_message = f"🛠️ Applying repair plan to fix `{self.job_name}` job — *in progress* ..."
-        elif step_name == "apply_format_code":
-            note_message = "🎨 Formatting code — *in progress* ..."
-        elif step_name == "commit_changes":
-            note_message = "💾 Committing code changes — *in progress* ..."
-
-        self._create_or_update_comment(note_message)
-
     def _create_or_update_comment(self, note_message: str):
         """
         Create or update a comment on the issue.
         """
-        if self._comment_id is not None:
-            self.client.update_merge_request_discussion_note(
-                self.repo_id, self.merge_request_id, self.discussion_id, self._comment_id, note_message
-            )
-        else:
-            self._comment_id = self.client.create_merge_request_discussion_note(
-                self.repo_id,
-                self.merge_request_id,
-                note_message,
-                discussion_id=self.discussion_id,
-                mark_as_resolved=True,
-            )
+        self.client.create_merge_request_discussion_note(
+            self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id, mark_as_resolved=True
+        )

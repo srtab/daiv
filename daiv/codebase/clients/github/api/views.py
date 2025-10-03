@@ -3,14 +3,14 @@ import logging
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
 
-from .callbacks import IssueCallback, IssueCommentCallback, PushCallback
+from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback
 from .security import validate_github_webhook
 
 logger = logging.getLogger("daiv.webhooks")
 
 
 @router.post("/callbacks/github/", response={204: None, 401: None, 423: UnprocessableEntityResponse})
-async def callback(request, payload: IssueCallback | IssueCommentCallback | PushCallback):
+async def callback(request, payload: IssueCallback | IssueCommentCallback | PushCallback | PullRequestReviewCallback):
     """
     GitHub callback endpoint for processing callbacks.
     """

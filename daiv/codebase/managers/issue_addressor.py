@@ -303,13 +303,20 @@ class IssueAddressorManager(BaseManager):
             override_commits=True,
         )
 
+        if self.issue.assignee:
+            assignee_id = (
+                self.issue.assignee.id if self.client.client_slug == ClientType.GITLAB else self.issue.assignee.username
+            )
+        else:
+            assignee_id = None
+
         return self.client.update_or_create_merge_request(
             repo_id=self.repo_id,
             source_branch=changes_description.branch,
             target_branch=self.ref,
             labels=[BOT_LABEL],
             title=changes_description.title,
-            assignee_id=self.issue.assignee.username if self.issue.assignee else None,
+            assignee_id=assignee_id,
             description=jinja2_formatter(
                 ISSUE_MERGE_REQUEST_TEMPLATE,
                 description=changes_description.description,

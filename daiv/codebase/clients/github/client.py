@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -10,10 +11,11 @@ from zipfile import ZipFile
 
 import httpx
 from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
-from github import Issue as GithubIssue
-from github import PullRequest as GithubPullRequest
 from github import Repository as GithubRepository
 from github.GithubException import GithubException
+from github.IssueComment import IssueComment
+from github.PullRequestComment import PullRequestComment
+from unidiff import PatchSet
 
 from codebase.base import (
     ClientType,
@@ -24,6 +26,11 @@ from codebase.base import (
     MergeRequest,
     Note,
     NoteableType,
+    NoteDiffPosition,
+    NoteDiffPositionType,
+    NotePosition,
+    NotePositionLineRange,
+    NotePositionType,
     NoteType,
     Repository,
     User,
@@ -33,6 +40,7 @@ from codebase.conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
 
 logger = logging.getLogger("daiv.clients")
 
@@ -286,7 +294,7 @@ class GitHubClient(RepoClient):
             source_branch=mr.head.ref,
             target_branch=mr.base.ref,
             title=mr.title,
-            description=mr.body,
+            description=mr.body or "",
             labels=[label.name for label in mr.labels],
             sha=mr.head.sha,
         )
@@ -300,7 +308,7 @@ class GitHubClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The comment body.
         """
-        return self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).create_comment(body).id
+        return self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).create_issue_comment(body).id
 
     def commit_changes(
         self,
@@ -401,14 +409,14 @@ class GitHubClient(RepoClient):
 
         return elements
 
-    def create_merge_request_discussion_note(
+    def create_merge_request_review(
         self,
         repo_id: str,
         merge_request_id: int,
         body: str,
         discussion_id: str | None = None,
         mark_as_resolved: bool = False,
-    ):
+    ) -> str:
         """
         Create a comment on a merge request.
 
@@ -417,6 +425,44 @@ class GitHubClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The comment body.
             discussion_id: The discussion ID.
+            mark_as_resolved: Whether to mark the note as resolved.
+        """
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        if discussion_id:
+            to_return = pr.create_review_comment_reply(discussion_id, body).id
+            if mark_as_resolved:
+                self.mark_merge_request_review_as_resolved(repo_id, merge_request_id, discussion_id)
+            return to_return
+        raise NotImplementedError("Not implemented for GitHub")
+
+    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        """
+        Mark a review as resolved.
+        """
+        _, result = self.client.requester.graphql_named_mutation(
+            "resolveReviewThread", {"threadId": discussion_id}, "thread { id isResolved resolvedBy { login } }"
+        )
+
+        if result["thread"]["isResolved"]:
+            return
+
+    def create_merge_request_discussion_note(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        body: str,
+        discussion_id: str | None = None,
+        mark_as_resolved: bool = False,
+    ) -> str:
+        """
+        Create a comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+            discussion_id: The discussion ID.
+            mark_as_resolved: Whether to mark the note as resolved.
         """
         return self.comment_merge_request(repo_id, merge_request_id, body)
 
@@ -433,7 +479,7 @@ class GitHubClient(RepoClient):
             note_id: The note ID.
             body: The note body.
         """
-        self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).get_comment(note_id).edit(body)
+        self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).get_issue_comment(note_id).edit(body)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
         """
@@ -510,15 +556,78 @@ class GitHubClient(RepoClient):
 
         return linked_prs
 
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int):
-        return self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
+        """
+        Get the diff of a merge request.
 
-    def get_merge_request_discussion(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+
+        Returns:
+            The diff patch set.
+        """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        return Discussion(id=discussion_id, notes=self._serialize_comments(pr.get_comments()))
+        headers, data = self.client.requester.requestJsonAndCheck("GET", pr.diff_url, follow_302_redirect=True)
+        return PatchSet.from_string(data["data"])
 
-    def get_merge_request_discussions(self, repo_id: str, merge_request_id: int):
-        raise NotImplementedError()
+    def get_merge_request_discussion(
+        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
+    ) -> Discussion:
+        """
+        Get a discussion from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            discussion_id: The discussion ID.
+            only_resolvable: Whether to only return resolvable notes (review comments).
+
+        Returns:
+            The discussion object.
+        """
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+
+        if only_resolvable:
+            return Discussion(id=discussion_id, notes=self._serialize_comments([pr.get_review_comment(discussion_id)]))
+        return Discussion(id=discussion_id, notes=self._serialize_comments([pr.get_issue_comment(discussion_id)]))
+
+    def get_merge_request_discussions(
+        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
+    ) -> list[Discussion]:
+        """
+        Get the discussions from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            note_types: The note types to filter the discussions. If None, all discussions are returned.
+
+        Returns:
+            The list of discussions.
+        """
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+
+        discussions = []
+
+        if note_types is None or NoteType.DISCUSSION_NOTE in note_types:
+            # For discussion notes, we don't need to group them by comment ID
+            # because GitHub doesn't support nested comments.
+            discussions.extend([
+                Discussion(id=str(comment.id), notes=self._serialize_comments([comment]))
+                for comment in pr.get_issue_comments()
+            ])
+
+        if note_types is None or NoteType.DIFF_NOTE in note_types:
+            # For diff notes, we need to group them by comment ID because GitHub supports nested comments.
+            comments = defaultdict(list)
+            for comment in pr.get_review_comments():
+                comment_id = comment.id if not comment.in_reply_to_id else comment.in_reply_to_id
+                comments[comment_id] += self._serialize_comments([comment])
+
+            discussions.extend([Discussion(id=str(comment_id), notes=notes) for comment_id, notes in comments.items()])
+
+        return discussions
 
     def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int):
         raise NotImplementedError()
@@ -621,22 +730,59 @@ class GitHubClient(RepoClient):
         return pr.number
 
     def _serialize_comments(
-        self, comments: list[GithubIssue.IssueComment | GithubPullRequest.PullRequestComment]
+        self, comments: list[IssueComment | PullRequestComment], from_merge_request: bool = False
     ) -> list[Note]:
         """
         Get the notes of an issue or a merge request.
         """
-        return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=NoteType.NOTE,
-                noteable_type=NoteableType.ISSUE
-                if isinstance(note, GithubIssue.IssueComment)
-                else NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
+        notes = []
+
+        for note in comments:
+            note_type = NoteType.NOTE
+            if not from_merge_request:
+                note_type = NoteType.DISCUSSION_NOTE
+            elif isinstance(note, PullRequestComment):
+                note_type = NoteType.DIFF_NOTE
+
+            position = None
+            if isinstance(note, PullRequestComment):
+                position = NotePosition(
+                    head_sha=note.commit_id,
+                    old_path=note.path,
+                    new_path=note.path,
+                    position_type=NotePositionType.TEXT if note.subject_type == "line" else NotePositionType.FILE,
+                    old_line=note.start_line,
+                    new_line=note.line,
+                    line_range=NotePositionLineRange(
+                        start=NoteDiffPosition(
+                            type=NoteDiffPositionType.NEW if note.start_side == "RIGHT" else NoteDiffPositionType.OLD,
+                            old_line=note.start_line,
+                            new_line=note.line,
+                        ),
+                        end=NoteDiffPosition(
+                            type=NoteDiffPositionType.NEW if note.side == "RIGHT" else NoteDiffPositionType.OLD,
+                            old_line=note.start_line,
+                            new_line=note.line,
+                        ),
+                    ),
+                )
+
+            resolved = False
+
+            if isinstance(note, IssueComment):
+                resolved = note.reactions.get("rocket", 0) > 0
+
+            notes.append(
+                Note(
+                    id=note.id,
+                    body=note.body,
+                    type=note_type,
+                    noteable_type=NoteableType.ISSUE if not from_merge_request else NoteableType.MERGE_REQUEST,
+                    system=False,
+                    resolvable=False,
+                    resolved=resolved,
+                    author=User(id=note.user.id, username=note.user.login, name=note.user.name),
+                    position=position,
+                )
             )
-            for note in comments
-        ]
+        return notes
