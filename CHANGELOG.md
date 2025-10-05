@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- File read tool now supports line truncation and chunking with `start_line` and `max_lines` parameters to handle large files more efficiently. Files are now limited to 2000 lines by default to reduce token usage.
 - Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
 - Changed `CodebaseChatAgent` to only be able to answer questions about a repository at a time by passing the repository id as a header. This is direct consequence of removing codebase indexation, making it difficult to answer questions about multiple repositories at the same time. **BREAKING CHANGE**
 - Changed `PullRequestDescriberAgent` to use diffs to describe the changes instead of commit messages, making it more accurate and concise.

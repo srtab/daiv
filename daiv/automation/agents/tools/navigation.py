@@ -174,7 +174,7 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def read_tool(file_path: str, start_line: int = 0, max_lines: int = READ_MAX_LINES, store: Annotated[Any, InjectedStore()] = None) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -184,14 +184,26 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
      - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
      - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
      - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
+     - By default, returns up to 2000 lines starting from line 0 to reduce token usage.
+     - Use `start_line` and `max_lines` parameters to read files in chunks for large files.
+     - Line numbers in the output always reflect the actual position in the file.
 
     Args:
         file_path (str): The relative path to the file to read.
+        start_line (int): The starting line number (0-indexed offset). Defaults to 0.
+        max_lines (int): Maximum number of lines to return. Defaults to 2000.
 
     Returns:
         str: The content of the file.
-    """  # noqa: E501
+    """
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
+
+    # Validate parameters
+    if start_line < 0:
+        return "error: start_line must be non-negative."
+
+    if max_lines <= 0:
+        return "error: max_lines must be positive."
 
     ctx = get_repository_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
@@ -222,4 +234,19 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
             source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
         ).model_dump(exclude_none=True)
 
-    return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(content.splitlines()))
+    lines = content.splitlines()
+    total_lines = len(lines)
+
+    # Check if start_line is beyond the file length
+    if start_line >= total_lines:
+        return f"error: start_line ({start_line}) is beyond the file length ({total_lines} lines)."
+
+    selected_lines = lines[start_line:start_line + max_lines]
+
+    result = "\n".join(f"{i}: {line}" for i, line in enumerate(selected_lines, start=start_line + 1))
+
+    # Add truncation info if content was truncated
+    if start_line + max_lines < total_lines:
+        result += f"\n\n[Content truncated: showing lines {start_line + 1}-{start_line + len(selected_lines)} of {total_lines} total lines. Use start_line and max_lines parameters to read more.]"
+
+    return result
