@@ -161,17 +161,11 @@ class IssueAddressorManager(BaseManager):
             if should_reset_plan or (
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
+                self._add_workflow_step_note("plan")
                 human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
                     issue_title=self.issue.title, issue_description=self.issue.description
                 )
-                async for event in plan_and_execute.astream_events(
-                    {"messages": [human_message]},
-                    config,
-                    include_names=["pre_plan", "plan"],
-                    include_types=["on_chain_start"],
-                ):
-                    if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"])
+                await plan_and_execute.ainvoke({"messages": [human_message]}, config)
 
                 after_run_state = await plan_and_execute.aget_state(config)
 
@@ -218,20 +212,13 @@ class IssueAddressorManager(BaseManager):
                 and current_state.interrupts
                 or "execute_plan" in current_state.next
             ):
-                async for event in plan_and_execute.astream_events(
-                    Command(resume="Plan approved"),
-                    self._config,
-                    include_names=["execute_plan", "apply_format_code"],
-                    include_types=["on_chain_start"],
-                ):
-                    if event["event"] == "on_chain_start":
-                        self._add_workflow_step_note(event["name"])
+                self._add_workflow_step_note("execute_plan")
+
+                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config)
             else:
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 
             if file_changes := await get_file_changes(self._file_changes_store):
-                self._add_workflow_step_note("commit_changes")
-
                 if merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id):
                     self._add_issue_processed_note(merge_request_id)
             else:
@@ -425,24 +412,16 @@ class IssueAddressorManager(BaseManager):
             "ℹ️ The plan has already been executed." if already_executed else "ℹ️ No pending plan to be executed."
         )
 
-    def _add_workflow_step_note(
-        self, step_name: Literal["pre_plan", "plan", "execute_plan", "apply_format_code", "commit_changes"]
-    ):
+    def _add_workflow_step_note(self, step_name: Literal["plan", "execute_plan"]):
         """
         Add a note to the discussion that the workflow step is in progress.
 
         Args:
             step_name: The name of the step
         """
-        if step_name == "pre_plan":
-            note_message = "🔍 Analyzing the issue and preparing the necessary data — *in progress* ..."
-        elif step_name == "plan":
-            note_message = "🛠️ Drafting a detailed plan to address the issue — *in progress* ..."
+        if step_name == "plan":
+            note_message = "🛠️ Analyzing the issue and drafting a detailed plan to address it — *in progress* ..."
         elif step_name == "execute_plan":
             note_message = "🚀 Executing the plan to address the issue — *in progress* ..."
-        elif step_name == "apply_format_code":
-            note_message = "🎨 Formatting code — *in progress* ..."
-        elif step_name == "commit_changes":
-            note_message = "💾 Committing code changes — *in progress* ..."
 
         self._create_or_update_comment(note_message)

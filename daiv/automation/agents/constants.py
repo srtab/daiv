@@ -11,7 +11,7 @@ class ModelName(StrEnum):
 
     # Anthropic models
     CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
-    CLAUDE_OPUS_4 = "openrouter:anthropic/claude-opus-4"
+    CLAUDE_OPUS_4_1 = "openrouter:anthropic/claude-opus-4.1"
 
     # OpenAI models
     O3 = "openrouter:openai/o3"

@@ -10,6 +10,7 @@ from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
+from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
@@ -108,11 +109,11 @@ class NoteCallback(BaseCallback):
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
                 self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
-                    self.project.path_with_namespace, self.issue.iid, "thumbsup", self.object_attributes.id
+                    self.project.path_with_namespace, self.issue.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
 
             await sync_to_async(
@@ -129,10 +130,6 @@ class NoteCallback(BaseCallback):
             )()
 
         elif self._is_merge_request_review:
-            self._client.create_merge_request_note_emoji(
-                self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
-            )
-
             await sync_to_async(
                 address_review_task.si(
                     repo_id=self.project.path_with_namespace,

@@ -17,6 +17,7 @@ from automation.agents.review_addressor.conf import settings as review_addressor
 from automation.utils import get_file_changes
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
+from codebase.clients.base import Emoji
 from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
 from core.utils import generate_uuid
 
@@ -272,7 +273,7 @@ class ReviewAddressorManager(BaseManager):
                 await checkpointer.adelete_thread(thread_id)
 
             self.client.create_merge_request_note_emoji(
-                self.repo_id, self.merge_request_id, "+1", context.discussion.id
+                self.repo_id, self.merge_request_id, Emoji.THUMBSUP, context.discussion.notes[-1].id
             )
 
             try:

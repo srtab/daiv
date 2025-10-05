@@ -11,6 +11,7 @@ from quick_actions.tasks import execute_quick_action_task
 from codebase.api.callbacks import BaseCallback
 from codebase.base import NoteType
 from codebase.clients import RepoClient
+from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_review_task
 from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
@@ -106,7 +107,9 @@ class IssueCommentCallback(GitHubCallback):
         if self._is_quick_action:
             logger.info("Found quick action in note: '%s'", self._quick_action_command.raw)
 
-            self._client.create_issue_note_emoji(self.repository.full_name, self.issue.number, "+1", self.comment.id)
+            self._client.create_issue_note_emoji(
+                self.repository.full_name, self.issue.number, Emoji.THUMBSUP, self.comment.id
+            )
 
             await sync_to_async(
                 execute_quick_action_task.si(
@@ -122,7 +125,9 @@ class IssueCommentCallback(GitHubCallback):
             )()
 
         elif self._is_merge_request_review:
-            self._client.create_issue_note_emoji(self.repository.full_name, self.issue.number, "+1", self.comment.id)
+            self._client.create_issue_note_emoji(
+                self.repository.full_name, self.issue.number, Emoji.THUMBSUP, self.comment.id
+            )
 
             # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
             merge_request = self._client.get_merge_request(self.repository.full_name, self.issue.number)

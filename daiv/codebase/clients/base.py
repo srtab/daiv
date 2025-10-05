@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 import logging
+from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
     from unidiff import PatchSet
 
 logger = logging.getLogger("daiv.clients")
+
+
+class Emoji(StrEnum):
+    THUMBSUP = "thumbsup"
 
 
 class RepoClient(abc.ABC):
@@ -164,7 +169,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
         pass
 
     @abc.abstractmethod

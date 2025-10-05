@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
     from gitlab.v4.objects import ProjectHook
 
+    from codebase.clients.base import Emoji
+
 logger = logging.getLogger("daiv.clients")
 
 
@@ -308,7 +310,7 @@ class GitLabClient(RepoClient):
             # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
             if not version_diff["generated_file"]
         ]
-        return PatchSet.from_string("\n".join(extracted_diffs), encoding="utf-8")
+        return PatchSet.from_string("\n".join(extracted_diffs))
 
     def update_or_create_merge_request(
         self,
@@ -771,7 +773,7 @@ class GitLabClient(RepoClient):
             and (note_types is None or note["type"] in note_types)
         ]
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
         """
         Create an emoji in a note of a merge request.
 

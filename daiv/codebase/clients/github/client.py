@@ -36,6 +36,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.clients.base import Emoji
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -43,6 +44,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.clients")
+
+EMOJI_MAP = {Emoji.THUMBSUP: "+1"}
 
 
 class GitHubClient(RepoClient):
@@ -481,7 +484,7 @@ class GitHubClient(RepoClient):
         """
         self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).get_issue_comment(note_id).edit(body)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: str, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
         """
         Create an emoji on a note of a merge request.
 
@@ -491,6 +494,7 @@ class GitHubClient(RepoClient):
             emoji: The emoji name.
             note_id: The note ID.
         """
+        emoji = EMOJI_MAP.get(emoji, emoji)
         self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).get_comment(note_id).create_reaction(emoji)
 
     def get_issue_related_merge_requests(
