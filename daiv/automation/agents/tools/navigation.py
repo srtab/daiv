@@ -195,7 +195,7 @@ async def read_tool(file_path: str, start_line: int = 0, max_lines: int = READ_M
 
     Returns:
         str: The content of the file.
-    """
+    """  # noqa: E501
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
     # Validate parameters
