@@ -9,11 +9,12 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
+from codebase.base import NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_review_task
-from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
+from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
+from codebase.utils import note_mentions_daiv
 
 from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
@@ -130,13 +131,22 @@ class NoteCallback(BaseCallback):
             )()
 
         elif self._is_merge_request_review:
-            await sync_to_async(
-                address_review_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    merge_request_id=self.merge_request.iid,
-                    merge_request_source_branch=self.merge_request.source_branch,
-                ).delay
-            )()
+            if self.object_attributes.type == NoteType.DIFF_NOTE:
+                await sync_to_async(
+                    address_mr_review_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        merge_request_id=self.merge_request.iid,
+                        merge_request_source_branch=self.merge_request.source_branch,
+                    ).delay
+                )()
+            elif self.object_attributes.type in [NoteType.DISCUSSION_NOTE, None]:
+                await sync_to_async(
+                    address_mr_comments_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        merge_request_id=self.merge_request.iid,
+                        merge_request_source_branch=self.merge_request.source_branch,
+                    ).delay
+                )()
 
     @property
     def _is_quick_action(self) -> bool:
@@ -155,20 +165,11 @@ class NoteCallback(BaseCallback):
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
             or self.object_attributes.action != NoteAction.CREATE
             or not self.merge_request
-            or self.merge_request.work_in_progress
             or self.merge_request.state != "opened"
         ):
             return False
 
-        # Shortcut to avoid fetching the discussion if the note mentions DAIV.
-        if note_mentions_daiv(self.object_attributes.note, self._client.current_user):
-            return True
-
-        # Fetch the discussion to check if it has any notes mentioning DAIV.
-        discussion = self._client.get_merge_request_discussion(
-            self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
-        )
-        return discussion_has_daiv_mentions(discussion, self._client.current_user)
+        return note_mentions_daiv(self.object_attributes.note, self._client.current_user)
 
     @cached_property
     def _quick_action_command(self) -> QuickActionCommand | None:

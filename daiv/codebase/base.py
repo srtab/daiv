@@ -197,6 +197,7 @@ class Discussion(BaseModel):
     id: str | None = None
     notes: list[Note] = Field(default_factory=list)
     is_reply: bool = False
+    is_thread: bool = False
 
 
 class IssueType(StrEnum):

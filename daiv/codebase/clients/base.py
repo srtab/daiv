@@ -118,7 +118,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: str, note_id: str):
+    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         pass
 
     @abc.abstractmethod

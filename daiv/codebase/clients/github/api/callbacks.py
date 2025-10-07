@@ -9,12 +9,11 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
-from codebase.base import NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_review_task
-from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
+from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
+from codebase.utils import note_mentions_daiv
 
 from .models import Comment, Issue, IssueChanges, PullRequest, Repository, Review
 
@@ -125,15 +124,11 @@ class IssueCommentCallback(GitHubCallback):
             )()
 
         elif self._is_merge_request_review:
-            self._client.create_issue_note_emoji(
-                self.repository.full_name, self.issue.number, Emoji.THUMBSUP, self.comment.id
-            )
-
             # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
             merge_request = self._client.get_merge_request(self.repository.full_name, self.issue.number)
 
             await sync_to_async(
-                address_review_task.si(
+                address_mr_comments_task.si(
                     repo_id=self.repository.full_name,
                     merge_request_id=self.issue.number,
                     merge_request_source_branch=merge_request.source_branch,
@@ -212,15 +207,8 @@ class PullRequestReviewCallback(GitHubCallback):
         return (
             self.action in ["submitted", "edited"]
             and self.pull_request.state == "open"
-            # and not self.pull_request.draft
             # Ignore the DAIV review itself
             and self.review.user.id != self._client.current_user.id
-            and (
-                discussions := self._client.get_merge_request_discussions(
-                    self.repository.full_name, self.pull_request.number, [NoteType.DIFF_NOTE]
-                )
-            )
-            and any(discussion_has_daiv_mentions(discussion, self._client.current_user) for discussion in discussions)
         )
 
     async def process_callback(self):
@@ -230,7 +218,7 @@ class PullRequestReviewCallback(GitHubCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         await sync_to_async(
-            address_review_task.si(
+            address_mr_review_task.si(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.pull_request.number,
                 merge_request_source_branch=self.pull_request.head.ref,

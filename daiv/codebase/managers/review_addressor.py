@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import logging
 from dataclasses import dataclass, field
 
@@ -15,10 +16,11 @@ from automation.agents.nodes import apply_format_code_node
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from automation.utils import get_file_changes
-from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
+from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
-from codebase.utils import discussion_has_daiv_mentions, notes_to_messages
+from codebase.context import get_repository_ctx
+from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv, notes_to_messages
 from core.utils import generate_uuid
 
 from .base import BaseManager
@@ -28,7 +30,7 @@ logger = logging.getLogger("daiv.agents")
 
 @dataclass
 class DiscussionReviewContext:
-    discussion: Discussion
+    discussion: Discussion | None = None
     patch_file: PatchedFile | None = None
     notes: list[Note] = field(default_factory=list)
     diff: str | None = None
@@ -188,7 +190,6 @@ class NoteProcessor:
 
             # Extract the first two lines of the patch file to get the header
             diff_header = "\n".join(str(patch_file).splitlines()[:2]) + "\n"
-
             return diff_header + str(hunk)
         return None
 
@@ -204,7 +205,7 @@ class ReviewAddressorManager(BaseManager):
         self.note_processor = NoteProcessor()
 
     @classmethod
-    async def process_review(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
+    async def process_review_comments(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
         """
         Process code review for merge request.
         """
@@ -213,9 +214,9 @@ class ReviewAddressorManager(BaseManager):
 
         resolved_discussions: list[tuple[str, str]] = []
 
-        for context in manager._process_discussions(manager._extract_merge_request_diffs()):
+        for context in manager._get_review_context(manager._extract_merge_request_diffs()):
             try:
-                if result := await manager._process_discussion(context):
+                if result := await manager._address_review_context(context):
                     resolved_discussions.append(result)
             except Exception:
                 # If there is an error, we will not resolve the discussion but we will continue to process the next one,
@@ -231,7 +232,29 @@ class ReviewAddressorManager(BaseManager):
                 manager.repo_id, manager.merge_request_id, discussion_id
             )
 
-    async def _process_discussion(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
+    @classmethod
+    async def process_comments(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
+        """
+        Process comments left directly on the merge request (not in the diff) that mention DAIV.
+
+        All comments are included in the same discussion as notes, so the agent has access to the conversation history.
+        """
+        client = RepoClient.create_instance()
+        manager = cls(client, repo_id, ref, merge_request_id=merge_request_id)
+
+        if context := manager._get_comments_context(manager._extract_merge_request_diffs()):
+            try:
+                await manager._address_review_context(context)
+            except Exception:
+                # If there is an error, we will not resolve the discussion but we will continue to process the next one,
+                # avoiding loosing the work done so far.
+                logger.exception("Error processing discussion: %s", context.discussion.id)
+
+        if await get_file_changes(manager._file_changes_store):
+            await apply_format_code_node(manager._file_changes_store)
+            await manager._commit_changes(file_changes=await get_file_changes(manager._file_changes_store))
+
+    async def _address_review_context(self, context: DiscussionReviewContext) -> tuple[str, str] | None:
         """
         Process code review discussion.
 
@@ -283,18 +306,25 @@ class ReviewAddressorManager(BaseManager):
                 )
             except Exception:
                 logger.exception("Error processing discussion: %s", context.discussion.id)
-                note_message = "⚠️ I encountered an issue addressing this comment. Reply to this comment to retry!"
-                self.client.create_merge_request_review(
-                    self.repo_id, self.merge_request_id, note_message, discussion_id=context.discussion.id
-                )
+                note_message = "⚠️ I encountered an unexpected error addressing the latest comment."
+                if context.discussion.is_thread:
+                    self.client.create_merge_request_review(
+                        self.repo_id, self.merge_request_id, note_message, discussion_id=context.discussion.id
+                    )
+                else:
+                    self.client.comment_merge_request(self.repo_id, self.merge_request_id, note_message)
                 return None
 
             current_state = await reviewer_addressor.aget_state(config, subgraphs=True)
 
             if note := (current_state.values.get("reply") or current_state.values.get("plan_questions")):
-                self.client.create_merge_request_review(
-                    self.repo_id, self.merge_request_id, note, discussion_id=context.discussion.id
-                )
+                if context.discussion.is_thread:
+                    self.client.create_merge_request_review(
+                        self.repo_id, self.merge_request_id, note, discussion_id=context.discussion.id
+                    )
+                else:
+                    self.client.comment_merge_request(self.repo_id, self.merge_request_id, note)
+
             elif files_to_commit := await get_file_changes(store=file_changes_store):
                 # Update the global file changes store with file changes that resulted from the discussion resolution.
                 await self._set_file_changes(files_to_commit)
@@ -311,15 +341,15 @@ class ReviewAddressorManager(BaseManager):
         merge_request_patches["__all__"] = patch_set_all
         return merge_request_patches
 
-    def _process_discussions(self, merge_request_patches: dict[str, PatchedFile]) -> list[DiscussionReviewContext]:
+    def _get_review_context(self, merge_request_patches: dict[str, PatchedFile]) -> list[DiscussionReviewContext]:
         """
-        Extract discussions data from merge request to be processed later.
-        """
-        discussions = []
+        Extract discussions data from merge request to be addressed by the agent.
 
-        for discussion in self.client.get_merge_request_discussions(
-            self.repo_id, self.merge_request_id, note_types=[NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]
-        ):
+        It will extract the discussions that are not resolved and that have DAIV mentions in the latest note.
+        """
+        review_context = []
+
+        for discussion in self.client.get_merge_request_review_comments(self.repo_id, self.merge_request_id):
             if not discussion.notes:
                 logger.info("Ignoring discussion with no notes: %s", discussion.id)
                 continue
@@ -328,37 +358,73 @@ class ReviewAddressorManager(BaseManager):
                 logger.info("Ignoring discussion, DAIV is the current user: %s", discussion.id)
                 continue
 
-            if not (discussion_has_daiv_mentions(discussion, self.client.current_user)):
-                logger.info("Ignoring discussion, no DAIV mention or DAIV notes: %s", discussion.id)
+            if not (note_mentions_daiv(discussion.notes[-1].body, self.client.current_user)):
+                logger.info("Ignoring discussion, no DAIV mention in latest note: %s", discussion.id)
                 continue
 
             context = DiscussionReviewContext(discussion=discussion)
 
             for note in discussion.notes:
-                if note.type == NoteType.DISCUSSION_NOTE:
-                    context.diff = merge_request_patches["__all__"].__str__()
+                if not note.position:
+                    logger.warning("Ignoring note, no position defined: %s", note.id)
+                    continue
 
-                elif note.type == NoteType.DIFF_NOTE:
-                    if not note.position:
-                        logger.warning("Ignoring note, no position defined: %s", note.id)
-                        continue
+                path = note.position.new_path or note.position.old_path
 
-                    path = note.position.new_path or note.position.old_path
+                if path not in merge_request_patches:
+                    logger.warning("Ignoring note, path not found in patches: %s", note.id)
+                    continue
 
-                    if path not in merge_request_patches:
-                        logger.warning("Ignoring note, path not found in patches: %s", note.id)
-                        continue
+                if context.patch_file is None:
+                    # This logic assumes that all notes will have the same patch file
+                    context.patch_file = merge_request_patches[path]
 
-                    if context.patch_file is None:
-                        # This logic assumes that all notes will have the same patch file
-                        context.patch_file = merge_request_patches[path]
-                        file_content = self.client.get_repository_file(self.repo_id, path, self.ref)
-                        if not file_content:
-                            raise ValueError(f"File content '{path}' for note: {note.id} not found")
-                        context.diff = self.note_processor.extract_diff(note, context.patch_file, file_content)
+                    context.diff = self.note_processor.extract_diff(
+                        note, context.patch_file, self._get_file_content(path)
+                    )
 
                 context.notes.append(note)
 
             if context.notes:
-                discussions.append(context)
-        return discussions
+                review_context.append(context)
+        return review_context
+
+    def _get_comments_context(self, merge_request_patches: dict[str, PatchedFile]) -> DiscussionReviewContext | None:
+        """
+        Get the comments context from the merge request.
+        """
+
+        comments = self.client.get_merge_request_comments(self.repo_id, self.merge_request_id)
+
+        if not discussion_has_daiv_mentions(comments[-1], self.client.current_user):
+            logger.info("Ignoring merge request: %s, no DAIV mentions in latest comment.", self.merge_request_id)
+            return None
+
+        comment_context = DiscussionReviewContext(
+            discussion=comments[-1], diff=merge_request_patches["__all__"].__str__()
+        )
+
+        for comment in comments:
+            if not comment.notes:
+                logger.info("Ignoring comment with no notes: %s", comment.id)
+                continue
+
+            comment_context.notes.extend(comment.notes)
+
+        return comment_context
+
+    def _get_file_content(self, path: str) -> str:
+        """
+        Get the file content from the repository.
+        """
+        ctx = get_repository_ctx()
+        resolved_file_path = (ctx.repo_dir / path).resolve()
+
+        if (
+            not resolved_file_path.exists()
+            or not resolved_file_path.is_file()
+            or any(fnmatch.fnmatch(path, pattern) for pattern in ctx.config.combined_exclude_patterns)
+        ):
+            raise ValueError(f"File content '{path}' not found")
+
+        return resolved_file_path.read_text()

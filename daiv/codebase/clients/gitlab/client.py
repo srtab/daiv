@@ -522,7 +522,7 @@ class GitLabClient(RepoClient):
         comment.body = body
         comment.save()
 
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: str, note_id: str):
+    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """
         Create an emoji in a note of an issue.
         """
