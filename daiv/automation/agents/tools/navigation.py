@@ -174,7 +174,9 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, start_line: int = 0, max_lines: int = READ_MAX_LINES, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def read_tool(
+    file_path: str, start_line: int = 0, max_lines: int = READ_MAX_LINES, store: Annotated[Any, InjectedStore()] = None
+) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -241,12 +243,15 @@ async def read_tool(file_path: str, start_line: int = 0, max_lines: int = READ_M
     if start_line >= total_lines:
         return f"error: start_line ({start_line}) is beyond the file length ({total_lines} lines)."
 
-    selected_lines = lines[start_line:start_line + max_lines]
+    selected_lines = lines[start_line : start_line + max_lines]
 
     result = "\n".join(f"{i}: {line}" for i, line in enumerate(selected_lines, start=start_line + 1))
 
     # Add truncation info if content was truncated
     if start_line + max_lines < total_lines:
-        result += f"\n\n[Content truncated: showing lines {start_line + 1}-{start_line + len(selected_lines)} of {total_lines} total lines. Use start_line and max_lines parameters to read more.]"
+        result += (
+            f"\n\n[Content truncated: showing lines {start_line + 1}-{start_line + len(selected_lines)} "
+            f"of {total_lines} total lines. Use start_line and max_lines parameters to read more.]"
+        )
 
     return result

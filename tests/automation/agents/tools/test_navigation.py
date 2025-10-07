@@ -3,7 +3,15 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from codebase.context import RepositoryContext
 from daiv.automation.agents.tools.navigation import read_tool
+
+
+class MockConfig:
+    """Mock configuration for testing."""
+
+    combined_exclude_patterns = []
+    omit_content_patterns = []
 
 
 @pytest.fixture
@@ -29,16 +37,11 @@ class TestReadTool:
 
     async def test_basic_file_reading(self, temp_repo, monkeypatch):
         """Test basic file reading with a small file (< 2000 lines)."""
-        from codebase.context import RepositoryContext
-
         # Create a small test file
         create_test_file(temp_repo, "small_file.txt", 10)
 
         # Mock the repository context
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("small_file.txt")
@@ -51,16 +54,11 @@ class TestReadTool:
 
     async def test_default_truncation(self, temp_repo, monkeypatch):
         """Test default truncation with a file > 2000 lines."""
-        from codebase.context import RepositoryContext
-
         # Create a large test file
         create_test_file(temp_repo, "large_file.txt", 2500)
 
         # Mock the repository context
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("large_file.txt")
@@ -77,16 +75,11 @@ class TestReadTool:
 
     async def test_chunking_with_start_line(self, temp_repo, monkeypatch):
         """Test chunking with start_line parameter."""
-        from codebase.context import RepositoryContext
-
         # Create a test file with 100 lines
         create_test_file(temp_repo, "medium_file.txt", 100)
 
         # Mock the repository context
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         # Read lines 20-40 (0-indexed, so start_line=20 means line 21)
@@ -107,16 +100,11 @@ class TestReadTool:
 
     async def test_chunking_at_end_of_file(self, temp_repo, monkeypatch):
         """Test chunking at the end of file."""
-        from codebase.context import RepositoryContext
-
         # Create a test file with 100 lines
         create_test_file(temp_repo, "end_file.txt", 100)
 
         # Mock the repository context
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         # Read from line 90 with max_lines=20
@@ -135,14 +123,9 @@ class TestReadTool:
 
     async def test_parameter_validation_negative_start_line(self, temp_repo, monkeypatch):
         """Test that start_line < 0 returns error."""
-        from codebase.context import RepositoryContext
-
         create_test_file(temp_repo, "test.txt", 10)
 
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("test.txt", start_line=-1)
@@ -150,14 +133,9 @@ class TestReadTool:
 
     async def test_parameter_validation_zero_max_lines(self, temp_repo, monkeypatch):
         """Test that max_lines <= 0 returns error."""
-        from codebase.context import RepositoryContext
-
         create_test_file(temp_repo, "test.txt", 10)
 
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("test.txt", max_lines=0)
@@ -168,14 +146,9 @@ class TestReadTool:
 
     async def test_parameter_validation_start_line_beyond_file(self, temp_repo, monkeypatch):
         """Test that start_line >= total_lines returns appropriate message."""
-        from codebase.context import RepositoryContext
-
         create_test_file(temp_repo, "test.txt", 10)
 
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("test.txt", start_line=10)
@@ -186,16 +159,11 @@ class TestReadTool:
 
     async def test_empty_file(self, temp_repo, monkeypatch):
         """Test with empty file."""
-        from codebase.context import RepositoryContext
-
         # Create an empty file
         empty_file = temp_repo / "empty.txt"
         empty_file.write_text("")
 
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("empty.txt")
@@ -203,12 +171,7 @@ class TestReadTool:
 
     async def test_non_existent_file(self, temp_repo, monkeypatch):
         """Test with non-existent file."""
-        from codebase.context import RepositoryContext
-
-        ctx = RepositoryContext(repo_dir=temp_repo, config=type('obj', (object,), {
-            'combined_exclude_patterns': [],
-            'omit_content_patterns': []
-        })())
+        ctx = RepositoryContext(repo_dir=temp_repo, config=MockConfig())
         monkeypatch.setattr("daiv.automation.agents.tools.navigation.get_repository_ctx", lambda: ctx)
 
         result = await read_tool("non_existent.txt")
