@@ -175,10 +175,7 @@ def ls_tool(path: str) -> str:
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
 async def read_tool(
-    file_path: str,
-    start_line: int = 1,
-    max_lines: int = READ_MAX_LINES,
-    store: Annotated[Any, InjectedStore()] = None,
+    file_path: str, start_line: int = 1, max_lines: int = READ_MAX_LINES, store: Annotated[Any, InjectedStore()] = None
 ) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
@@ -199,7 +196,7 @@ async def read_tool(
 
     Returns:
         str: The content of the file.
-    """
+    """  # noqa: E501
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
     ctx = get_repository_ctx()
@@ -249,6 +246,9 @@ async def read_tool(
     # Add truncation message if needed
     end_line = start_line + len(selected_lines) - 1
     if end_line < total_lines:
-        result += f"\n[File truncated: showing lines {start_line}-{end_line} of {total_lines} total lines. Use start_line and max_lines parameters to read more.]"
+        result += (
+            f"\n[File truncated: showing lines {start_line}-{end_line} of {total_lines} total lines. "
+            "Use start_line and max_lines parameters to read more.]"
+        )
 
     return result
