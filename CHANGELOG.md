@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `start_line` and `max_lines` parameters to the `read` tool to support reading files in chunks and limit the number of lines returned (default: 2000 lines).
 - Added to `PlanAndExecuteAgent` the capability to:
   - load images from the user message to help the agent to visualize them.
   - plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.

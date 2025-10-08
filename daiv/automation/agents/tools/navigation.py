@@ -174,7 +174,12 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def read_tool(
+    file_path: str,
+    start_line: int = 1,
+    max_lines: int = READ_MAX_LINES,
+    store: Annotated[Any, InjectedStore()] = None,
+) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -184,13 +189,17 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
      - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
      - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
      - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
+     - Files are limited to `max_lines` (default 2000) lines. You can use `start_line` and `max_lines` parameters to read files in chunks.
+     - When a file is truncated, a message will indicate how many total lines exist and suggest using parameters to read more.
 
     Args:
         file_path (str): The relative path to the file to read.
+        start_line (int): The line number to start reading from (1-indexed). Defaults to 1.
+        max_lines (int): Maximum number of lines to return. Defaults to 2000.
 
     Returns:
         str: The content of the file.
-    """  # noqa: E501
+    """
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
     ctx = get_repository_ctx()
@@ -222,4 +231,24 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
             source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
         ).model_dump(exclude_none=True)
 
-    return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(content.splitlines()))
+    # Apply line limiting and chunking
+    lines = content.splitlines()
+    total_lines = len(lines)
+
+    # Validate start_line
+    if start_line < 1 or start_line > total_lines:
+        return f"error: start_line {start_line} is out of range. File has {total_lines} lines."
+
+    # Calculate the slice
+    selected_lines = lines[start_line - 1 : start_line - 1 + max_lines]
+
+    # Generate numbered output
+    numbered_lines = [f"{start_line + i}: {line}" for i, line in enumerate(selected_lines)]
+    result = "\n".join(numbered_lines)
+
+    # Add truncation message if needed
+    end_line = start_line + len(selected_lines) - 1
+    if end_line < total_lines:
+        result += f"\n[File truncated: showing lines {start_line}-{end_line} of {total_lines} total lines. Use start_line and max_lines parameters to read more.]"
+
+    return result
