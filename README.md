@@ -4,7 +4,7 @@
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
 [![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
 
-DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** repositories to streamline your development process. It uses AI agents and configurable actions to automate common software development tasks such as:
+DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** and **GitHub** repositories to streamline your development process. It uses AI agents and configurable actions to automate common software development tasks such as:
 
 - **Issue Addressing**: Planning and, after human approval, executing solutions directly from issue titles and descriptions.
 - **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests on demand.
@@ -47,7 +47,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    ```
 
 2. **Configure Environment**:
-   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your GitLab token, OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
+   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
 
    ```bash
    cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env
@@ -73,8 +73,11 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
    - DAIV API documentation: https://localhost:8000/api/docs/
    - PGAdmin (database management): http://localhost:8080
-   - GitLab (test repository platform): http://localhost:8929
+   - GitLab (local test repository platform): http://localhost:8929
    - Sandbox (secure code execution): http://localhost:8888/docs
+
+   > [!NOTE]
+   > The local development setup includes a GitLab instance for testing. For GitHub integration, you'll need to use GitHub.com or your own GitHub Enterprise instance.
 
 5. **Run the tests** (optional):
    DAIV includes a comprehensive test suite. To run tests with coverage:
@@ -94,7 +97,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    ```
 
 7. **Configure test repository**:
-   To be able to test DAIV, you need to configure a test repository on local GitLab instance.
+   To be able to test DAIV, you need to configure a test repository on the local GitLab instance (or use your own GitHub repository).
 
    1. First you need to obtain root password to authenticate with [local GitLab](http://localhost:8929):
 
@@ -130,7 +133,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 ## Roadmap
 
-- [ ] 🐙 Add support to Github.
+- [x] 🐙 Add support to GitHub.
 - [x] 🤖 Add support to [AGENTS.md](https://agents.md/) format to guide agents.
 - [x] 🌐 Add support to custom MCP servers.
 - [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.

@@ -1,6 +1,6 @@
 # 🤖 AI Agents Overview
 
-DAIV uses specialized AI agents to automate various development workflows in your GitLab repositories. Each agent is designed for specific tasks and can work independently or collaborate with other agents to provide comprehensive development assistance.
+DAIV uses SWE AI agents to automate various development workflows in your GitLab and GitHub repositories. Each agent is designed for specific tasks and can work independently or collaborate with other agents to provide comprehensive development assistance.
 
 ---
 
@@ -21,7 +21,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 - **Google Gemini** (including Gemini 2.5 Pro, etc.)
 - **OpenRouter** (access to various models from multiple providers)
 
-**Repository Integration**: Direct integration with GitLab through webhooks and APIs for real-time repository monitoring and interaction.
+**Repository Integration**: Direct integration with GitLab and GitHub through webhooks and APIs for real-time repository monitoring and interaction.
 
 **Context-Aware Processing**: Agents have access to the entire repository content, allowing them to understand your codebase structure, dependencies, and coding patterns.
 
@@ -57,7 +57,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 
 **Workflow**:
 
-1. User triggers the agent via a quick action on merge request notes
+1. User triggers the agent via a quick action on merge/pull request comments
 2. The agent does a troubleshooting analysis to identify the root causes using failure logs and code diff
 3. The agent plans repairs using the Plan and Execute agent for human review
 4. User approves the plan and the agent executes the repairs
@@ -75,10 +75,10 @@ DAIV agents are built on a modular architecture that combines several key compon
 
 **Workflow**:
 
-1. Triggered by review comments on merge requests that mention the bot
+1. Triggered by review comments on merge/pull requests that mention the bot
 2. Evaluates if comment requests code changes
 3. Plans and implements requested modifications using the Plan and Execute agent
-4. Updates the merge request with changes
+4. Updates the merge/pull request with changes
 5. Responds to reviewer with explanation, if no changes requested
 
 

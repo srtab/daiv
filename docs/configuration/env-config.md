@@ -123,7 +123,10 @@ Variables marked with:
 
 | Variable            | Description                              | Default   | Example   |
 |---------------------|------------------------------------------|:---------:|-----------|
-| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab`  |
+| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab` or `github`  |
+
+!!! note
+    Set `CODEBASE_CLIENT` to either `gitlab` or `github` depending on which platform you want to use. Only one platform can be active at a time.
 
 ### GitLab Integration
 
@@ -135,6 +138,22 @@ Variables marked with:
 
 !!! note
     The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a personal access token with the `api` scope.
+
+### GitHub Integration
+
+| Variable                        | Description                                 | Default   | Example              |
+|---------------------------------|---------------------------------------------|:---------:|----------------------|
+| `CODEBASE_GITHUB_URL`           | URL of the GitHub instance                  | *(none)*  | `https://github.com` |
+| :material-asterisk: `CODEBASE_GITHUB_APP_ID`               | GitHub App ID                               | *(none)*  | `123456`             |
+| :material-asterisk: `CODEBASE_GITHUB_INSTALLATION_ID`      | GitHub App Installation ID                  | *(none)*  | `789012`             |
+| :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
+| `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation  | *(none)*  | `random-webhook-secret` |
+
+!!! note
+    GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.
+
+!!! info
+    For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to your GitHub Enterprise URL (e.g., `https://github.your-company.com`). For GitHub.com, this variable can be omitted.
 
 ---
 
