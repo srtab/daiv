@@ -1042,8 +1042,8 @@
 <p><img alt="Python Version" src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml" />
 <a href="https://github.com/srtab/daiv/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/srtab/daiv" /></a>
 <a href="https://github.com/srtab/daiv/actions"><img alt="Actions Status" src="https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg" /></a></p>
-<p>Software engineers spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI automation directly to their existing Git workflow. It's like having a pair programming assistant directly in your Platform.</p>
-<p><strong>DAIV is an open-source AI assistant that automates development tasks using intelligent agents.</strong> It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.</p>
+<p>Software engineers spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI agents directly to their existing Git workflow. It's like having a pair programming assistant directly in your Platform.</p>
+<p><strong>DAIV is an open-source SWE AI Agent that automates development tasks.</strong> It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.</p>
 <h2 id="what-daiv-does">🎯 What DAIV Does</h2>
 <p>DAIV automates three key software engineering activities:</p>
 <ul>
@@ -1055,12 +1055,12 @@
 <h2 id="how-daiv-works">🛠️ How DAIV Works</h2>
 <p><strong>DAIV integrates directly with Git platforms using webhooks.</strong> No separate interface required. You continue using your existing workflow while DAIV handles automation in the background.</p>
 <h3 id="workflow-overview">Workflow Overview</h3>
-<p>DAIV responds to different GitLab events with specialized workflows for each feature (Issue Addressor, Code Review Response, Quick Actions):</p>
+<p>DAIV responds to repository events with specialized workflows for each feature (Issue Addressor, Code Review Response, Quick Actions):</p>
 <pre class="mermaid"><code>graph TD
-    A["🔔 GitLab Webhooks"] --&gt; B["🤖 DAIV"]
+    A["🔔 Git Platform Webhooks&lt;br/&gt;(GitLab / GitHub)"] --&gt; B["🤖 DAIV"]
 
     B --&gt; C["📝 Issue Created/Updated&lt;br/&gt;(title: 'DAIV: ...')"]
-    B --&gt; D["💬 Comment on Issue/MR&lt;br/&gt;(review feedback or @daiv command)"]
+    B --&gt; D["💬 Comment on Issue/MR/PR&lt;br/&gt;(review feedback or @daiv command)"]
     B --&gt; F["📤 Code Push&lt;br/&gt;(repository updates)"]
 
     C --&gt; G["🚀 Issue Addressor&lt;br/&gt;Plan → Approve → Execute"]
@@ -1070,7 +1070,7 @@
     H --&gt; K["💬 Code Review Response&lt;br/&gt;(changes or answers)"]
     H --&gt; L["⚡ Quick Action&lt;br/&gt;(help, plan, pipeline commands)"]
 
-    G --&gt; M["📤 Creates Merge Request"]
+    G --&gt; M["📤 Creates Merge/Pull Request"]
     K --&gt; N["📝 Updates Code or Replies"]
     L --&gt; P["💬 Execute command and Response"]
 
@@ -1079,29 +1079,23 @@
     style K fill:#fff3e0
     style L fill:#f3e5f5</code></pre>
 <h2 id="supported-platforms">🔌 Supported Platforms</h2>
-<p><strong>Currently supported:</strong></p>
+<p>DAIV integrates with major Git platforms to automate your development workflow:</p>
 <ul>
-<li><a href="https://gitlab.com"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m23.6 9.593-.033-.086L20.3.98a.85.85 0 0 0-.336-.405.875.875 0 0 0-1 .054.88.88 0 0 0-.29.44L16.47 7.818H7.537L5.333 1.07a.86.86 0 0 0-.29-.441.875.875 0 0 0-1-.054.86.86 0 0 0-.336.405L.433 9.502l-.032.086a6.066 6.066 0 0 0 2.012 7.01l.01.009.03.021 4.977 3.727 2.462 1.863 1.5 1.132a1.01 1.01 0 0 0 1.22 0l1.499-1.132 2.461-1.863 5.006-3.75.013-.01a6.07 6.07 0 0 0 2.01-7.002"/></svg></span> <strong>GitLab</strong></a> - Full feature support</li>
+<li><a href="https://gitlab.com"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m23.6 9.593-.033-.086L20.3.98a.85.85 0 0 0-.336-.405.875.875 0 0 0-1 .054.88.88 0 0 0-.29.44L16.47 7.818H7.537L5.333 1.07a.86.86 0 0 0-.29-.441.875.875 0 0 0-1-.054.86.86 0 0 0-.336.405L.433 9.502l-.032.086a6.066 6.066 0 0 0 2.012 7.01l.01.009.03.021 4.977 3.727 2.462 1.863 1.5 1.132a1.01 1.01 0 0 0 1.22 0l1.499-1.132 2.461-1.863 5.006-3.75.013-.01a6.07 6.07 0 0 0 2.01-7.002"/></svg></span> <strong>GitLab</strong></a> - Full feature support (GitLab.com and self-hosted)</li>
+<li><a href="https://github.com"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></span> <strong>GitHub</strong></a> - Full feature support (GitHub.com and GitHub Enterprise)</li>
 </ul>
-<p><strong>Coming soon:</strong></p>
-<ul>
-<li><a href="https://github.com"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></span> <strong>GitHub</strong></a> - Planned for future release</li>
-</ul>
-<div class="admonition info">
-<p class="admonition-title">Contributing</p>
-<p>Want GitHub support sooner? <a href="https://github.com/srtab/daiv/discussions">Contributions are welcome!</a></p>
-</div>
+<p>Both platforms support all core features including Issue Addressing, Code Review Response, and Quick Actions.</p>
 <hr />
 <h2 id="get-started">⏭️ Get Started</h2>
 <h3 id="step-1-installation"><strong>Step 1: Installation</strong></h3>
 <ul>
 <li><strong><a href="getting-started/up-and-running/">Set up DAIV</a></strong> - Install and configure DAIV in your environment</li>
-<li><strong><a href="getting-started/configuration/">Connect your repository</a></strong> - Link DAIV to your GitLab project</li>
+<li><strong><a href="getting-started/configuration/">Connect your repository</a></strong> - Link DAIV to your GitLab or GitHub repository</li>
 </ul>
 <h3 id="step-2-try-daiv"><strong>Step 2: Try DAIV</strong></h3>
 <ul>
 <li><strong>Create a test issue</strong> - Write "Add a hello world function" and watch DAIV generate a plan</li>
-<li><strong>Approve the plan</strong> - Comment "Go ahead" to see DAIV create a pull request with working code</li>
+<li><strong>Approve the plan</strong> - Comment "@daiv plan execute" to see DAIV create a pull request with working code</li>
 </ul>
 <h3 id="step-3-customize"><strong>Step 3: Customize</strong></h3>
 <ul>
@@ -1119,9 +1113,9 @@
 <ol>
 <li><strong>Developer creates issue:</strong> "Add rate limiting to the API endpoints"</li>
 <li><strong>DAIV generates plan:</strong> Analyzes codebase and posts detailed implementation steps</li>
-<li><strong>Developer approves:</strong> Comments "Looks good, go ahead"</li>
+<li><strong>Developer approves:</strong> Comments "@daiv plan execute"</li>
 <li><strong>DAIV implements:</strong> Creates merge request with rate limiting code, tests, and documentation</li>
-<li><strong>Reviewer requests changes:</strong> "Use Redis instead of in-memory storage"</li>
+<li><strong>Reviewer requests changes:</strong> "@daiv use Redis instead of in-memory storage"</li>
 <li><strong>DAIV updates code:</strong> Automatically modifies the implementation to use Redis</li>
 </ol>
 <p><strong>Result:</strong> Feature implemented in minutes, not hours.</p>
@@ -1147,7 +1141,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     
@@ -1157,7 +1151,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     

@@ -1283,16 +1283,16 @@
 
 
 <h1 id="quick-actions">⚡ Quick Actions</h1>
-<p>Quick Actions provide command-based interactions with DAIV directly from GitLab issues and merge requests. They are useful for common tasks and information requests.</p>
+<p>Quick Actions provide command-based interactions with DAIV directly from issues and merge/pull requests. They are useful for common tasks and information requests.</p>
 <hr />
 <h2 id="overview">Overview</h2>
-<p>Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge request comments.</p>
+<p>Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge/pull request comments.</p>
 <h3 id="how-quick-actions-work">How Quick Actions Work</h3>
 <p><strong>Command Format</strong>: <code>@&lt;daiv-username&gt; &lt;action&gt; [arguments]</code></p>
 <p><strong>Supported Scopes</strong>:</p>
 <ul>
 <li><strong>Issues</strong>: Available in issue comments and discussions</li>
-<li><strong>Merge Requests</strong>: Available in merge request comments and discussions</li>
+<li><strong>Merge/Pull Requests</strong>: Available in merge/pull request comments and discussions</li>
 </ul>
 <p><strong>Command Parsing</strong>:</p>
 <p>Quick Actions use shell-like parsing with support for:</p>
@@ -1313,7 +1313,7 @@
     F --&gt;|Yes| G["⚡ Execute Action"]
     F --&gt;|No| H["❌ Unknown Action Error"]
 
-    G --&gt; I["🔍 Validate Scope&lt;br/&gt;(Issue vs Merge Request)"]
+    G --&gt; I["🔍 Validate Scope&lt;br/&gt;(Issue vs Merge/Pull Request)"]
     I --&gt; J["🛠️ Execute Specific Logic"]
 
     J --&gt; K["📖 Help Action&lt;br/&gt;(show available commands)"]
@@ -1332,7 +1332,7 @@
     style H fill:#ffebee</code></pre>
 <h3 id="basic-usage">Basic Usage</h3>
 <ol>
-<li><strong>Navigate</strong> to any GitLab issue or merge request</li>
+<li><strong>Navigate</strong> to any issue or merge/pull request</li>
 <li><strong>Add a comment</strong> mentioning DAIV with the desired action</li>
 <li><strong>Submit</strong> the comment</li>
 <li><strong>DAIV responds</strong> with the action result</li>
@@ -1341,8 +1341,8 @@
 <h2 id="available-quick-actions">Available Quick Actions</h2>
 <h3 id="help-action">🆘 Help Action</h3>
 <p><strong>Command</strong>: <code>@daiv help</code></p>
-<p><strong>Purpose</strong>: Displays all available Quick Actions for the current scope (issue or merge request).</p>
-<p><strong>Scopes</strong>: Issues, Merge Requests</p>
+<p><strong>Purpose</strong>: Displays all available Quick Actions for the current scope (issue or merge/pull request).</p>
+<p><strong>Scopes</strong>: Issues, Merge/Pull Requests</p>
 <p><strong>Example</strong>:
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv help
 </code></pre></div></td></tr></table></div></p>
@@ -1373,8 +1373,8 @@
 <hr />
 <h3 id="pipeline-action">🔧 Pipeline Action</h3>
 <p><strong>Command</strong>: <code>@daiv pipeline &lt;sub-action&gt;</code></p>
-<p><strong>Purpose</strong>: Manage merge request pipeline failures with automated repair suggestions and execution.</p>
-<p><strong>Scopes</strong>: Merge Requests only</p>
+<p><strong>Purpose</strong>: Manage merge/pull request pipeline failures with automated repair suggestions and execution.</p>
+<p><strong>Scopes</strong>: Merge/Pull Requests only</p>
 <p><strong>Sub-actions</strong>:</p>
 <h4 id="repair-plan">Repair Plan</h4>
 <ul>
@@ -1404,7 +1404,7 @@
 <h3 id="common-issues">Common Issues</h3>
 <p><strong>Action not recognized</strong>:</p>
 <ul>
-<li>Check that the action supports the current scope (issue vs merge request)</li>
+<li>Check that the action supports the current scope (issue vs merge/pull request)</li>
 <li>Ensure proper spelling and case (actions are case-insensitive)</li>
 <li>Verify sub-action syntax (e.g., <code>plan execute</code> not <code>plan-execute</code>)</li>
 </ul>
@@ -1416,7 +1416,7 @@
 </ul>
 <p><strong>Permission errors</strong>:</p>
 <ul>
-<li>Ensure DAIV has sufficient GitLab permissions</li>
+<li>Ensure DAIV has sufficient repository permissions</li>
 <li>Confirm the user triggering the action has appropriate access levels</li>
 </ul>
 <p><strong>Pipeline action issues</strong>:</p>
@@ -1427,7 +1427,7 @@
 </ul>
 <p><strong>Plan action issues</strong>:</p>
 <ul>
-<li>Ensure you're commenting on an issue (not merge request)</li>
+<li>Ensure you're commenting on an issue (not merge/pull request)</li>
 <li>Check if there's an existing plan to execute or revise</li>
 </ul>
 <h3 id="debug-information">Debug Information</h3>
@@ -1496,7 +1496,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     
@@ -1506,7 +1506,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     

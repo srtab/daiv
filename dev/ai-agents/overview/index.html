@@ -1373,7 +1373,7 @@
 
 
 <h1 id="ai-agents-overview">🤖 AI Agents Overview</h1>
-<p>DAIV uses specialized AI agents to automate various development workflows in your GitLab repositories. Each agent is designed for specific tasks and can work independently or collaborate with other agents to provide comprehensive development assistance.</p>
+<p>DAIV uses SWE AI agents to automate various development workflows in your GitLab and GitHub repositories. Each agent is designed for specific tasks and can work independently or collaborate with other agents to provide comprehensive development assistance.</p>
 <hr />
 <h2 id="how-daiv-agents-work">How DAIV Agents Work</h2>
 <h3 id="core-architecture">Core Architecture</h3>
@@ -1387,7 +1387,7 @@
 <li><strong>Google Gemini</strong> (including Gemini 2.5 Pro, etc.)</li>
 <li><strong>OpenRouter</strong> (access to various models from multiple providers)</li>
 </ul>
-<p><strong>Repository Integration</strong>: Direct integration with GitLab through webhooks and APIs for real-time repository monitoring and interaction.</p>
+<p><strong>Repository Integration</strong>: Direct integration with GitLab and GitHub through webhooks and APIs for real-time repository monitoring and interaction.</p>
 <p><strong>Context-Aware Processing</strong>: Agents have access to the entire repository content, allowing them to understand your codebase structure, dependencies, and coding patterns.</p>
 <hr />
 <h2 id="core-available-ai-agents">Core Available AI Agents</h2>
@@ -1414,7 +1414,7 @@
 </ul>
 <p><strong>Workflow</strong>:</p>
 <ol>
-<li>User triggers the agent via a quick action on merge request notes</li>
+<li>User triggers the agent via a quick action on merge/pull request comments</li>
 <li>The agent does a troubleshooting analysis to identify the root causes using failure logs and code diff</li>
 <li>The agent plans repairs using the Plan and Execute agent for human review</li>
 <li>User approves the plan and the agent executes the repairs</li>
@@ -1429,10 +1429,10 @@
 </ul>
 <p><strong>Workflow</strong>:</p>
 <ol>
-<li>Triggered by review comments on merge requests that mention the bot</li>
+<li>Triggered by review comments on merge/pull requests that mention the bot</li>
 <li>Evaluates if comment requests code changes</li>
 <li>Plans and implements requested modifications using the Plan and Execute agent</li>
-<li>Updates the merge request with changes</li>
+<li>Updates the merge/pull request with changes</li>
 <li>Responds to reviewer with explanation, if no changes requested</li>
 </ol>
 <h3 id="pr-describer-agent">📝 PR Describer Agent</h3>
@@ -1553,7 +1553,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     
@@ -1563,7 +1563,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 22:19:35 UTC">October 9, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2025 23:22:21 UTC">October 9, 2025</span>
   </span>
 
     
