@@ -82,7 +82,9 @@ def _is_valid_image_url(url: str) -> bool:
         return True
 
     # Check for GitHub user-attachments (always images even without extensions)
-    return "github.com" in parsed.netloc.lower() and "/user-attachments/" in path
+    netloc = parsed.netloc.lower()
+    is_github_domain = netloc == "github.com" or netloc.endswith(".githubusercontent.com")
+    return is_github_domain and "/user-attachments/" in path
 
 
 def _extract_filename(url: str, alt_text: str = "") -> str:

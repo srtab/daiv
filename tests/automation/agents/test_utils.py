@@ -247,3 +247,30 @@ def test_extract_images_from_text_non_github_urls_without_extensions():
     """
     images = extract_images_from_text(text)
     assert len(images) == 0
+
+
+def test_extract_images_from_text_github_user_attachments_security_malicious_domains():
+    # Test that malicious domains with 'github.com' substring are rejected
+    text = """
+    ![Evil 1](https://evil-github.com/user-attachments/assets/abc123)
+    ![Evil 2](https://github.com.attacker.com/user-attachments/assets/abc123)
+    ![Evil 3](https://fakegithub.com/user-attachments/assets/abc123)
+    ![Evil 4](https://notgithub.com/user-attachments/assets/abc123)
+    """
+    images = extract_images_from_text(text)
+    assert len(images) == 0, "Malicious domains should be rejected"
+
+
+def test_extract_images_from_text_github_user_attachments_legitimate_subdomains():
+    # Test that legitimate GitHub subdomains are accepted
+    text = """
+    ![Valid 1](https://github.com/user-attachments/assets/abc123)
+    ![Valid 2](https://private-user-images.githubusercontent.com/123/456/image.png)
+    ![Valid 3](https://user-images.githubusercontent.com/user-attachments/assets/def456)
+    """
+    images = extract_images_from_text(text)
+    # All legitimate GitHub domains should be accepted
+    assert len(images) == 3
+    assert images[0].url == "https://github.com/user-attachments/assets/abc123"
+    assert images[1].url == "https://private-user-images.githubusercontent.com/123/456/image.png"
+    assert images[2].url == "https://user-images.githubusercontent.com/user-attachments/assets/def456"
