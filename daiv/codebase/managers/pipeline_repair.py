@@ -304,6 +304,6 @@ class PipelineRepairManager(BaseManager):
         """
         Create or update a comment on the issue.
         """
-        self.client.create_merge_request_discussion_note(
-            self.repo_id, self.merge_request_id, note_message, discussion_id=self.discussion_id, mark_as_resolved=True
+        self.client.create_merge_request_comment(
+            self.repo_id, self.merge_request_id, note_message, reply_to_id=self.discussion_id, mark_as_resolved=True
         )

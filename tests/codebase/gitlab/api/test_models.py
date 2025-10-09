@@ -1,4 +1,4 @@
-from codebase.gitlab.api.models import Issue, Label, MergeRequest
+from codebase.clients.gitlab.api.models import Issue, Label, MergeRequest
 
 
 def test_issue_is_daiv_with_bot_label():

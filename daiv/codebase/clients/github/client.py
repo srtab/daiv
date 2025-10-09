@@ -307,17 +307,6 @@ class GitHubClient(RepoClient):
             sha=mr.head.sha,
         )
 
-    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str) -> str | None:
-        """
-        Comment on a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            body: The comment body.
-        """
-        return self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).create_issue_comment(body).id
-
     def commit_changes(
         self,
         repo_id: str,
@@ -417,33 +406,7 @@ class GitHubClient(RepoClient):
 
         return elements
 
-    def create_merge_request_review(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        discussion_id: str | None = None,
-        mark_as_resolved: bool = False,
-    ) -> str:
-        """
-        Create a comment on a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            body: The comment body.
-            discussion_id: The discussion ID.
-            mark_as_resolved: Whether to mark the note as resolved.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        if discussion_id:
-            to_return = pr.create_review_comment_reply(int(discussion_id), body).id
-            if mark_as_resolved:
-                self.mark_merge_request_review_as_resolved(repo_id, merge_request_id, discussion_id)
-            return to_return
-        raise NotImplementedError("Not implemented for GitHub")
-
-    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """
         Mark a review as resolved.
         """
@@ -454,40 +417,44 @@ class GitHubClient(RepoClient):
         if result["thread"]["isResolved"]:
             return
 
-    def create_merge_request_discussion_note(
+    def create_merge_request_comment(
         self,
         repo_id: str,
         merge_request_id: int,
         body: str,
-        discussion_id: str | None = None,
+        reply_to_id: str | None = None,
+        as_thread: bool = False,
         mark_as_resolved: bool = False,
-    ) -> str:
+    ) -> str | None:
         """
-        Create a comment on a merge request.
+        Comment on a merge request.
 
         Args:
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
-            discussion_id: The discussion ID.
-            mark_as_resolved: Whether to mark the note as resolved.
-        """
-        return self.comment_merge_request(repo_id, merge_request_id, body)
+            reply_to_id: The ID of the comment to reply to.
+            as_thread: Whether to create a thread.
+            mark_as_resolved: Whether to mark the comment as resolved.
 
-    def update_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
-    ):
+        Returns:
+            The ID of the comment.
         """
-        Update a discussion in a merge request.
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        to_return = None
 
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            discussion_id: The discussion ID. This is not used for GitHub.
-            note_id: The note ID.
-            body: The note body.
-        """
-        self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id).get_issue_comment(note_id).edit(body)
+        if reply_to_id:
+            to_return = pr.create_review_comment_reply(int(reply_to_id), body).id
+
+            if mark_as_resolved:
+                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
+
+        elif as_thread:
+            # The only threadable comments are review comments.
+            raise NotImplementedError("Not implemented for GitHub")
+        else:
+            to_return = pr.create_issue_comment(body).id
+        return to_return
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
         """
@@ -613,7 +580,7 @@ class GitHubClient(RepoClient):
             if isinstance(comment, IssueComment) and comment.reactions.get("rocket", 0) > 0:
                 comment = None
             elif isinstance(comment, PullRequestComment):
-                unresolved_comment_ids = self._unresolved_comment_ids(repo_id, merge_request_id)
+                unresolved_comment_ids, _ = self._unresolved_comment_ids(repo_id, merge_request_id)
                 if comment.id not in unresolved_comment_ids:
                     comment = None
 
@@ -622,72 +589,39 @@ class GitHubClient(RepoClient):
 
         return Discussion(id=discussion_id, notes=self._serialize_comments([comment], from_merge_request=True))
 
-    def get_merge_request_discussions(
-        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
-    ) -> list[Discussion]:
-        """
-        Get the unresolved discussions from a merge request.
-
-        For pull request comments, the resolved/unresolved status is not available.
-        We use the reactions to determine if the comment is resolved or not.
-        If the comment has no reactions, it is considered unresolved.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            note_types: The note types to filter the discussions. If None, all discussions are returned.
-
-        Returns:
-            The list of discussions.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-
-        discussions = []
-
-        if note_types is None or NoteType.DISCUSSION_NOTE in note_types:
-            # For discussion notes, we don't need to group them by comment ID
-            # because GitHub doesn't support nested comments.
-            discussions.extend([
-                Discussion(id=str(comment.id), notes=self._serialize_comments([comment], from_merge_request=True))
-                for comment in pr.get_issue_comments()
-                if comment.reactions.get("rocket", 0) > 0
-            ])
-
-        if note_types is None or NoteType.DIFF_NOTE in note_types:
-            # For diff notes, we need to group them by comment ID because GitHub supports nested comments.
-            unresolved_comment_ids = self._unresolved_comment_ids(repo_id, merge_request_id)
-
-            comments = defaultdict(list)
-            for comment in pr.get_review_comments():
-                if comment.id not in unresolved_comment_ids:
-                    # Skip resolved comments
-                    continue
-
-                comment_id = comment.id if not comment.in_reply_to_id else comment.in_reply_to_id
-                comments[comment_id] += self._serialize_comments([comment], from_merge_request=True)
-
-            discussions.extend([Discussion(id=str(comment_id), notes=notes) for comment_id, notes in comments.items()])
-
-        return discussions
-
     def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         """
         Get the review comments left on the merge request diff.
         """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
         # For review comments, we need to group them by comment ID because GitHub supports nested comments.
-        unresolved_comment_ids = self._unresolved_comment_ids(repo_id, merge_request_id)
+        unresolved_comment_ids, comment_to_thread_id = self._unresolved_comment_ids(repo_id, merge_request_id)
 
         comments = defaultdict(list)
+        thread_ids = {}  # Map comment_id to thread_id
+
         for comment in pr.get_review_comments():
             if comment.id not in unresolved_comment_ids:
                 # Skip resolved comments
                 continue
 
-            comment_id = comment.id if not comment.in_reply_to_id else comment.in_reply_to_id
+            comment_id = comment.in_reply_to_id or comment.id
             comments[comment_id] += self._serialize_comments([comment], from_merge_request=True)
 
-        return [Discussion(id=str(comment_id), notes=notes, is_thread=True) for comment_id, notes in comments.items()]
+            # Store the thread ID for this comment group (use the first comment's thread ID we find)
+            if comment_id not in thread_ids and comment.id in comment_to_thread_id:
+                thread_ids[comment_id] = comment_to_thread_id[comment.id]
+
+        return [
+            Discussion(
+                id=str(comment_id),
+                notes=notes,
+                is_thread=True,
+                is_resolvable=True,
+                resolve_id=thread_ids.get(comment_id),
+            )
+            for comment_id, notes in comments.items()
+        ]
 
     def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         """
@@ -699,9 +633,12 @@ class GitHubClient(RepoClient):
             for comment in pr.get_issue_comments()
         ]
 
-    def _unresolved_comment_ids(self, repo_id: str, merge_request_id: int) -> set[str]:
+    def _unresolved_comment_ids(self, repo_id: str, merge_request_id: int) -> tuple[set[int], dict[int, str]]:
         """
         Get the threads resolution of a merge request.
+
+        Returns:
+            A tuple of (unresolved_comment_ids, comment_to_thread_id_map)
         """
         query = """
             query($owner: String!, $repo: String!, $pullRequest: Int!) {
@@ -728,15 +665,21 @@ class GitHubClient(RepoClient):
             query, {"owner": repo.owner.login, "repo": repo.name, "pullRequest": merge_request_id}
         )
         unresolved_comment_ids = set()
+        comment_to_thread_id = {}
 
         for thread in result["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
+            thread_id = thread["id"]
+
             if thread["isResolved"]:
                 continue
 
             for comment in thread["comments"]["nodes"]:
-                unresolved_comment_ids.add(comment["databaseId"])
+                comment_db_id = comment["databaseId"]
+                unresolved_comment_ids.add(comment_db_id)
+                # Map each comment to its thread ID
+                comment_to_thread_id[comment_db_id] = thread_id
 
-        return unresolved_comment_ids
+        return unresolved_comment_ids, comment_to_thread_id
 
     def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int):
         raise NotImplementedError()
@@ -863,12 +806,16 @@ class GitHubClient(RepoClient):
                     new_line=note.line,
                     line_range=NotePositionLineRange(
                         start=NoteDiffPosition(
-                            type=NoteDiffPositionType.NEW if note.start_side == "RIGHT" else NoteDiffPositionType.OLD,
+                            type=NoteDiffPositionType.NEW
+                            if (note.start_side or note.side) == "RIGHT"
+                            else NoteDiffPositionType.OLD,
                             old_line=note.start_line,
                             new_line=note.line,
                         ),
                         end=NoteDiffPosition(
-                            type=NoteDiffPositionType.NEW if note.side == "RIGHT" else NoteDiffPositionType.OLD,
+                            type=NoteDiffPositionType.NEW
+                            if (note.side or note.start_side) == "RIGHT"
+                            else NoteDiffPositionType.OLD,
                             old_line=note.start_line,
                             new_line=note.line,
                         ),

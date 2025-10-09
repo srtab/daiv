@@ -39,14 +39,16 @@ def address_mr_review_task(repo_id: str, merge_request_id: int, merge_request_so
         merge_request_source_branch (str): The merge request source branch.
     """
     with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch):
-        async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)
+        async_to_sync(ReviewAddressorManager.process_review_comments)(
+            repo_id, merge_request_id, ref=merge_request_source_branch
+        )
 
 
 @shared_task
 @locked_task(key="{repo_id}:{merge_request_id}")
 def address_mr_comments_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
     """
-    Address comments left directly on the merge request (not in the diff) that mention DAIV.
+    Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
     Args:
         repo_id (str): The repository id.

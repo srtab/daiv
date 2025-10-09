@@ -5,7 +5,7 @@ from django.http import HttpRequest
 import pytest
 from pydantic import SecretStr
 
-from codebase.github.api.security import validate_github_webhook
+from codebase.clients.github.api.security import validate_github_webhook
 
 
 @pytest.fixture

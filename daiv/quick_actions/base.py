@@ -186,8 +186,8 @@ class QuickAction(ABC):
         )
 
         if scope == Scope.MERGE_REQUEST:
-            self.client.create_merge_request_discussion_note(
-                repo_id, object_id, note_message, note_discussion_id, mark_as_resolved=True
+            self.client.create_merge_request_comment(
+                repo_id, object_id, note_message, reply_to_id=note_discussion_id, mark_as_resolved=True
             )
         elif scope == Scope.ISSUE:
             self.client.create_issue_discussion_note(repo_id, object_id, note_message, note_discussion_id)

@@ -52,13 +52,13 @@ class PipelineQuickAction(QuickAction):
         """
         pipeline = self.client.get_merge_request_latest_pipeline(repo_id, merge_request.merge_request_id)
         if pipeline is None or pipeline.status != "failed" or not (failed_job := self._get_failed_job(pipeline)):
-            self.client.create_merge_request_discussion_note(
+            self.client.create_merge_request_comment(
                 repo_id,
                 merge_request.merge_request_id,
                 jinja2_formatter(
                     PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE, pipeline_url=pipeline and pipeline.web_url or ""
                 ),
-                discussion.id,
+                reply_to_id=discussion.id,
                 mark_as_resolved=True,
             )
             return

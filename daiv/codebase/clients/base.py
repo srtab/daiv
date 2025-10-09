@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from codebase.base import ClientType, Discussion, FileChange, Issue, MergeRequest, NoteType, Pipeline, Repository, User
+from codebase.base import ClientType, Discussion, FileChange, Issue, MergeRequest, Pipeline, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -86,7 +86,15 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def comment_merge_request(self, repo_id: str, merge_request_id: int, body: str) -> str | None:
+    def create_merge_request_comment(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        body: str,
+        reply_to_id: str | None = None,
+        as_thread: bool = False,
+        mark_as_resolved: bool = False,
+    ) -> str | None:
         pass
 
     @abc.abstractmethod
@@ -157,15 +165,17 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_discussions(
-        self, repo_id: str, merge_request_id: int, note_types: list[NoteType] | None = None
-    ) -> list[Discussion]:  # noqa: A002
-        pass
-
-    @abc.abstractmethod
     def get_merge_request_discussion(
         self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
     ) -> Discussion:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         pass
 
     @abc.abstractmethod
@@ -173,30 +183,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_merge_request_review(
-        self, repo_id: str, merge_request_id: int, body: str, discussion_id: str | None = None
-    ) -> str:
-        pass
-
-    @abc.abstractmethod
-    def mark_merge_request_review_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        pass
-
-    @abc.abstractmethod
-    def create_merge_request_discussion_note(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        discussion_id: str | None = None,
-        mark_as_resolved: bool = False,
-    ) -> str:
-        pass
-
-    @abc.abstractmethod
-    def update_merge_request_discussion_note(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, note_id: str, body: str
-    ):
+    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
     @abc.abstractmethod

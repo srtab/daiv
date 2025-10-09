@@ -5,7 +5,7 @@ from django.http import HttpRequest
 import pytest
 from pydantic import SecretStr
 
-from codebase.gitlab.api.security import validate_gitlab_webhook
+from codebase.clients.gitlab.api.security import validate_gitlab_webhook
 
 
 @pytest.fixture

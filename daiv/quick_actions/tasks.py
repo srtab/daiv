@@ -95,8 +95,8 @@ def execute_quick_action_task(
         if action_scope == Scope.ISSUE:
             client.create_issue_discussion_note(repo_id, issue.iid, error_message, discussion.id)
         elif action_scope == Scope.MERGE_REQUEST:
-            client.create_merge_request_discussion_note(
-                repo_id, merge_request.merge_request_id, error_message, discussion.id
+            client.create_merge_request_comment(
+                repo_id, merge_request.merge_request_id, error_message, reply_to_id=discussion.id
             )
     else:
         if action_scope == Scope.ISSUE:

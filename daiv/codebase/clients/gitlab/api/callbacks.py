@@ -131,7 +131,7 @@ class NoteCallback(BaseCallback):
             )()
 
         elif self._is_merge_request_review:
-            if self.object_attributes.type == NoteType.DIFF_NOTE:
+            if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
                 await sync_to_async(
                     address_mr_review_task.si(
                         repo_id=self.project.path_with_namespace,
@@ -139,7 +139,7 @@ class NoteCallback(BaseCallback):
                         merge_request_source_branch=self.merge_request.source_branch,
                     ).delay
                 )()
-            elif self.object_attributes.type in [NoteType.DISCUSSION_NOTE, None]:
+            elif self.object_attributes.type is None:  # This is a comment note.
                 await sync_to_async(
                     address_mr_comments_task.si(
                         repo_id=self.project.path_with_namespace,
@@ -147,6 +147,8 @@ class NoteCallback(BaseCallback):
                         merge_request_source_branch=self.merge_request.source_branch,
                     ).delay
                 )()
+            else:
+                logger.warning("Unsupported note type: %s", self.object_attributes.type)
 
     @property
     def _is_quick_action(self) -> bool:
@@ -163,7 +165,7 @@ class NoteCallback(BaseCallback):
         if (
             not self._repo_config.code_review.enabled
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
-            or self.object_attributes.action != NoteAction.CREATE
+            or self.object_attributes.action not in [NoteAction.CREATE, NoteAction.UPDATE]
             or not self.merge_request
             or self.merge_request.state != "opened"
         ):

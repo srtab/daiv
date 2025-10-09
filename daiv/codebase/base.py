@@ -177,7 +177,6 @@ class NotePosition(BaseModel):
 class NoteType(StrEnum):
     DIFF_NOTE = "DiffNote"
     DISCUSSION_NOTE = "DiscussionNote"
-    NOTE = "Note"
 
 
 class Note(BaseModel):
@@ -194,10 +193,12 @@ class Note(BaseModel):
 
 
 class Discussion(BaseModel):
-    id: str | None = None
+    id: str
+    resolve_id: str | None = None  # The id of the comment to resolve, only used for GitHub.
     notes: list[Note] = Field(default_factory=list)
     is_reply: bool = False
     is_thread: bool = False
+    is_resolvable: bool = False
 
 
 class IssueType(StrEnum):
