@@ -228,7 +228,6 @@ async def read_tool(
             source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
         ).model_dump(exclude_none=True)
 
-    # Apply line limiting and chunking
     lines = content.splitlines()
     total_lines = len(lines)
 
