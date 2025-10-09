@@ -3,7 +3,7 @@
 
 ```mermaid
 graph TD
-    A["👥 Code Reviewer"] --> B["💬 Comments on Merge Request<br/>(requests changes or asks questions)"]
+    A["👥 Code Reviewer"] --> B["💬 Comments on Merge/Pull Request<br/>(requests changes or asks questions)"]
     B --> C["🔔 Comment Webhook"]
     C --> D["🤖 Review Addressor Agent"]
     D --> E["📊 Comment Assessment<br/>(ReviewCommentEvaluator)"]
@@ -15,8 +15,8 @@ graph TD
     G --> I["📝 Analyzes Code Context"]
     I --> J["🔨 Applies Code Changes"]
     J --> K["🎨 Code Formatting"]
-    K --> L["📤 Commits to MR Branch"]
-    L --> M["✅ Marks Discussion Resolved<br/>'Review comment addressed'"]
+    K --> L["📤 Commits to MR/PR Branch"]
+    L --> M["✅ Marks Discussion Resolved<br/>(GitLab) or Adds Comment (GitHub)"]
 
     H --> N["🔍 Gathers Context<br/>(if needed)"]
     N --> O["💭 Thinks Through Response"]

@@ -1,6 +1,6 @@
 # 🤖 Issue Addressor
 
-Issue Addressing is a feature that allows DAIV to address issues by generating a plan and executing the necessary code changes, opening a merge request with the changes for review.
+Issue Addressing is a feature that allows DAIV to address issues by generating a plan and executing the necessary code changes, opening a merge request (GitLab) or pull request (GitHub) with the changes for review.
 
 ## Triggering runs
 
@@ -25,9 +25,9 @@ DAIV will automatically regenerate the plan.
 
 ## Executing the plan
 
-You can execute the plan by commenting on the issue with `@daiv plan execute`. DAIV will execute the plan and open a merge request with the changes for you to review.
+You can execute the plan by commenting on the issue with `@daiv plan execute`. DAIV will execute the plan and open a merge request (GitLab) or pull request (GitHub) with the changes for you to review.
 
-After a first plan is executed on an issue, executing a second plan will override the previous merge request.
+After a first plan is executed on an issue, executing a second plan will override the previous merge/pull request.
 
 ## Workflow
 
@@ -45,8 +45,8 @@ graph TD
     J --> K["🔨 Executes Plan<br/>(plan_and_execute agent)"]
     K --> L["📝 Applies Code Changes"]
     L --> M["🎨 Code Formatting"]
-    M --> N["📤 Creates Merge Request"]
-    N --> O["💬 Posts MR Link on Issue"]
+    M --> N["📤 Creates Merge/Pull Request"]
+    N --> O["💬 Posts MR/PR Link on Issue"]
 
     G --> P["❌ Plan Needs Changes"]
     P --> Q["📝 Developer Updates Issue"]

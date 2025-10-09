@@ -1,12 +1,12 @@
 # ⚡ Quick Actions
 
-Quick Actions provide command-based interactions with DAIV directly from GitLab issues and merge requests. They are useful for common tasks and information requests.
+Quick Actions provide command-based interactions with DAIV directly from issues and merge/pull requests. They are useful for common tasks and information requests.
 
 ---
 
 ## Overview
 
-Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge request comments.
+Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge/pull request comments.
 
 ### How Quick Actions Work
 
@@ -15,7 +15,7 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 **Supported Scopes**:
 
 - **Issues**: Available in issue comments and discussions
-- **Merge Requests**: Available in merge request comments and discussions
+- **Merge/Pull Requests**: Available in merge/pull request comments and discussions
 
 **Command Parsing**:
 
@@ -39,7 +39,7 @@ graph TD
     F -->|Yes| G["⚡ Execute Action"]
     F -->|No| H["❌ Unknown Action Error"]
 
-    G --> I["🔍 Validate Scope<br/>(Issue vs Merge Request)"]
+    G --> I["🔍 Validate Scope<br/>(Issue vs Merge/Pull Request)"]
     I --> J["🛠️ Execute Specific Logic"]
 
     J --> K["📖 Help Action<br/>(show available commands)"]
@@ -60,7 +60,7 @@ graph TD
 
 ### Basic Usage
 
-1. **Navigate** to any GitLab issue or merge request
+1. **Navigate** to any issue or merge/pull request
 2. **Add a comment** mentioning DAIV with the desired action
 3. **Submit** the comment
 4. **DAIV responds** with the action result
@@ -73,9 +73,9 @@ graph TD
 
 **Command**: `@daiv help`
 
-**Purpose**: Displays all available Quick Actions for the current scope (issue or merge request).
+**Purpose**: Displays all available Quick Actions for the current scope (issue or merge/pull request).
 
-**Scopes**: Issues, Merge Requests
+**Scopes**: Issues, Merge/Pull Requests
 
 **Example**:
 ```
@@ -120,9 +120,9 @@ graph TD
 
 **Command**: `@daiv pipeline <sub-action>`
 
-**Purpose**: Manage merge request pipeline failures with automated repair suggestions and execution.
+**Purpose**: Manage merge/pull request pipeline failures with automated repair suggestions and execution.
 
-**Scopes**: Merge Requests only
+**Scopes**: Merge/Pull Requests only
 
 **Sub-actions**:
 
@@ -159,7 +159,7 @@ graph TD
 
 **Action not recognized**:
 
-- Check that the action supports the current scope (issue vs merge request)
+- Check that the action supports the current scope (issue vs merge/pull request)
 - Ensure proper spelling and case (actions are case-insensitive)
 - Verify sub-action syntax (e.g., `plan execute` not `plan-execute`)
 
@@ -171,7 +171,7 @@ graph TD
 
 **Permission errors**:
 
-- Ensure DAIV has sufficient GitLab permissions
+- Ensure DAIV has sufficient repository permissions
 - Confirm the user triggering the action has appropriate access levels
 
 **Pipeline action issues**:
@@ -182,7 +182,7 @@ graph TD
 
 **Plan action issues**:
 
-- Ensure you're commenting on an issue (not merge request)
+- Ensure you're commenting on an issue (not merge/pull request)
 - Check if there's an existing plan to execute or revise
 
 ### Debug Information
