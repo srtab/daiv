@@ -46,10 +46,6 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
-        pass
-
-    @abc.abstractmethod
     def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 

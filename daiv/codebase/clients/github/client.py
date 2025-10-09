@@ -38,6 +38,7 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.conf import settings
+from core.utils import async_download_url
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -684,11 +685,19 @@ class GitHubClient(RepoClient):
     def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int):
         raise NotImplementedError()
 
-    def get_project_uploaded_file(self, repo_id: str, file_path: str):
-        raise NotImplementedError()
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
+        """
+        Download a user-attachments file from GitHub.
 
-    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str):
-        raise NotImplementedError()
+        Args:
+            repo_id: The repository ID (not used for GitHub, as file_path contains full URL).
+            file_path: The full URL to the GitHub user-attachments file.
+
+        Returns:
+            The file content as bytes, or None if the download fails.
+        """
+        token = self.client.requester.auth.token
+        return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
 
     def job_log_trace(self, repo_id: str, job_id: int):
         raise NotImplementedError()

@@ -40,23 +40,32 @@ class ImageTemplate(BaseModel):
         image_templates = []
 
         for image in images:
-            if is_valid_url(image.url):
-                image_templates.append(ImageTemplate(source_type="url", url=image.url).model_dump(exclude_none=True))
+            parsed_url = urlparse(image.url)
 
-            elif (
-                (parsed_url := urlparse(image.url))
+            # Handle GitLab relative upload paths and GitHub user-attachments URLs
+            if (
+                repo_client.client_slug == ClientType.GITLAB
                 and not parsed_url.netloc
                 and not parsed_url.scheme
-                and repo_client.client_slug == ClientType.GITLAB
                 and parsed_url.path.startswith(("/uploads/", "uploads/"))
-                and (mime_type := extract_valid_image_mimetype(image.url))
+            ) or (
+                repo_client.client_slug == ClientType.GITHUB
+                and parsed_url.netloc
+                and parsed_url.scheme
+                and "github.com" in parsed_url.netloc.lower()
+                and "/user-attachments/" in parsed_url.path
             ):
-                image_content = await repo_client.get_project_uploaded_file(ctx.repo_id, image.url)
+                if (image_content := await repo_client.get_project_uploaded_file(ctx.repo_id, image.url)) and (
+                    mime_type := extract_valid_image_mimetype(image_content)
+                ):
+                    image_templates.append(
+                        ImageTemplate(
+                            source_type="base64", data=base64.b64encode(image_content).decode(), mime_type=mime_type
+                        ).model_dump(exclude_none=True)
+                    )
 
-                image_templates.append(
-                    ImageTemplate(
-                        source_type="base64", data=base64.b64encode(image_content).decode(), mime_type=mime_type
-                    ).model_dump(exclude_none=True)
-                )
+            # Handle generic valid URLs (external images)
+            elif is_valid_url(image.url):
+                image_templates.append(ImageTemplate(source_type="url", url=image.url).model_dump(exclude_none=True))
 
         return image_templates

@@ -144,12 +144,6 @@ class GitLabClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    def get_repository_file_link(self, repo_id: str, file_path: str, ref: str) -> str:
-        """
-        Get the link to a file in a repository.
-        """
-        return build_uri(self._codebase_url, f"/{repo_id}/-/blob/{ref}/{file_path}")
-
     async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         """
         Download a markdown uploaded file from a repository.
