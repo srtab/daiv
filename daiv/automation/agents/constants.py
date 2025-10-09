@@ -9,16 +9,32 @@ class ModelName(StrEnum):
     by Anthropic, Google or OpenAI.
     """
 
-    CLAUDE_SONNET_4 = "openrouter:anthropic/claude-sonnet-4"
-    CLAUDE_OPUS_4 = "openrouter:anthropic/claude-opus-4"
+    # Anthropic models
+    CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
+    CLAUDE_OPUS_4_1 = "openrouter:anthropic/claude-opus-4.1"
+
+    # OpenAI models
+    O3 = "openrouter:openai/o3"
     GPT_4_1 = "openrouter:openai/gpt-4.1"
     GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
     GPT_4_1_NANO = "openrouter:openai/gpt-4.1-nano"
-    O4_MINI = "openrouter:openai/o4-mini"
-    O3 = "openrouter:openai/o3"
     GPT_5 = "openrouter:openai/gpt-5"
     GPT_5_MINI = "openrouter:openai/gpt-5-mini"
     GPT_5_NANO = "openrouter:openai/gpt-5-nano"
-    DEEPSEEK_CHAT_V3_1 = "openrouter:deepseek/deepseek-chat-v3.1"
+    GPT_5_CODEX = "openrouter:openai/gpt-5-codex"
+
+    # DeepSeek models
+    DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus"
+
+    # Google models
     GEMINI_2_5_PRO = "openrouter:google/gemini-2.5-pro"
+
+    # x-ai models
     GROK_CODE_FAST_1 = "openrouter:x-ai/grok-code-fast-1"
+
+    # z-ai models
+    Z_AI_GLM_4_6 = "openrouter:z-ai/glm-4.6"
+
+    # Qwen models
+    QWEN_3_MAX = "openrouter:qwen/qwen3-max"
+    QWEN_3_CODER_PLUS = "openrouter:qwen/qwen3-coder-plus"

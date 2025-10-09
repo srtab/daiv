@@ -217,7 +217,7 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
         await register_file_read(store, file_path)
 
     # If the file is an image, return the image template.
-    if mime_type := extract_valid_image_mimetype(file_path):
+    if mime_type := extract_valid_image_mimetype(content.encode()):
         return ImageTemplate(
             source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
         ).model_dump(exclude_none=True)

@@ -4,8 +4,6 @@ from textwrap import dedent
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from automation.agents.schemas import Image  # noqa: TC001
-
 PLAN_DESCRIPTION = """\
 Deliver a self-contained implementation plan that satisfies the user's request.
 
@@ -14,10 +12,6 @@ Requirements for the plan:
 - Related instructions that touch the same file appear consecutively to aid batching/review.
 - Self-contained: no external URLs; embed essential snippets/data (short snippets only) using safe fences.
 - Reference concrete files/functions/config keys discovered during inspection."""  # noqa: E501
-
-
-class ImageURLExtractorOutput(BaseModel):
-    images: list[Image] = Field(description="List of images found in the task.")
 
 
 class ChangeInstructions(BaseModel):

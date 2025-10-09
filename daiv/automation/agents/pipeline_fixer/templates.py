@@ -4,12 +4,7 @@ The agent could not safely automate the items below.
 Follow the **Suggested fix** (or ignore the agent's advice and solve another way) for job `{{ job_name }}`.
 
 {% for troubleshooting in troubleshooting_details %}
-<details>
-<summary>
-
-**{{ troubleshooting.title }}{% if troubleshooting.file_path %} - `{{ troubleshooting.file_path }}`{% endif %}**
-
-</summary>
+<details><summary><b>{{ troubleshooting.title }}{% if troubleshooting.file_path %} - <code>{{ troubleshooting.file_path }}</code>{% endif %}</b></summary>
 
 {{ troubleshooting.details }}
 
@@ -53,13 +48,10 @@ If you believe a failure should have been detected, review the job settings.
 
 PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE = """### 🚀 Automatic Repair Plan
 
+---
+
 {% for plan_task in plan_tasks %}
-<details>
-<summary>
-
-**Changes to apply {% if plan_task.file_path %}to `{{ plan_task.file_path }}`{% else %}to the repository{% endif %}**
-
-</summary>
+<details><summary><b>Changes to apply {% if plan_task.file_path %}to <code>{{ plan_task.file_path }}</code>{% else %}to the repository{% endif %}</b></summary>
 
 {{ plan_task.details }}
 {% if plan_task.relevant_files %}

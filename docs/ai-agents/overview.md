@@ -38,7 +38,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 - Breaks down complex tasks into self contained actionable steps
 - Handles error recovery and replanning
 - Coordinates between different tools and systems
-- Analyzes attached images (if any)
+- Analyzes attached images from issues and comments (Markdown and HTML formats, including GitHub attachments)
 - Uses MCP tools to extend its capabilities (e.g. Fetch, Sentry, etc.)
 - Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)
 - Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)

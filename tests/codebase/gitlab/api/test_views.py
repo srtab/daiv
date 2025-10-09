@@ -5,8 +5,8 @@ from daiv.api import api
 from ninja.testing import TestAsyncClient
 from pydantic import SecretStr
 
-from codebase.api.callbacks_gitlab import PushCallback
-from codebase.api.models import Project
+from codebase.clients.gitlab.api.callbacks import PushCallback
+from codebase.clients.gitlab.api.models import Project
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def client():
 @pytest.fixture()
 def mock_secret_token():
     """Fixture to mock the secret token for testing."""
-    with patch("codebase.api.security.settings") as mock:
+    with patch("codebase.clients.gitlab.api.security.settings") as mock:
         mock.GITLAB_WEBHOOK_SECRET = SecretStr("test")  # noqa: S105
         yield mock
 

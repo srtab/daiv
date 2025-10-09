@@ -44,12 +44,19 @@ def build_uri(uri: str, path: str):
     return urlunparse(uri_parts)
 
 
-def extract_valid_image_mimetype(image_url: str) -> str | None:
+def extract_valid_image_mimetype(image_content: bytes) -> str | None:
     """
-    Check if the image URL has a supported mimetype.
+    Check if the image content has a supported mimetype.
     """
-    mimetype, _encoding = mimetypes.guess_type(image_url)
-    return mimetype in SUPPORTED_MIMETYPES and mimetype or None
+    if image_content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(image_content) >= 6 and image_content[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if image_content.startswith(b"RIFF") and len(image_content) >= 12 and image_content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 async def _async_download_url(client: httpx.AsyncClient, url: str) -> bytes | None:
@@ -62,8 +69,7 @@ async def _async_download_url(client: httpx.AsyncClient, url: str) -> bytes | No
         response.raise_for_status()
     except Exception:
         return None
-    else:
-        return response.content
+    return response.content
 
 
 async def async_download_url(url: str, headers: dict[str, str] | None = None) -> bytes | None:
@@ -71,7 +77,7 @@ async def async_download_url(url: str, headers: dict[str, str] | None = None) ->
     Asynchronously download an URL.
     Returns None if the URL is invalid or the request fails.
     """
-    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=10.0, headers=headers, follow_redirects=True) as client:
         return await _async_download_url(client, url)
 
 
@@ -83,7 +89,7 @@ async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] 
     result = {}
 
     # Using a single client for all requests
-    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=10.0, headers=headers, follow_redirects=True) as client:
         responses = await asyncio.gather(*[_async_download_url(client, url) for url in urls], return_exceptions=True)
 
         for url, response in zip(urls, responses, strict=False):

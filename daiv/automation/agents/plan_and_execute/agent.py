@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig, RunnableLambda  # noqa: TC002
+from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -26,13 +26,13 @@ from automation.agents.tools.toolkits import (
     SandboxToolkit,
     WebSearchToolkit,
 )
+from automation.agents.utils import extract_images_from_text
 from automation.utils import has_file_changes
 from codebase.context import get_repository_ctx
 from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
-from .prompts import execute_plan_human, execute_plan_system, image_extractor_human, image_extractor_system, plan_system
-from .schemas import ImageURLExtractorOutput
+from .prompts import execute_plan_human, execute_plan_system, plan_system
 from .state import ExecuteState, PlanAndExecuteState
 from .tools import clarify_tool, complete_tool, plan_think_tool, plan_tool
 
@@ -46,19 +46,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agents")
-
-
-async def _image_extrator_post_process(output: ImageURLExtractorOutput) -> list[ImageTemplate]:
-    """
-    Post-process the extracted images.
-
-    Args:
-        output (ImageURLExtractorOutput): The extracted images.
-
-    Returns:
-        list[ImageTemplate]: The processed images ready to be used on prompt templates.
-    """
-    return await ImageTemplate.from_images(output.images)
 
 
 async def prepare_plan_model_and_tools() -> tuple[
@@ -228,20 +215,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan"]]: The next step in the workflow.
         """
-
-        image_extractor = (
-            ChatPromptTemplate.from_messages([image_extractor_system, image_extractor_human])
-            | BaseAgent.get_model(model=settings.IMAGE_EXTRACTOR_MODEL_NAME).with_structured_output(
-                ImageURLExtractorOutput
-            )
-            | RunnableLambda(_image_extrator_post_process, name="post_process_extracted_images")
-        )
-
         latest_message = state["messages"][-1]
-        extracted_images = await image_extractor.ainvoke({"body": latest_message.content})
+        extracted_images_data = extract_images_from_text(latest_message.content)
 
-        if not extracted_images:
+        if not extracted_images_data:
             return Command[Literal["plan"]](goto="plan")
+
+        extracted_images = await ImageTemplate.from_images(extracted_images_data)
 
         return Command[Literal["plan"]](
             goto="plan",

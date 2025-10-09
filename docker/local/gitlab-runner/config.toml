@@ -1,4 +1,4 @@
-concurrent = 2
+concurrent = 4
 check_interval = 0
 
 [session_server]
@@ -10,6 +10,7 @@ check_interval = 0
   clone_url = "http://127.0.0.1:8929"
   token = "glrt-dDoxCnU6MTMUC4wWBv1Hq8KJeY5kJOgQ.0w1rm0xi5"
   executor = "docker"
+  request_concurrency = 2
   [runners.docker]
     network_mode = "host"
     tls_verify = false

@@ -221,7 +221,6 @@ All the default models where chosen to be the most effective models. You can cha
 | `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
 | `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4` |
 | `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `50` |
-| `PLAN_AND_EXECUTE_IMAGE_EXTRACTOR_MODEL_NAME` | Model for image url extraction. | `openrouter:openai/gpt-4-1-nano` |
 
 ### Review Addressor
 

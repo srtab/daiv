@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced repository read tools `search_code_snippets`, `retrieve_file_content`, and `repository_structure` with the new `glob`, `grep`, `ls`, and `read` tools.
 - Replaced repository write tools `create_new_repository_file`, `replace_snippet_in_file`, `rename_repository_file` and `delete_repository_file` with the new `write`, `edit`, `delete` and `rename` tools.
 - Replaced sandbox tools `run_sandbox_commands` and `run_sandbox_code` with the new `bash` tool.
+- Replaced LLM-based image extraction in `PlanAndExecuteAgent` with regex-based utility function for improved performance and reduced costs.
 - Migrated default database from `pgvector/pgvector:pg17` to `postgres:17.6`.
 - Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
 - Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.

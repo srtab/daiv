@@ -89,7 +89,7 @@ class TestHelpAction:
         mock_registry.get_actions.assert_called_once_with(scope=Scope.MERGE_REQUEST)
 
         # Verify merge request discussion note was created
-        self.action.client.create_merge_request_discussion_note.assert_called_once()
+        self.action.client.create_merge_request_comment.assert_called_once()
 
     @patch("quick_actions.actions.help.quick_action_registry")
     async def test_execute_with_multiple_actions(self, mock_registry):

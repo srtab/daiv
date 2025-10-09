@@ -9,11 +9,14 @@ from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_quick_action_task
 
 from codebase.api.callbacks import BaseCallback
-from codebase.api.models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from codebase.base import NoteType
 from codebase.clients import RepoClient
+from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_review_task
-from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv
+from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
+from codebase.utils import note_mentions_daiv
+
+from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
 ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
 
@@ -93,7 +96,7 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_merge_request_review or self._is_issue_to_address)
+        return bool(self._is_quick_action or self._is_merge_request_review)
 
     async def process_callback(self):
         """
@@ -107,11 +110,11 @@ class NoteCallback(BaseCallback):
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
                 self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
-                    self.project.path_with_namespace, self.issue.iid, "thumbsup", self.object_attributes.id
+                    self.project.path_with_namespace, self.issue.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
 
             await sync_to_async(
@@ -128,22 +131,24 @@ class NoteCallback(BaseCallback):
             )()
 
         elif self._is_merge_request_review:
-            self._client.create_merge_request_note_emoji(
-                self.project.path_with_namespace, self.merge_request.iid, "thumbsup", self.object_attributes.id
-            )
-
-            await sync_to_async(
-                address_review_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    merge_request_id=self.merge_request.iid,
-                    merge_request_source_branch=self.merge_request.source_branch,
-                ).delay
-            )()
-
-        elif self._is_issue_to_address:
-            await sync_to_async(
-                address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.issue.iid).delay
-            )()
+            if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
+                await sync_to_async(
+                    address_mr_review_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        merge_request_id=self.merge_request.iid,
+                        merge_request_source_branch=self.merge_request.source_branch,
+                    ).delay
+                )()
+            elif self.object_attributes.type is None:  # This is a comment note.
+                await sync_to_async(
+                    address_mr_comments_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        merge_request_id=self.merge_request.iid,
+                        merge_request_source_branch=self.merge_request.source_branch,
+                    ).delay
+                )()
+            else:
+                logger.warning("Unsupported note type: %s", self.object_attributes.type)
 
     @property
     def _is_quick_action(self) -> bool:
@@ -160,37 +165,13 @@ class NoteCallback(BaseCallback):
         if (
             not self._repo_config.code_review.enabled
             or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
-            or self.object_attributes.action != NoteAction.CREATE
+            or self.object_attributes.action not in [NoteAction.CREATE, NoteAction.UPDATE]
             or not self.merge_request
-            or self.merge_request.work_in_progress
             or self.merge_request.state != "opened"
         ):
             return False
 
-        # Shortcut to avoid fetching the discussion if the note mentions DAIV.
-        if note_mentions_daiv(self.object_attributes.note, self._client.current_user):
-            return True
-
-        # Fetch the discussion to check if it has any notes mentioning DAIV.
-        discussion = self._client.get_merge_request_discussion(
-            self.project.path_with_namespace, self.merge_request.iid, self.object_attributes.discussion_id
-        )
-        return discussion_has_daiv_mentions(discussion, self._client.current_user)
-
-    @property
-    def _is_issue_to_address(self) -> bool:
-        """
-        Accept the webhook if the note is a comment for an issue.
-        """
-        return bool(
-            self.object_attributes.noteable_type == NoteableType.ISSUE
-            and self.object_attributes.type == "DiscussionNote"  # Only accept replies to the issue discussion.
-            and self._repo_config.issue_addressing.enabled
-            and self.object_attributes.action == NoteAction.CREATE
-            and self.issue
-            and self.issue.is_daiv()
-            and self.issue.state == "opened"
-        )
+        return note_mentions_daiv(self.object_attributes.note, self._client.current_user)
 
     @cached_property
     def _quick_action_command(self) -> QuickActionCommand | None:

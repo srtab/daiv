@@ -20,4 +20,15 @@ def check_api_keys(app_configs, **kwargs):
             )
         )
 
+    elif settings.CLIENT == ClientType.GITHUB and (
+        not settings.GITHUB_PRIVATE_KEY or not settings.GITHUB_APP_ID or not settings.GITHUB_INSTALLATION_ID
+    ):
+        errors.append(
+            Error(
+                f"No API key found for {settings.CLIENT}. "
+                "Please set the API key using the environment variable "
+                "CODEBASE_GITHUB_PRIVATE_KEY, CODEBASE_GITHUB_APP_ID, and CODEBASE_GITHUB_INSTALLATION_ID."
+            )
+        )
+
     return errors

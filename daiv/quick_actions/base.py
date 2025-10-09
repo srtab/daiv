@@ -104,28 +104,19 @@ class QuickAction(ABC):
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
         """
-        is_reply = len(discussion.notes) > 1
-
-        if not self.validate_action(args, is_reply):
+        if not self.validate_action(args, discussion.is_reply):
             self._add_invalid_action_message(
                 repo_id,
                 merge_request.merge_request_id if merge_request else issue.iid,
                 discussion.id,
                 args,
-                is_reply=is_reply,
+                is_reply=discussion.is_reply,
                 scope=scope,
             )
             return
 
         return await self.execute_action(
-            repo_id,
-            args=args,
-            scope=scope,
-            discussion=discussion,
-            note=note,
-            issue=issue,
-            merge_request=merge_request,
-            is_reply=is_reply,
+            repo_id, args=args, scope=scope, discussion=discussion, note=note, issue=issue, merge_request=merge_request
         )
 
     @abstractmethod
@@ -139,7 +130,6 @@ class QuickAction(ABC):
         note: Note,
         issue: Issue | None = None,
         merge_request: MergeRequest | None = None,
-        is_reply: bool = False,
     ) -> None:
         """
         Use this method to implement the specific logic for the action to be executed.
@@ -152,7 +142,6 @@ class QuickAction(ABC):
             issue: The issue where the action was triggered (if applicable).
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
-            is_reply: Whether the action was triggered as a reply.
         """
 
     def validate_action(self, action: str, is_reply: bool) -> bool:
@@ -197,8 +186,8 @@ class QuickAction(ABC):
         )
 
         if scope == Scope.MERGE_REQUEST:
-            self.client.create_merge_request_discussion_note(
-                repo_id, object_id, note_message, note_discussion_id, mark_as_resolved=True
+            self.client.create_merge_request_comment(
+                repo_id, object_id, note_message, reply_to_id=note_discussion_id, mark_as_resolved=True
             )
         elif scope == Scope.ISSUE:
             self.client.create_issue_discussion_note(repo_id, object_id, note_message, note_discussion_id)

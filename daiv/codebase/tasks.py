@@ -29,7 +29,7 @@ def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, sho
 
 @shared_task
 @locked_task(key="{repo_id}:{merge_request_id}")
-def address_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
+def address_mr_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
     """
     Address a review feedback by applying the changes described or answering questions about the codebase.
 
@@ -39,4 +39,23 @@ def address_review_task(repo_id: str, merge_request_id: int, merge_request_sourc
         merge_request_source_branch (str): The merge request source branch.
     """
     with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch):
-        async_to_sync(ReviewAddressorManager.process_review)(repo_id, merge_request_id, ref=merge_request_source_branch)
+        async_to_sync(ReviewAddressorManager.process_review_comments)(
+            repo_id, merge_request_id, ref=merge_request_source_branch
+        )
+
+
+@shared_task
+@locked_task(key="{repo_id}:{merge_request_id}")
+def address_mr_comments_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
+    """
+    Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
+
+    Args:
+        repo_id (str): The repository id.
+        merge_request_id (int): The merge request id.
+        merge_request_source_branch (str): The merge request source branch.
+    """
+    with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch):
+        async_to_sync(ReviewAddressorManager.process_comments)(
+            repo_id, merge_request_id, ref=merge_request_source_branch
+        )

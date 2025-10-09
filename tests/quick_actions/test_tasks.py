@@ -249,12 +249,12 @@ class TestExecuteQuickActionTask:
         )
 
         # Verify error message is posted to merge request
-        mock_repo_client.create_merge_request_discussion_note.assert_called_once()
-        call_args = mock_repo_client.create_merge_request_discussion_note.call_args
+        mock_repo_client.create_merge_request_comment.assert_called_once()
+        call_args = mock_repo_client.create_merge_request_comment.call_args
         assert call_args[0][0] == "repo123"
         assert call_args[0][1] == self.merge_request.merge_request_id
         assert "failing_action" in call_args[0][2]
-        assert call_args[0][3] == "disc-123"
+        assert call_args[1]["reply_to_id"] == "disc-123"
 
     @patch("quick_actions.tasks.async_to_sync")
     @patch("quick_actions.tasks.quick_action_registry")
