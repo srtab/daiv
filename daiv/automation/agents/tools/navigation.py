@@ -231,7 +231,6 @@ async def read_tool(
     lines = content.splitlines()
     total_lines = len(lines)
 
-    # Validate start_line
     if start_line < 1 or start_line > total_lines:
         return f"error: start_line {start_line} is out of range. File has {total_lines} lines."
 
