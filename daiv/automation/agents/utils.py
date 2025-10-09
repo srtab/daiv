@@ -1,5 +1,114 @@
 import difflib
 import re
+from pathlib import Path
+from urllib.parse import urlparse
+
+from automation.agents.schemas import Image
+
+
+def extract_images_from_text(text: str) -> list[Image]:
+    """
+    Extract image URLs from text using regex patterns.
+
+    Supports:
+    - Markdown syntax: ![alt text](url)
+    - HTML img tags: <img src="url" ...>
+
+    Extracts URLs that either:
+    - End with common image extensions (.jpg, .jpeg, .png, .gif, .webp)
+    - Are GitHub user-attachments URLs (even without extensions)
+
+    Args:
+        text (str): The text content to extract images from.
+
+    Returns:
+        list[Image]: List of Image objects with url and filename.
+    """
+    if not text:
+        return []
+
+    images = []
+    seen_urls = set()
+
+    # Pattern for markdown images: ![alt text](url)
+    markdown_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
+    for match in re.finditer(markdown_pattern, text):
+        alt_text = match.group(1).strip()
+        url = match.group(2).strip()
+
+        # Only include URLs with valid image extensions
+        if _is_valid_image_url(url) and url not in seen_urls:
+            filename = _extract_filename(url, alt_text)
+            images.append(Image(url=url, filename=filename))
+            seen_urls.add(url)
+
+    # Pattern for HTML img tags: <img ... src="url" ... alt="text" ... />
+    # This pattern is flexible to handle attributes in any order
+    html_pattern = r'<img\s+[^>]*?src=["\'"]([^"\']+)["\'"](.*?)/?>'
+    for match in re.finditer(html_pattern, text, re.IGNORECASE):
+        url = match.group(1).strip()
+        remaining_attrs = match.group(2)
+
+        # Extract alt text if present
+        alt_match = re.search(r'alt=["\'"]([^"\'"]*)["\'""]', remaining_attrs, re.IGNORECASE)
+        alt_text = alt_match.group(1).strip() if alt_match else ""
+
+        # Only include URLs with valid image extensions
+        if _is_valid_image_url(url) and url not in seen_urls:
+            filename = _extract_filename(url, alt_text)
+            images.append(Image(url=url, filename=filename))
+            seen_urls.add(url)
+
+    return images
+
+
+def _is_valid_image_url(url: str) -> bool:
+    """
+    Check if a URL is a valid image URL.
+
+    Args:
+        url (str): The URL to check.
+
+    Returns:
+        bool: True if the URL ends with a valid image extension or is a known image hosting service.
+    """
+    valid_extensions = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+    # Parse the URL to get the path without query parameters
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+
+    # Check for valid image extensions
+    if any(path.endswith(ext) for ext in valid_extensions):
+        return True
+
+    # Check for GitHub user-attachments (always images even without extensions)
+    return "github.com" in parsed.netloc.lower() and "/user-attachments/" in path
+
+
+def _extract_filename(url: str, alt_text: str = "") -> str:
+    """
+    Extract filename from URL or use alt text as fallback.
+
+    Args:
+        url (str): The image URL.
+        alt_text (str): Alternative text from markdown/HTML.
+
+    Returns:
+        str: The extracted filename.
+    """
+    # Try to extract filename from URL path
+    parsed = urlparse(url)
+    path = Path(parsed.path)
+
+    if path.name:
+        return path.name
+
+    # Fallback to alt text if available
+    if alt_text:
+        return alt_text
+
+    # Last resort: empty string
+    return ""
 
 
 def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> list[str]:

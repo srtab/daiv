@@ -15,9 +15,6 @@ class PlanAndExecuteSettings(BaseSettings):
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
     PLANNING_RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan agent.")
     EXECUTION_RECURSION_LIMIT: int = Field(default=50, description="Recursion limit for the execute agent.")
-    IMAGE_EXTRACTOR_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_4_1_NANO, description="Model name to be used to extract images from the task."
-    )
     PLANNING_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_SONNET_4_5, description="Model name to be used to plan tasks."
     )
