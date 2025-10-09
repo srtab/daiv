@@ -42,7 +42,7 @@ def mock_repo_client():
 
         # Mock issue operations
         mock_client.get_issue.return_value = Mock()
-        mock_client.comment_issue.return_value = None
+        mock_client.create_issue_comment.return_value = None
         mock_client.create_issue_note_emoji.return_value = None
         mock_client.get_issue_discussion.return_value = Mock()
         mock_client.get_issue_related_merge_requests.return_value = []

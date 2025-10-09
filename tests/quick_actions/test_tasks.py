@@ -254,7 +254,7 @@ class TestExecuteQuickActionTask:
         assert call_args[0][0] == "repo123"
         assert call_args[0][1] == self.merge_request.merge_request_id
         assert "failing_action" in call_args[0][2]
-        assert call_args[0][3] == "disc-123"
+        assert call_args[1]["reply_to_id"] == "disc-123"
 
     @patch("quick_actions.tasks.async_to_sync")
     @patch("quick_actions.tasks.quick_action_registry")

@@ -29,7 +29,7 @@ def mock_request():
 def test_validate_github_webhook(mock_request, secret_configured, signature_header, valid_signature, expected_result):
     """Test GitHub webhook validation with various scenarios."""
     # Setup
-    with patch("codebase.api.security.settings") as mock_settings:
+    with patch("codebase.clients.github.api.security.settings") as mock_settings:
         mock_settings.GITHUB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if signature_header:

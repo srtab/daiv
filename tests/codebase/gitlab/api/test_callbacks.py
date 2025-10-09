@@ -28,9 +28,9 @@ def stub_client():
 @pytest.fixture
 def monkeypatch_dependencies(monkeypatch, stub_client):
     """Monkeypatch RepoClient and RepositoryConfig for testing."""
-    monkeypatch.setattr("codebase.api.callbacks_gitlab.RepoClient.create_instance", lambda: stub_client)
+    monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.RepoClient.create_instance", lambda: stub_client)
     monkeypatch.setattr(
-        "codebase.api.callbacks_gitlab.RepositoryConfig.get_config", lambda *args, **kwargs: RepositoryConfig()
+        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: RepositoryConfig()
     )
 
 

@@ -17,7 +17,7 @@ def client():
 @pytest.fixture()
 def mock_secret_token():
     """Fixture to mock the secret token for testing."""
-    with patch("codebase.api.security.settings") as mock:
+    with patch("codebase.clients.gitlab.api.security.settings") as mock:
         mock.GITLAB_WEBHOOK_SECRET = SecretStr("test")  # noqa: S105
         yield mock
 

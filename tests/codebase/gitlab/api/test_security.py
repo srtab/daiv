@@ -28,7 +28,7 @@ def mock_request():
 def test_validate_gitlab_webhook(mock_request, secret_configured, token_header, expected_result):
     """Test GitLab webhook validation with various scenarios."""
     # Setup
-    with patch("codebase.api.security.settings") as mock_settings:
+    with patch("codebase.clients.gitlab.api.security.settings") as mock_settings:
         mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if token_header:
