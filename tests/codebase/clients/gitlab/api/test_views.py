@@ -3,7 +3,6 @@ from unittest.mock import patch
 import pytest
 from daiv.api import api
 from ninja.testing import TestAsyncClient
-from pydantic import SecretStr
 
 from codebase.clients.gitlab.api.callbacks import PushCallback
 from codebase.clients.gitlab.api.models import Project
@@ -14,14 +13,6 @@ def client():
     return TestAsyncClient(api)
 
 
-@pytest.fixture()
-def mock_secret_token():
-    """Fixture to mock the secret token for testing."""
-    with patch("codebase.clients.gitlab.api.security.settings") as mock:
-        mock.GITLAB_WEBHOOK_SECRET = SecretStr("test")  # noqa: S105
-        yield mock
-
-
 @pytest.fixture
 def mock_push_callback():
     return PushCallback(
@@ -29,7 +20,7 @@ def mock_push_callback():
     ).model_dump()
 
 
-async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
+async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback):
     """Test GitLab callback with valid token."""
     # Execute
     with (
@@ -37,7 +28,7 @@ async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_ca
         patch.object(PushCallback, "process_callback", return_value=True) as process_callback,
     ):
         response = await client.post(
-            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test"}
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test_secret"}
         )
 
     # Assert
@@ -46,7 +37,7 @@ async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_ca
     process_callback.assert_called_once()
 
 
-async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback, mock_secret_token):
+async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback):
     """
     Test GitLab callback with invalid token.
     """
@@ -56,7 +47,7 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
         patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
     ):
         response = await client.post(
-            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "invalid"}
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "invalid_secret"}
         )
 
     # Assert
@@ -65,11 +56,12 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
     process_callback.assert_not_called()
 
 
-async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_secret_token):
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_settings):
     """
     Test GitLab callback with not accepted webhook.
     """
-    mock_secret_token.GITLAB_WEBHOOK_SECRET = None
+    mock_settings.GITLAB_WEBHOOK_SECRET = None
+
     # Execute
     with (
         patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,

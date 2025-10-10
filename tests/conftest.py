@@ -4,9 +4,22 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic import SecretStr
 
 from codebase.base import ClientType, Repository, User
 from codebase.clients import RepoClient
+from codebase.conf import settings
+
+
+@pytest.fixture(autouse=True)
+def mock_settings():
+    """Fixture to mock the secret token for testing."""
+    with (
+        patch.object(settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(settings, "CLIENT", ClientType.GITLAB),
+    ):
+        yield settings
 
 
 @pytest.fixture(autouse=True)
