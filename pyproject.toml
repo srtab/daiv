@@ -77,7 +77,7 @@ docs = [
 ]
 
 [tool.uv]
-default-groups = [ "docs" ]
+default-groups = [ "docs", "dev" ]
 
 [tool.ruff]
 line-length = 120
