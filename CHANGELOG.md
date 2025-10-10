@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added support to `github` client type to allow users to use GitHub as the client for the codebase.
 - Added to `PlanAndExecuteAgent` the capability to:
   - load images from the user message to help the agent to visualize them.
   - plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
@@ -16,8 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `AGENTS.md` file to the project.
 - Added `omit_content_patterns` to DAIV configuration to allow users to omit files content, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
 - Added evaluation tests for `CodebaseChatAgent`, `PullRequestDescriberAgent` and `PlanAndExecuteAgent`.
-- Added support to `gpt-5`, `gpt-5-nano` and `gpt-5-mini` models from OpenAI.
+- Added support to `gpt-5`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5-codex` models from OpenAI.
 - Added support to `grok-code-fast-1` model from Grok.
+- Added support to `claude-sonnet-4.5` and `claude-opus-4.1` models from Anthropic.
+- Added support to `deepseek-v3.1-terminus` model from DeepSeek.
+- Added support to `glm-4.6` model from Z-AI.
+- Added support to `qwen3-max` and `qwen3-coder-plus` models from Qwen.
 
 ### Changed
 
@@ -38,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Current date time format is now excluded hours and minutes, making prompts cacheable.
+- Blocked GitLab and GitHub callbacks if client type is not set to the corresponding client.
 
 ### Removed
 
@@ -49,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `RunSandboxCodeTool`.
 - Removed `IssueAddressorAgent` (replaced by `PlanAndExecuteAgent`).
 - Removed all notebooks from the project.
+- Removed support to `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
+- Removed support to `deepseek-chat-v3.1` model from DeepSeek.
+- Removed support to `o4-mini` model from OpenAI.
 
 ## [0.3.0] - 2025-07-25
 
