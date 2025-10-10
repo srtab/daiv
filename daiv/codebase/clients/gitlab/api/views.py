@@ -1,15 +1,12 @@
 import logging
-from typing import TYPE_CHECKING
 
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
 from codebase.base import ClientType
 from codebase.conf import settings
 
+from .callbacks import IssueCallback, NoteCallback, PushCallback  # noqa: TC001
 from .security import validate_gitlab_webhook
-
-if TYPE_CHECKING:
-    from .callbacks import IssueCallback, NoteCallback, PushCallback
 
 logger = logging.getLogger("daiv.webhooks")
 
