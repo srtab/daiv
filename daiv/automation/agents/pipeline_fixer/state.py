@@ -1,9 +1,10 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
 
-from .schemas import TroubleshootingDetail
+if TYPE_CHECKING:
+    from .schemas import TroubleshootingDetail
 
 
 class InputState(TypedDict):

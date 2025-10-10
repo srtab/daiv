@@ -1,9 +1,12 @@
 import re
+from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 
-from codebase.base import Discussion, Note, User
 from core.constants import BOT_NAME
+
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Note, User
 
 
 def note_mentions_daiv(note_body: str, current_user: User) -> bool:

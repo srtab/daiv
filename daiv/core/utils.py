@@ -2,14 +2,17 @@ import asyncio
 import hashlib
 import logging
 import mimetypes
-from collections.abc import Iterable
 from functools import wraps
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 from django.core.cache import cache
 
 import httpx
 from redis.exceptions import LockError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger("daiv.core")
 

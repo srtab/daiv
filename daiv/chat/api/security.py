@@ -1,9 +1,11 @@
-from collections.abc import Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ninja.security import HttpBearer
 
 from accounts.models import APIKey, User
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 
 class AuthBearer(HttpBearer):

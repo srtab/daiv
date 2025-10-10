@@ -1,19 +1,31 @@
 import logging
+from typing import TYPE_CHECKING
 
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
+from codebase.base import ClientType
+from codebase.conf import settings
 
-from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback
 from .security import validate_github_webhook
+
+if TYPE_CHECKING:
+    from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback
 
 logger = logging.getLogger("daiv.webhooks")
 
 
-@router.post("/callbacks/github/", response={204: None, 401: None, 423: UnprocessableEntityResponse})
+@router.post("/callbacks/github/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 async def callback(request, payload: IssueCallback | IssueCommentCallback | PushCallback | PullRequestReviewCallback):
     """
     GitHub callback endpoint for processing callbacks.
+
+    Validates the webhook secret before processing the callback and returns 401 Unauthorized if validation fails.
+    Returns 403 Forbidden if client type is not set to GitHub.
     """
+    if settings.CLIENT != ClientType.GITHUB:
+        logger.warning("GitHub Hook: Client type is not set to GitHub, skipping callback.")
+        return 403, None
+
     event = request.headers.get("X-GitHub-Event")
 
     if not validate_github_webhook(request):

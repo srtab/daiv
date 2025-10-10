@@ -1,11 +1,14 @@
 from abc import ABC
+from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.sessions import SSEConnection
 
 from core.utils import build_uri
 
 from .conf import settings
-from .schemas import SseMcpServer, StdioMcpServer, StreamableHttpMcpServer
+
+if TYPE_CHECKING:
+    from .schemas import SseMcpServer, StdioMcpServer, StreamableHttpMcpServer
 
 
 class MCPServer(ABC):

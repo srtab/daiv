@@ -1,10 +1,11 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.tools import tool
 from langgraph.graph import END
 from langgraph.types import Command
 
-from .schemas import TroubleshootingDetail
+if TYPE_CHECKING:
+    from .schemas import TroubleshootingDetail
 
 
 @tool("complete_task", parse_docstring=True)

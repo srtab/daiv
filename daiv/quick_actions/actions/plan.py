@@ -1,7 +1,11 @@
-from codebase.base import Discussion, Issue, MergeRequest, Note
+from typing import TYPE_CHECKING
+
 from codebase.managers.issue_addressor import IssueAddressorManager
 from quick_actions.base import BaseAction, QuickAction, Scope, TriggerLocation
 from quick_actions.decorator import quick_action
+
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Issue, MergeRequest, Note
 
 
 class PlanExecuteAction(BaseAction):

@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
-from pydantic_core import ErrorDetails
+
+if TYPE_CHECKING:
+    from pydantic_core import ErrorDetails
 
 
 class UnprocessableEntityResponse(BaseModel):

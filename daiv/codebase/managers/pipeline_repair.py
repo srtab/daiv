@@ -1,6 +1,6 @@
 import logging
 import re
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -11,7 +11,6 @@ from langgraph.types import Command
 
 from automation.agents.pipeline_fixer.agent import PipelineFixerAgent
 from automation.agents.pipeline_fixer.conf import settings as pipeline_fixer_settings
-from automation.agents.pipeline_fixer.schemas import TroubleshootingDetail
 from automation.agents.pipeline_fixer.templates import (
     PIPELINE_FIXER_REPAIR_PLAN_APPLIED_TEMPLATE,
     PIPELINE_FIXER_REVIEW_PLAN_TEMPLATE,
@@ -23,6 +22,11 @@ from codebase.clients import RepoClient
 from codebase.managers.base import BaseManager
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from automation.agents.pipeline_fixer.schemas import TroubleshootingDetail
 
 logger = logging.getLogger("daiv.managers")
 

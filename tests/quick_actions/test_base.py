@@ -1,9 +1,11 @@
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 from quick_actions.base import QuickAction, Scope
 
-from codebase.base import Discussion, Issue, MergeRequest, Note
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Issue, MergeRequest, Note
 
 
 class TestScope:

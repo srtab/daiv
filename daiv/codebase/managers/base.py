@@ -1,4 +1,4 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
@@ -6,9 +6,11 @@ from langgraph.store.memory import InMemoryStore
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import file_changes_namespace
-from codebase.base import FileChange
-from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
+
+if TYPE_CHECKING:
+    from codebase.base import FileChange
+    from codebase.clients import RepoClient
 
 
 class BaseManager:

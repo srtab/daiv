@@ -1,11 +1,15 @@
+from typing import TYPE_CHECKING
+
 from langchain_core.prompts.string import jinja2_formatter
 
-from codebase.base import Discussion, Issue, MergeRequest, Note
 from core.constants import BOT_NAME
 from quick_actions.base import BaseAction, QuickAction, Scope
 from quick_actions.decorator import quick_action
 from quick_actions.registry import quick_action_registry
 from quick_actions.templates import QUICK_ACTIONS_TEMPLATE
+
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Issue, MergeRequest, Note
 
 
 class HelpAction(BaseAction):

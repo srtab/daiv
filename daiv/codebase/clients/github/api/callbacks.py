@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from asgiref.sync import sync_to_async
 from quick_actions.base import Scope
@@ -15,7 +15,8 @@ from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
 from codebase.utils import note_mentions_daiv
 
-from .models import Comment, Issue, IssueChanges, PullRequest, Repository, Review
+if TYPE_CHECKING:
+    from .models import Comment, Issue, IssueChanges, PullRequest, Repository, Review
 
 logger = logging.getLogger("daiv.webhooks")
 

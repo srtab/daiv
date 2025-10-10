@@ -1,7 +1,11 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from .base import QuickAction, Scope
 from .registry import quick_action_registry
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .base import QuickAction, Scope
 
 
 def quick_action(verb: str, scopes: list[Scope]) -> Callable[[type[QuickAction]], type[QuickAction]]:
