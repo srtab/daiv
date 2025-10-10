@@ -143,6 +143,9 @@ lint.isort.section-order = [
 lint.isort.sections."django" = [ "django" ]
 lint.isort.split-on-trailing-comma = false
 
+[tool.pyproject-fmt]
+keep_full_version = true
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 pythonpath = "daiv"
