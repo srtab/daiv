@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced sandbox tools `run_sandbox_commands` and `run_sandbox_code` with the new `bash` tool.
 - Replaced LLM-based image extraction in `PlanAndExecuteAgent` with regex-based utility function for improved performance and reduced costs.
 - Migrated default database from `pgvector/pgvector:pg17` to `postgres:17.6`.
+- Migrated project from Python 3.13 to Python 3.14.
 - Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
 - Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
 - Moved quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.

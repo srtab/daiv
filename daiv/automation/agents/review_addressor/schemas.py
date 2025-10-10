@@ -1,6 +1,10 @@
-from langchain_core.messages import AnyMessage
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from langchain_core.messages import AnyMessage
 
 
 class ReviewCommentInput(TypedDict):

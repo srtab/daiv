@@ -1,7 +1,10 @@
+from typing import TYPE_CHECKING
+
 from langgraph.graph import MessagesState
 from langgraph.prebuilt.chat_agent_executor import AgentState
 
-from .schemas import ChangeInstructions
+if TYPE_CHECKING:
+    from .schemas import ChangeInstructions
 
 
 class PlanAndExecuteState(MessagesState):

@@ -1,9 +1,11 @@
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from quick_actions.base import QuickAction, Scope
 from quick_actions.decorator import quick_action
 
-from codebase.base import Discussion, Issue, MergeRequest, Note
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Issue, MergeRequest, Note
 
 
 class TestQuickActionDecorator:

@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 from langgraph.graph import END
 from langgraph.types import Command
 
-from .schemas import TroubleshootingDetail
+from .schemas import TroubleshootingDetail  # noqa: TC001
 
 
 @tool("complete_task", parse_docstring=True)

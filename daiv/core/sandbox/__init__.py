@@ -1,10 +1,13 @@
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from codebase.signals import before_reset_repository_ctx
 
 from .client import DAIVSandboxClient
-from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+
+if TYPE_CHECKING:
+    from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 
 @dataclass(frozen=True)

@@ -1,9 +1,11 @@
 import hmac
 import logging
-
-from django.http import HttpRequest
+from typing import TYPE_CHECKING
 
 from codebase.conf import settings
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
 
 logger = logging.getLogger("daiv.webhooks")
 

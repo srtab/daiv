@@ -2,6 +2,7 @@ import logging
 
 from django.core.management.base import BaseCommand
 
+from codebase.base import ClientType
 from codebase.clients import RepoClient
 from codebase.conf import settings
 from core.conf import settings as core_settings
@@ -28,13 +29,18 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if settings.CLIENT == ClientType.GITHUB:
+            logger.warning(
+                "GitHub webhooks must be set on the GitHub App configuration: "
+                "https://srtab.github.io/daiv/dev/getting-started/configuration/#step-4-verify-webhook-configuration"
+            )
+            return
+
         repo_client = RepoClient.create_instance()
         # Use secret token from command line or from settings
         secret_token = options["secret_token"]
-        if not secret_token and settings.CLIENT == "gitlab" and settings.GITLAB_WEBHOOK_SECRET:
+        if not secret_token and settings.GITLAB_WEBHOOK_SECRET:
             secret_token = settings.GITLAB_WEBHOOK_SECRET.get_secret_value()
-        elif not secret_token and settings.CLIENT == "github" and settings.GITHUB_WEBHOOK_SECRET:
-            secret_token = settings.GITHUB_WEBHOOK_SECRET.get_secret_value()
 
         for project in repo_client.list_repositories():
             created = repo_client.set_repository_webhooks(

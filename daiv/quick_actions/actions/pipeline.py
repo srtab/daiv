@@ -1,10 +1,14 @@
+from typing import TYPE_CHECKING
+
 from langchain_core.prompts.string import jinja2_formatter
 
 from automation.agents.pipeline_fixer.templates import PIPELINE_FIXER_NO_FAILED_JOB_TEMPLATE
-from codebase.base import Discussion, Issue, Job, MergeRequest, Note, Pipeline
 from codebase.managers.pipeline_repair import PipelineRepairManager
 from quick_actions.base import BaseAction, QuickAction, Scope, TriggerLocation
 from quick_actions.decorator import quick_action
+
+if TYPE_CHECKING:
+    from codebase.base import Discussion, Issue, Job, MergeRequest, Note, Pipeline
 
 
 class RepairAction(BaseAction):

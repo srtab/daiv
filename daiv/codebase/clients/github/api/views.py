@@ -5,7 +5,7 @@ from codebase.api.router import router
 from codebase.base import ClientType
 from codebase.conf import settings
 
-from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback
+from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback  # noqa: TC001
 from .security import validate_github_webhook
 
 logger = logging.getLogger("daiv.webhooks")
