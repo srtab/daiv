@@ -55,7 +55,7 @@ def address_mr_comments_task(repo_id: str, merge_request_id: int, merge_request_
         merge_request_id (int): The merge request id.
         merge_request_source_branch (str): The merge request source branch.
     """
-    with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch):
+    with sync_set_repository_ctx(repo_id, ref=merge_request_source_branch, merge_request_id=merge_request_id):
         async_to_sync(ReviewAddressorManager.process_comments)(
             repo_id, merge_request_id, ref=merge_request_source_branch
         )

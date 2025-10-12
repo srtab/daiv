@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from codebase.base import ClientType, Discussion, FileChange, Issue, MergeRequest, Pipeline, Repository, User
+from codebase.base import ClientType, Discussion, FileChange, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -157,7 +157,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
+    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
         pass
 
     @abc.abstractmethod
@@ -180,6 +180,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        pass
+
+    @abc.abstractmethod
+    def get_job(self, repo_id: str, job_id: int) -> Job:
         pass
 
     @abc.abstractmethod

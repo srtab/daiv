@@ -16,6 +16,7 @@ class CodebaseChatSettings(BaseSettings):
         default=ModelName.GPT_5_MINI, description="Model name to be used for codebase chat."
     )
     TEMPERATURE: float = Field(default=0.2, description="Temperature to be used for codebase chat.")
+    RECURSION_LIMIT: int = Field(default=50, description="Recursion limit for the codebase chat agent.")
 
 
 settings = CodebaseChatSettings()  # type: ignore

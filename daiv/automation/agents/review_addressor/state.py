@@ -1,11 +1,9 @@
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
+from langchain_core.messages import AnyMessage  # noqa: TC002
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing_extensions import TypedDict
-
-if TYPE_CHECKING:
-    from langchain_core.messages import AnyMessage
 
 
 class OverallState(TypedDict):

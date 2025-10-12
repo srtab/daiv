@@ -157,7 +157,7 @@ All agents include these tags in their traces:
 
 | Tag | Description | Example Values |
 |-----|-------------|----------------|
-| **Agent Name** | The specific agent type | `IssueAddressor`, `PipelineFixer`, `ReviewAddressor`, `CodebaseChat`, `PullRequestDescriber`, `PlanAndExecute` |
+| **Agent Name** | The specific agent type | `IssueAddressor`, `ReviewAddressor`, `CodebaseChat`, `PullRequestDescriber`, `PlanAndExecute` |
 | **Client Slug** | The repository client identifier | `gitlab`, `github` |
 
 #### Agent-Specific Metadata
@@ -174,18 +174,6 @@ Different agents include additional context-specific metadata:
   "source_ref": "main",
   "issue_id": 456,
   "repo_client": "gitlab"
-}
-```
-
-**Pipeline Fixer** (`PipelineFixer`):
-```json
-{
-  "merge_request_id": 789,
-  "job_id": 101112,
-  "thread_id": "unique-thread-id",
-  "source_repo_id": "group/repo",
-  "source_ref": "feature-branch",
-  "job_name": "build_and_test"
 }
 ```
 
@@ -222,7 +210,6 @@ Use these tags and metadata to create focused dashboards:
 
 **By Agent Type:**
 - Filter by tag: `IssueAddressor` to see all issue processing activity
-- Filter by tag: `PipelineFixer` to monitor CI/CD troubleshooting
 - Filter by tag: `ReviewAddressor` to track code review interactions
 
 **By Repository:**

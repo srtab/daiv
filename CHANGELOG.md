@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support to `deepseek-v3.1-terminus` model from DeepSeek.
 - Added support to `glm-4.6` model from Z-AI.
 - Added support to `qwen3-max` and `qwen3-coder-plus` models from Qwen.
+- Added `pipeline` and `job_logs` tools to `PlanAndExecuteAgent` to allow the agent to get the pipeline status and job logs.
+- Added `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
 
 ### Changed
 
@@ -45,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Current date time format is now excluded hours and minutes, making prompts cacheable.
 - Blocked GitLab and GitHub callbacks if client type is not set to the corresponding client.
+- Fixed `PlanAndExecuteAgent` to avoid reading the same files twice before executing the planned changes.
 
 ### Removed
 
@@ -55,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `SnippetReplacerAgent`.
 - Removed `RunSandboxCodeTool`.
 - Removed `IssueAddressorAgent` (replaced by `PlanAndExecuteAgent`).
+- Removed `PipelineFixerAgent` (replaced by `ReviewAddressorAgent` + `pipeline` and `job_logs` tools).
 - Removed all notebooks from the project.
 - Removed support to `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
 - Removed support to `deepseek-chat-v3.1` model from DeepSeek.

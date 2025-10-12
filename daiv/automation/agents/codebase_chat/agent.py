@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.utils import timezone
 
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.memory import InMemoryStore
@@ -39,4 +40,4 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
                 current_date_time=timezone.now().strftime("%d %B, %Y"), repository=get_repository_ctx().repo_id
             ),
             name=settings.NAME,
-        )
+        ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))

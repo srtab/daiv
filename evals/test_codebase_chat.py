@@ -27,21 +27,21 @@ rag_helpfulness_evaluator = create_llm_as_judge(
     [
         (
             "What are the configuration options for the codebase chat agent?",
-            """1 · Answer
-The configuration options for the codebase chat agent are set via environment variables and a settings class. The main options are:
+            """The configuration options for the codebase chat agent are set via environment variables and a settings class. The main options are:
 
 - `CODEBASE_CHAT_NAME`: The name of the codebase chat agent. Default is `CodebaseChat`.
-- `CODEBASE_CHAT_MODEL_NAME`: The model used for codebase chat (e.g., `openrouter:openai/gpt-4-1-mini`). Default is `openrouter:openai/gpt-4-1-mini`.
+- `CODEBASE_CHAT_MODEL_NAME`: The model used for codebase chat (e.g., `openrouter:openai/gpt-5-mini`). Default is `openrouter:openai/gpt-5-mini`.
 - `CODEBASE_CHAT_TEMPERATURE`: The temperature parameter for the chat model, controlling randomness. Default is `0.2`.
 
 These can be set as environment variables or configured via the `CodebaseChatSettings` class in the codebase.
 
-2 · References:
-- [docs/getting-started/environment-variables.md](http://gitlab:8929/srtab/daiv/-/blob/main/docs/getting-started/environment-variables.md)
-- [daiv/automation/agents/codebase_chat/conf.py](http://gitlab:8929/srtab/daiv/-/blob/main/daiv/automation/agents/codebase_chat/conf.py)""",  # noqa: E501
+References:
+- docs/configuration/env-config.md
+- daiv/automation/agents/codebase_chat/conf.py""",  # noqa: E501
         ),
         ("How many agents are there in DAIV and what are they?", ""),
         ("Hi, what is the capital of France?", ""),
+        ("What is the latest version of Python?", ""),
     ],
 )
 async def test_codebase_chat_correctness(question, reference_outputs):
