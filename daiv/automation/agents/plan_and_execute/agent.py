@@ -23,6 +23,7 @@ from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
     MCPToolkit,
+    MergeRequestToolkit,
     SandboxToolkit,
     WebSearchToolkit,
 )
@@ -48,9 +49,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agents")
 
 
-async def prepare_plan_model_and_tools() -> tuple[
-    Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]
-]:
+async def prepare_plan_model_and_tools(
+    merge_request_id: int | None = None,
+) -> tuple[Callable[[PlanAndExecuteState, Runtime[ContextT]], LanguageModelLike], list[BaseTool]]:
     """
     Wrapper for the plan_model function.
 
@@ -63,6 +64,9 @@ async def prepare_plan_model_and_tools() -> tuple[
     web_search_tools = WebSearchToolkit.get_tools()
 
     base_tools: list[BaseTool] = mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool, clarify_tool]
+
+    if merge_request_id:
+        base_tools.extend(MergeRequestToolkit.get_tools())
 
     def plan_model(state: PlanAndExecuteState, runtime: Runtime[ContextT]) -> LanguageModelLike:
         """
@@ -246,7 +250,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        plan_model, all_tools = await prepare_plan_model_and_tools()
+        plan_model, all_tools = await prepare_plan_model_and_tools(self.ctx.merge_request_id)
 
         react_agent = create_react_agent(
             model=plan_model,

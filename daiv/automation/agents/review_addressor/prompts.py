@@ -58,13 +58,9 @@ INCOMING CONTEXT
     {{ diff }}
     </code_diff>
 
-AVAILABLE TOOLS
-  • web_search
-  • repository_structure
-  • retrieve_file_content
-  • search_code_snippets
-  • think   ← private chain-of-thought
-
+AVAILABLE TOOLS {% for tool in tools_names %}
+  • {{ tool }}
+{% endfor %}
 ────────────────────────────────────────────────────────
 WORKFLOW
 

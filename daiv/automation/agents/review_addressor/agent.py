@@ -48,19 +48,20 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
+        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + [think_tool]
         repo_client = RepoClient.create_instance()
 
         return create_react_agent(
             BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
-            tools=tools + [think_tool],
+            tools=tools,
             store=self.store,
             checkpointer=False,
             prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
                 current_date_time=timezone.now().strftime("%d %B, %Y"),
                 bot_name=BOT_NAME,
                 bot_username=repo_client.current_user.username,
+                tools_names=[tool.name for tool in tools],
             ),
             name="reply_reviewer_react_agent",
         )

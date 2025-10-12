@@ -14,7 +14,7 @@ help:
 	@echo "  make evals          - Run evals"
 
 test:
-	uv run pytest tests
+	LANGCHAIN_TRACING_V2=false uv run pytest tests
 
 lint: lint-check lint-format
 
@@ -43,4 +43,4 @@ compilemessages:
 	uv run django-admin compilemessages
 
 evals:
-	LANGSMITH_TEST_SUITE="DAIV evals" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_pr_describer_correctness
+	LANGSMITH_TEST_SUITE="DAIV evals" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_codebase_chat_correctness

@@ -162,13 +162,18 @@ WORKFLOW (TOOL WHITELIST BY STEP — HARD GATE)
 ### Step 0 — Prefetch (mandatory)
 - **Goal:** Load all plan-provided files before doing anything else.
 - **Allowed tools:** Batch `read` **only** for `<relevant_files>` from the plan.
-- **Output:** Proceed to Step 1.
+- **Constraints:**
+  - Perform **exactly one** `read` per file in `<relevant_files>`.
+  - Cache the contents for later steps.
+  - **Never re-read** these files until after you modify them in Step 3.
+- **Output:** If, with the plan **and the cached Step-0 files**, you can implement directly → **skip Step 1** and proceed to Step 2. Otherwise proceed to Step 1.
 
 ### Step 1 — Extra inspection (only if needed)
-- **Ask privately:** “With the plan + fetched files, can I implement directly?”
-  - **Yes** → go to Step 2.
+- **Ask privately:** “With the plan + Step-0 cache, can I implement directly?”
+  - **Yes** → **Skip Step 1 entirely** and go to Step 2.
   - **No**  → perform *minimal* discovery; stop once you have enough context.
-- **Allowed tools:** `grep`, `glob`, `ls`, and targeted `read` (beyond `<relevant_files>`).
+- **Allowed tools:** `grep`, `glob`, `ls`, and **targeted `read` of files *not* in `<relevant_files>`**.
+- **Hard bans:** Do **not** `read` any file from `<relevant_files>` here.
 - **Output:** Proceed to Step 2.
 
 ### Step 2 — Plan the edit (**single `think` call**)
@@ -187,8 +192,9 @@ Each cycle consists of **edits → re-read edited files → verify**.
 1) **Apply edits/commands**
    - **Allowed tools:** `write`, `edit`, `delete`, `rename`.
    - `bash` **only** for plan-mandated commands.
-2) **Re-read evidence**
+2) **Re-read evidence (fresh)**
    - Immediately batch `read` **only the files you just changed/created**.
+   - Do **not** read any other files.
 3) **Verify (single `think`)**
    - Exactly **one** `think` using the contents from Step 3.2 to verify the changes, list follow-ups, and decide whether further edits are needed.
    - If further edits are needed → **repeat Step 3**.

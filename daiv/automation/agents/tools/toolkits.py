@@ -9,6 +9,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from codebase.context import get_repository_ctx
 
 from .editing import delete_tool, edit_tool, rename_tool, write_tool
+from .merge_request import job_logs_tool, pipeline_tool
 from .navigation import glob_tool, grep_tool, ls_tool, read_tool
 from .sandbox import bash_tool
 from .web_search import web_search_tool
@@ -91,3 +92,19 @@ class MCPToolkit(BaseToolkit):
             tools = []
 
         return tools
+
+
+class MergeRequestToolkit(BaseToolkit):
+    """
+    Toolkit with tools to inspect merge request pipelines and job logs.
+    """
+
+    @classmethod
+    def get_tools(cls) -> list[BaseTool]:
+        """
+        Get the tools for the toolkit.
+
+        Returns:
+            list[BaseTool]: List of merge request inspection tools.
+        """
+        return [pipeline_tool, job_logs_tool]

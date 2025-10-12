@@ -249,37 +249,40 @@ class GitLabClient(RepoClient):
             sha=mr.sha,
         )
 
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
+    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
         """
-        Get the latest pipeline of a merge request.
+        Get the latest pipelines of a merge request.
+        For GitLab, we only have one pipeline per merge request.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id)
         try:
             pipeline = merge_request.pipelines.list(iterator=True, per_page=1).next()
         except StopIteration:
-            return None
+            return []
         # We need to get the object to get the jobs, otherwise the jobs are not loaded.
         pipeline_for_jobs = project.pipelines.get(id=pipeline.id, lazy=True)
 
-        return Pipeline(
-            id=pipeline.id,
-            iid=pipeline.iid,
-            status=pipeline.status,
-            sha=pipeline.sha,
-            web_url=pipeline.web_url,
-            jobs=[
-                Job(
-                    id=job.id,
-                    name=job.name,
-                    status=job.status,
-                    stage=job.stage,
-                    allow_failure=job.allow_failure,
-                    failure_reason=getattr(job, "failure_reason", None),
-                )
-                for job in pipeline_for_jobs.jobs.list(get_all=True, iterator=True)
-            ],
-        )
+        return [
+            Pipeline(
+                id=pipeline.id,
+                iid=pipeline.iid,
+                status=pipeline.status,
+                sha=pipeline.sha,
+                web_url=pipeline.web_url,
+                jobs=[
+                    Job(
+                        id=job.id,
+                        name=job.name,
+                        status=job.status,
+                        stage=job.stage,
+                        allow_failure=job.allow_failure,
+                        failure_reason=getattr(job, "failure_reason", None),
+                    )
+                    for job in pipeline_for_jobs.jobs.list(get_all=True, iterator=True)
+                ],
+            )
+        ]
 
     def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
         """
@@ -811,7 +814,13 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         note = merge_request.notes.get(note_id, lazy=True)
-        note.awardemojis.create({"name": emoji})
+        try:
+            note.awardemojis.create({"name": emoji})
+        except GitlabCreateError as e:
+            if e.response_code == 404 and "Award Emoji Name has already been taken" in e.error_message:
+                pass
+            else:
+                raise e
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """
@@ -820,6 +829,31 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         merge_request.discussions.update(discussion_id, {"resolved": True})
+
+    def get_job(self, repo_id: str, job_id: int):
+        """
+        Get a job by its ID.
+
+        Args:
+            repo_id: The repository ID.
+            job_id: The job ID.
+
+        Returns:
+            Job object with job details.
+        """
+        from codebase.base import Job
+
+        project = self.client.projects.get(repo_id, lazy=True)
+        job = project.jobs.get(job_id)
+
+        return Job(
+            id=job.id,
+            name=job.name,
+            status=job.status,
+            stage=job.stage,
+            allow_failure=job.allow_failure,
+            failure_reason=getattr(job, "failure_reason", None),
+        )
 
     def job_log_trace(self, repo_id: str, job_id: int) -> str:
         """

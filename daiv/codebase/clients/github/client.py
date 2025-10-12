@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from zipfile import ZipFile
 
 import httpx
+from asgiref.sync import async_to_sync
 from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
 from github import Repository as GithubRepository
 from github.GithubException import GithubException
@@ -23,6 +24,7 @@ from codebase.base import (
     FileChange,
     FileChangeAction,
     Issue,
+    Job,
     MergeRequest,
     Note,
     NoteableType,
@@ -32,6 +34,7 @@ from codebase.base import (
     NotePositionLineRange,
     NotePositionType,
     NoteType,
+    Pipeline,
     Repository,
     User,
 )
@@ -682,8 +685,60 @@ class GitHubClient(RepoClient):
 
         return unresolved_comment_ids, comment_to_thread_id
 
-    def get_merge_request_latest_pipeline(self, repo_id: str, merge_request_id: int):
-        raise NotImplementedError()
+    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
+        """
+        Get the latest pipeline (workflow run) of a pull request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The pull request number.
+
+        Returns:
+            List of Pipeline objects with workflow run information, or empty list if no runs found.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+
+        pipelines = []
+        for run in repo.get_workflow_runs(head_sha=pr.head.sha, event="pull_request"):
+            jobs_list = []
+            for job in run.jobs():
+                if job.status == "completed":
+                    # Map GitHub conclusion to our status
+                    conclusion_mapping = {
+                        "success": "success",
+                        "failure": "failed",
+                        "cancelled": "canceled",
+                        "skipped": "skipped",
+                    }
+                    status = conclusion_mapping.get(job.conclusion, "success")
+                else:
+                    # Map GitHub status to our status
+                    status_mapping = {"queued": "pending", "in_progress": "running", "waiting": "pending"}
+                    status = status_mapping.get(job.status, "pending")
+
+                jobs_list.append(
+                    Job(
+                        id=job.id,
+                        name=job.name,
+                        status=status,
+                        stage=job.name,  # GitHub doesn't have stages, use job name
+                        allow_failure=False,  # GitHub doesn't have this concept natively
+                        failure_reason=job.conclusion if job.conclusion in ["failure", "cancelled"] else None,
+                    )
+                )
+
+            pipelines.append(
+                Pipeline(
+                    id=run.id,
+                    iid=run.run_number,
+                    status=run.status if run.status != "completed" else (run.conclusion or "success"),
+                    sha=run.head_sha,
+                    web_url=run.html_url,
+                    jobs=jobs_list,
+                )
+            )
+        return pipelines
 
     async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         """
@@ -699,8 +754,70 @@ class GitHubClient(RepoClient):
         token = self.client.requester.auth.token
         return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
 
-    def job_log_trace(self, repo_id: str, job_id: int):
-        raise NotImplementedError()
+    def get_job(self, repo_id: str, job_id: int):
+        """
+        Get a GitHub Actions job by its ID.
+
+        Args:
+            repo_id: The repository ID.
+            job_id: The job ID.
+
+        Returns:
+            Job object with job details.
+        """
+        # Get the workflow job using the API
+        # We need to use the REST API directly as PyGithub doesn't have direct job access
+        _headers, data = self.client.requester.requestJsonAndCheck("GET", f"/repos/{repo_id}/actions/jobs/{job_id}")
+
+        # Map GitHub Actions job status/conclusion to our status format
+        if data["status"] == "completed":
+            conclusion_mapping = {
+                "success": "success",
+                "failure": "failed",
+                "cancelled": "canceled",
+                "skipped": "skipped",
+            }
+            status = conclusion_mapping.get(data["conclusion"], "success")
+        else:
+            status_mapping = {"queued": "pending", "in_progress": "running", "waiting": "pending"}
+            status = status_mapping.get(data["status"], "pending")
+
+        return Job(
+            id=data["id"],
+            name=data["name"],
+            status=status,
+            stage=data["name"],  # GitHub doesn't have stages, use job name
+            allow_failure=False,  # GitHub doesn't have this concept natively
+            failure_reason=data["conclusion"] if data["conclusion"] in ["failure", "cancelled"] else None,
+        )
+
+    @async_to_sync
+    async def job_log_trace(self, repo_id: str, job_id: int) -> str:
+        """
+        Get the log trace of a GitHub Actions job.
+
+        Args:
+            repo_id: The repository ID.
+            job_id: The job ID.
+
+        Returns:
+            The log trace of the job as a string.
+        """
+        try:
+            # Use the requester to make a direct API call for job logs
+            # The logs endpoint returns a 302 redirect to the actual log content
+            status, headers, _ = self.client.requester.requestBlobAndCheck(
+                "GET", f"/repos/{repo_id}/actions/jobs/{job_id}/logs"
+            )
+        except GithubException:
+            return None
+
+        # GitHub responds with a 302 Location -> temporary plain-text log URL
+        if status in (301, 302, 307, 308) and "location" in headers:
+            response = await async_download_url(headers["location"])
+            return response.decode("utf-8")
+
+        return None
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Path]:

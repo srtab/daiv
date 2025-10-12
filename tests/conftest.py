@@ -64,7 +64,7 @@ def mock_repo_client():
         # Mock merge request operations
         mock_client.update_or_create_merge_request.return_value = 1
         mock_client.get_merge_request.return_value = Mock()
-        mock_client.get_merge_request_latest_pipeline.return_value = None
+        mock_client.get_merge_request_latest_pipelines.return_value = []
         mock_client.get_merge_request_discussion.return_value = Mock()
         mock_client.get_merge_request_review_comments.return_value = []
         mock_client.get_merge_request_comments.return_value = []

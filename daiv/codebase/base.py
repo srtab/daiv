@@ -38,10 +38,13 @@ class Job(BaseModel):
     allow_failure: bool
     failure_reason: str | None = None
 
+    def is_failed(self) -> bool:
+        return self.status == "failed"
+
 
 class Pipeline(BaseModel):
     id: int
-    iid: int
+    iid: int | None = None
     sha: str
     status: str
     web_url: str

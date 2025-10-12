@@ -36,19 +36,24 @@ class RepositoryCtx:
     config: RepositoryConfig
     """The repository configuration"""
 
+    merge_request_id: int | None = None
+    """The merge request identifier if the context is set for a merge request"""
+
 
 repository_ctx: ContextVar[RepositoryCtx | None] = ContextVar[RepositoryCtx | None]("repository_ctx", default=None)
 
 
 @asynccontextmanager
-async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterator[RepositoryCtx]:
+async def set_repository_ctx(
+    repo_id: str, *, ref: str | None = None, merge_request_id: int | None = None
+) -> Iterator[RepositoryCtx]:
     """
     Set the repository context and load repository files to a temporary directory.
 
     Args:
         repo_id: The repository identifier
         ref: The reference branch or tag. If None, the default branch will be used.
-
+        merge_request_id: The merge request identifier if the context is set for a merge request.
     Yields:
         RepositoryCtx: The repository context
     """
@@ -62,7 +67,9 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config)
+        ctx = RepositoryCtx(
+            repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id
+        )
         token = repository_ctx.set(ctx)
         try:
             yield ctx
@@ -72,9 +79,14 @@ async def set_repository_ctx(repo_id: str, *, ref: str | None = None) -> Iterato
 
 
 @contextmanager
-def sync_set_repository_ctx(repo_id: str, ref: str | None = None):
+def sync_set_repository_ctx(repo_id: str, ref: str | None = None, merge_request_id: int | None = None):
     """
     Synchronous facade for set_repository_ctx so it can be used in Celery tasks.
+
+    Args:
+        repo_id: The repository identifier
+        ref: The reference branch or tag. If None, the default branch will be used.
+        merge_request_id: The merge request identifier if the context is set for a merge request.
     """
     repo_client = RepoClient.create_instance()
 
@@ -86,7 +98,9 @@ def sync_set_repository_ctx(repo_id: str, ref: str | None = None):
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config)
+        ctx = RepositoryCtx(
+            repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id
+        )
         token = repository_ctx.set(ctx)
         try:
             yield ctx
