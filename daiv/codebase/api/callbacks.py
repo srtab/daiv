@@ -1,10 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from pydantic_core import ErrorDetails
+from pydantic_core import ErrorDetails  # noqa: TC002
 
 
 class UnprocessableEntityResponse(BaseModel):

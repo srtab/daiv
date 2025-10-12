@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from zipfile import ZipFile
 
 import httpx
+from asgiref.sync import async_to_sync
 from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
 from github import Repository as GithubRepository
 from github.GithubException import GithubException
@@ -790,6 +791,7 @@ class GitHubClient(RepoClient):
             failure_reason=data["conclusion"] if data["conclusion"] in ["failure", "cancelled"] else None,
         )
 
+    @async_to_sync
     async def job_log_trace(self, repo_id: str, job_id: int) -> str:
         """
         Get the log trace of a GitHub Actions job.
