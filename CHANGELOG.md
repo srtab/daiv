@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Current date time format is now excluded hours and minutes, making prompts cacheable.
 - Blocked GitLab and GitHub callbacks if client type is not set to the corresponding client.
 - Fixed `PlanAndExecuteAgent` to avoid reading the same files twice before executing the planned changes.
+- Fixed `write` and `rename` tools to create parent directories automatically when they don't exist, preventing `FileNotFoundError`.
 
 ### Removed
 
