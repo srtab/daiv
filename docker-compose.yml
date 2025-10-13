@@ -130,8 +130,11 @@ services:
     environment:
       NODE_ENV: development
       NODE_TLS_REJECT_UNAUTHORIZED: 0
-    volumes:
-      - ./data/mcp-proxy:/config
+    command: >
+      /app/mcp-proxy
+      -config https://app:8000/api/automation/mcp-proxy/config
+      -http-headers 'Authorization:Bearer ${MCP_CONFIG_API_KEY}'
+      -insecure
     ports:
       - "9090:9090"
     depends_on:
