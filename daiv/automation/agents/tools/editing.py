@@ -134,6 +134,9 @@ async def write_tool(file_path: str, content: str, store: Annotated[Any, Injecte
 
     previous_content = resolved_file_path.read_text() if file_exists else ""
 
+    # Create parent directories if they don't exist
+    resolved_file_path.parent.mkdir(parents=True, exist_ok=True)
+
     resolved_file_path.write_text(content)
 
     if store:
@@ -235,6 +238,9 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
         return "error: You must read the file before renaming it."
 
     file_content = resolved_file_path.read_text()
+
+    # Create parent directories for the new path if they don't exist
+    resolved_new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
     resolved_file_path.rename(resolved_new_file_path)
 
