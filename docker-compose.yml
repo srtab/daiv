@@ -127,14 +127,16 @@ services:
     image: ghcr.io/tbxark/mcp-proxy:v0.39.1
     restart: unless-stopped
     container_name: daiv-mcp-proxy
+    env_file:
+      - docker/local/app/config.secrets.env
     environment:
       NODE_ENV: development
       NODE_TLS_REJECT_UNAUTHORIZED: 0
     command: >
-      /app/mcp-proxy
+      sh -c "/app/mcp-proxy
       -config https://app:8000/api/automation/mcp-proxy/config
-      -http-headers 'Authorization:Bearer ${MCP_CONFIG_API_KEY}'
-      -insecure
+      -http-headers 'Authorization:Bearer $$MCP_CONFIG_API_KEY'
+      -insecure"
     ports:
       - "9090:9090"
     depends_on:
