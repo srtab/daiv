@@ -20,20 +20,20 @@ JOB_LOGS_DEFAULT_LINE_COUNT = 100
 @tool(PIPELINE_TOOL_NAME, parse_docstring=True)
 def pipeline_tool(placeholder: str = "") -> str:
     """
-    Get the latest pipeline status for a merge request.
+    Get the latest pipeline/workflow status for a merge/pull request.
 
     **Usage rules:**
-    - Returns JSON formatted pipeline data with status, ID, SHA, web URL, and categorized jobs
-    - Jobs are separated into failed_jobs, success_jobs, and other_jobs
-    - For failed pipelines, includes detailed information about failed jobs with failure reasons
-    - Use this tool to understand if a pipeline failed and which jobs failed
-    - After getting failed job IDs, use the `job_logs` tool to inspect specific job logs
+    - Returns JSON formatted pipeline/workflow data with status, ID, SHA, web URL, and categorized jobs;
+    - Jobs are separated into failed_jobs, success_jobs, and other_jobs;
+    - For failed pipelines/workflows, includes detailed information about failed jobs with failure reasons;
+    - Use this tool to understand if a pipeline/workflow failed and which jobs failed;
+    - After getting failed job IDs, use the `job_logs` tool to inspect specific job logs;
 
     Args:
         placeholder: Unused parameter (for compatibility). Leave empty.
 
     Returns:
-        str: JSON formatted pipeline information including status and job details.
+        str: JSON formatted pipeline/workflow information including status and job details.
     """
     ctx = get_repository_ctx()
 
@@ -98,12 +98,11 @@ def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_L
     Get logs from a specific pipeline job with pagination support (bottom-to-top).
 
     **Usage rules:**
-    - Returns paginated log output from a pipeline job, starting from the END (most recent/relevant)
-    - For failed jobs, logs are automatically cleaned to show the most relevant error information
-    - For successful jobs, only ANSI codes are removed for readability
-    - Default shows last 100 lines (most relevant for debugging)
-    - Use `offset_from_end` to paginate backwards through logs (0 = last lines, 100 = skip last 100 lines, etc.)
-    - Logs are shown from bottom to top, as errors typically appear at the end
+    - Returns paginated log output from a pipeline job, starting from the END (most recent/relevant);
+    - For failed jobs, only the output of the failing command is shown (useful for debugging);
+    - Use `line_count` to specify the number of lines to read (default: 100);
+    - Use `offset_from_end` to paginate backwards through logs (0 = last lines, 100 = skip last 100 lines, etc.);
+    - Logs are shown from bottom to top, as errors typically appear at the end.
 
     Args:
         job_id (int): The job ID to get logs from.
@@ -151,7 +150,9 @@ def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_L
     if offset_from_end < 0:
         offset_from_end = 0
     if offset_from_end >= total_lines:
-        return f"error: offset_from_end ({offset_from_end}) exceeds total log lines ({total_lines})."
+        return (
+            f"error: offset_from_end ({offset_from_end}) exceeds total log lines ({total_lines}). Use a smaller offset."
+        )
 
     # Calculate line range from the end
     # If offset_from_end=0, we want the last line_count lines
@@ -186,7 +187,7 @@ def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_L
         lines_before = start_line - 1
         output_lines.append(
             f"There are {lines_before} earlier lines available. "
-            f"Use offset_from_end={offset_from_end + line_count} to read them."
+            f"Use offset_from_end >= {offset_from_end + line_count} to read more lines."
         )
     else:
         output_lines.append("Start of logs reached.")
