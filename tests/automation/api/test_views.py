@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
-from django.test import AsyncClient
-
 import pytest
+from daiv.api import api
+from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey
 from automation.agents.tools.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
@@ -27,7 +27,7 @@ def mock_mcp_configuration():
 @pytest.mark.asyncio
 async def test_get_mcp_proxy_config_requires_authentication():
     """Test that the endpoint returns 401/403 when no authentication is provided."""
-    client = AsyncClient()
+    client = TestAsyncClient(api)
     response = await client.get("/api/automation/mcp-proxy/config")
 
     assert response.status_code in [401, 403]
@@ -39,18 +39,20 @@ async def test_get_mcp_proxy_config_with_valid_api_key(django_user_model, mock_m
     """Test that the endpoint returns 200 with valid API key."""
     # Create user and API key
     user = await django_user_model.objects.acreate(username="testuser", email="test@example.com")
-    api_key_instance = await APIKey.objects.acreate_key(name="test-key", user=user)
+    api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
     with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
-        client = AsyncClient()
+        client = TestAsyncClient(api)
         response = await client.get(
             "/api/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
 
         assert response.status_code == 200
         mock_populate.assert_called_once()
+
+    await user.adelete()
 
 
 @pytest.mark.django_db
@@ -59,12 +61,12 @@ async def test_get_mcp_proxy_config_returns_valid_json(django_user_model, mock_m
     """Test that the response structure matches McpConfiguration schema."""
     # Create user and API key
     user = await django_user_model.objects.acreate(username="testuser", email="test@example.com")
-    api_key_instance = await APIKey.objects.acreate_key(name="test-key", user=user)
+    api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
     with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
-        client = AsyncClient()
+        client = TestAsyncClient(api)
         response = await client.get(
             "/api/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
@@ -81,6 +83,8 @@ async def test_get_mcp_proxy_config_returns_valid_json(django_user_model, mock_m
         assert "version" in data["mcpProxy"]
         assert "test_server" in data["mcpServers"]
 
+    await user.adelete()
+
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
@@ -88,12 +92,12 @@ async def test_get_mcp_proxy_config_uses_aliases(django_user_model, mock_mcp_con
     """Test that the response uses camelCase field names (aliases)."""
     # Create user and API key
     user = await django_user_model.objects.acreate(username="testuser", email="test@example.com")
-    api_key_instance = await APIKey.objects.acreate_key(name="test-key", user=user)
+    api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
     with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
-        client = AsyncClient()
+        client = TestAsyncClient(api)
         response = await client.get(
             "/api/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
@@ -115,3 +119,5 @@ async def test_get_mcp_proxy_config_uses_aliases(django_user_model, mock_mcp_con
         assert "mcp_servers" not in response_str
         assert "base_url" not in response_str
         assert "auth_tokens" not in response_str
+
+    await user.adelete()
