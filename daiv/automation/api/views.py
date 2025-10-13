@@ -1,13 +1,10 @@
-from typing import TYPE_CHECKING
+from django.http import HttpRequest  # noqa: TC002
 
 from ninja import Router
 
 from automation.agents.tools.mcp.schemas import McpConfiguration
 
 from .security import AuthBearer
-
-if TYPE_CHECKING:
-    from django.http import HttpRequest
 
 router = Router(auth=AuthBearer(), tags=["mcp"])
 
