@@ -43,4 +43,4 @@ compilemessages:
 	uv run django-admin compilemessages
 
 evals:
-	LANGSMITH_TEST_SUITE="DAIV evals" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_codebase_chat_correctness
+	LANGSMITH_TEST_SUITE="DAIV evals" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_review_reply_correctness

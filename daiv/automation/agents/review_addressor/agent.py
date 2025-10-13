@@ -15,9 +15,9 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.tools import think_tool
 from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
+from codebase.context import get_repository_ctx
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -48,7 +48,10 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + [think_tool]
+        ctx = get_repository_ctx()
+
+        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
+
         repo_client = RepoClient.create_instance()
 
         return create_react_agent(
@@ -62,8 +65,9 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
                 bot_name=BOT_NAME,
                 bot_username=repo_client.current_user.username,
                 tools_names=[tool.name for tool in tools],
+                repository=ctx.repo_id,
             ),
-            name="reply_reviewer_react_agent",
+            name="ReplyReviewerAgent",
         )
 
 
