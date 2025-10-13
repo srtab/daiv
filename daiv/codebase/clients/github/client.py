@@ -806,14 +806,14 @@ class GitHubClient(RepoClient):
         try:
             # Use the requester to make a direct API call for job logs
             # The logs endpoint returns a 302 redirect to the actual log content
-            status, headers, _ = self.client.requester.requestBlobAndCheck(
+            headers, _ = self.client.requester.requestBlobAndCheck(
                 "GET", f"/repos/{repo_id}/actions/jobs/{job_id}/logs"
             )
         except GithubException:
             return None
 
         # GitHub responds with a 302 Location -> temporary plain-text log URL
-        if status in (301, 302, 307, 308) and "location" in headers:
+        if "location" in headers:
             response = await async_download_url(headers["location"])
             return response.decode("utf-8")
 
