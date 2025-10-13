@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -154,7 +154,9 @@ async def prepare_execute_model_and_tools() -> tuple[
         ):
             tools += file_editing_tools + sandbox_tools
 
-        return BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME).bind_tools(tools, tool_choice=tool_choice)
+        return BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME, max_tokens=8_192).bind_tools(
+            tools, tool_choice=tool_choice
+        )
 
     return execute_model, base_tools + file_editing_tools + sandbox_tools
 

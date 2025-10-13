@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models.base import init_chat_model
-from langchain_core.runnables import Runnable  # noqa: TC002
+from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
 from automation.conf import settings
