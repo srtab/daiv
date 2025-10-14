@@ -52,9 +52,7 @@ class HelpQuickAction(QuickAction):
         """
         Get the note message for the given scope.
         """
-        actions_help = [
-            action.help(self.client.current_user.username) for action in quick_action_registry.get_actions(scope=scope)
-        ]
+        actions_help = [action().help() for action in quick_action_registry.get_actions(scope=scope)]
         if not actions_help:
             return None
         return jinja2_formatter(QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help)
