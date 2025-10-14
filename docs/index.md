@@ -70,7 +70,7 @@ Both platforms support all core features including Issue Addressing, Code Review
 
 ### **Step 2: Try DAIV**
 - **Create a test issue** - Write "Add a hello world function" and watch DAIV generate a plan
-- **Approve the plan** - Comment "@daiv plan execute" to see DAIV create a pull request with working code
+- **Approve the plan** - Comment "@daiv /approve-plan" to see DAIV create a pull request with working code
 
 ### **Step 3: Customize**
 - **[Configure agents](ai-agents/overview.md)** - Adjust how DAIV's AI agents behave for your codebase
@@ -88,7 +88,7 @@ Here's what a typical DAIV interaction looks like:
 
 1. **Developer creates issue:** "Add rate limiting to the API endpoints"
 2. **DAIV generates plan:** Analyzes codebase and posts detailed implementation steps
-3. **Developer approves:** Comments "@daiv plan execute"
+3. **Developer approves:** Comments "@daiv /approve-plan"
 4. **DAIV implements:** Creates merge request with rate limiting code, tests, and documentation
 5. **Reviewer requests changes:** "@daiv use Redis instead of in-memory storage"
 6. **DAIV updates code:** Automatically modifies the implementation to use Redis

@@ -1,16 +1,16 @@
 QUICK_ACTIONS_TEMPLATE = """### 🤖 {{ bot_name }} Quick-Actions
-Comment **one** of the commands below on this {{ scope }} to trigger the bot:
+Comment **one** of the commands below on this {{ scope.lower() }} to trigger the bot:
 
 {% for action in actions -%}
   {{ action }}
 {% endfor -%}
 """
 
-UNKNOWN_QUICK_ACTION_TEMPLATE = """### ⚠️ Unknown Quick-Action
+INVALID_ARGS_QUICK_ACTION_TEMPLATE = """### ⚠️ Invalid Arguments for Quick-Action
 
-`@{{ bot_name }} {{ verb }} {{ invalid_action}}` isn't a recognised **{{ verb }}** sub-command.
+`@{{ bot_name }} /{{ command }} {{ invalid_args }}` aren't a recognised arguments for **/{{ command }}**.
 
-**Try one of these instead:**
+**Here's how to use it correctly:**
 
 {{ help }}
 

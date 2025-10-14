@@ -474,38 +474,6 @@ class GitLabClient(RepoClient):
             ),
         )
 
-    def create_issue_comment(self, repo_id: str, issue_id: int, body: str) -> str | None:
-        """
-        Comment on an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-            body: The comment body.
-
-        Returns:
-            The comment ID.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-        return issue.notes.create({"body": body}).id
-
-    def update_issue_comment(self, repo_id: str, issue_id: int, comment_id: int, body: str):
-        """
-        Update a comment on an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
-            body: The comment body.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-        comment = issue.notes.get(comment_id)
-        comment.body = body
-        comment.save()
-
     def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """
         Create an emoji in a note of an issue.
@@ -545,25 +513,24 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def get_issue_discussion(
-        self, repo_id: str, issue_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
+    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """
-        Get a discussion from an issue.
+        Get a comment from an issue.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
-            discussion_id: The discussion ID.
+            comment_id: The comment ID.
 
         Returns:
             The discussion object.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        discussion = issue.discussions.get(discussion_id)
-        notes = self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable)
-        return Discussion(id=discussion.id, notes=notes, is_reply=len(notes) > 1)
+        discussion = issue.discussions.get(comment_id)
+        return Discussion(
+            id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
+        )
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
@@ -596,48 +563,52 @@ class GitLabClient(RepoClient):
             and (label is None or label in mr["labels"])
         ]
 
-    def create_issue_discussion_note(
-        self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None
+    def create_issue_comment(
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
     ) -> str | None:
         """
-        Create a note in a discussion of a issue.
+        Comment on an issue.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
-            body: The note body.
-            discussion_id: The discussion ID.
+            body: The comment body.
 
         Returns:
-            The note ID.
+            The comment ID.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        if discussion_id:
-            discussion = issue.discussions.get(discussion_id, lazy=True)
-            note = discussion.notes.create({"body": body})
-            return note.id
+        if reply_to_id:
+            discussion = issue.discussions.get(reply_to_id, lazy=True)
+            return discussion.notes.create({"body": body}).id
+        elif as_thread:
+            discussion = issue.discussions.create({"body": body})
+            return discussion.attributes["notes"][0]["id"]
+        return issue.notes.create({"body": body}).id
 
-        discussion = issue.discussions.create({"body": body})
-        return discussion.attributes["notes"][0]["id"]
-
-    def update_issue_discussion_note(self, repo_id: str, issue_id: int, discussion_id: str, note_id: str, body: str):
+    def update_issue_comment(
+        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
+    ):
         """
         Update a comment on an issue.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
-            discussion_id: The discussion ID.
-            note_id: The note ID.
+            comment_id: The comment ID.
             body: The comment body.
+            reply_to_id: The ID of the comment to reply to.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        discussion = issue.discussions.get(discussion_id, lazy=True)
-        note = discussion.notes.get(note_id)
-        note.body = body
-        note.save()
+        if reply_to_id:
+            discussion = issue.discussions.get(reply_to_id, lazy=True)
+            comment = discussion.notes.get(comment_id)
+        else:
+            comment = issue.notes.get(comment_id)
+        comment.body = body
+        comment.save()
 
     @cached_property
     def current_user(self) -> User:
@@ -651,29 +622,6 @@ class GitLabClient(RepoClient):
         if user := self.client.user:
             return User(id=user.id, username=user.username, name=user.name)
         raise ValueError("Couldn't get current user profile")
-
-    def get_merge_request_discussion(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
-        """
-        Get a discussion from a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            discussion_id: The discussion ID.
-            only_resolvable: Whether to only return resolvable notes.
-
-        Returns:
-            The discussion object.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        discussion = merge_request.discussions.get(discussion_id)
-        return Discussion(
-            id=discussion.id,
-            notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=only_resolvable),
-        )
 
     def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         """
@@ -704,6 +652,25 @@ class GitLabClient(RepoClient):
             if discussion.individual_note is True
             and (notes := self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False))
         ]
+
+    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+        """
+        Get a comment from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            comment_id: The comment ID.
+
+        Returns:
+            The discussion object.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        discussion = merge_request.discussions.get(comment_id)
+        return Discussion(
+            id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
+        )
 
     def _serialize_notes(
         self, notes: list[dict], note_types: list[NoteType] | None = None, only_resolvable: bool = True

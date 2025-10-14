@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from quick_actions.base import Scope
 from quick_actions.parser import QuickActionCommand, parse_quick_action
 from quick_actions.registry import quick_action_registry
-from quick_actions.tasks import execute_quick_action_task
+from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
@@ -100,8 +100,6 @@ class IssueCommentCallback(GitHubCallback):
     async def process_callback(self):
         """
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
-
-        GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self._is_quick_action:
             logger.info("Found quick action in note: '%s'", self._quick_action_command.raw)
@@ -110,18 +108,26 @@ class IssueCommentCallback(GitHubCallback):
                 self.repository.full_name, self.issue.number, Emoji.THUMBSUP, self.comment.id
             )
 
-            await sync_to_async(
-                execute_quick_action_task.si(
-                    repo_id=self.repository.full_name,
-                    discussion_id="",  # GitHub doesn't have discussions like GitLab.
-                    note_id=self.comment.id,
-                    issue_id=self.issue.number,
-                    merge_request_id=None,
-                    action_verb=self._quick_action_command.verb,
-                    action_args=" ".join(self._quick_action_command.args),
-                    action_scope=Scope.ISSUE,
-                ).delay
-            )()
+            if self._action_scope == Scope.ISSUE:
+                await sync_to_async(
+                    execute_issue_task.si(
+                        repo_id=self.repository.full_name,
+                        comment_id=self.comment.id,
+                        action_command=self._quick_action_command.command,
+                        action_args=" ".join(self._quick_action_command.args),
+                        issue_id=self.issue.number,
+                    ).delay
+                )()
+            elif self._action_scope == Scope.MERGE_REQUEST:
+                await sync_to_async(
+                    execute_merge_request_task.si(
+                        repo_id=self.repository.full_name,
+                        comment_id=self.comment.id,
+                        action_command=self._quick_action_command.command,
+                        action_args=" ".join(self._quick_action_command.args),
+                        merge_request_id=self.issue.number,
+                    ).delay
+                )()
 
         elif self._is_merge_request_review:
             # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
@@ -168,24 +174,35 @@ class IssueCommentCallback(GitHubCallback):
         if not quick_action_command:
             return None
 
-        action_classes = quick_action_registry.get_actions(verb=quick_action_command.verb, scope=Scope.ISSUE)
+        action_classes = quick_action_registry.get_actions(
+            command=quick_action_command.command, scope=self._action_scope
+        )
 
         if not action_classes:
             logger.warning(
-                "Quick action '%s' not found in registry for scope '%s'", quick_action_command.verb, Scope.ISSUE
+                "Quick action '%s' not found in registry for scope '%s'",
+                quick_action_command.command,
+                self._action_scope,
             )
             return None
 
         if len(action_classes) > 1:
             logger.warning(
                 "Multiple quick actions found for '%s' in registry for scope '%s': %s",
-                quick_action_command.verb,
-                Scope.ISSUE,
-                [a.verb for a in action_classes],
+                quick_action_command.command,
+                self._action_scope,
+                [a.command for a in action_classes],
             )
             return None
 
         return quick_action_command
+
+    @property
+    def _action_scope(self) -> Scope:
+        """
+        Get the scope of the quick action.
+        """
+        return Scope.MERGE_REQUEST if self.issue.is_pull_request() else Scope.ISSUE
 
 
 class PullRequestReviewCallback(GitHubCallback):

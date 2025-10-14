@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
 - Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
 - Moved quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.
+- Migrated quick action `help` to activate as `@daiv /help` instead of `@daiv help`. **BREAKING CHANGE**
+- Migrated quick action `plan execute` to activate as `@daiv /approve-plan` instead of `@daiv plan execute`. **BREAKING CHANGE**
+- Migrated quick action `plan revise` to activate as `@daiv /revise-plan` instead of `@daiv plan revise`. **BREAKING CHANGE**
 - Updated project dependencies.
 - Updated documentation.
 

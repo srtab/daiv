@@ -13,7 +13,7 @@ class StubClient:
         self.current_user = BaseUser(id=1, username="daiv", name="DAIV")
         self._discussion = None
 
-    def get_merge_request_discussion(self, *_a, **_kw):
+    def get_merge_request_comment(self, *_a, **_kw):
         return self._discussion
 
     def set_discussion(self, discussion):

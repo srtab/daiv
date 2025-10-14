@@ -19,13 +19,13 @@ You can trigger issue addressing by starting the issue title with `DAIV:` (e.g. 
 You can reset the plan by:
 
   1. updating the issue title or description.
-  2. leaving a comment with `@daiv plan revise`.
+  2. leaving a comment with `@daiv /revise-plan`.
 
 DAIV will automatically regenerate the plan.
 
 ## Executing the plan
 
-You can execute the plan by commenting on the issue with `@daiv plan execute`. DAIV will execute the plan and open a merge request (GitLab) or pull request (GitHub) with the changes for you to review.
+You can execute the plan by commenting on the issue with `@daiv /approve-plan`. DAIV will execute the plan and open a merge request (GitLab) or pull request (GitHub) with the changes for you to review.
 
 After a first plan is executed on an issue, executing a second plan will override the previous merge/pull request.
 

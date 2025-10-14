@@ -1,57 +1,16 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from langchain_core.prompts import jinja2_formatter
 
 from codebase.clients import RepoClient
-from quick_actions.templates import UNKNOWN_QUICK_ACTION_TEMPLATE
+from quick_actions.templates import INVALID_ARGS_QUICK_ACTION_TEMPLATE
 
 if TYPE_CHECKING:
-    from codebase.base import Discussion, Issue, MergeRequest, Note
-
-
-class TriggerLocation(StrEnum):
-    DISCUSSION = "discussion"
-    REPLY = "reply"
-    BOTH = "both"
-
-
-class BaseAction:
-    """
-    Base class for actions.
-    """
-
-    trigger: str
-    description: str
-    location: TriggerLocation = TriggerLocation.BOTH
-
-    @classmethod
-    def match(cls, action: str, is_reply: bool = False) -> bool:
-        """
-        Check if the action matches the trigger.
-        """
-        return action.lower() == cls.trigger.lower() and cls.match_location(is_reply)
-
-    @classmethod
-    def match_location(cls, is_reply: bool) -> bool:
-        """
-        Check if the action matches the location.
-        """
-        return (
-            (cls.location == TriggerLocation.REPLY and is_reply)
-            or (cls.location == TriggerLocation.DISCUSSION and not is_reply)
-            or (cls.location == TriggerLocation.BOTH)
-        )
-
-    @classmethod
-    def help(cls, verb: str, bot_username: str) -> str:
-        """
-        Get the help message for the action.
-        """
-        return f" * `@{bot_username} {verb} {cls.trigger}` - {cls.description}"
+    from codebase.base import Discussion, Issue, MergeRequest
 
 
 class Scope(StrEnum):
@@ -64,130 +23,115 @@ class QuickAction(ABC):
     Base class for quick actions.
     """
 
-    verb: str
+    command: str
     scopes: list[Scope]
-    actions: list[BaseAction]
+    description: str
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.client = RepoClient.create_instance()
 
-    @classmethod
-    def help(cls, bot_username: str, is_reply: bool = False) -> str:
+    def help(self) -> str:
         """
-        Get the help message for the quick action.
+        Get the help message for the action.
         """
-        return "\n".join([
-            action.help(cls.verb, bot_username) for action in cls.actions if action.match_location(is_reply)
-        ])
+        return f" * `{self.command_to_activate}` - {self.description}"
 
-    async def execute(
-        self,
-        repo_id: str,
-        *,
-        args: str,
-        scope: Scope,
-        discussion: Discussion,
-        note: Note,
-        issue: Issue | None = None,
-        merge_request: MergeRequest | None = None,
+    @property
+    def command_to_activate(self) -> str:
+        """
+        Get the command to activate the action.
+        """
+        return f"@{self.client.current_user.username} /{self.command}"
+
+    async def execute_for_issue(self, repo_id: str, *, args: str, comment: Discussion, issue: Issue) -> None:
+        """
+        Execute the quick action for an issue.
+        """
+        if not self.validate_arguments(args):
+            self._add_invalid_args_message(repo_id, issue.iid, comment.id, args, scope=Scope.ISSUE)
+            return
+
+        return await self.execute_action_for_issue(repo_id, args=args, comment=comment, issue=issue)
+
+    async def execute_for_merge_request(
+        self, repo_id: str, *, args: str, comment: Discussion, merge_request: MergeRequest
     ) -> None:
         """
-        Execute the quick action.
-
-        Args:
-            repo_id: The repository ID.
-            args: The arguments from the command.
-            scope: The scope of the quick action.
-            discussion: The discussion that triggered the action.
-            note: The note that triggered the action.
-            issue: The issue where the action was triggered (if applicable).
-            merge_request: The merge request where the action was triggered (if applicable).
+        Execute the quick action for a merge request.
         """
-        if not self.validate_action(args, discussion.is_reply):
-            self._add_invalid_action_message(
-                repo_id,
-                merge_request.merge_request_id if merge_request else issue.iid,
-                discussion.id,
-                args,
-                is_reply=discussion.is_reply,
-                scope=scope,
+        if not self.validate_arguments(args):
+            self._add_invalid_args_message(
+                repo_id, merge_request.merge_request_id, comment.id, args, scope=Scope.MERGE_REQUEST
             )
             return
 
-        return await self.execute_action(
-            repo_id, args=args, scope=scope, discussion=discussion, note=note, issue=issue, merge_request=merge_request
+        return await self.execute_action_for_merge_request(
+            repo_id, args=args, comment=comment, merge_request=merge_request
         )
 
-    @abstractmethod
-    async def execute_action(
-        self,
-        repo_id: str,
-        *,
-        args: str,
-        scope: Scope,
-        discussion: Discussion,
-        note: Note,
-        issue: Issue | None = None,
-        merge_request: MergeRequest | None = None,
-    ) -> None:
+    async def execute_action_for_issue(self, repo_id: str, *, args: str, comment: Discussion, issue: Issue) -> None:
         """
         Use this method to implement the specific logic for the action to be executed.
 
         Args:
             repo_id: The repository ID.
-            scope: The scope of the quick action.
-            discussion: The discussion that triggered the action.
-            note: The note that triggered the action.
+            comment: The comment that triggered the action.
             issue: The issue where the action was triggered (if applicable).
+            args: Additional parameters from the command.
+        """
+        raise NotImplementedError("execute_action_for_issue is not implemented")
+
+    async def execute_action_for_merge_request(
+        self, repo_id: str, *, args: str, comment: Discussion, merge_request: MergeRequest
+    ) -> None:
+        """
+        Execute the quick action for a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            comment: The comment that triggered the action.
             merge_request: The merge request where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
+        raise NotImplementedError("execute_action_for_merge_request is not implemented")
 
-    def validate_action(self, action: str, is_reply: bool) -> bool:
+    def validate_arguments(self, args: str) -> bool:
         """
-        Validate the action is valid.
+        Validate the arguments are valid.
 
         Args:
-            action: The action to validate.
-            is_reply: Whether the action was triggered as a reply.
+            args: The arguments to validate.
 
         Returns:
-            bool: True if the action is valid, False otherwise.
+            bool: True if the arguments are valid, False otherwise.
         """
-        return any(action_item.match(action, is_reply) for action_item in self.actions)
+        return True
 
-    def _add_invalid_action_message(
-        self,
-        repo_id: str,
-        object_id: int,
-        note_discussion_id: str,
-        invalid_action: str,
-        scope: Scope,
-        is_reply: bool = False,
+    def _add_invalid_args_message(
+        self, repo_id: str, object_id: int, comment_id: str, invalid_args: str, scope: Scope
     ) -> None:
         """
-        Add an invalid action message to the merge request discussion.
+        Add an invalid arguments message to the merge request discussion.
 
         Args:
             repo_id: The repository ID.
             object_id: The merge request or issue ID.
-            note_discussion_id: The discussion ID of the note.
-            invalid_action: The invalid action.
+            comment_id: The comment ID of the note.
+            invalid_args: The invalid arguments.
             scope: The scope of the quick action.
-            is_reply: Whether the action was triggered as a reply.
         """
         note_message = jinja2_formatter(
-            UNKNOWN_QUICK_ACTION_TEMPLATE,
+            INVALID_ARGS_QUICK_ACTION_TEMPLATE,
             bot_name=self.client.current_user.username,
-            verb=self.verb,
-            help=self.help(self.client.current_user.username, is_reply),
-            invalid_action=invalid_action,
+            command=self.command,
+            help=self.help(),
+            invalid_args=invalid_args,
         )
 
         if scope == Scope.MERGE_REQUEST:
             self.client.create_merge_request_comment(
-                repo_id, object_id, note_message, reply_to_id=note_discussion_id, mark_as_resolved=True
+                repo_id, object_id, note_message, reply_to_id=comment_id, mark_as_resolved=True
             )
         elif scope == Scope.ISSUE:
-            self.client.create_issue_discussion_note(repo_id, object_id, note_message, note_discussion_id)
+            self.client.create_issue_comment(repo_id, object_id, note_message, reply_to_id=comment_id)

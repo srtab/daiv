@@ -82,7 +82,7 @@ An error occurred while applying the implementation plan.
 
 💡 **Next Steps:**
 
-- 🔄 Comment **`{{ execute_plan_command }}`** to retry the plan execution.
+- 🔄 Comment **`{{ approve_plan_command }}`** to retry the plan execution.
 - 📜 **Check the app logs** - open the {{ bot_name }} logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
 """  # noqa: E501
 

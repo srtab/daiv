@@ -9,7 +9,7 @@ class QuickActionCommand:
     Structured result of a parsed bot command.
     """
 
-    verb: str
+    command: str
     args: list[str]
     raw: str
 
@@ -18,6 +18,7 @@ _COMMAND_RE_TEMPLATE = r"""
     (?<![\w@])           # negative look-behind: don't match e-mail addresses
     @(?P<bot>{bot})      # literal @bot-name mention
     \s+                  # at least one space or tab
+    /                    # literal slash before command
     (?P<cmd>[^\n\r]+)    # capture the rest of the line (until newline)
 """
 
@@ -48,5 +49,5 @@ def parse_quick_action(note_body: str, bot_name: str) -> QuickActionCommand | No
     if not parts:
         return None
 
-    verb, *args = parts
-    return QuickActionCommand(verb=verb.lower(), args=args, raw=raw_line)
+    command, *args = parts
+    return QuickActionCommand(command=command.lower(), args=args, raw=raw_line)

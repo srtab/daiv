@@ -5,7 +5,6 @@ from celery import shared_task
 from langchain_core.prompts import jinja2_formatter
 
 from codebase.clients import RepoClient
-from codebase.context import sync_set_repository_ctx
 
 from .base import Scope
 from .registry import quick_action_registry
@@ -15,98 +14,107 @@ logger = logging.getLogger("daiv.quick_actions")
 
 
 @shared_task(pydantic=True)
-def execute_quick_action_task(
-    repo_id: str,
-    action_verb: str,
-    action_scope: str,
-    action_args: str,
-    discussion_id: str,
-    note_id: int,
-    issue_id: int | None = None,
-    merge_request_id: int | None = None,
+def execute_issue_task(repo_id: str, action_command: str, action_args: str, comment_id: str, issue_id: int):
+    """
+    Execute a quick action asynchronously.
+
+    Args:
+        repo_id: The repository ID.
+        action_command: The command of the quick action to execute.
+        action_args: Additional parameters from the command.
+        comment_id: The ID of the comment to execute the action on.
+        issue_id: The ID of the issue to execute the action on.
+    """
+    action_classes = quick_action_registry.get_actions(command=action_command, scope=Scope.ISSUE)
+
+    if not action_classes:
+        logger.error("Quick action '%s' not found in registry for scope '%s'", action_command, Scope.ISSUE)
+        return
+
+    if len(action_classes) > 1:
+        logger.error(
+            "Multiple quick actions found for '%s' in registry for scope '%s': %s",
+            action_command,
+            Scope.ISSUE,
+            [a.command for a in action_classes],
+        )
+        return
+
+    client = RepoClient.create_instance()
+
+    comment = client.get_issue_comment(repo_id, issue_id, comment_id)
+    issue = client.get_issue(repo_id, issue_id)
+
+    try:
+        action = action_classes[0]()
+        async_to_sync(action.execute_for_issue)(repo_id=repo_id, args=action_args, comment=comment, issue=issue)
+    except Exception as e:
+        logger.exception("Error executing quick action '%s' for repo '%s': %s", action_command, repo_id, str(e))
+
+        error_message = jinja2_formatter(
+            QUICK_ACTION_ERROR_MESSAGE,
+            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
+        )
+
+        client.create_issue_comment(repo_id, issue_id, error_message)
+    else:
+        logger.info(
+            "Successfully executed quick action '%s' for repo '%s' on issue '%s'", action_command, repo_id, issue_id
+        )
+
+
+@shared_task(pydantic=True)
+def execute_merge_request_task(
+    repo_id: str, action_command: str, action_args: str, comment_id: str, merge_request_id: int
 ) -> None:
     """
     Execute a quick action asynchronously.
 
     Args:
         repo_id: The repository ID.
-        action_verb: The verb of the quick action to execute.
-        action_scope: The scope of the quick action to execute.
+        action_command: The command of the quick action to execute.
         action_args: Additional parameters from the command.
-        discussion_id: The ID of the discussion to execute the action on.
-        note_id: The ID of the note to execute the action on.
-        issue_id: The ID of the issue to execute the action on (if applicable).
+        comment_id: The ID of the comment to execute the action on.
         merge_request_id: The ID of the merge request to execute the action on (if applicable).
     """
-    assert issue_id is not None or merge_request_id is not None, "Either issue_id or merge_request_id must be provided"
-
-    action_scope = Scope(action_scope)
-    action_classes = quick_action_registry.get_actions(verb=action_verb, scope=action_scope)
+    action_classes = quick_action_registry.get_actions(command=action_command, scope=Scope.MERGE_REQUEST)
 
     if not action_classes:
-        logger.error("Quick action '%s' not found in registry for scope '%s'", action_verb, action_scope)
+        logger.error("Quick action '%s' not found in registry for scope '%s'", action_command, Scope.MERGE_REQUEST)
         return
 
     if len(action_classes) > 1:
         logger.error(
             "Multiple quick actions found for '%s' in registry for scope '%s': %s",
-            action_verb,
-            action_scope,
-            [a.verb for a in action_classes],
+            action_command,
+            Scope.MERGE_REQUEST,
+            [a.command for a in action_classes],
         )
         return
 
     client = RepoClient.create_instance()
 
-    issue = None
-    merge_request = None
-    discussion = None
-
-    if action_scope == Scope.ISSUE:
-        discussion = client.get_issue_discussion(repo_id, issue_id, discussion_id, only_resolvable=False)
-        issue = client.get_issue(repo_id, issue_id)
-    elif action_scope == Scope.MERGE_REQUEST:
-        discussion = client.get_merge_request_discussion(
-            repo_id, merge_request_id, discussion_id, only_resolvable=False
-        )
-        merge_request = client.get_merge_request(repo_id, merge_request_id)
+    comment = client.get_merge_request_comment(repo_id, merge_request_id, comment_id)
+    merge_request = client.get_merge_request(repo_id, merge_request_id)
 
     try:
-        with sync_set_repository_ctx(
-            repo_id, ref=merge_request.source_branch if action_scope == Scope.MERGE_REQUEST else None
-        ):
-            action = action_classes[0]()
-            async_to_sync(action.execute)(
-                repo_id=repo_id,
-                args=action_args,
-                scope=action_scope,
-                discussion=discussion,
-                note=next(note for note in discussion.notes if note.id == note_id),
-                issue=issue,
-                merge_request=merge_request,
-            )
+        action = action_classes[0]()
+        async_to_sync(action.execute_for_merge_request)(
+            repo_id=repo_id, args=action_args, comment=comment, merge_request=merge_request
+        )
     except Exception as e:
-        logger.exception("Error executing quick action '%s' for repo '%s': %s", action_verb, repo_id, str(e))
+        logger.exception("Error executing quick action '%s' for repo '%s': %s", action_command, repo_id, str(e))
 
         error_message = jinja2_formatter(
-            QUICK_ACTION_ERROR_MESSAGE, command=f"@{client.current_user.username} {action_verb} {action_args}"
+            QUICK_ACTION_ERROR_MESSAGE,
+            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
         )
 
-        if action_scope == Scope.ISSUE:
-            client.create_issue_discussion_note(repo_id, issue.iid, error_message, discussion.id)
-        elif action_scope == Scope.MERGE_REQUEST:
-            client.create_merge_request_comment(
-                repo_id, merge_request.merge_request_id, error_message, reply_to_id=discussion.id
-            )
+        client.create_merge_request_comment(repo_id, merge_request.merge_request_id, error_message)
     else:
-        if action_scope == Scope.ISSUE:
-            logger.info(
-                "Successfully executed quick action '%s' for repo '%s' on issue '%s'", action_verb, repo_id, issue.iid
-            )
-        elif action_scope == Scope.MERGE_REQUEST:
-            logger.info(
-                "Successfully executed quick action '%s' for repo '%s' on merge request '%s'",
-                action_verb,
-                repo_id,
-                merge_request.merge_request_id,
-            )
+        logger.info(
+            "Successfully executed quick action '%s' for repo '%s' on merge request '%s'",
+            action_command,
+            repo_id,
+            merge_request.merge_request_id,
+        )

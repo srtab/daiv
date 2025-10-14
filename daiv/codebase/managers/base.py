@@ -21,13 +21,12 @@ class BaseManager:
     _comment_id: str | None = None
     """ The comment ID where DAIV comments are stored. """
 
-    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None, discussion_id: str | None = None):
+    def __init__(self, client: RepoClient, repo_id: str, ref: str | None = None):
         self.client = client
         self.repo_id = repo_id
         self.repo_config = RepositoryConfig.get_config(repo_id)
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
-        self.discussion_id = discussion_id
 
     async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
         """
@@ -95,18 +94,6 @@ class BaseManager:
         Create or update a comment on the issue.
         """
         if self._comment_id is not None:
-            if self.discussion_id:
-                self.client.update_issue_discussion_note(
-                    self.repo_id, self.issue.iid, self.discussion_id, self._comment_id, note_message
-                )
-            else:
-                self.client.update_issue_comment(self.repo_id, self.issue.iid, self._comment_id, note_message)
+            self.client.update_issue_comment(self.repo_id, self.issue.iid, self._comment_id, note_message)
         else:
-            if self.discussion_id:
-                self._comment_id = self.client.create_issue_discussion_note(
-                    self.repo_id, self.issue.iid, note_message, self.discussion_id
-                )
-            else:
-                self._comment_id = self.client.create_issue_comment(
-                    self.repo_id, cast("int", self.issue.iid), note_message
-                )
+            self._comment_id = self.client.create_issue_comment(self.repo_id, self.issue.iid, note_message)

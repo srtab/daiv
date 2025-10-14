@@ -36,9 +36,6 @@ from .templates import (
 logger = logging.getLogger("daiv.managers")
 
 
-EXECUTE_PLAN_COMMAND = "@{bot_username} plan execute"
-REVISE_PLAN_COMMAND = "@{bot_username} plan revise"
-
 ISSUE_ADDRESSING_TEMPLATE = HumanMessagePromptTemplate.from_template(
     """\
 # TASK: {issue_title}
@@ -76,22 +73,15 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
-        super().__init__(RepoClient.create_instance(), repo_id, ref, discussion_id)
+    def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None):
+        super().__init__(RepoClient.create_instance(), repo_id, ref)
         self.repository = self.client.get_repository(repo_id)
         self.repo_config = RepositoryConfig.get_config(repo_id)
         self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
         self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
 
     @classmethod
-    async def plan_issue(
-        cls,
-        repo_id: str,
-        issue_iid: int,
-        ref: str | None = None,
-        should_reset_plan: bool = False,
-        discussion_id: str | None = None,
-    ):
+    async def plan_issue(cls, repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
         """
         Plan the issue.
 
@@ -100,9 +90,8 @@ class IssueAddressorManager(BaseManager):
             issue_iid: The issue ID.
             ref: The reference branch.
             should_reset_plan: Whether to reset the plan.
-            discussion_id: The discussion ID.
         """
-        manager = cls(repo_id, issue_iid, ref, discussion_id)
+        manager = cls(repo_id, issue_iid, ref)
 
         try:
             await manager._plan_issue(should_reset_plan)
@@ -117,7 +106,7 @@ class IssueAddressorManager(BaseManager):
             manager._add_unable_to_process_issue_note()
 
     @classmethod
-    async def approve_plan(cls, repo_id: str, issue_iid: int, ref: str | None = None, discussion_id: str | None = None):
+    async def approve_plan(cls, repo_id: str, issue_iid: int, ref: str | None = None):
         """
         Approve the plan for the given issue.
 
@@ -125,9 +114,8 @@ class IssueAddressorManager(BaseManager):
             repo_id: The repository ID.
             issue_iid: The issue ID.
             ref: The reference branch.
-            discussion_id: The discussion ID.
         """
-        manager = cls(repo_id, issue_iid, ref, discussion_id)
+        manager = cls(repo_id, issue_iid, ref)
 
         try:
             await manager._approve_plan()
@@ -338,11 +326,13 @@ class IssueAddressorManager(BaseManager):
         Args:
             plan_tasks: The plan tasks.
         """
+        from quick_actions.actions.plan import ApprovePlanQuickAction
+
         self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_REVIEW_PLAN_TEMPLATE,
                 plan_tasks=plan_tasks,
-                approve_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                approve_plan_command=ApprovePlanQuickAction().command_to_activate,
             )
         )
 
@@ -356,11 +346,13 @@ class IssueAddressorManager(BaseManager):
         """
         Add a note to the issue to inform the user that the issue could not be processed.
         """
+        from quick_actions.actions.plan import RevisePlanQuickAction
+
         self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
                 bot_name=BOT_NAME,
-                revise_plan_command=REVISE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                revise_plan_command=RevisePlanQuickAction().command_to_activate,
             )
         )
 
@@ -368,11 +360,13 @@ class IssueAddressorManager(BaseManager):
         """
         Add a note to the issue to inform the user that the plan could not be executed.
         """
+        from quick_actions.actions.plan import ApprovePlanQuickAction
+
         self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
                 bot_name=BOT_NAME,
-                execute_plan_command=EXECUTE_PLAN_COMMAND.format(bot_username=self.client.current_user.username),
+                approve_plan_command=ApprovePlanQuickAction().command_to_activate,
             )
         )
 

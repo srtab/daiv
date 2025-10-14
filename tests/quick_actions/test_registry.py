@@ -39,11 +39,11 @@ class TestQuickActionRegistry:
         registry = QuickActionRegistry()
         scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
 
-        registry.register(MockAction1, "test_verb", scopes)
+        registry.register(MockAction1, "test_command", scopes)
 
-        assert "test_verb" in registry._registry
-        assert registry._registry["test_verb"] == MockAction1
-        assert getattr(MockAction1, "verb", None) == "test_verb"
+        assert "test_command" in registry._registry
+        assert registry._registry["test_command"] == MockAction1
+        assert getattr(MockAction1, "command", None) == "test_command"
         assert getattr(MockAction1, "scopes", None) == scopes
         assert MockAction1 in registry._registry_by_scope[Scope.ISSUE.value]
         assert MockAction1 in registry._registry_by_scope[Scope.MERGE_REQUEST.value]
@@ -66,19 +66,19 @@ class TestQuickActionRegistry:
         """Test that registering same action class twice raises AssertionError."""
         registry = QuickActionRegistry()
 
-        registry.register(MockAction1, "first_verb", [Scope.ISSUE])
+        registry.register(MockAction1, "first_command", [Scope.ISSUE])
 
         with pytest.raises(AssertionError, match="is already registered as quick action"):
-            registry.register(MockAction1, "second_verb", [Scope.ISSUE])
+            registry.register(MockAction1, "second_command", [Scope.ISSUE])
 
-    def test_register_duplicate_verb_raises_assertion(self):
-        """Test that registering same verb twice raises AssertionError."""
+    def test_register_duplicate_command_raises_assertion(self):
+        """Test that registering same command twice raises AssertionError."""
         registry = QuickActionRegistry()
 
-        registry.register(MockAction1, "duplicate_verb", [Scope.ISSUE])
+        registry.register(MockAction1, "duplicate_command", [Scope.ISSUE])
 
         with pytest.raises(AssertionError, match="is already registered as quick action"):
-            registry.register(MockAction2, "duplicate_verb", [Scope.ISSUE])
+            registry.register(MockAction2, "duplicate_command", [Scope.ISSUE])
 
     def test_register_multiple_scopes(self):
         """Test registering action with multiple scopes."""
@@ -116,25 +116,25 @@ class TestQuickActionRegistry:
         assert MockAction1 in actions
         assert MockAction2 in actions
 
-    def test_get_actions_by_verb_only(self):
-        """Test getting actions by verb only."""
+    def test_get_actions_by_command_only(self):
+        """Test getting actions by command only."""
         registry = QuickActionRegistry()
 
         registry.register(MockAction1, "action1", [Scope.ISSUE])
         registry.register(MockAction2, "action2", [Scope.MERGE_REQUEST])
 
-        actions = registry.get_actions(verb="action1")
+        actions = registry.get_actions(command="action1")
 
         assert len(actions) == 1
         assert actions[0] == MockAction1
 
-    def test_get_actions_by_verb_not_found(self):
-        """Test getting actions by non-existent verb."""
+    def test_get_actions_by_command_not_found(self):
+        """Test getting actions by non-existent command."""
         registry = QuickActionRegistry()
 
         registry.register(MockAction1, "action1", [Scope.ISSUE])
 
-        actions = registry.get_actions(verb="nonexistent")
+        actions = registry.get_actions(command="nonexistent")
 
         assert len(actions) == 0
 
@@ -158,25 +158,25 @@ class TestQuickActionRegistry:
 
         assert len(actions) == 0
 
-    def test_get_actions_by_verb_and_scope(self):
-        """Test getting actions by both verb and scope."""
+    def test_get_actions_by_command_and_scope(self):
+        """Test getting actions by both command and scope."""
         registry = QuickActionRegistry()
 
         registry.register(MockAction1, "action1", [Scope.ISSUE, Scope.MERGE_REQUEST])
         registry.register(MockAction2, "action2", [Scope.ISSUE])
 
-        actions = registry.get_actions(verb="action1", scope=Scope.ISSUE)
+        actions = registry.get_actions(command="action1", scope=Scope.ISSUE)
 
         assert len(actions) == 1
         assert actions[0] == MockAction1
 
-    def test_get_actions_by_verb_and_scope_not_found(self):
-        """Test getting actions by verb and scope with no matches."""
+    def test_get_actions_by_command_and_scope_not_found(self):
+        """Test getting actions by command and scope with no matches."""
         registry = QuickActionRegistry()
 
         registry.register(MockAction1, "action1", [Scope.ISSUE])
 
-        actions = registry.get_actions(verb="action1", scope=Scope.MERGE_REQUEST)
+        actions = registry.get_actions(command="action1", scope=Scope.MERGE_REQUEST)
 
         assert len(actions) == 0
 
@@ -196,21 +196,21 @@ class TestQuickActionRegistry:
     def test_action_attributes_set_correctly(self):
         """Test that action class attributes are set correctly during registration."""
         registry = QuickActionRegistry()
-        original_verb = getattr(MockAction1, "verb", None)
+        original_command = getattr(MockAction1, "command", None)
         original_scopes = getattr(MockAction1, "scopes", None)
 
         try:
             scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
             registry.register(MockAction1, "test_attributes", scopes)
 
-            assert hasattr(MockAction1, "verb") and MockAction1.verb == "test_attributes"  # type: ignore
+            assert hasattr(MockAction1, "command") and MockAction1.command == "test_attributes"  # type: ignore
             assert hasattr(MockAction1, "scopes") and MockAction1.scopes == scopes  # type: ignore
         finally:
             # Clean up - restore original attributes if they existed
-            if original_verb is not None:
-                MockAction1.verb = original_verb
-            elif hasattr(MockAction1, "verb"):
-                delattr(MockAction1, "verb")
+            if original_command is not None:
+                MockAction1.command = original_command
+            elif hasattr(MockAction1, "command"):
+                delattr(MockAction1, "command")
 
             if original_scopes is not None:
                 MockAction1.scopes = original_scopes
