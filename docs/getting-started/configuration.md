@@ -356,7 +356,7 @@ Verify that DAIV is properly connected to your GitHub repository.
     - Check the issue comments for DAIV's response
 
 3. **Approve the Plan**:
-    - Comment "Go ahead" or use `@daiv plan execute` to approve the plan
+    - Use `@daiv /approve-plan` to approve the plan
     - DAIV will create a pull request with the implementation
 
 ### Troubleshooting

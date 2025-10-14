@@ -10,7 +10,7 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 
 ### How Quick Actions Work
 
-**Command Format**: `@<daiv-username> <action> [arguments]`
+**Command Format**: `@<daiv-username> /<action> [arguments]`
 
 **Supported Scopes**:
 
@@ -21,18 +21,17 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 
 Quick Actions use shell-like parsing with support for:
 
-- **Simple commands**: `@daiv help`
-- **Commands with sub-actions**: `@daiv plan execute`, `@daiv pipeline repair`
-- **Multi-word sub-actions**: `@daiv pipeline repair apply`
-- **Case-insensitive**: `@DAIV HELP` works the same as `@daiv help`
+- **Simple commands**: `@daiv /help`
+- **Commands with arguments**: `@daiv /approve-plan "some argument"`, `@daiv /revise-plan "some argument"`
+- **Case-insensitive**: `@DAIV /HELP` works the same as `@daiv /help`
 
 ### Workflow
 
 ```mermaid
 graph TD
-    A["👤 User"] --> B["💬 Comments with @daiv<br/>(e.g., '@daiv help')"]
+    A["👤 User"] --> B["💬 Comments with @daiv<br/>(e.g., '@daiv /help')"]
     B --> C["🔔 Comment Webhook"]
-    C --> D["📝 Quick Action Parser<br/>(extracts verb and args)"]
+    C --> D["📝 Quick Action Parser<br/>(extracts command and args)"]
     D --> E["📋 Registry Lookup<br/>(finds matching action)"]
 
     E --> F["✅ Action Found?"]
@@ -71,7 +70,7 @@ graph TD
 
 ### 🆘 Help Action
 
-**Command**: `@daiv help`
+**Command**: `/help`
 
 **Purpose**: Displays all available Quick Actions for the current scope (issue or merge/pull request).
 
@@ -79,77 +78,44 @@ graph TD
 
 **Example**:
 ```
-@daiv help
+@daiv /help
 ```
 
 **Response**: DAIV replies with a formatted list of all available Quick Actions and their descriptions.
 
 ---
 
-### 📋 Plan Action
+### 📋 Approve Plan Action
 
-**Command**: `@daiv plan <sub-action>`
+**Command**: `/approve-plan`
 
-**Purpose**: Manage issue resolution plans with execute and revise operations.
+**Purpose**: Run or launch the current plan for the issue
 
 **Scopes**: Issues only
 
-**Sub-actions**:
+**Usage**: Leave a comment to approve and execute the current plan
 
-#### Execute Plan
-- **Command**: `@daiv plan execute`
-- **Purpose**: Run or launch the current plan for the issue
-- **Usage**: Comment in discussion to approve and execute the current plan
-
-#### Revise Plan
-- **Command**: `@daiv plan revise`
-- **Purpose**: Discard current plan and create a new one from scratch
-- **Usage**: Comment in discussion to reset and regenerate the plan
-
-**Examples**:
+**Example**:
 ```
-@daiv plan execute
-```
-```
-@daiv plan revise
+@daiv /approve-plan
 ```
 
 ---
 
-### 🔧 Pipeline Action
+### 📋 Revise Plan Action
 
-**Command**: `@daiv pipeline <sub-action>`
+**Command**: `/revise-plan`
 
-**Purpose**: Manage merge/pull request pipeline failures with automated repair suggestions and execution.
+**Purpose**: Discard current plan and create a new one from scratch
 
-**Scopes**: Merge/Pull Requests only
+**Scopes**: Issues only
 
-**Sub-actions**:
+**Usage**: Leave a comment on the issue to reset and regenerate the plan
 
-#### Repair Plan
-- **Command**: `@daiv pipeline repair`
-- **Purpose**: Suggest a repair plan to fix the failed pipeline
-- **Usage**: Comment in discussion when pipeline has failed jobs
-- **Trigger Location**: Discussion (initial comment)
-
-#### Apply Repair
-- **Command**: `@daiv pipeline repair apply`
-- **Purpose**: Apply the repair plan to fix the pipeline
-- **Usage**: Reply to repair plan discussion to execute the suggested fix
-- **Trigger Location**: Reply (to existing repair discussion)
-
-**Examples**:
+**Example**:
 ```
-@daiv pipeline repair
+@daiv /revise-plan
 ```
-```
-@daiv pipeline repair apply
-```
-
-**Requirements**:
-- Pipeline must be in "failed" status
-- Must have at least one failed job with script failure
-- Job must not be marked as allowed to fail
 
 ---
 
@@ -161,7 +127,7 @@ graph TD
 
 - Check that the action supports the current scope (issue vs merge/pull request)
 - Ensure proper spelling and case (actions are case-insensitive)
-- Verify sub-action syntax (e.g., `plan execute` not `plan-execute`)
+- Verify command syntax (e.g., `/approve-plan` not `/plan-execute`)
 
 **No response from DAIV**:
 
@@ -201,7 +167,7 @@ Quick Actions log detailed information for troubleshooting:
 ### Getting Help
 
 ```
-@daiv help
+@daiv /help
 ```
 
 **Response**:
@@ -209,9 +175,9 @@ Quick Actions log detailed information for troubleshooting:
 ### 🤖 DAIV Quick-Actions
 Comment one of the commands below on this issue to trigger the bot:
 
-- `@daiv help` - Shows the help message with the available quick actions.
-- `@daiv plan execute` - Run or launch the current plan.
-- `@daiv plan revise` - Discard current plan and create a new one from scratch.
+- `@daiv /help` - Shows the help message with the available quick actions.
+- `@daiv /approve-plan` - Run or launch the current plan.
+- `@daiv /revise-plan` - Discard current plan and create a new one from scratch.
 ```
 
 ---
@@ -222,7 +188,7 @@ Comment one of the commands below on this issue to trigger the bot:
 
 1. **Create** new action class in `automation/quick_actions/actions/`
 2. **Implement** required methods `execute_action` and `actions`
-3. **Decorate** with `@quick_action` specifying verb and scopes
+3. **Decorate** with `@quick_action` specifying command and scopes
 4. **Import** in the actions module
 5. **Test** the action in development environment
 
@@ -232,4 +198,4 @@ Comment one of the commands below on this issue to trigger the bot:
 - **Provide clear descriptions**: Help users understand what each action does
 - **Handle errors gracefully**: Post user-friendly error messages
 - **Use appropriate scopes**: Only enable actions where they make sense
-- **Follow naming conventions**: Use clear, descriptive verb names
+- **Follow naming conventions**: Use clear, descriptive command names

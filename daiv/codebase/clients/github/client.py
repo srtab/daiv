@@ -199,21 +199,6 @@ class GitHubClient(RepoClient):
             labels=[label.name for label in issue.labels],
         )
 
-    def create_issue_comment(self, repo_id: str, issue_id: int, body: str) -> str | None:
-        """
-        Comment on an issue.
-
-        Returns:
-            The comment ID.
-        """
-        return self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).create_comment(body).id
-
-    def update_issue_comment(self, repo_id: str, issue_id: int, comment_id: int, body: str):
-        """
-        Update a comment on an issue.
-        """
-        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(comment_id).edit(body)
-
     def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """
         Create an emoji in a note of an issue.
@@ -225,56 +210,56 @@ class GitHubClient(RepoClient):
             emoji_reaction
         )
 
-    def get_issue_discussion(
-        self, repo_id: str, issue_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
+    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """
-        Get a discussion from an issue.
+        Get a comment from an issue.
 
-        For GitHub, there's no distinction between discussions and notes.
+        For GitHub, there's no distinction between comments and notes.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
-            discussion_id: The discussion ID. This is not used for GitHub.
-            only_resolvable: Whether to only return resolvable notes. This is not used for GitHub.
+            comment_id: The comment ID.
 
         Returns:
             The discussion object.
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
         # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=discussion_id, notes=self._serialize_comments(issue.get_comments()), is_reply=False)
+        return Discussion(id=comment_id, notes=self._serialize_comments(issue.get_comments()))
 
-    def create_issue_discussion_note(
-        self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None
+    def create_issue_comment(
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
     ) -> str | None:
         """
-        Create a comment on an issue.
-
-        For GitHub, there's no distinction between discussions and notes. This method creates a comment on the issue.
+        Comment on an issue.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
             body: The comment body.
-            discussion_id: The discussion ID. This is not used for GitHub.
-        """
-        # GitHub doesn't have discussions like GitLab. This is a workaround to create a comment on the issue.
-        return self.create_issue_comment(repo_id, issue_id, body)
+            reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
+            as_thread: Whether to create a thread. This is not supported for GitHub.
 
-    def update_issue_discussion_note(self, repo_id: str, issue_id: int, discussion_id: str, note_id: str, body: str):
+        Returns:
+            The comment ID.
+        """
+        return self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).create_comment(body).id
+
+    def update_issue_comment(
+        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
+    ):
         """
         Update a comment on an issue.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
-            discussion_id: The discussion ID. This is not used for GitHub.
-            note_id: The note ID.
+            comment_id: The comment ID.
             body: The comment body.
+            reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
         """
-        self.update_issue_comment(repo_id, issue_id, note_id, body)
+        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(comment_id).edit(body)
 
     @cached_property
     def current_user(self) -> User:
@@ -557,17 +542,14 @@ class GitHubClient(RepoClient):
         headers, data = self.client.requester.requestJsonAndCheck("GET", pr.diff_url, follow_302_redirect=True)
         return PatchSet.from_string(data["data"])
 
-    def get_merge_request_discussion(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
+    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """
-        Get a discussion from a merge request.
+        Get a comment from a merge request.
 
         Args:
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
-            discussion_id: The discussion ID.
-            only_resolvable: Whether to only return resolvable notes (review comments).
+            comment_id: The comment ID.
 
         Returns:
             The discussion object.
@@ -576,22 +558,14 @@ class GitHubClient(RepoClient):
 
         comment = None
         try:
-            comment = pr.get_issue_comment(discussion_id)
+            comment = pr.get_issue_comment(comment_id)
         except UnknownObjectException:
-            comment = pr.get_review_comment(discussion_id)
-
-        if only_resolvable:
-            if isinstance(comment, IssueComment) and comment.reactions.get("rocket", 0) > 0:
-                comment = None
-            elif isinstance(comment, PullRequestComment):
-                unresolved_comment_ids, _ = self._unresolved_comment_ids(repo_id, merge_request_id)
-                if comment.id not in unresolved_comment_ids:
-                    comment = None
+            comment = pr.get_review_comment(comment_id)
 
         if comment is None:
-            return Discussion(id=discussion_id, notes=[])
+            return Discussion(id=comment_id, notes=[])
 
-        return Discussion(id=discussion_id, notes=self._serialize_comments([comment], from_merge_request=True))
+        return Discussion(id=comment_id, notes=self._serialize_comments([comment], from_merge_request=True))
 
     def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         """

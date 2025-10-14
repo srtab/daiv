@@ -1,4 +1,4 @@
 from .help import HelpQuickAction
-from .plan import PlanQuickAction
+from .plan import ApprovePlanQuickAction, RevisePlanQuickAction
 
-__all__ = ["HelpQuickAction", "PlanQuickAction"]
+__all__ = ["HelpQuickAction", "ApprovePlanQuickAction", "RevisePlanQuickAction"]

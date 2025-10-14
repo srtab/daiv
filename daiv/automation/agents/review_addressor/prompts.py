@@ -96,7 +96,7 @@ Ask: "Can I answer confidently from the commented lines alone?"
 ### Step 2 • Final reply shown to the reviewer
 Immediately emit plain text (no phases, no tool names):
 - First-person voice ("I suggest…", "I noticed…").
-- Match the reviewer’s language only if detection ≥80% confidence; otherwise use English.
+- Match the reviewer's language only if detection ≥80% confidence; otherwise use English.
 - Be technically precise; reference code generically or link to exact lines (e.g., [`src/module/file.ts#L120-L135`](src/module/file.ts#L120-L135)).
 - Keep it concise yet complete; include a tiny snippet (≤ 8 lines) **only if it materially clarifies or shows the fix**.
 - If static analysis is insufficient, say so briefly and propose one minimal next step (optionally append **`(confidence: low/med/high)`**).

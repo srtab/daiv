@@ -1,11 +1,10 @@
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-import pytest
 from quick_actions.base import QuickAction, Scope
 
 if TYPE_CHECKING:
-    from codebase.base import Discussion, Issue, MergeRequest, Note
+    from codebase.base import Discussion, Issue, MergeRequest
 
 
 class TestScope:
@@ -21,102 +20,32 @@ class TestScope:
 
 
 class TestQuickAction:
-    def test_quick_action_is_abstract(self):
-        """Test that QuickAction cannot be instantiated directly."""
-        with pytest.raises(TypeError):
-            QuickAction()
-
-    def test_execute_is_abstract_method(self):
-        """Test that execute method is abstract."""
-
-        # Create a concrete subclass without implementing execute
-        class IncompleteAction(QuickAction):
-            pass
-
-        with pytest.raises(TypeError):
-            IncompleteAction()
-
-    async def test_concrete_implementation_works(self):
+    async def test_concrete_implementation_works_for_issue(self):
         """Test that a proper concrete implementation can be instantiated."""
 
         class ConcreteAction(QuickAction):
             actions = [MagicMock()]
 
-            async def execute_action(
-                self,
-                repo_id: str,
-                *,
-                args: str,
-                scope: Scope,
-                discussion: Discussion,
-                note: Note,
-                issue: Issue | None = None,
-                merge_request: MergeRequest | None = None,
-                is_reply: bool = False,
-            ):
+            async def execute_action_for_issue(self, repo_id: str, *, args: str, comment: Discussion, issue: Issue):
                 return "executed"
 
         action = ConcreteAction()
-        result = await action.execute(
-            args="",
-            repo_id="repo1",
-            scope=Scope.ISSUE,
-            note=MagicMock(),
-            discussion=MagicMock(),
-            issue=MagicMock(),
-            merge_request=MagicMock(),
-        )
+        result = await action.execute_for_issue(args="", repo_id="repo1", comment=MagicMock(), issue=MagicMock())
         assert result == "executed"
 
-    async def test_execute_method_signature(self):
+    async def test_concrete_implementation_works_for_merge_request(self):
         """Test that execute method has correct signature."""
 
         class TestAction(QuickAction):
             actions = [MagicMock()]
 
-            async def execute_action(
-                self,
-                repo_id: str,
-                *,
-                args: str,
-                scope: Scope,
-                discussion: Discussion,
-                note: Note,
-                issue: Issue | None = None,
-                merge_request: MergeRequest | None = None,
-                is_reply: bool = False,
-            ) -> None:
-                # Store parameters for verification
-                self.last_call = {
-                    "repo_id": repo_id,
-                    "scope": scope,
-                    "note": note,
-                    "issue": issue,
-                    "discussion": discussion,
-                    "merge_request": merge_request,
-                    "args": args,
-                }
+            async def execute_action_for_merge_request(
+                self, repo_id: str, *, args: str, comment: Discussion, merge_request: MergeRequest
+            ):
+                return "executed"
 
         action = TestAction()
-        mock_note = MagicMock()
-        mock_issue = MagicMock()
-        mock_mr = MagicMock()
-        mock_discussion = MagicMock()
-
-        await action.execute(
-            repo_id="test_repo",
-            args="arg1 arg2",
-            scope=Scope.ISSUE,
-            discussion=mock_discussion,
-            note=mock_note,
-            issue=mock_issue,
-            merge_request=mock_mr,
+        result = await action.execute_for_merge_request(
+            repo_id="test_repo", args="arg1 arg2", comment=MagicMock(), merge_request=MagicMock()
         )
-
-        assert action.last_call["repo_id"] == "test_repo"
-        assert action.last_call["scope"] == Scope.ISSUE
-        assert action.last_call["note"] == mock_note
-        assert action.last_call["discussion"] == mock_discussion
-        assert action.last_call["issue"] == mock_issue
-        assert action.last_call["merge_request"] == mock_mr
-        assert action.last_call["args"] == "arg1 arg2"
+        assert result == "executed"

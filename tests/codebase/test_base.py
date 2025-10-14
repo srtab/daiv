@@ -1,4 +1,4 @@
-from codebase.base import FileChange, FileChangeAction, Issue, MergeRequest, User
+from codebase.base import FileChange, FileChangeAction, Issue, Job, MergeRequest, User
 
 
 def test_is_daiv_with_bot_label():
@@ -175,3 +175,15 @@ def test_clean_title_only_whitespace_after_bot_label_with_colon():
     """Test handling when only whitespace follows bot label with colon."""
     issue = Issue(title="daiv:   ", author=User(id=1, name="Test User", username="testuser"))
     assert issue.title == ""
+
+
+def test_job_is_failed_when_status_is_failed():
+    """Test that is_failed returns True when job status is 'failed'."""
+    job = Job(id=1, name="test-job", status="failed", stage="test", allow_failure=False)
+    assert job.is_failed() is True
+
+
+def test_job_is_failed_when_status_is_not_failed():
+    """Test that is_failed returns False when job status is not 'failed'."""
+    job = Job(id=1, name="test-job", status="success", stage="test", allow_failure=False)
+    assert job.is_failed() is False

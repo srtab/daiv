@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from quick_actions.base import Scope
 from quick_actions.parser import QuickActionCommand, parse_quick_action
 from quick_actions.registry import quick_action_registry
-from quick_actions.tasks import execute_quick_action_task
+from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
 from codebase.api.callbacks import BaseCallback
 from codebase.base import NoteType
@@ -112,23 +112,28 @@ class NoteCallback(BaseCallback):
                 self._client.create_merge_request_note_emoji(
                     self.project.path_with_namespace, self.merge_request.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
+                await sync_to_async(
+                    execute_merge_request_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        comment_id=self.object_attributes.discussion_id,
+                        action_command=self._quick_action_command.command,
+                        action_args=" ".join(self._quick_action_command.args),
+                        merge_request_id=self.merge_request.iid,
+                    ).delay
+                )()
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
                     self.project.path_with_namespace, self.issue.iid, Emoji.THUMBSUP, self.object_attributes.id
                 )
-
-            await sync_to_async(
-                execute_quick_action_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    discussion_id=self.object_attributes.discussion_id,
-                    note_id=self.object_attributes.id,
-                    issue_id=self.issue and self.issue.iid or None,
-                    merge_request_id=self.merge_request and self.merge_request.iid or None,
-                    action_verb=self._quick_action_command.verb,
-                    action_args=" ".join(self._quick_action_command.args),
-                    action_scope=self._action_scope,
-                ).delay
-            )()
+                await sync_to_async(
+                    execute_issue_task.si(
+                        repo_id=self.project.path_with_namespace,
+                        comment_id=self.object_attributes.discussion_id,
+                        action_command=self._quick_action_command.command,
+                        action_args=" ".join(self._quick_action_command.args),
+                        issue_id=self.issue.iid,
+                    ).delay
+                )()
 
         elif self._is_merge_request_review:
             if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
@@ -183,20 +188,24 @@ class NoteCallback(BaseCallback):
         if not quick_action_command:
             return None
 
-        action_classes = quick_action_registry.get_actions(verb=quick_action_command.verb, scope=self._action_scope)
+        action_classes = quick_action_registry.get_actions(
+            command=quick_action_command.command, scope=self._action_scope
+        )
 
         if not action_classes:
             logger.warning(
-                "Quick action '%s' not found in registry for scope '%s'", quick_action_command.verb, self._action_scope
+                "Quick action '%s' not found in registry for scope '%s'",
+                quick_action_command.command,
+                self._action_scope,
             )
             return None
 
         if len(action_classes) > 1:
             logger.warning(
                 "Multiple quick actions found for '%s' in registry for scope '%s': %s",
-                quick_action_command.verb,
+                quick_action_command.command,
                 self._action_scope,
-                [a.verb for a in action_classes],
+                [a.command for a in action_classes],
             )
             return None
 

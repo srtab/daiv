@@ -114,11 +114,15 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_issue_comment(self, repo_id: str, issue_id: int, body: str) -> str | None:
+    def create_issue_comment(
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+    ) -> str | None:
         pass
 
     @abc.abstractmethod
-    def update_issue_comment(self, repo_id: str, issue_id: int, comment_id: int, body: str) -> str | None:
+    def update_issue_comment(
+        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
+    ) -> str | None:
         pass
 
     @abc.abstractmethod
@@ -126,25 +130,13 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_issue_discussion(
-        self, repo_id: str, issue_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
+    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         pass
 
     @abc.abstractmethod
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
     ) -> list[MergeRequest]:
-        pass
-
-    @abc.abstractmethod
-    def create_issue_discussion_note(
-        self, repo_id: str, issue_id: int, body: str, discussion_id: str | None = None
-    ) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    def update_issue_discussion_note(self, repo_id: str, issue_id: int, discussion_id: str, note_id: str, body: str):
         pass
 
     @abc.abstractmethod
@@ -161,17 +153,15 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_discussion(
-        self, repo_id: str, merge_request_id: int, discussion_id: str, only_resolvable: bool = True
-    ) -> Discussion:
-        pass
-
-    @abc.abstractmethod
     def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         pass
 
     @abc.abstractmethod
     def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         pass
 
     @abc.abstractmethod

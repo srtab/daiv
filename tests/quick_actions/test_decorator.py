@@ -29,7 +29,7 @@ class TestQuickActionDecorator:
     def test_decorator_with_valid_action(self):
         """Test that decorator properly registers a valid quick action."""
         with patch("quick_actions.decorator.quick_action_registry") as mock_registry:
-            quick_action(verb="test_action", scopes=[Scope.ISSUE])(self.TestAction)
+            quick_action(command="test_action", scopes=[Scope.ISSUE])(self.TestAction)
 
             # Verify the decorator called register with correct parameters
             mock_registry.register.assert_called_once_with(self.TestAction, "test_action", [Scope.ISSUE])
@@ -42,16 +42,16 @@ class TestQuickActionDecorator:
         with patch("quick_actions.decorator.quick_action_registry") as mock_registry:
             scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
 
-            quick_action(verb="multi_scope_action", scopes=scopes)(self.TestAction)
+            quick_action(command="multi_scope_action", scopes=scopes)(self.TestAction)
 
             mock_registry.register.assert_called_once_with(self.TestAction, "multi_scope_action", scopes)
 
     def test_decorator_can_be_applied_to_multiple_classes(self):
         """Test that decorator can be applied to multiple different classes."""
         with patch("quick_actions.decorator.quick_action_registry") as mock_registry:
-            quick_action(verb="action1", scopes=[Scope.ISSUE])(self.TestAction)
+            quick_action(command="action1", scopes=[Scope.ISSUE])(self.TestAction)
 
-            @quick_action(verb="action2", scopes=[Scope.MERGE_REQUEST])
+            @quick_action(command="action2", scopes=[Scope.MERGE_REQUEST])
             class Action2(self.TestAction):
                 pass
 
@@ -71,7 +71,7 @@ class TestQuickActionDecorator:
                 def shared_method(self):
                     return "shared"
 
-            @quick_action(verb="inherited_action", scopes=[Scope.ISSUE])
+            @quick_action(command="inherited_action", scopes=[Scope.ISSUE])
             class InheritedAction(BaseAction):
                 pass
 
