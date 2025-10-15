@@ -40,8 +40,8 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
-from codebase.conf import settings
 from core.utils import async_download_url
+from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,7 +66,7 @@ class GitHubClient(RepoClient):
             url = Consts.DEFAULT_BASE_URL
 
         integration = GithubIntegration(
-            auth=Auth.AppAuth(app_id, private_key), base_url=url, user_agent=settings.CLIENT_USER_AGENT, per_page=100
+            auth=Auth.AppAuth(app_id, private_key), base_url=url, user_agent=USER_AGENT, per_page=100
         )
         self.client_installation = integration.get_app_installation(installation_id)
         self.client = self.client_installation.get_github_for_installation()
@@ -809,9 +809,7 @@ class GitHubClient(RepoClient):
                 tempfile.NamedTemporaryFile(
                     prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
                 ) as repo_archive,
-                httpx.stream(
-                    "GET", archive_url, timeout=10.0, headers={"User-Agent": settings.CLIENT_USER_AGENT}
-                ) as response,
+                httpx.stream("GET", archive_url, timeout=10.0, headers={"User-Agent": USER_AGENT}) as response,
             ):
                 response.raise_for_status()
 

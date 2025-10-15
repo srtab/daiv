@@ -1,3 +1,5 @@
+from daiv import USER_AGENT
+
 from .base import MCPServer
 from .conf import settings
 from .decorator import mcp_server
@@ -9,7 +11,7 @@ class FetchMCPServer(MCPServer):
     name = "fetch"
     proxy_config = StdioMcpServer(
         command="uvx",
-        args=[f"mcp-server-fetch=={settings.FETCH_VERSION}"],
+        args=[f"mcp-server-fetch=={settings.FETCH_VERSION}", "--user-agent", USER_AGENT],
         options=CommonOptions(panic_if_invalid=False, log_enabled=True),
     )
 
