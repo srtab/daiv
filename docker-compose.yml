@@ -131,12 +131,8 @@ services:
       - docker/local/app/config.secrets.env
     environment:
       NODE_ENV: development
-      NODE_TLS_REJECT_UNAUTHORIZED: 0
-    command: >
-      sh -c "/app/mcp-proxy
-      -config https://app:8000/api/automation/mcp-proxy/config
-      -http-headers 'Authorization:Bearer $$MCP_CONFIG_API_KEY'
-      -insecure"
+    volumes:
+      - ./data/mcp-proxy:/config
     ports:
       - "9090:9090"
     depends_on:
