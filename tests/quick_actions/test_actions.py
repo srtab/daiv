@@ -36,11 +36,15 @@ class TestHelpAction:
     async def test_execute_on_issue(self, mock_registry):
         """Test executing help action on an issue."""
         # Setup mock registry with actions
+        mock_instance1 = MagicMock(command="help")
+        mock_instance1.help.return_value = "- `@bot /help` - Shows help"
         mock_action1 = MagicMock(command="help")
-        mock_action1.help.return_value = "- `@bot /help` - Shows help"
+        mock_action1.return_value = mock_instance1
 
+        mock_instance2 = MagicMock(command="status")
+        mock_instance2.help.return_value = "- `@bot /status` - Shows status"
         mock_action2 = MagicMock(command="status")
-        mock_action2.help.return_value = "- `@bot /status` - Shows status"
+        mock_action2.return_value = mock_instance2
 
         mock_registry.get_actions.return_value = [mock_action1, mock_action2]
 
@@ -59,8 +63,10 @@ class TestHelpAction:
     async def test_execute_on_merge_request(self, mock_registry):
         """Test executing help action on a merge request."""
         # Setup mock registry with actions
+        mock_instance = MagicMock(command="help")
+        mock_instance.help.return_value = "- `@bot /help` - Shows help"
         mock_action = MagicMock(command="help")
-        mock_action.help.return_value = "- `@bot /help` - Shows help"
+        mock_action.return_value = mock_instance
 
         mock_registry.get_actions.return_value = [mock_action]
 
@@ -84,9 +90,14 @@ class TestHelpAction:
         descriptions = ["Shows help", "Shows status", "Assigns issue", "Closes issue"]
 
         for command, desc in zip(action_commands, descriptions, strict=False):
-            mock_action = MagicMock(command=command)
-            mock_action.help.return_value = f"- `@daivbot /{command}` - {desc}"
-            mock_actions.append(mock_action)
+            # Create a mock instance with help() method
+            mock_instance = MagicMock(command=command)
+            mock_instance.help.return_value = f"- `@daivbot /{command}` - {desc}"
+
+            # Create a mock class that returns the instance when called
+            mock_action_class = MagicMock(command=command)
+            mock_action_class.return_value = mock_instance
+            mock_actions.append(mock_action_class)
 
         mock_registry.get_actions.return_value = mock_actions
 
