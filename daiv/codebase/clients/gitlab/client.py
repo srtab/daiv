@@ -28,9 +28,9 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.conf import settings
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
+from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -57,7 +57,7 @@ class GitLabClient(RepoClient):
             timeout=10,
             keep_base_url=True,
             retry_transient_errors=True,
-            user_agent=settings.CLIENT_USER_AGENT,
+            user_agent=USER_AGENT,
         )
 
     @property

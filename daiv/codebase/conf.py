@@ -3,14 +3,11 @@ from typing import Literal
 from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from daiv import __version__
-
 
 class CodebaseSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_")
 
     CLIENT: Literal["gitlab", "github"] = Field(default="gitlab", description="Client to use for codebase operations")
-    CLIENT_USER_AGENT: str = Field(default=f"python-daiv-agent/{__version__}", description="User agent for the client")
 
     # GitLab
     GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")

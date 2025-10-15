@@ -3,5 +3,6 @@
 from .celeryapp import app as celery_app
 
 __version__ = "0.3.0"
+USER_AGENT = f"python-daiv-agent/{__version__}"
 
-__all__ = ("celery_app",)
+__all__ = ("celery_app", "USER_AGENT")
