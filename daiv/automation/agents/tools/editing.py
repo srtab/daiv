@@ -7,7 +7,7 @@ from langchain.tools import tool
 from langgraph.prebuilt import InjectedStore
 
 from automation.agents.utils import find_original_snippet
-from automation.utils import check_file_read, register_file_change
+from automation.utils import check_file_read, get_file_change, get_file_changes, register_file_change
 from codebase.base import FileChangeAction
 from codebase.context import get_repository_ctx
 
@@ -18,8 +18,9 @@ EDIT_TOOL_NAME = "edit"
 WRITE_TOOL_NAME = "write"
 DELETE_TOOL_NAME = "delete"
 RENAME_TOOL_NAME = "rename"
+DIFF_TOOL_NAME = "diff"
 
-EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_NAME]
+EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_NAME, DIFF_TOOL_NAME]
 
 
 @tool(EDIT_TOOL_NAME, parse_docstring=True)
@@ -254,3 +255,54 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
         )
 
     return f"success: Renamed file '{file_path}' to '{new_file_path}'"
+
+
+@tool(DIFF_TOOL_NAME, parse_docstring=True)
+async def diff_tool(file_paths: list[str], store: Annotated[Any, InjectedStore()] = None) -> str:
+    """
+    Retrieve unified diffs showing changes made to files. This tool shows only the changed lines (with context), not the entire file content, making it efficient for verifying edits.
+
+    **Usage rules:**
+    - If `file_paths` is empty list, returns diffs for all changed files
+    - If `file_paths` is not empty list, returns diffs only for those specific files
+    - Returns unified diff format (same as `git diff`)
+    - Use this tool to verify changes after editing files
+
+    Args:
+        file_paths (list[str]): List of relative file paths to get diffs for. If empty list, returns diffs for all changed files.
+
+    Returns:
+        str: Unified diff output showing the changes made to the specified files.
+    """  # noqa: E501
+    logger.debug("[%s] Getting diffs for files: %s", diff_tool.name, file_paths or "all changed files")
+
+    if file_paths is None or len(file_paths) == 0:
+        # Get all file changes
+        file_changes = await get_file_changes(store)
+        if not file_changes:
+            return "No file changes have been made yet."
+
+        diffs = [file_change.diff_hunk for file_change in file_changes if file_change.diff_hunk]
+        return "\n".join(diffs) if diffs else "No file changes have been made yet."
+    else:
+        # Get specific file changes
+        diffs = []
+        missing_files = []
+
+        for file_path in file_paths:
+            file_change = await get_file_change(store, file_path)
+            if file_change is None:
+                missing_files.append(file_path)
+            else:
+                if diff_hunk := file_change.diff_hunk:
+                    diffs.append(diff_hunk)
+        if missing_files and not diffs:
+            return f"No changes found for: {', '.join(missing_files)}"
+
+        result_parts = []
+        if diffs:
+            result_parts.append("\n".join(diffs))
+        if missing_files:
+            result_parts.append(f"\nNote: No changes found for: {', '.join(missing_files)}")
+
+        return "\n".join(result_parts) if result_parts else "No changes found for the specified files."
