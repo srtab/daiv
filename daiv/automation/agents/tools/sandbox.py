@@ -135,8 +135,8 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
     ctx = get_repository_ctx()
 
     # Start the sandbox session to ensure that the sandbox session is started before running the commands.
-    # If the sandbox session is already running, it will be reused.
-    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image))
+    # If the sandbox session already exists in the store, it will be reused.
+    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image), store)
 
     tar_archive = io.BytesIO()
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
@@ -150,7 +150,8 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
                 archive=base64.b64encode(tar_archive.getvalue()).decode(),
                 fail_fast=True,
                 extract_patch=True,
-            )
+            ),
+            store,
         )
     except httpx.RequestError:
         logger.exception("[%s] Unexpected error calling sandbox API.", bash_tool.name)

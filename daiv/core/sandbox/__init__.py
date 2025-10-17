@@ -1,5 +1,3 @@
-from contextvars import ContextVar
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from codebase.signals import before_reset_repository_ctx
@@ -7,45 +5,42 @@ from codebase.signals import before_reset_repository_ctx
 from .client import DAIVSandboxClient
 
 if TYPE_CHECKING:
+    from langgraph.store.base import BaseStore
+
     from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 
-@dataclass(frozen=True)
-class SandboxCtx:
+async def start_sandbox_session(request: StartSessionRequest, store: BaseStore):
     """
-    Context to be used to temporarily store the session id that is used to run the bash commands in the sandbox.
-    """
-
-    session_id: str
-    """The sandbox session identifier"""
-
-
-sandbox_ctx: ContextVar[SandboxCtx | None] = ContextVar[SandboxCtx | None]("sandbox_ctx", default=None)
-
-
-async def start_sandbox_session(request: StartSessionRequest):
-    """
-    Start a sandbox session.
+    Start a sandbox session or reuse existing one from store.
 
     Args:
         request: The request to start the sandbox session.
+        store: The store to use for persisting session ID.
 
     Returns:
         The result of the commands.
     """
-    if sandbox_ctx.get() is not None:
+    from automation.utils import get_sandbox_session, register_sandbox_session
+
+    # Check if session exists in store (persisted across tool calls)
+    if await get_sandbox_session(store):
         return
 
+    # Create new session
     session_id = await DAIVSandboxClient().start_session(request)
-    sandbox_ctx.set(SandboxCtx(session_id=session_id))
+
+    # Save to store for reuse across tool calls
+    await register_sandbox_session(store, session_id)
 
 
-async def run_sandbox_commands(request: RunCommandsRequest) -> RunCommandsResponse:
+async def run_sandbox_commands(request: RunCommandsRequest, store: BaseStore) -> RunCommandsResponse:
     """
     Run commands in the sandbox session.
 
     Args:
         request: The request to run the commands.
+        store: The store to retrieve the session ID from.
 
     Returns:
         The result of the commands.
@@ -53,22 +48,33 @@ async def run_sandbox_commands(request: RunCommandsRequest) -> RunCommandsRespon
     Raises:
         RuntimeError: If no sandbox session id is found.
     """
-    if (context := sandbox_ctx.get()) is None:
+    from automation.utils import get_sandbox_session
+
+    if (session_id := await get_sandbox_session(store)) is None:
         raise RuntimeError(
             "No sandbox session id found. Please start a sandbox session first with `start_sandbox_session`."
         )
 
-    return await DAIVSandboxClient().run_commands(context.session_id, request)
+    return await DAIVSandboxClient().run_commands(session_id, request)
 
 
-async def close_sandbox_session(**kwargs):
+async def close_sandbox_session(store: BaseStore | None = None, **kwargs):
     """
     Close the sandbox session.
+
+    Args:
+        store: The store to retrieve and clean up the session ID. If None, session won't be closed.
     """
-    if sandbox_ctx.get() is None:
+    if store is None:
         return
 
-    await DAIVSandboxClient().close_session(sandbox_ctx.get().session_id)
+    from automation.utils import delete_sandbox_session, get_sandbox_session
+
+    if (session_id := await get_sandbox_session(store)) is None:
+        return
+
+    await DAIVSandboxClient().close_session(session_id)
+    await delete_sandbox_session(store)
 
 
 before_reset_repository_ctx.connect(
