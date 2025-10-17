@@ -94,7 +94,7 @@ class TestDiffTool:
         """Test retrieving diffs for all changed files when no file_paths specified."""
         mock_get_file_changes.return_value = [sample_file_change_update, sample_file_change_create]
 
-        result = await diff_tool.ainvoke({"file_paths": None, "store": mock_store})
+        result = await diff_tool.ainvoke({"file_paths": [], "store": mock_store})
 
         mock_get_file_changes.assert_called_once_with(mock_store)
         assert "test_file.py" in result
@@ -149,7 +149,7 @@ class TestDiffTool:
         """Test when no changes exist in the store."""
         mock_get_file_changes.return_value = []
 
-        result = await diff_tool.ainvoke({"file_paths": None, "store": mock_store})
+        result = await diff_tool.ainvoke({"file_paths": [], "store": mock_store})
 
         mock_get_file_changes.assert_called_once_with(mock_store)
         assert "No file changes have been made yet" in result
@@ -190,6 +190,6 @@ class TestDiffTool:
         mock_file_change.diff_hunk = ""
         mock_get_file_changes.return_value = [mock_file_change]
 
-        result = await diff_tool.ainvoke({"file_paths": None, "store": mock_store})
+        result = await diff_tool.ainvoke({"file_paths": [], "store": mock_store})
 
         assert "No file changes have been made yet" in result

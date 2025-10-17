@@ -258,7 +258,7 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
 
 
 @tool(DIFF_TOOL_NAME, parse_docstring=True)
-async def diff_tool(file_paths: list[str] | None = None, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def diff_tool(file_paths: list[str], store: Annotated[Any, InjectedStore()] = None) -> str:
     """
     Retrieve unified diffs showing changes made to files. This tool shows only the changed lines (with context), not the entire file content, making it efficient for verifying edits.
 
@@ -276,7 +276,7 @@ async def diff_tool(file_paths: list[str] | None = None, store: Annotated[Any, I
     """  # noqa: E501
     logger.debug("[%s] Getting diffs for files: %s", diff_tool.name, file_paths or "all changed files")
 
-    if file_paths is None or len(file_paths) == 0:
+    if not file_paths:
         # Get all file changes
         file_changes = await get_file_changes(store)
         if not file_changes:
