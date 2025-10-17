@@ -15,7 +15,7 @@ from langgraph.types import Command
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.tools.toolkits import FileNavigationToolkit, WebSearchToolkit
+from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
 from codebase.context import get_repository_ctx
 from core.constants import BOT_NAME
@@ -50,7 +50,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     async def compile(self) -> CompiledStateGraph:
         ctx = get_repository_ctx()
 
-        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools()
+        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + MergeRequestToolkit.get_tools()
 
         repo_client = RepoClient.create_instance()
 

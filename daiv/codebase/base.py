@@ -114,6 +114,10 @@ class FileChange(BaseModel):
         if self.action == FileChangeAction.DELETE:
             diff_to_file = "a/dev/null"
 
+        if self.action == FileChangeAction.MOVE:
+            # unified_diff returns a empty string for move, so we need to return the diff hunk manually
+            return f"--- a/{self.previous_path}\n+++ b/{self.file_path}\n"
+
         diff_hunk = difflib.unified_diff(
             self.original_content.splitlines(),
             self.content.splitlines(),

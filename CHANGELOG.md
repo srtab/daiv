@@ -19,11 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added evaluation tests for `CodebaseChatAgent`, `PullRequestDescriberAgent` and `PlanAndExecuteAgent`.
 - Added support to `gpt-5`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5-codex` models from OpenAI.
 - Added support to `grok-code-fast-1` model from Grok.
-- Added support to `claude-sonnet-4.5` and `claude-opus-4.1` models from Anthropic.
+- Added support to `claude-sonnet-4.5`, `claude-opus-4.1` and `claude-haiku-4.5` models from Anthropic.
 - Added support to `deepseek-v3.1-terminus` model from DeepSeek.
 - Added support to `glm-4.6` model from Z-AI.
 - Added support to `qwen3-max` and `qwen3-coder-plus` models from Qwen.
-- Added `pipeline` and `job_logs` tools to `PlanAndExecuteAgent` to allow the agent to get the pipeline status and job logs.
+- Added `pipeline` and `job_logs` tools to allow `PlanAndExecuteAgent` agent to fix pipelines by retrieving the pipeline status and job logs when planning.
+- Added `diff` tool to allow the `PlanAndExecuteAgent` executor to retrieve unified diffs showing only changed lines instead of rereading entire files, reducing token consumption by up to 98% for large files with small changes.
 - Added `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
 
 ### Changed
