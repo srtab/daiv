@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Blocked GitLab and GitHub callbacks if client type is not set to the corresponding client.
 - Fixed `PlanAndExecuteAgent` to avoid reading the same files twice before executing the planned changes.
 - Fixed `write` and `rename` tools to create parent directories automatically when they don't exist, preventing `FileNotFoundError`.
+- Fixed sandbox session management to properly reuse sessions across multiple `bash` tool invocations by replacing ContextVar-based storage with LangGraph store-based persistence.
 
 ### Removed
 
