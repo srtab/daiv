@@ -771,15 +771,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pipeline-fixer-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      🔧 Pipeline Fixer Agent
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#code-review-addressor-agent" class="md-nav__link">
     <span class="md-ellipsis">
       🔍 Code Review Addressor Agent
@@ -876,30 +867,6 @@
   <a href="#model-selection" class="md-nav__link">
     <span class="md-ellipsis">
       Model Selection
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-communication-and-collaboration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Agent Communication and Collaboration
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Communication and Collaboration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#workflow-orchestration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Workflow Orchestration
     </span>
   </a>
   
@@ -1125,15 +1092,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pipeline-fixer-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      🔧 Pipeline Fixer Agent
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#code-review-addressor-agent" class="md-nav__link">
     <span class="md-ellipsis">
       🔍 Code Review Addressor Agent
@@ -1230,30 +1188,6 @@
   <a href="#model-selection" class="md-nav__link">
     <span class="md-ellipsis">
       Model Selection
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-communication-and-collaboration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Agent Communication and Collaboration
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Communication and Collaboration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#workflow-orchestration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Workflow Orchestration
     </span>
   </a>
   
@@ -1383,7 +1317,7 @@
 <p><strong>Language Models</strong>: Agents support multiple LLM providers including:</p>
 <ul>
 <li><strong>Anthropic Claude</strong> (Sonnet, Opus variants with thinking capabilities)</li>
-<li><strong>OpenAI GPT</strong> (including reasoning models like o1, o3, o4, etc.)</li>
+<li><strong>OpenAI GPT</strong> (including reasoning models like GPT-5, o4, etc.)</li>
 <li><strong>Google Gemini</strong> (including Gemini 2.5 Pro, etc.)</li>
 <li><strong>OpenRouter</strong> (access to various models from multiple providers)</li>
 </ul>
@@ -1402,29 +1336,15 @@
 <li>Uses MCP tools to extend its capabilities (e.g. Fetch, Sentry, etc.)</li>
 <li>Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)</li>
 <li>Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)</li>
-<li>Support to <code>AGENTS.md</code> file to understand the repository context</li>
+<li>Support to <code>AGENTS.md</code> file to understand the repository context and conventions</li>
 </ul>
-<h3 id="pipeline-fixer-agent">🔧 Pipeline Fixer Agent</h3>
-<p><strong>Purpose</strong>: Automatically diagnoses and plan repairs for failed CI/CD pipelines.</p>
-<p><strong>Key Capabilities</strong>:</p>
-<ul>
-<li>Analyzes pipeline failure logs and error messages</li>
-<li>Identifies root causes (syntax errors, test failures, dependency issues)</li>
-<li>Plans repairs for the failed pipeline using the Plan and Execute agent</li>
-</ul>
-<p><strong>Workflow</strong>:</p>
-<ol>
-<li>User triggers the agent via a quick action on merge/pull request comments</li>
-<li>The agent does a troubleshooting analysis to identify the root causes using failure logs and code diff</li>
-<li>The agent plans repairs using the Plan and Execute agent for human review</li>
-<li>User approves the plan and the agent executes the repairs</li>
-</ol>
 <h3 id="code-review-addressor-agent">🔍 Code Review Addressor Agent</h3>
 <p><strong>Purpose</strong>: Responds to code review feedback by implementing requested changes or answering questions.</p>
 <p><strong>Key Capabilities</strong>:</p>
 <ul>
 <li>Interprets reviewer comments and suggestions</li>
 <li>Implements code changes based on feedback</li>
+<li>Repairs failed CI/CD pipelines by analyzing job logs</li>
 <li>Answers questions about the codebase</li>
 </ul>
 <p><strong>Workflow</strong>:</p>
@@ -1454,6 +1374,7 @@
 <ul>
 <li><strong>File Navigation</strong>: List, grep (using <code>ripgrep</code>), glob and read files and directories.</li>
 <li><strong>File Editing</strong>: Read, write, edit, rename and delete files.</li>
+<li><strong>Merge Request</strong>: Get the latest pipeline/workflow status and job logs for a merge/pull request.</li>
 </ul>
 <h3 id="web-search-tools">🌐 Web Search Tools</h3>
 <p>Agents can use web search tools to gather information from the web:</p>
@@ -1484,15 +1405,6 @@
 <a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="nv">PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME</span><span class="o">=</span>openrouter:openai/gpt-4.1
 </code></pre></div></td></tr></table></div>
 <p><strong><a href="../../configuration/env-config/#automation-ai-agents">Learn more about model configuration →</a></strong></p>
-<hr />
-<h2 id="agent-communication-and-collaboration">Agent Communication and Collaboration</h2>
-<h3 id="workflow-orchestration">Workflow Orchestration</h3>
-<p>Agents use <strong>LangGraph</strong> for sophisticated workflow management:</p>
-<ul>
-<li><strong>State Management</strong>: Persistent state across workflow steps</li>
-<li><strong>Error Handling</strong>: Automatic retry and fallback mechanisms</li>
-<li><strong>Human-in-the-Loop</strong>: Approval gates for critical decisions</li>
-</ul>
 <hr />
 <h2 id="best-practices">Best Practices</h2>
 <h3 id="maximizing-agent-effectiveness">Maximizing Agent Effectiveness</h3>
@@ -1553,7 +1465,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 22:45:45 UTC">October 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 17, 2025 23:22:08 UTC">October 17, 2025</span>
   </span>
 
     
@@ -1563,7 +1475,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 22:45:45 UTC">October 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 17, 2025 23:22:08 UTC">October 17, 2025</span>
   </span>
 
     
