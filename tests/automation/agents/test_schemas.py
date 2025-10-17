@@ -5,7 +5,7 @@ from automation.agents.schemas import Image, ImageTemplate
 from codebase.base import ClientType
 
 
-@patch("automation.agents.schemas.get_repository_ctx", new=Mock())
+@patch("automation.agents.schemas.get_runtime_ctx", new=Mock())
 class TestImageTemplate:
     @patch("automation.agents.schemas.is_valid_url")
     async def test_from_images_valid_url(self, mock_is_valid_url):

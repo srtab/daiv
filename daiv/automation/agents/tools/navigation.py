@@ -13,7 +13,7 @@ from langgraph.prebuilt import InjectedStore
 
 from automation.agents.schemas import ImageTemplate
 from automation.utils import register_file_read
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from core.utils import extract_valid_image_mimetype
 
 logger = logging.getLogger("daiv.tools")
@@ -47,7 +47,7 @@ def glob_tool(pattern: str, path: str | None = None) -> str:
     """  # noqa: E501
     logger.debug("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or "repository root")
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     root = ctx.repo_dir if path is None else (ctx.repo_dir / path).resolve()
 
@@ -116,7 +116,7 @@ def grep_tool(pattern: str, path: str | None = None, include: str | None = None)
         include,
     )
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     root = ctx.repo_dir if path is None else (ctx.repo_dir / path).resolve()
 
@@ -151,7 +151,7 @@ def ls_tool(path: str) -> str:
     """  # noqa: E501
     logger.debug("[%s] Listing files in %s", ls_tool.name, path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     root = (ctx.repo_dir / path).resolve()
 
@@ -193,7 +193,7 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
     """  # noqa: E501
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
 
     if (

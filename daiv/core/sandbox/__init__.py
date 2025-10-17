@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from langgraph.store.base import BaseStore  # noqa: TC002
 
-from codebase.signals import before_reset_repository_ctx
+from codebase.signals import before_reset_runtime_ctx
 
 from .client import DAIVSandboxClient
 
@@ -77,6 +77,4 @@ async def close_sandbox_session(store: BaseStore | None = None, **kwargs):
     await delete_sandbox_session(store)
 
 
-before_reset_repository_ctx.connect(
-    close_sandbox_session, sender="set_repository_ctx", dispatch_uid="close_sandbox_session"
-)
+before_reset_runtime_ctx.connect(close_sandbox_session, sender="set_runtime_ctx", dispatch_uid="close_sandbox_session")

@@ -17,7 +17,7 @@ from automation.agents import BaseAgent
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from core.constants import BOT_NAME
 
 from .conf import settings
@@ -48,7 +48,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        ctx = get_repository_ctx()
+        ctx = get_runtime_ctx()
 
         tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + MergeRequestToolkit.get_tools()
 

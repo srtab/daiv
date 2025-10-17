@@ -10,7 +10,7 @@ from ninja import Router
 from automation.agents.codebase_chat.agent import CodebaseChatAgent
 from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
 from codebase.conf import settings
-from codebase.context import set_repository_ctx
+from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
 
 from .schemas import ChatCompletionRequest, ChatCompletionResponse, ModelListSchema, ModelSchema
@@ -52,7 +52,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref},
     )
 
-    async with set_repository_ctx(repo_id=repo_id, ref=ref):
+    async with set_runtime_ctx(repo_id=repo_id, ref=ref):
         codebase_chat = await CodebaseChatAgent.get_runnable()
 
         if payload.stream:

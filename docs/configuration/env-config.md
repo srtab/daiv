@@ -236,32 +236,24 @@ All the default models where chosen to be the most effective models. You can cha
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `PLAN_AND_EXECUTE_PLANNING_RECURSION_LIMIT` | Recursion limit for planning steps each. | `100` |
-| `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4` |
+| `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
 | `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
-| `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4` |
+| `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
 | `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `50` |
 
 ### Review Addressor
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
-| `REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME` | Model for review assessment. | `openrouter:openai/gpt-4-1-mini` |
-| `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:openai/gpt-4-1` |
+| `REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME` | Model for review assessment. | `openrouter:openai/gpt-4.1-mini` |
+| `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:openai/gpt-5-codex` |
 | `REVIEW_ADDRESSOR_REPLY_TEMPERATURE` | Temperature for the reply model. | `0.2` |
-
-### Pipeline Fixer (as quick action)
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `PIPELINE_FIXER_TROUBLESHOOTING_MODEL_NAME` | Model for troubleshooting. | `openrouter:anthropic/claude-sonnet-4` |
-| `PIPELINE_FIXER_TROUBLESHOOTING_THINKING_LEVEL` | Thinking level for troubleshooting. | `high` |
-| `PIPELINE_FIXER_COMMAND_OUTPUT_MODEL_NAME` | Model for command output evaluator. | `openrouter:openai/gpt-4-1-mini` |
 
 ### Pull Request Describer
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `PR_DESCRIBER_MODEL_NAME` | Model for PR describer. | `openrouter:openai/gpt-4-1-mini` |
+| `PR_DESCRIBER_MODEL_NAME` | Model for PR describer. | `openrouter:openai/gpt-4.1-mini` |
 
 ### Codebase Chat
 

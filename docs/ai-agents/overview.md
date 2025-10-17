@@ -17,7 +17,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 **Language Models**: Agents support multiple LLM providers including:
 
 - **Anthropic Claude** (Sonnet, Opus variants with thinking capabilities)
-- **OpenAI GPT** (including reasoning models like o1, o3, o4, etc.)
+- **OpenAI GPT** (including reasoning models like GPT-5, o4, etc.)
 - **Google Gemini** (including Gemini 2.5 Pro, etc.)
 - **OpenRouter** (access to various models from multiple providers)
 
@@ -42,26 +42,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 - Uses MCP tools to extend its capabilities (e.g. Fetch, Sentry, etc.)
 - Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)
 - Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)
-- Support to `AGENTS.md` file to understand the repository context
-
-
-### 🔧 Pipeline Fixer Agent
-
-**Purpose**: Automatically diagnoses and plan repairs for failed CI/CD pipelines.
-
-**Key Capabilities**:
-
-- Analyzes pipeline failure logs and error messages
-- Identifies root causes (syntax errors, test failures, dependency issues)
-- Plans repairs for the failed pipeline using the Plan and Execute agent
-
-**Workflow**:
-
-1. User triggers the agent via a quick action on merge/pull request comments
-2. The agent does a troubleshooting analysis to identify the root causes using failure logs and code diff
-3. The agent plans repairs using the Plan and Execute agent for human review
-4. User approves the plan and the agent executes the repairs
-
+- Support to `AGENTS.md` file to understand the repository context and conventions
 
 ### 🔍 Code Review Addressor Agent
 
@@ -71,6 +52,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 
 - Interprets reviewer comments and suggestions
 - Implements code changes based on feedback
+- Repairs failed CI/CD pipelines by analyzing job logs
 - Answers questions about the codebase
 
 **Workflow**:
@@ -109,6 +91,7 @@ All agents have access to powerful repository manipulation tools:
 
 - **File Navigation**: List, grep (using `ripgrep`), glob and read files and directories.
 - **File Editing**: Read, write, edit, rename and delete files.
+- **Merge Request**: Get the latest pipeline/workflow status and job logs for a merge/pull request.
 
 ### 🌐 Web Search Tools
 
@@ -146,18 +129,6 @@ PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME=openrouter:openai/gpt-4.1
 ```
 
 **[Learn more about model configuration →](../configuration/env-config.md#automation-ai-agents)**
-
----
-
-## Agent Communication and Collaboration
-
-### Workflow Orchestration
-
-Agents use **LangGraph** for sophisticated workflow management:
-
-- **State Management**: Persistent state across workflow steps
-- **Error Handling**: Automatic retry and fallback mechanisms
-- **Human-in-the-Loop**: Approval gates for critical decisions
 
 ---
 

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
-from codebase.signals import before_reset_repository_ctx
+from codebase.signals import before_reset_runtime_ctx
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -13,10 +13,10 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class RepositoryCtx:
+class RuntimeCtx:
     """
     Context to be used across the application layers.
-    It needs to be setted as early as possible on the request lifecycle or celery task.
+    It needs to be set as early as possible on the request lifecycle or celery task.
 
     With this context, we ensure that application layers that need the repository files can access them without doing
     API calls by accessing the defined `repo_dir` directory, which is a temporary directory with the repository files.
@@ -40,22 +40,22 @@ class RepositoryCtx:
     """The merge request identifier if the context is set for a merge request"""
 
 
-repository_ctx: ContextVar[RepositoryCtx | None] = ContextVar[RepositoryCtx | None]("repository_ctx", default=None)
+runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
 
 
 @asynccontextmanager
-async def set_repository_ctx(
+async def set_runtime_ctx(
     repo_id: str, *, ref: str | None = None, merge_request_id: int | None = None
-) -> Iterator[RepositoryCtx]:
+) -> Iterator[RuntimeCtx]:
     """
-    Set the repository context and load repository files to a temporary directory.
+    Set the runtime context and load repository files to a temporary directory.
 
     Args:
         repo_id: The repository identifier
         ref: The reference branch or tag. If None, the default branch will be used.
         merge_request_id: The merge request identifier if the context is set for a merge request.
     Yields:
-        RepositoryCtx: The repository context
+        RuntimeCtx: The runtime context
     """
     repo_client = RepoClient.create_instance()
 
@@ -67,21 +67,19 @@ async def set_repository_ctx(
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(
-            repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id
-        )
-        token = repository_ctx.set(ctx)
+        ctx = RuntimeCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id)
+        token = runtime_ctx.set(ctx)
         try:
             yield ctx
         finally:
-            await before_reset_repository_ctx.asend_robust("set_repository_ctx")
-            repository_ctx.reset(token)
+            await before_reset_runtime_ctx.asend_robust("set_runtime_ctx")
+            runtime_ctx.reset(token)
 
 
 @contextmanager
-def sync_set_repository_ctx(repo_id: str, ref: str | None = None, merge_request_id: int | None = None):
+def sync_set_runtime_ctx(repo_id: str, ref: str | None = None, merge_request_id: int | None = None):
     """
-    Synchronous facade for set_repository_ctx so it can be used in Celery tasks.
+    Synchronous facade for set_runtime_ctx so it can be used in Celery tasks.
 
     Args:
         repo_id: The repository identifier
@@ -98,29 +96,27 @@ def sync_set_repository_ctx(repo_id: str, ref: str | None = None, merge_request_
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RepositoryCtx(
-            repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id
-        )
-        token = repository_ctx.set(ctx)
+        ctx = RuntimeCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id)
+        token = runtime_ctx.set(ctx)
         try:
             yield ctx
         finally:
-            before_reset_repository_ctx.send_robust("set_repository_ctx")
-            repository_ctx.reset(token)
+            before_reset_runtime_ctx.send_robust("set_runtime_ctx")
+            runtime_ctx.reset(token)
 
 
-def get_repository_ctx() -> RepositoryCtx:
+def get_runtime_ctx() -> RuntimeCtx:
     """
-    Get the repository context.
+    Get the runtime context.
 
     Raises:
-        RuntimeError: If the repository context is not set.
+        RuntimeError: If the runtime context is not set.
     """
-    ctx = repository_ctx.get()
+    ctx = runtime_ctx.get()
     if ctx is None:
         raise RuntimeError(
-            "Repository context not set. "
+            "Runtime context not set. "
             "It needs to be set as early as possible on the request lifecycle or celery task. "
-            "Use the `codebase.context.set_repository_ctx` context manager to set the context."
+            "Use the `codebase.context.set_runtime_ctx` context manager to set the context."
         )
     return ctx

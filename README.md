@@ -7,8 +7,7 @@
 DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** and **GitHub** repositories to streamline your development process. It uses AI agents and configurable actions to automate common software development tasks such as:
 
 - **Issue Addressing**: Planning and, after human approval, executing solutions directly from issue titles and descriptions.
-- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, and improving pull requests on demand.
-- **Pipeline Fixer**: Repairing failed CI/CD pipeline jobs by suggesting fixes and applying them after human approval.
+- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, repairing failed CI/CD pipelines and improving pull requests on demand.
 
 ## Key Features
 
@@ -135,7 +134,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 - [x] 🐙 Add support to GitHub.
 - [x] 🤖 Add support to [AGENTS.md](https://agents.md/) format to guide agents.
-- [x] 🌐 Add support to custom MCP servers.
+- [ ] 🌐 Add support to custom MCP servers.
 - [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.
 - [ ] 🔍 Add support to automated code review.
 - [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...

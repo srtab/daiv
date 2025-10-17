@@ -15,7 +15,7 @@ from unidiff import PatchSet
 
 from automation.utils import register_file_change
 from codebase.base import FileChangeAction
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from core.conf import settings
 from core.sandbox import run_sandbox_commands, start_sandbox_session
 from core.sandbox.schemas import RunCommandResult, RunCommandsRequest, StartSessionRequest
@@ -132,7 +132,7 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
 
     assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     # Start the sandbox session to ensure that the sandbox session is started before running the commands.
     # If the sandbox session already exists in the store, it will be reused.

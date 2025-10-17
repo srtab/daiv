@@ -5,7 +5,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from automation.agents.tools.sandbox import bash_tool
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 
 if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
@@ -23,7 +23,7 @@ async def apply_format_code_node(store: BaseStore) -> str | None:
     Returns:
         str | None: The output of the last command, or None if format code is disabled.
     """
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     if not ctx.config.sandbox.enabled or not ctx.config.sandbox.format_code:
         logger.info("Format code is disabled for this repository, skipping.")
