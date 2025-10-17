@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING
 
+from langgraph.store.base import BaseStore  # noqa: TC002
+
 from codebase.signals import before_reset_repository_ctx
 
 from .client import DAIVSandboxClient
 
 if TYPE_CHECKING:
-    from langgraph.store.base import BaseStore
-
     from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 
