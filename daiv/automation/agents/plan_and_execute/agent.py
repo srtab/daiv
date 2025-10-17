@@ -29,7 +29,7 @@ from automation.agents.tools.toolkits import (
 )
 from automation.agents.utils import extract_images_from_text
 from automation.utils import has_file_changes
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
@@ -185,7 +185,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         self.plan_system_template = plan_system_template or plan_system
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
-        self.ctx = get_repository_ctx()
+        self.ctx = get_runtime_ctx()
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:

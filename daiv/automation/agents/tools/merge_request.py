@@ -7,7 +7,7 @@ from langchain.tools import tool
 
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 
 logger = logging.getLogger("daiv.tools")
 
@@ -35,7 +35,7 @@ def pipeline_tool(placeholder: str = "") -> str:
     Returns:
         str: JSON formatted pipeline/workflow information including status and job details.
     """
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     logger.debug("[%s] Getting pipeline for merge request %d", pipeline_tool.name, ctx.merge_request_id)
 
@@ -120,7 +120,7 @@ def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_L
         offset_from_end,
     )
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
     client = RepoClient.create_instance()
 
     # Get job details to determine status

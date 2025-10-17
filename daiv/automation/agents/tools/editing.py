@@ -9,7 +9,7 @@ from langgraph.prebuilt import InjectedStore
 from automation.agents.utils import find_original_snippet
 from automation.utils import check_file_read, get_file_change, get_file_changes, register_file_change
 from codebase.base import FileChangeAction
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 
 logger = logging.getLogger("daiv.tools")
 
@@ -51,7 +51,7 @@ async def edit_tool(
     """  # noqa: E501
     logger.debug("[%s] Editing file '%s'", edit_tool.name, file_path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
@@ -121,7 +121,7 @@ async def write_tool(file_path: str, content: str, store: Annotated[Any, Injecte
     """  # noqa: E501
     logger.debug("[%s] Writing to file '%s'", write_tool.name, file_path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
     file_exists = resolved_file_path.exists()
 
@@ -171,7 +171,7 @@ async def delete_tool(file_path: str, store: Annotated[Any, InjectedStore()] = N
     """  # noqa: E501
     logger.debug("[%s] Deleting file '%s'", delete_tool.name, file_path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
@@ -221,7 +221,7 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
     """  # noqa: E501
     logger.debug("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
 
-    ctx = get_repository_ctx()
+    ctx = get_runtime_ctx()
 
     resolved_file_path = (ctx.repo_dir / file_path).resolve()
     resolved_new_file_path = (ctx.repo_dir / new_file_path).resolve()

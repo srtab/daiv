@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from codebase.base import ClientType
 from codebase.clients import RepoClient
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 
@@ -35,7 +35,7 @@ class ImageTemplate(BaseModel):
         Returns:
             list[ImageTemplate]: The list of image templates.
         """
-        ctx = get_repository_ctx()
+        ctx = get_runtime_ctx()
         repo_client = RepoClient.create_instance()
         image_templates = []
 

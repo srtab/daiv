@@ -19,7 +19,7 @@ from automation.utils import get_file_changes
 from codebase.base import Discussion, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
-from codebase.context import get_repository_ctx
+from codebase.context import get_runtime_ctx
 from codebase.utils import note_mentions_daiv, notes_to_messages
 from core.utils import generate_uuid
 
@@ -446,7 +446,7 @@ class ReviewAddressorManager(BaseManager):
         """
         Get the file content from the repository.
         """
-        ctx = get_repository_ctx()
+        ctx = get_runtime_ctx()
         resolved_file_path = (ctx.repo_dir / path).resolve()
 
         if (

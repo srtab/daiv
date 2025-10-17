@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from codebase.context import set_repository_ctx
+from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from quick_actions.base import QuickAction, Scope
 from quick_actions.decorator import quick_action
@@ -27,7 +27,7 @@ class ApprovePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_repository_ctx(repo_id):
+        async with set_runtime_ctx(repo_id):
             await IssueAddressorManager.approve_plan(repo_id, issue.iid)
 
 
@@ -49,5 +49,5 @@ class RevisePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_repository_ctx(repo_id):
+        async with set_runtime_ctx(repo_id):
             await IssueAddressorManager.plan_issue(repo_id, issue.iid, should_reset_plan=True)
