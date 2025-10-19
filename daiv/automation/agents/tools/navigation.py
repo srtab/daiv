@@ -6,10 +6,8 @@ import json
 import logging
 import subprocess  # noqa: S404
 from pathlib import Path
-from typing import Annotated, Any
 
-from langchain.tools import tool
-from langgraph.prebuilt import InjectedStore
+from langchain.tools import ToolRuntime, tool
 
 from automation.agents.schemas import ImageTemplate
 from automation.utils import register_file_read
@@ -174,7 +172,7 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def read_tool(file_path: str, runtime: ToolRuntime) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -212,9 +210,9 @@ async def read_tool(file_path: str, store: Annotated[Any, InjectedStore()] = Non
     if not (content := resolved_file_path.read_text()):
         return "warning: The file exists but is empty."
 
-    if store:
+    if runtime.store:
         # We don't need to store the content, just the fact that the file was read.
-        await register_file_read(store, file_path)
+        await register_file_read(runtime.store, file_path)
 
     # If the file is an image, return the image template.
     if mime_type := extract_valid_image_mimetype(content.encode()):

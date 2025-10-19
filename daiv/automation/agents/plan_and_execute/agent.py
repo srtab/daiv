@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, RemoveMessage
-from langchain_core.prompts import HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -314,9 +314,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         # Format the human message with plan tasks
         relevant_files = list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files})
-        human_message_content = HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2").format(
-            plan_tasks=state["plan_tasks"], relevant_files=relevant_files
-        )
+        prompt = ChatPromptTemplate.from_messages([
+            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2")
+        ])
 
         react_agent = create_agent(
             model=execute_model_fn(state, None),
@@ -335,8 +335,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             name="executor_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.EXECUTION_RECURSION_LIMIT))
 
-        response = await react_agent.ainvoke({
-            "messages": [HumanMessage(content=human_message_content)],
+        response = await (prompt | react_agent).ainvoke({
             "plan_tasks": state["plan_tasks"],
             "relevant_files": relevant_files,
         })

@@ -17,11 +17,11 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.5.3",
+  "ddgs==9.6.1",
   "django==5.2.7",
   "django-extensions==4.1",
-  "django-ninja==1.4.4",
+  "django-ninja==1.4.5",
   "django-split-settings==1.3.2",
-  "duckduckgo-search==8.1.1",
   "get-docker-secret==2",
   "httpx==0.28.1",
   "ipython==9.6",
@@ -31,7 +31,7 @@ dependencies = [
   "langgraph==1.0.0",
   "langgraph-checkpoint-postgres==2.0.25",
   "langsmith[pytest]==0.4.37",
-  "psycopg[pool]==3.2.10",
+  "psycopg[pool]==3.2.11",
   "pydantic==2.12.3",
   "pydantic-settings==2.11",
   "pygithub>=2.8.1",
@@ -41,7 +41,7 @@ dependencies = [
   "redis==5.2.1",
   "sentry-sdk==2.42",
   "unidiff==0.7.5",
-  "uvicorn[standard]==0.37",
+  "uvicorn[standard]==0.38",
 ]
 
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"

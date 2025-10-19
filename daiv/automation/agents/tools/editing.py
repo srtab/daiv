@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
 
-from langchain.tools import tool
-from langgraph.prebuilt import InjectedStore
+from langchain.tools import ToolRuntime, tool
 
 from automation.agents.utils import find_original_snippet
 from automation.utils import check_file_read, get_file_change, get_file_changes, register_file_change
@@ -25,11 +23,7 @@ EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_
 
 @tool(EDIT_TOOL_NAME, parse_docstring=True)
 async def edit_tool(
-    file_path: str,
-    old_string: str,
-    new_string: str,
-    replace_all: bool = False,
-    store: Annotated[Any, InjectedStore()] = None,
+    file_path: str, old_string: str, new_string: str, runtime: ToolRuntime, replace_all: bool = False
 ) -> str:
     """
     Performs exact string replacements in files.
@@ -58,7 +52,7 @@ async def edit_tool(
         logger.warning("[%s] The '%s' does not exist or is not a file.", edit_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
-    if store and await check_file_read(store, file_path) is False:
+    if await check_file_read(runtime.store, file_path) is False:
         logger.warning("[%s] The '%s' was not read before editing it.", edit_tool.name, file_path)
         return "error: You must read the file before editing it."
 
@@ -91,20 +85,19 @@ async def edit_tool(
 
     resolved_file_path.write_text(replaced_content)
 
-    if store:
-        await register_file_change(
-            store=store,
-            action=FileChangeAction.UPDATE,
-            old_file_content=content,
-            old_file_path=file_path,
-            new_file_content=replaced_content,
-        )
+    await register_file_change(
+        store=runtime.store,
+        action=FileChangeAction.UPDATE,
+        old_file_content=content,
+        old_file_path=file_path,
+        new_file_content=replaced_content,
+    )
 
     return f"success: Replaced `old_string` with `new_string` in file {file_path}"
 
 
 @tool(WRITE_TOOL_NAME, parse_docstring=True)
-async def write_tool(file_path: str, content: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def write_tool(file_path: str, content: str, runtime: ToolRuntime) -> str:
     """
     Writes a file to the repository.
 
@@ -129,7 +122,7 @@ async def write_tool(file_path: str, content: str, store: Annotated[Any, Injecte
         logger.warning("[%s] The '%s' is not a file.", write_tool.name, file_path)
         return f"error: File '{file_path}' is not a file. Only use this tool to write to files."
 
-    if file_exists and store and await check_file_read(store, file_path) is False:
+    if file_exists and await check_file_read(runtime.store, file_path) is False:
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
         return "error: You must read the file before writing to it."
 
@@ -140,20 +133,19 @@ async def write_tool(file_path: str, content: str, store: Annotated[Any, Injecte
 
     resolved_file_path.write_text(content)
 
-    if store:
-        await register_file_change(
-            store=store,
-            action=FileChangeAction.UPDATE if file_exists else FileChangeAction.CREATE,
-            old_file_content=previous_content,
-            old_file_path=file_path,
-            new_file_content=content,
-        )
+    await register_file_change(
+        store=runtime.store,
+        action=FileChangeAction.UPDATE if file_exists else FileChangeAction.CREATE,
+        old_file_content=previous_content,
+        old_file_path=file_path,
+        new_file_content=content,
+    )
 
     return f"success: Wrote to file {file_path}"
 
 
 @tool(DELETE_TOOL_NAME, parse_docstring=True)
-async def delete_tool(file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def delete_tool(file_path: str, runtime: ToolRuntime) -> str:
     """
     Deletes a file from the repository.
 
@@ -178,7 +170,7 @@ async def delete_tool(file_path: str, store: Annotated[Any, InjectedStore()] = N
         logger.warning("[%s] The file '%s' does not exist or is not a file.", delete_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
-    if store and await check_file_read(store, file_path) is False:
+    if await check_file_read(runtime.store, file_path) is False:
         logger.warning("[%s] The '%s' was not read before deleting it.", delete_tool.name, file_path)
         return "error: You must read the file before deleting it."
 
@@ -190,20 +182,19 @@ async def delete_tool(file_path: str, store: Annotated[Any, InjectedStore()] = N
         logger.warning("[%s] The file '%s' does not exist.", delete_tool.name, file_path)
         return f"error: File '{file_path}' does not exist."
 
-    if store:
-        await register_file_change(
-            store=store,
-            action=FileChangeAction.DELETE,
-            old_file_content=previous_content,
-            old_file_path=file_path,
-            new_file_content="",
-        )
+    await register_file_change(
+        store=runtime.store,
+        action=FileChangeAction.DELETE,
+        old_file_content=previous_content,
+        old_file_path=file_path,
+        new_file_content="",
+    )
 
     return f"success: Deleted file {file_path}"
 
 
 @tool(RENAME_TOOL_NAME, parse_docstring=True)
-async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, InjectedStore()] = None) -> str:
+async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime) -> str:
     """
     Renames a file in the repository.
 
@@ -234,7 +225,7 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
         logger.warning("[%s] The file '%s' already exists.", rename_tool.name, new_file_path)
         return f"error: File with path '{new_file_path}' already exists."
 
-    if store and await check_file_read(store, file_path) is False:
+    if await check_file_read(runtime.store, file_path) is False:
         logger.warning("[%s] The '%s' was not read before renaming it.", rename_tool.name, file_path)
         return "error: You must read the file before renaming it."
 
@@ -245,20 +236,19 @@ async def rename_tool(file_path: str, new_file_path: str, store: Annotated[Any, 
 
     resolved_file_path.rename(resolved_new_file_path)
 
-    if store:
-        await register_file_change(
-            store=store,
-            action=FileChangeAction.MOVE,
-            old_file_content=file_content,
-            old_file_path=file_path,
-            new_file_path=new_file_path,
-        )
+    await register_file_change(
+        store=runtime.store,
+        action=FileChangeAction.MOVE,
+        old_file_content=file_content,
+        old_file_path=file_path,
+        new_file_path=new_file_path,
+    )
 
     return f"success: Renamed file '{file_path}' to '{new_file_path}'"
 
 
 @tool(DIFF_TOOL_NAME, parse_docstring=True)
-async def diff_tool(file_paths: list[str], store: Annotated[Any, InjectedStore()] = None) -> str:
+async def diff_tool(file_paths: list[str], runtime: ToolRuntime) -> str:
     """
     Retrieve unified diffs showing changes made to files. This tool shows only the changed lines (with context), not the entire file content, making it efficient for verifying edits.
 
@@ -278,7 +268,7 @@ async def diff_tool(file_paths: list[str], store: Annotated[Any, InjectedStore()
 
     if not file_paths:
         # Get all file changes
-        file_changes = await get_file_changes(store)
+        file_changes = await get_file_changes(runtime.store)
         if not file_changes:
             return "No file changes have been made yet."
 
@@ -290,7 +280,7 @@ async def diff_tool(file_paths: list[str], store: Annotated[Any, InjectedStore()
         missing_files = []
 
         for file_path in file_paths:
-            file_change = await get_file_change(store, file_path)
+            file_change = await get_file_change(runtime.store, file_path)
             if file_change is None:
                 missing_files.append(file_path)
             else:
