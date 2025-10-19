@@ -200,7 +200,7 @@ class RepositoryConfig(BaseModel):
         ):
             try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
-            except (ValidationError, ParserError):
+            except ValidationError, ParserError:
                 config = RepositoryConfig()
         else:
             config = RepositoryConfig()

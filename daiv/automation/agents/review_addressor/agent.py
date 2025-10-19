@@ -5,11 +5,11 @@ from typing import Literal
 
 from django.utils import timezone
 
+from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
@@ -54,19 +54,21 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
 
         repo_client = RepoClient.create_instance()
 
-        return create_react_agent(
+        return create_agent(
             BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
             state_schema=ReplyAgentState,
             tools=tools,
             store=self.store,
             checkpointer=False,
-            prompt=ChatPromptTemplate.from_messages([respond_reviewer_system, MessagesPlaceholder("messages")]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y"),
-                bot_name=BOT_NAME,
-                bot_username=repo_client.current_user.username,
-                tools_names=[tool.name for tool in tools],
-                repository=ctx.repo_id,
-            ),
+            system_prompt=(
+                await respond_reviewer_system.aformat(  # TODO: migrate to v1 langchain middleware
+                    current_date_time=timezone.now().strftime("%d %B, %Y"),
+                    bot_name=BOT_NAME,
+                    bot_username=repo_client.current_user.username,
+                    tools_names=[tool.name for tool in tools],
+                    repository=ctx.repo_id,
+                )
+            ).content,
             name="ReplyReviewerAgent",
         )
 

@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from langchain.chat_models.base import BaseChatModel
+from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
 from automation.agents.base import BaseAgent, ModelProvider

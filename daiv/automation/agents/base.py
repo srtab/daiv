@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
-from langchain.chat_models.base import init_chat_model
+from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 

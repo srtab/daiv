@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
 
+from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, RemoveMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
 from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
@@ -41,7 +41,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.language_models import LanguageModelLike
-    from langchain_core.prompts import SystemMessagePromptTemplate
     from langchain_core.tools import BaseTool
     from langgraph.runtime import ContextT, Runtime
 
@@ -166,23 +165,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     Agent to plan and execute a task.
     """
 
-    def __init__(
-        self,
-        *,
-        skip_approval: bool = False,
-        skip_format_code: bool = False,
-        plan_system_template: SystemMessagePromptTemplate | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, skip_approval: bool = False, skip_format_code: bool = False, **kwargs):
         """
         Initialize the agent.
 
         Args:
             skip_approval (bool): Whether to skip the approval step.
             skip_format_code (bool): Whether to skip the format code step.
-            plan_system_template (SystemMessagePromptTemplate): The system prompt template for the planning step.
         """
-        self.plan_system_template = plan_system_template or plan_system
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
         self.ctx = get_runtime_ctx()
@@ -252,25 +242,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        plan_model, all_tools = await prepare_plan_model_and_tools(self.ctx.merge_request_id)
+        plan_model_fn, all_tools = await prepare_plan_model_and_tools(self.ctx.merge_request_id)
 
-        react_agent = create_react_agent(
-            model=plan_model,
+        react_agent = create_agent(
+            model=plan_model_fn(state, None),  # TODO: migrate to v1 langchain middleware
             tools=all_tools,
             store=store,
             checkpointer=False,
-            prompt=ChatPromptTemplate.from_messages([
-                self.plan_system_template,
-                MessagesPlaceholder("messages"),
-            ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y"),
-                repository=self.ctx.repo_id,
-                agents_md_content=self._get_agent_md_content(),
-                tools_names=[tool.name for tool in all_tools],
-                bot_name=BOT_NAME,
-                bot_username=config["configurable"].get("bot_username", BOT_LABEL),
-                commands_enabled=self.ctx.config.sandbox.enabled,
-            ),
+            system_prompt=(
+                await plan_system.aformat(  # TODO: migrate to v1 langchain middleware
+                    current_date_time=timezone.now().strftime("%d %B, %Y"),
+                    repository=self.ctx.repo_id,
+                    agents_md_content=self._get_agent_md_content(),
+                    tools_names=[tool.name for tool in all_tools],
+                    bot_name=BOT_NAME,
+                    bot_username=config["configurable"].get("bot_username", BOT_LABEL),
+                    commands_enabled=self.ctx.config.sandbox.enabled,
+                )
+            ).content,
             name="planner_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.PLANNING_RECURSION_LIMIT))
 
@@ -321,30 +310,35 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["apply_format_code", "__end__"]]: The next step in the workflow.
         """
-        execute_model, all_tools = await prepare_execute_model_and_tools()
+        execute_model_fn, all_tools = await prepare_execute_model_and_tools()
 
-        react_agent = create_react_agent(
-            model=execute_model,
+        # Format the human message with plan tasks
+        relevant_files = list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files})
+        human_message_content = HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2").format(
+            plan_tasks=state["plan_tasks"], relevant_files=relevant_files
+        )
+
+        react_agent = create_agent(
+            model=execute_model_fn(state, None),
             state_schema=ExecuteState,
             tools=all_tools,
             store=store,
-            prompt=ChatPromptTemplate.from_messages([
-                execute_plan_system,
-                HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2"),
-                MessagesPlaceholder("messages"),
-            ]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y"),
-                repository=self.ctx.repo_id,
-                commands_enabled=self.ctx.config.sandbox.enabled,
-                tools_names=[tool.name for tool in all_tools],
-            ),
+            system_prompt=(
+                await execute_plan_system.aformat(
+                    current_date_time=timezone.now().strftime("%d %B, %Y"),
+                    repository=self.ctx.repo_id,
+                    commands_enabled=self.ctx.config.sandbox.enabled,
+                    tools_names=[tool.name for tool in all_tools],
+                )
+            ).content,
             checkpointer=False,
             name="executor_react_agent",
         ).with_config(RunnableConfig(recursion_limit=settings.EXECUTION_RECURSION_LIMIT))
 
         response = await react_agent.ainvoke({
+            "messages": [HumanMessage(content=human_message_content)],
             "plan_tasks": state["plan_tasks"],
-            "relevant_files": list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files}),
+            "relevant_files": relevant_files,
         })
 
         if not self.skip_format_code and await has_file_changes(self.store):
