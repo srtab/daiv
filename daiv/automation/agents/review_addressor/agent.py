@@ -6,6 +6,7 @@ from typing import Literal
 from django.utils import timezone
 
 from langchain.agents import create_agent
+from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -60,6 +61,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             tools=tools,
             store=self.store,
             checkpointer=False,
+            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
             system_prompt=(
                 await respond_reviewer_system.aformat(  # TODO: migrate to v1 langchain middleware
                     current_date_time=timezone.now().strftime("%d %B, %Y"),

@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Literal
 from django.utils import timezone
 
 from langchain.agents import create_agent
+from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.messages import HumanMessage, RemoveMessage
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore  # noqa: TC002
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.language_models import LanguageModelLike
+    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
     from langgraph.runtime import ContextT, Runtime
 
@@ -249,6 +250,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=all_tools,
             store=store,
             checkpointer=False,
+            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
             system_prompt=(
                 await plan_system.aformat(  # TODO: migrate to v1 langchain middleware
                     current_date_time=timezone.now().strftime("%d %B, %Y"),
@@ -261,9 +263,11 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 )
             ).content,
             name="planner_react_agent",
-        ).with_config(RunnableConfig(recursion_limit=settings.PLANNING_RECURSION_LIMIT))
+        )
 
-        response = await react_agent.ainvoke({"messages": state["messages"]})
+        response = await react_agent.ainvoke(
+            {"messages": state["messages"]}, config={"recursion_limit": settings.PLANNING_RECURSION_LIMIT}
+        )
 
         # At this point, the agent should have called one of the finalize tools.
         last_message_artifact = response["messages"][-1].artifact
@@ -314,15 +318,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         # Format the human message with plan tasks
         relevant_files = list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files})
-        prompt = ChatPromptTemplate.from_messages([
-            HumanMessagePromptTemplate.from_template(execute_plan_human, "jinja2")
-        ])
+        prompt = ChatPromptTemplate.from_messages([execute_plan_human])
 
         react_agent = create_agent(
             model=execute_model_fn(state, None),
             state_schema=ExecuteState,
             tools=all_tools,
             store=store,
+            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
             system_prompt=(
                 await execute_plan_system.aformat(
                     current_date_time=timezone.now().strftime("%d %B, %Y"),
@@ -333,12 +336,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             ).content,
             checkpointer=False,
             name="executor_react_agent",
-        ).with_config(RunnableConfig(recursion_limit=settings.EXECUTION_RECURSION_LIMIT))
+        )
 
-        response = await (prompt | react_agent).ainvoke({
-            "plan_tasks": state["plan_tasks"],
-            "relevant_files": relevant_files,
-        })
+        response = await (prompt | react_agent).ainvoke(
+            {"plan_tasks": state["plan_tasks"], "relevant_files": relevant_files},
+            config={"recursion_limit": settings.EXECUTION_RECURSION_LIMIT},
+        )
 
         if not self.skip_format_code and await has_file_changes(self.store):
             return Command(goto="apply_format_code")
