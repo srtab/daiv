@@ -1,5 +1,5 @@
+from langchain.agents import AgentState
 from langgraph.graph import MessagesState
-from langgraph.prebuilt.chat_agent_executor import AgentState
 
 from .schemas import ChangeInstructions  # noqa: TC001
 

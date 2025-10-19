@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.agents import create_agent
 from langgraph.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
@@ -30,14 +29,16 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled graph.
         """
-        return create_react_agent(
+        return create_agent(
             BaseAgent.get_model(
                 model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
             ),
             tools=FileNavigationToolkit.get_tools(),
             store=InMemoryStore(),
-            prompt=ChatPromptTemplate.from_messages([codebase_chat_system, MessagesPlaceholder("messages")]).partial(
-                current_date_time=timezone.now().strftime("%d %B, %Y"), repository=get_runtime_ctx().repo_id
-            ),
+            system_prompt=(
+                await codebase_chat_system.aformat(
+                    current_date_time=timezone.now().strftime("%d %B, %Y"), repository=get_runtime_ctx().repo_id
+                )
+            ).content,
             name=settings.NAME,
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
