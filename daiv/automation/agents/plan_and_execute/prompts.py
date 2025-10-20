@@ -1,4 +1,4 @@
-from langchain_core.prompts import SystemMessagePromptTemplate
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 plan_system = SystemMessagePromptTemplate.from_template(
     """────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ PRACTICAL GUIDANCE
 - Never assume libraries, frameworks, or tools are available - verify through package files and existing code
 
 **Communication:**
-- When user mentions you directly (@daiv, DAIV), treat it as a direct question
+- When user mentions you directly (@{{ bot_username }}, {{ bot_name }}), treat it as a direct question
 - If investigation reveals contradictions or tool failures, document the impact on your understanding and proceed with available information
 
 **Security:**
@@ -132,7 +132,6 @@ PRACTICAL GUIDANCE
 - Follow established security patterns in the codebase
 """,  # noqa: E501
     "jinja2",
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
 execute_plan_system = SystemMessagePromptTemplate.from_template(
@@ -316,7 +315,8 @@ APPENDIX A — MONOREPO / WORKSPACES / CI
 )
 
 
-execute_plan_human = """Apply the following code-change plan:
+execute_plan_human = HumanMessagePromptTemplate.from_template(
+    """Apply the following code-change plan:
 
 <plan
     total_changes="{{ plan_tasks | length }}"
@@ -339,4 +339,6 @@ execute_plan_human = """Apply the following code-change plan:
   </change>
   {% endfor -%}
 
-</plan>"""
+</plan>""",
+    "jinja2",
+)

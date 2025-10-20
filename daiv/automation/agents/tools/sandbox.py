@@ -6,11 +6,11 @@ import json
 import logging
 import subprocess  # noqa: S404
 import tarfile
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING
 
 import httpx
+from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
-from langgraph.prebuilt import InjectedStore
 from unidiff import PatchSet
 
 from automation.utils import register_file_change
@@ -106,7 +106,7 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
 
 
 @tool("bash", parse_docstring=True, response_format="content_and_artifact")
-async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()]) -> tuple[str, RunCommandResult | None]:
+async def bash_tool(commands: list[str], runtime: ToolRuntime) -> tuple[str, RunCommandResult | None]:
     """
     Executes a given list of bash commands in a persistent shell session relative to the repository root directory, ensuring proper handling and security measures.
 
@@ -136,7 +136,7 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
 
     # Start the sandbox session to ensure that the sandbox session is started before running the commands.
     # If the sandbox session already exists in the store, it will be reused.
-    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image), store)
+    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image), runtime.store)
 
     tar_archive = io.BytesIO()
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
@@ -151,7 +151,7 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
                 fail_fast=True,
                 extract_patch=True,
             ),
-            store,
+            runtime.store,
         )
     except httpx.RequestError:
         logger.exception("[%s] Unexpected error calling sandbox API.", bash_tool.name)
@@ -173,7 +173,7 @@ async def bash_tool(commands: list[str], store: Annotated[Any, InjectedStore()])
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, store, ctx.repo_dir)
+            await _update_store_and_ctx(response.patch, runtime.store, ctx.repo_dir)
         except Exception:
             logger.exception("[%s] Error updating store and ctx.", bash_tool.name)
             return "error: Failed to finalize the commands.", None

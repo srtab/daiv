@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
+from langchain.tools import ToolRuntime
+
 from automation.agents.tools.sandbox import bash_tool
 from codebase.context import get_runtime_ctx
 
@@ -36,7 +38,12 @@ async def apply_format_code_node(store: BaseStore) -> str | None:
     tool_message = await bash_tool.ainvoke({
         "name": bash_tool.name,
         "id": uuid.uuid4(),
-        "args": {"commands": ctx.config.sandbox.format_code, "store": store},
+        "args": {
+            "commands": ctx.config.sandbox.format_code,
+            "runtime": ToolRuntime(
+                state=None, tool_call_id=uuid.uuid4(), config=None, context=None, store=store, stream_writer=None
+            ),
+        },
         "type": "tool_call",
     })
     return tool_message.artifact and tool_message.artifact.output
