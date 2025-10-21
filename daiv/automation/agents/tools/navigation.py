@@ -8,8 +8,8 @@ import subprocess  # noqa: S404
 from pathlib import Path
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages.content import ImageContentBlock
 
-from automation.agents.schemas import ImageTemplate
 from automation.utils import register_file_read
 from codebase.context import get_runtime_ctx
 from core.utils import extract_valid_image_mimetype
@@ -216,8 +216,6 @@ async def read_tool(file_path: str, runtime: ToolRuntime) -> str:
 
     # If the file is an image, return the image template.
     if mime_type := extract_valid_image_mimetype(content.encode()):
-        return ImageTemplate(
-            source_type="base64", data=base64.b64encode(content.encode()).decode(), mime_type=mime_type
-        ).model_dump(exclude_none=True)
+        return ImageContentBlock(type="image", base64=base64.b64encode(content.encode()).decode(), mime_type=mime_type)
 
     return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(content.splitlines()))

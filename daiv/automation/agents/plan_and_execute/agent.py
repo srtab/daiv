@@ -7,7 +7,6 @@ from django.utils import timezone
 
 from langchain.agents import create_agent
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
-from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -15,8 +14,8 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
+from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.nodes import apply_format_code_node
-from automation.agents.schemas import ImageTemplate
 from automation.agents.tools import THINK_TOOL_NAME, think_tool
 from automation.agents.tools.navigation import NAVIGATION_TOOLS, READ_MAX_LINES, READ_TOOL_NAME
 from automation.agents.tools.toolkits import (
@@ -27,9 +26,8 @@ from automation.agents.tools.toolkits import (
     SandboxToolkit,
     WebSearchToolkit,
 )
-from automation.agents.utils import extract_images_from_text
 from automation.utils import has_file_changes
-from codebase.context import get_runtime_ctx
+from codebase.context import RuntimeCtx, get_runtime_ctx
 from core.constants import BOT_LABEL, BOT_NAME
 
 from .conf import settings
@@ -188,7 +186,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         workflow = StateGraph(PlanAndExecuteState)
 
-        workflow.add_node("pre_plan", self.pre_plan)
         workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
 
@@ -197,38 +194,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if not self.skip_format_code:
             workflow.add_node("apply_format_code", self.apply_format_code)
 
-        workflow.set_entry_point("pre_plan")
+        workflow.set_entry_point("plan")
 
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
-
-    async def pre_plan(self, state: PlanAndExecuteState) -> Command[Literal["plan"]]:
-        """
-        Prepare the data for the plan node before the planning step.
-        This node will extract the images from the messages.
-
-        Args:
-            state (PlanAndExecuteState): The state of the agent.
-
-        Returns:
-            Command[Literal["plan"]]: The next step in the workflow.
-        """
-        latest_message = state["messages"][-1]
-        extracted_images_data = extract_images_from_text(latest_message.content)
-
-        if not extracted_images_data:
-            return Command[Literal["plan"]](goto="plan")
-
-        extracted_images = await ImageTemplate.from_images(extracted_images_data)
-
-        return Command[Literal["plan"]](
-            goto="plan",
-            update={
-                "messages": [
-                    RemoveMessage(id=latest_message.id),
-                    HumanMessage([{"type": "text", "text": latest_message.content}] + extracted_images),
-                ]
-            },
-        )
 
     async def plan(
         self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
@@ -250,7 +218,11 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             tools=all_tools,
             store=store,
             checkpointer=False,
-            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
+            context_schema=RuntimeCtx,
+            middleware=[
+                InjectImagesMiddleware(),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            ],
             system_prompt=(
                 await plan_system.aformat(  # TODO: migrate to v1 langchain middleware
                     current_date_time=timezone.now().strftime("%d %B, %Y"),
@@ -266,7 +238,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         )
 
         response = await react_agent.ainvoke(
-            {"messages": state["messages"]}, config={"recursion_limit": settings.PLANNING_RECURSION_LIMIT}
+            {"messages": state["messages"]},
+            config={"recursion_limit": settings.PLANNING_RECURSION_LIMIT},
+            context=self.ctx,
         )
 
         # At this point, the agent should have called one of the finalize tools.
@@ -316,11 +290,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         execute_model_fn, all_tools = await prepare_execute_model_and_tools()
 
-        # Format the human message with plan tasks
-        relevant_files = list({file_path for task in state["plan_tasks"] for file_path in task.relevant_files})
-        prompt = ChatPromptTemplate.from_messages([execute_plan_human])
-
-        react_agent = create_agent(
+        executor_agent = ChatPromptTemplate.from_messages([execute_plan_human]) | create_agent(
             model=execute_model_fn(state, None),
             state_schema=ExecuteState,
             tools=all_tools,
@@ -338,8 +308,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             name="executor_react_agent",
         )
 
-        response = await (prompt | react_agent).ainvoke(
-            {"plan_tasks": state["plan_tasks"], "relevant_files": relevant_files},
+        response = await executor_agent.ainvoke(
+            {
+                "plan_tasks": state["plan_tasks"],
+                "relevant_files": list({
+                    file_path for task in state["plan_tasks"] for file_path in task.relevant_files
+                }),
+            },
             config={"recursion_limit": settings.EXECUTION_RECURSION_LIMIT},
         )
 

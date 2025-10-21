@@ -1,47 +1,46 @@
 import base64
 from unittest.mock import AsyncMock, Mock, patch
 
-from automation.agents.schemas import Image, ImageTemplate
+from automation.agents.middleware import InjectImagesMiddleware
+from automation.agents.schemas import Image
 from codebase.base import ClientType
 
 
-@patch("automation.agents.schemas.get_runtime_ctx", new=Mock())
-class TestImageTemplate:
-    @patch("automation.agents.schemas.is_valid_url")
+class TestInjectImagesMiddleware:
+    @patch("automation.agents.middleware.is_valid_url")
     async def test_from_images_valid_url(self, mock_is_valid_url):
         mock_is_valid_url.return_value = True
         images = [Image(url="http://example.com/image.png", filename="image.png")]
 
-        result = await ImageTemplate.from_images(images)
+        result = await InjectImagesMiddleware()._images_to_content_blocks("repo_id", images)
 
         assert len(result) == 1
         assert "type" in result[0] and result[0]["type"] == "image"
-        assert "source_type" in result[0] and result[0]["source_type"] == "url"
         assert "url" in result[0] and result[0]["url"] == "http://example.com/image.png"
-        assert "data" not in result[0]
         assert "mime_type" not in result[0]
 
-    @patch("automation.agents.schemas.is_valid_url")
-    @patch("automation.agents.schemas.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
+    @patch("automation.agents.middleware.is_valid_url")
+    @patch("automation.agents.middleware.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
     async def test_from_images_needs_build_uri(self, mock_is_valid_url):
         mock_is_valid_url.return_value = False
-        result = await ImageTemplate.from_images([Image(url="uploads/image.png", filename="image.png")])
+        result = await InjectImagesMiddleware()._images_to_content_blocks(
+            "repo_id", [Image(url="uploads/image.png", filename="image.png")]
+        )
 
         assert len(result) == 1
         assert "type" in result[0] and result[0]["type"] == "image"
-        assert "source_type" in result[0] and result[0]["source_type"] == "base64"
-        assert "data" in result[0] and result[0]["data"] == base64.b64encode(b"image content").decode()
+        assert "base64" in result[0] and result[0]["base64"] == base64.b64encode(b"image content").decode()
         assert "mime_type" in result[0] and result[0]["mime_type"] == "image/png"
         assert "url" not in result[0]
 
-    @patch("automation.agents.schemas.is_valid_url")
+    @patch("automation.agents.middleware.is_valid_url")
     async def test_from_images_invalid_gitlab_url(self, mock_is_valid_url):
         mock_is_valid_url.return_value = False
         images = [Image(url="invalid_url", filename="")]
 
-        assert len(await ImageTemplate.from_images(images)) == 0
+        assert len(await InjectImagesMiddleware()._images_to_content_blocks("repo_id", images)) == 0
 
-    @patch("automation.agents.schemas.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
+    @patch("automation.agents.middleware.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
     async def test_from_images_github_user_attachments(self, mock_repo_client):
         """Test that GitHub user-attachments URLs are downloaded with authentication."""
         mock_repo_client.client_slug = ClientType.GITHUB
@@ -54,12 +53,11 @@ class TestImageTemplate:
             )
         ]
 
-        result = await ImageTemplate.from_images(images)
+        result = await InjectImagesMiddleware()._images_to_content_blocks("repo_id", images)
 
         assert len(result) == 1
         assert result[0]["type"] == "image"
-        assert result[0]["source_type"] == "base64"
-        assert result[0]["data"] == base64.b64encode(b"github image content").decode()
+        assert result[0]["base64"] == base64.b64encode(b"github image content").decode()
         assert result[0]["mime_type"] == "image/png"
         assert "url" not in result[0]
 
@@ -80,7 +78,7 @@ class TestImageTemplate:
             )
         ]
 
-        result = await ImageTemplate.from_images(images)
+        result = await InjectImagesMiddleware()._images_to_content_blocks("repo_id", images)
 
         assert len(result) == 0
 
@@ -88,11 +86,10 @@ class TestImageTemplate:
         """Test that non-user-attachments GitHub URLs are treated as regular URLs."""
         mock_repo_client.client_slug = ClientType.GITHUB
 
-        with patch("automation.agents.schemas.is_valid_url", return_value=True):
+        with patch("automation.agents.middleware.is_valid_url", return_value=True):
             images = [Image(url="https://github.com/user/repo/raw/main/image.png", filename="image.png")]
 
-            result = await ImageTemplate.from_images(images)
+            result = await InjectImagesMiddleware()._images_to_content_blocks("repo_id", images)
 
             assert len(result) == 1
-            assert result[0]["source_type"] == "url"
-            assert result[0]["url"] == "https://github.com/user/repo/raw/main/image.png"
+            assert "url" in result[0] and result[0]["url"] == "https://github.com/user/repo/raw/main/image.png"
