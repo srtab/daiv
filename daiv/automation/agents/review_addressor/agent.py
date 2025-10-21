@@ -15,6 +15,7 @@ from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agents import BaseAgent
+from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
 from codebase.clients import RepoClient
@@ -61,7 +62,10 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             tools=tools,
             store=self.store,
             checkpointer=False,
-            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
+            middleware=[
+                InjectImagesMiddleware(),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            ],
             system_prompt=(
                 await respond_reviewer_system.aformat(  # TODO: migrate to v1 langchain middleware
                     current_date_time=timezone.now().strftime("%d %B, %Y"),

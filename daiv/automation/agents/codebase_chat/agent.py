@@ -9,6 +9,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
+from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.tools.toolkits import FileNavigationToolkit
 from codebase.context import get_runtime_ctx
 
@@ -40,6 +41,9 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
             tools=FileNavigationToolkit.get_tools(),
             store=InMemoryStore(),
             system_prompt=system_prompt,
-            middleware=[AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")],
+            middleware=[
+                InjectImagesMiddleware(),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            ],
             name=settings.NAME,
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
