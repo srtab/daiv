@@ -121,10 +121,11 @@ class InjectImagesMiddleware(AgentMiddleware):
                 and parsed_url.netloc
                 and parsed_url.scheme
                 and (
-                    (parsed_url.hostname and (
+                    parsed_url.hostname
+                    and (
                         parsed_url.hostname.lower() == "github.com"
                         or parsed_url.hostname.lower().endswith(".github.com")
-                    ))
+                    )
                 )
                 and "/user-attachments/" in parsed_url.path
             ):
