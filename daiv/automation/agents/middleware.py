@@ -120,7 +120,12 @@ class InjectImagesMiddleware(AgentMiddleware):
                 repo_client.client_slug == ClientType.GITHUB
                 and parsed_url.netloc
                 and parsed_url.scheme
-                and "github.com" in parsed_url.netloc.lower()
+                and (
+                    (parsed_url.hostname and (
+                        parsed_url.hostname.lower() == "github.com"
+                        or parsed_url.hostname.lower().endswith(".github.com")
+                    ))
+                )
                 and "/user-attachments/" in parsed_url.path
             ):
                 if (image_content := await repo_client.get_project_uploaded_file(repo_id, image.url)) and (
