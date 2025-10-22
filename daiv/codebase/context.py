@@ -39,6 +39,9 @@ class RuntimeCtx:
     merge_request_id: int | None = None
     """The merge request identifier if the context is set for a merge request"""
 
+    bot_username: str | None = None
+    """The bot username defined on the repository client"""
+
 
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
 
@@ -67,7 +70,14 @@ async def set_runtime_ctx(
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo_dir:
-        ctx = RuntimeCtx(repo_id=repo_id, ref=ref, repo_dir=repo_dir, config=config, merge_request_id=merge_request_id)
+        ctx = RuntimeCtx(
+            repo_id=repo_id,
+            ref=ref,
+            repo_dir=repo_dir,
+            config=config,
+            merge_request_id=merge_request_id,
+            bot_username=repo_client.current_user.username,
+        )
         token = runtime_ctx.set(ctx)
         try:
             yield ctx

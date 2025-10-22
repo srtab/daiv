@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING
+import uuid
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain.agents.middleware import AgentMiddleware, hook_config
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langchain_core.messages.content import ImageContentBlock, TextContentBlock
+from langchain_core.messages.tool import tool_call
 
+from automation.agents.tools.sandbox import bash_tool
 from automation.agents.utils import extract_images_from_text
+from automation.utils import has_file_changes
 from codebase.base import ClientType
 from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
@@ -50,6 +54,8 @@ class InjectImagesMiddleware(AgentMiddleware):
         )
         ```
     """
+
+    name = "inject_images_middleware"
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """
@@ -143,3 +149,85 @@ class InjectImagesMiddleware(AgentMiddleware):
                 content_blocks.append(ImageContentBlock(type="image", url=image.url))
 
         return content_blocks
+
+
+class FormatCodeMiddleware(AgentMiddleware):
+    """
+    Middleware to apply format code to the repository to fix the linting issues in the pipeline at the end of the loop.
+
+    The middleware will only apply format code if the:
+    - Format code is enabled in the repository configuration.
+    - There are file changes made by the executor agent.
+    """
+
+    name = "format_code_middleware"
+
+    def __init__(self, *, skip_format_code: bool = False):
+        """
+        Initialize the format code middleware.
+
+        Args:
+            skip_format_code (bool): Whether to skip the format code step.
+        """
+        super().__init__()
+        self.skip_format_code = skip_format_code
+        self._tool_call_id = f"tool_call__{uuid.uuid4().hex[:8]}"
+
+    @hook_config(can_jump_to=["end"])
+    async def abefore_model(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """
+        Before the model call to apply the format code.
+
+        Args:
+            state (AgentState): The current agent state containing messages.
+            runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
+
+        Returns:
+            dict[str, Any] | None: The state updates with the jump to, or None if no format code is needed.
+        """
+        if (
+            not self.skip_format_code
+            and state["messages"][-1].type == "tool"
+            and state["messages"][-1].tool_call_id == self._tool_call_id
+        ):
+            return {"jump_to": "end"}
+        return None
+
+    @hook_config(can_jump_to=["tools"])
+    async def aafter_model(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """
+        After the model call to format the code.
+
+        Args:
+            state (AgentState): The current agent state containing messages.
+            runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
+
+        Returns:
+            dict[str, Any] | None: State updates with new messages, or None if no format code is needed.
+        """
+
+        if (
+            not self.skip_format_code
+            and runtime.context.config.sandbox.enabled
+            and runtime.context.config.sandbox.format_code
+            and await has_file_changes(runtime.store)
+            and (state["messages"][-1].type == "ai" and not state["messages"][-1].tool_calls)
+        ):
+            return {
+                "messages": [
+                    RemoveMessage(id=state["messages"][-1].id),
+                    AIMessage(
+                        content=state["messages"][-1].content,
+                        tool_calls=[
+                            tool_call(
+                                name=bash_tool.name,
+                                args={"commands": runtime.context.config.sandbox.format_code},
+                                id=self._tool_call_id,
+                            )
+                        ],
+                    ),
+                ],
+                "jump_to": "tools",
+            }
+
+        return None

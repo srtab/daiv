@@ -41,9 +41,6 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
             tools=FileNavigationToolkit.get_tools(),
             store=InMemoryStore(),
             system_prompt=system_prompt,
-            middleware=[
-                InjectImagesMiddleware(),
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-            ],
+            middleware=[InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
             name=settings.NAME,
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
