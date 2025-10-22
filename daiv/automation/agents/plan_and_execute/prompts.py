@@ -173,14 +173,14 @@ CHANGE-PLAN CONTRACT (FORMAL)
   </change>
 </plan>
 ```
-
+{% if commands_enabled %}
 ────────────────────────────────────────────────────────
-SHELL COMMANDS RULES
+BASH COMMANDS RULES
 
-- **No ad-hoc commands.** Only call `bash` for commands **explicitly present in `details`** (verbatim).
+- **No ad-hoc commands.** Only call `bash` tool for commands **explicitly present in `details`** (verbatim).
 - **No environment probing.** Never run `pytest`, `py_compile`, `python -c`, `pip`, `find`, etc., unless the plan explicitly names them **verbatim**. If present, run **exactly** as written.
 - When the plan includes package operations, **always** use the project's package manager commands; never edit lockfiles by hand.
-
+{% endif %}
 ────────────────────────────────────────────────────────
 TOOL SEMANTICS (QUICK REFERENCE)
 
@@ -210,7 +210,7 @@ WORKFLOW (TOOL WHITELIST BY STEP — HARD GATE)
 - **Hard bans:** Do **not** `read` any file from `<relevant_files>` here.
 - **Output:** Proceed to Step 2. *(Time-box discovery; prefer ≤1 pass.)*
 
-### Step 2 — Plan the edits and commands (**single `think`, bullet-only, ≤200 words**)
+### Step 2 — Plan the edits{% if commands_enabled %} and commands{% endif %} (**single `think`, bullet-only, ≤200 words**)
 - **Allowed tools:** Exactly **one** `think`. No other tools here.
 - **Use this micro-template (be terse):**
   - **Mapping:** Plan item → files/lines to touch.
@@ -222,7 +222,7 @@ WORKFLOW (TOOL WHITELIST BY STEP — HARD GATE)
   - **Ops (exact order):** Precise tool calls (`write/edit/delete/rename`; `bash` only if mandated in plan).
   - **Acceptance hooks:** What `diff []` must show (incl. tests/docs updates if specified).
   - **Assumptions & Confidence (0-1).**
-- **Output:** The exact sequence of edits/commands, in order.
+- **Output:** The exact sequence of edits{% if commands_enabled %} and commands{% endif %}, in order.
 
 *Filled Step-2 example (illustrative, ≤200 words):*
 - **Mapping:** Rename `sum_safe`→`safe_sum` in `src/util/math.py`; fix imports in `tests/test_math.py`.
@@ -236,9 +236,9 @@ WORKFLOW (TOOL WHITELIST BY STEP — HARD GATE)
 - **Assumptions & Confidence:** No hidden callers; 0.95.
 
 ### Step 3 — Apply & verify (repeatable cycle)
-Each cycle = **edits/commands → diff → verify**.
+Each cycle = **edits{% if commands_enabled %} and commands{% endif %} → diff → verify**.
 
-1) **Apply edits and/or commands**
+1) **Apply edits{% if commands_enabled %} and commands{% endif %}**
    - **Allowed tools:** `write`, `edit`, `delete`, `rename`, `bash` (only for plan-mandated commands).
 
 2) **Get diff evidence**
@@ -247,7 +247,7 @@ Each cycle = **edits/commands → diff → verify**.
 
 3) **Verify (single `think`)**
    - Use the **diff output** from Step-3.2 to verify the changes against your Step-2 acceptance hooks.
-   - Decide follow-ups. If further edits/commands are needed → **repeat Step 3**. Otherwise → **proceed to Step 4**.
+   - Decide follow-ups. If further edits{% if commands_enabled %} and commands{% endif %} are needed → **repeat Step 3**. Otherwise → **proceed to Step 4**.
    - **Exception (targeted read-back, at most once per file per cycle):** If the diff is **ambiguous** (e.g., context elided, rename without enough surrounding lines, or empty diff after attempted edits), you may perform **one `read` of the edited/intended file(s)** and restrict your reasoning to the **edited hunks** (or expected regions).
 
 ### Step 4 — Finish (mandatory)
@@ -272,10 +272,10 @@ Then **stop** (no further tool calls).
 POST-STEP GUARDS (STRICT)
 
 **FORBIDDEN AFTER VERIFICATION**
-- After a Step-3 verification `think` that decides “no further edits or commands,” you must **not**:
+- After a Step-3 verification `think` that decides “no further edits{% if commands_enabled %} or commands{% endif %},” you must **not**:
   - call `grep`, `ls`, or `glob`
   - call `read` or `diff`
-  - call `think` again without intervening edits or commands
+  - call `think` again without intervening edits{% if commands_enabled %} or commands{% endif %}
 
 **VERIFICATION ORDER (STRICT)**
 - Never claim success before evidence.
@@ -284,7 +284,7 @@ POST-STEP GUARDS (STRICT)
 **THINK CALL LIMITS**
 - Step 2: **exactly 1** `think` (≤200 words, bullet-only).
 - Each Step-3 cycle: **exactly 1** `think` **after** getting diff output.
-- A new `think` in Step 3 **requires new edits or commands** since the previous `think`.
+- A new `think` in Step 3 **requires new edits{% if commands_enabled %} or commands{% endif %}** since the previous `think`.
 
 **DISCOVERY SCOPE**
 - Discovery (`grep`, `ls`, `glob`, `read`) is allowed **only in Step 1**.
@@ -311,7 +311,6 @@ APPENDIX A — MONOREPO / WORKSPACES / CI
 **Follow this workflow exactly for the incoming change-plan.**
 """,  # noqa: E501
     "jinja2",
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
 
@@ -341,4 +340,5 @@ execute_plan_human = HumanMessagePromptTemplate.from_template(
 
 </plan>""",
     "jinja2",
+    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )

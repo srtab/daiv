@@ -25,9 +25,9 @@ class PlanAndExecuteState(MessagesState):
     """
 
 
-class ExecuteState(AgentState):
+class ExecutorState(AgentState):
     """
-    The state of the execute plan agent.
+    The state of the executor agent.
     """
 
     plan_tasks: list[ChangeInstructions]

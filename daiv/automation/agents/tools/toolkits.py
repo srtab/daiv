@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from codebase.context import get_runtime_ctx
-
 from .editing import delete_tool, diff_tool, edit_tool, rename_tool, write_tool
 from .merge_request import job_logs_tool, pipeline_tool
 from .navigation import glob_tool, grep_tool, ls_tool, read_tool
@@ -55,12 +53,7 @@ class SandboxToolkit(BaseToolkit):
     """
 
     @classmethod
-    async def get_tools(cls) -> list[BaseTool]:
-        config = get_runtime_ctx().config
-
-        if not config.sandbox.enabled:
-            return []
-
+    def get_tools(cls) -> list[BaseTool]:
         return [bash_tool]
 
 

@@ -62,10 +62,7 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             tools=tools,
             store=self.store,
             checkpointer=False,
-            middleware=[
-                InjectImagesMiddleware(),
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-            ],
+            middleware=[InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
             system_prompt=(
                 await respond_reviewer_system.aformat(  # TODO: migrate to v1 langchain middleware
                     current_date_time=timezone.now().strftime("%d %B, %Y"),
