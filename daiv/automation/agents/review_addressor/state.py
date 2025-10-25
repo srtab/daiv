@@ -1,32 +1,54 @@
+from operator import add
 from typing import Annotated
 
 from langchain.agents import AgentState
-from langchain_core.messages import AnyMessage  # noqa: TC002
-from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
+from .schemas import ReviewContext  # noqa: TC001
 
-class OverallState(TypedDict):
+
+class ReviewInState(TypedDict):
+    """
+    The review context to be reviewed.
+    """
+
+    to_review: list[ReviewContext]
+    """
+    The discussions to review.
+    """
+
+
+class ReviewOutState(TypedDict):
     """
     The state of the review addressor agent.
     """
 
-    notes: Annotated[list[AnyMessage], add_messages]
+    replies: Annotated[list[tuple[str, str]], add]
     """
-    The notes of the discussion left on the merge request.
-    """
-
-    diff: str
-    """
-    The unified diff of the merge request.
+    Collection of all replies generated during the workflow.
     """
 
-    reply: str
-    """
-    The reply to show to the reviewer.
 
-    It can be a direct reply to the comment left by the reviewer or questions from the plan and execute node to be
-    clarified by the reviewer.
+class ReplyReviewerState(TypedDict):
+    """
+    Schema for the reply reviewer agent.
+    """
+
+    review_context: ReviewContext
+    """
+    The review context to reply to.
+    """
+
+
+class OverallState(ReviewInState, ReviewOutState):
+    to_reply: Annotated[list[ReviewContext], add]
+    """
+    The discussions to reply the reviewer for.
+    """
+
+    to_plan_and_execute: Annotated[list[ReviewContext], add]
+    """
+    The discussions to plan and execute the changes for.
     """
 
 
@@ -38,9 +60,4 @@ class ReplyAgentState(AgentState):
     diff: str
     """
     The unified diff of the merge request.
-    """
-
-    current_date_time: str
-    """
-    The current date and time.
     """

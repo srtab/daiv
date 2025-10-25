@@ -5,7 +5,6 @@ from langgraph.store.memory import InMemoryStore
 
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from automation.utils import file_changes_namespace
 from codebase.repo_config import RepositoryConfig
 
 if TYPE_CHECKING:
@@ -27,15 +26,6 @@ class BaseManager:
         self.repo_config = RepositoryConfig.get_config(repo_id)
         self._file_changes_store = InMemoryStore()
         self.ref = cast("str", ref or self.repo_config.default_branch)
-
-    async def _set_file_changes(self, file_changes: list[FileChange], *, store: InMemoryStore | None = None):
-        """
-        Set the file changes in the store.
-        """
-        for file_change in file_changes:
-            await (store or self._file_changes_store).aput(
-                file_changes_namespace(self.repo_id, self.ref), file_change.file_path, {"data": file_change}
-            )
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
         """

@@ -25,7 +25,7 @@ class ModelName(StrEnum):
     GPT_5_CODEX = "openrouter:openai/gpt-5-codex"
 
     # DeepSeek models
-    DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus"
+    DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus:exacto"
 
     # Google models
     GEMINI_2_5_PRO = "openrouter:google/gemini-2.5-pro"
@@ -34,7 +34,7 @@ class ModelName(StrEnum):
     GROK_CODE_FAST_1 = "openrouter:x-ai/grok-code-fast-1"
 
     # z-ai models
-    Z_AI_GLM_4_6 = "openrouter:z-ai/glm-4.6"
+    Z_AI_GLM_4_6 = "openrouter:z-ai/glm-4.6:exacto"
 
     # Qwen models
     QWEN_3_MAX = "openrouter:qwen/qwen3-max"
