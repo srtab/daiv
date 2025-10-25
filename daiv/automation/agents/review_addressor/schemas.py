@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -26,3 +27,11 @@ class ReviewCommentEvaluation(BaseModel):
 
     request_for_changes: bool = Field(description="True if classified as a 'Change Request', and false otherwise.")
     justification: str = Field(description="Brief explanation of your reasoning for the classification.")
+
+
+@dataclass
+class ReviewContext:
+    discussion_id: str
+    resolve_id: str
+    diff: str
+    notes: list[AnyMessage] = field(default_factory=list)

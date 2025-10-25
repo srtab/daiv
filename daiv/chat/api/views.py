@@ -52,29 +52,29 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref},
     )
 
-    async with set_runtime_ctx(repo_id=repo_id, ref=ref):
-        codebase_chat = await CodebaseChatAgent.get_runnable()
+    if payload.stream:
+        return StreamingHttpResponse(
+            generate_stream(input_data, MODEL_ID, repo_id=repo_id, ref=ref, config=config),
+            content_type="text/event-stream",
+        )
+    try:
+        async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
+            codebase_chat = await CodebaseChatAgent.get_runnable()
+            result = await codebase_chat.ainvoke(input_data, config=config, context=runtime_ctx)
 
-        if payload.stream:
-            return StreamingHttpResponse(
-                generate_stream(codebase_chat, input_data, MODEL_ID, config=config), content_type="text/event-stream"
-            )
-        try:
-            result = await codebase_chat.ainvoke(input_data, config=config)
-
-            return ChatCompletionResponse(
-                id=str(uuid.uuid4()),
-                created=int(datetime.now().timestamp()),
-                choices=[
-                    {
-                        "index": 1,
-                        "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
-                        "finish_reason": "stop",
-                    }
-                ],
-            )
-        except Exception as e:
-            return {"error": str(e)}
+        return ChatCompletionResponse(
+            id=str(uuid.uuid4()),
+            created=int(datetime.now().timestamp()),
+            choices=[
+                {
+                    "index": 1,
+                    "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @models_router.get("", response={200: ModelListSchema})
