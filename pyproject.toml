@@ -36,7 +36,7 @@ dependencies = [
   "pydantic-settings==2.11",
   "pygithub>=2.8.1",
   "python-decouple==3.8",
-  "python-gitlab==6.5",
+  "python-gitlab==7.0.0",
   "pyyaml==6.0.3",
   "redis==5.2.1",
   "sentry-sdk==2.42.1",
