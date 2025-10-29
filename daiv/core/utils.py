@@ -125,17 +125,32 @@ def locked_task(key: str = "", blocking: bool = False):
     """
 
     def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
-            try:
-                with cache.lock(lock_key, blocking=blocking):
-                    func(*args, **kwargs)
-            except LockError:
-                logger.warning("Ignored task, already processing: %s", lock_key)
-                return
+        if asyncio.iscoroutinefunction(func):
 
-        return wrapper
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                try:
+                    with cache.lock(lock_key, blocking=blocking):
+                        return await func(*args, **kwargs)
+                except LockError:
+                    logger.warning("Ignored task, already processing: %s", lock_key)
+                    return
+
+            return async_wrapper
+        else:
+
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                try:
+                    with cache.lock(lock_key, blocking=blocking):
+                        return func(*args, **kwargs)
+                except LockError:
+                    logger.warning("Ignored task, already processing: %s", lock_key)
+                    return
+
+            return wrapper
 
     return decorator
 

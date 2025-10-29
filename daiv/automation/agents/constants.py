@@ -39,3 +39,6 @@ class ModelName(StrEnum):
     # Qwen models
     QWEN_3_MAX = "openrouter:qwen/qwen3-max"
     QWEN_3_CODER_PLUS = "openrouter:qwen/qwen3-coder-plus"
+
+    # MoonshotAI models
+    MOONSHOTAI_KIMI_K2_0905 = "openrouter:moonshotai/kimi-k2-0905:exacto"

@@ -298,16 +298,11 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        # The first version is the one who has the latest changes, we don't need to get all history of the diffs.
-        first_merge_request_version = merge_request.diffs.list(iterator=True).next()
-        extracted_diffs = [
-            version_diff["diff"]
-            for version_diff in merge_request.diffs.get(first_merge_request_version.id, unidiff="true").diffs
-            # ignore generated files, for more details:
-            # https://docs.gitlab.com/ee/user/project/merge_requests/changes.html#collapse-generated-files
-            if not version_diff["generated_file"]
-        ]
-        return PatchSet.from_string("\n".join(extracted_diffs))
+
+        response = self.client.http_get(
+            f"/projects/{project.id}/merge_requests/{merge_request.iid}/raw_diffs", streamed=False, raw=True
+        )
+        return PatchSet.from_string(response.text)
 
     def update_or_create_merge_request(
         self,
@@ -630,7 +625,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return [
-            Discussion(id=discussion.id, notes=notes, is_thread=True, is_resolvable=True)
+            Discussion(id=discussion.id, notes=notes, is_thread=True, is_resolvable=True, resolve_id=discussion.id)
             for discussion in merge_request.discussions.list(get_all=True, iterator=True)
             if discussion.individual_note is False
             and (

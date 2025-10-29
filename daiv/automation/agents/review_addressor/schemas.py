@@ -7,6 +7,8 @@ from typing_extensions import TypedDict
 if TYPE_CHECKING:
     from langchain_core.messages import AnyMessage
 
+    from codebase.base import SimpleDiscussion
+
 
 class ReviewCommentInput(TypedDict):
     """
@@ -31,7 +33,6 @@ class ReviewCommentEvaluation(BaseModel):
 
 @dataclass
 class ReviewContext:
-    discussion_id: str
-    resolve_id: str
-    diff: str
+    discussion: SimpleDiscussion
+    diff: str | None = None
     notes: list[AnyMessage] = field(default_factory=list)

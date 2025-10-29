@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import logging
 
+from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
+from openevals.llm import create_async_llm_as_judge
+
+from automation.agents import BaseAgent
+from automation.agents.constants import ModelName
+from automation.agents.plan_and_execute.prompts import review_code_changes_prompt
+from automation.utils import get_file_changes
+from codebase.context import RuntimeCtx  # noqa: TC001
 
 logger = logging.getLogger("daiv.tools")
 
 
 PLAN_THINK_TOOL_NAME = "think"
+REVIEW_CODE_CHANGES_TOOL_NAME = "review_code_changes"
 
 
 @tool(PLAN_THINK_TOOL_NAME, parse_docstring=True)
@@ -34,3 +43,43 @@ def plan_think_tool(plan: str):
     """  # noqa: E501
     logger.info("[%s] Thinking about: %s", plan_think_tool.name, plan)
     return "Thought registered."
+
+
+@tool(REVIEW_CODE_CHANGES_TOOL_NAME, parse_docstring=True)
+async def review_code_changes_tool(placeholder: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+    """
+    Verifies that code changes are correct and complete by evaluating them against the original plan.
+
+    **Usage rules:**
+    - Use this tool when you have finished making all the changes for the plan and want to verify their correctness.
+    - This is a **vital step** before marking the task as complete - always review your changes before finishing.
+    - The tool will automatically evaluate the changes you made against the plan tasks.
+    - If the review fails, you will receive specific reasoning about what needs to be fixed.
+
+    Args:
+        placeholder: Unused parameter (for compatibility). Leave empty.
+
+    Returns:
+        The result of the review code changes tool evaluation.
+    """  # noqa: E501
+    logger.info("[%s] Reviewing code changes", review_code_changes_tool.name)
+
+    file_changes = await get_file_changes(runtime.store)
+    if not file_changes:
+        return "No changes have been made yet to review."
+
+    diffs = [file_change.diff_hunk for file_change in file_changes if file_change.diff_hunk]
+    if not diffs:
+        return "No changes have been made yet to review."
+
+    evaluator = create_async_llm_as_judge(
+        prompt=review_code_changes_prompt, judge=BaseAgent.get_model(model=ModelName.GPT_5_MINI)
+    )
+    inputs = [task.model_dump(mode="json") for task in runtime.state["plan_tasks"]]
+    outputs = "\n".join(diffs)
+
+    result = await evaluator(inputs=inputs, outputs=outputs)
+
+    if result["score"] is False:
+        return f"FAIL: {result['comment']}"
+    return "PASS"

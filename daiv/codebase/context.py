@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, cast
 
 from codebase.clients import RepoClient
@@ -9,7 +10,6 @@ from codebase.signals import before_reset_runtime_ctx
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 
 @dataclass(frozen=True)

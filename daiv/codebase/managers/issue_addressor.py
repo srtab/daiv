@@ -153,7 +153,7 @@ class IssueAddressorManager(BaseManager):
                 human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
                     issue_title=self.issue.title, issue_description=self.issue.description
                 )
-                await plan_and_execute.ainvoke({"messages": [human_message]}, config)
+                await plan_and_execute.ainvoke({"messages": [human_message]}, config, context=self.ctx)
 
                 after_run_state = await plan_and_execute.aget_state(config)
 
@@ -202,7 +202,7 @@ class IssueAddressorManager(BaseManager):
             ):
                 self._add_workflow_step_note("execute_plan")
 
-                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config)
+                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config, context=self.ctx)
             else:
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 

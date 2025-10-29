@@ -39,6 +39,30 @@ class ChangeInstructions(BaseModel):
     )
 
 
+class FinishOutput(BaseModel):
+    """
+    Deliver a concise summary message reporting the execution outcome.
+
+    **Usage rules:**
+    - The agent has completed the execution phase (successfully or partially or aborted).
+    - All change instructions have been attempted.
+    """
+
+    aborting: bool = Field(default=False, description="Indicates if the execution is aborted or not")
+    message: str = Field(
+        description=dedent(
+            """\
+            Concise summary of the execution outcome:
+            - List what was successfully applied in ter
+            - Highlight any changes that could not be applied and why (e.g., command failed, file not found, permission issues);
+            - If the execution is aborted, the message should indicate the reason why.
+            - No chit-chat.
+            - Use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
+            """  # noqa: E501
+        )
+    )
+
+
 class PlanOutput(BaseModel):
     """
     Deliver a self-contained implementation plan that satisfies the user's request.

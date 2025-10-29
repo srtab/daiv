@@ -6,16 +6,19 @@ import json
 import logging
 import subprocess  # noqa: S404
 import tarfile
+import uuid
+from textwrap import dedent
 from typing import TYPE_CHECKING
 
 import httpx
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
+from langgraph.typing import StateT  # noqa: TC002
 from unidiff import PatchSet
 
-from automation.utils import register_file_change
+from automation.utils import has_file_changes, register_file_change
 from codebase.base import FileChangeAction
-from codebase.context import get_runtime_ctx
+from codebase.context import RuntimeCtx
 from core.conf import settings
 from core.sandbox import run_sandbox_commands, start_sandbox_session
 from core.sandbox.schemas import RunCommandResult, RunCommandsRequest, StartSessionRequest
@@ -23,12 +26,14 @@ from core.sandbox.schemas import RunCommandResult, RunCommandsRequest, StartSess
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from langchain_core.messages import ToolMessage
     from langgraph.store.base import BaseStore
 
 logger = logging.getLogger("daiv.tools")
 
+BASH_TOOL_NAME = "bash"
+FORMAT_CODE_TOOL_NAME = "format_code"
 
-MAX_OUTPUT_LENGTH = 10000
 NUM_LEADING_SLASH = 1
 
 
@@ -105,8 +110,8 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
         await register_file_change(store, **file_change)
 
 
-@tool("bash", parse_docstring=True, response_format="content_and_artifact")
-async def bash_tool(commands: list[str], runtime: ToolRuntime) -> tuple[str, RunCommandResult | None]:
+@tool(BASH_TOOL_NAME, parse_docstring=True, response_format="content_and_artifact")
+async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, RunCommandResult | None]:
     """
     Executes a given list of bash commands in a persistent shell session relative to the repository root directory, ensuring proper handling and security measures.
 
@@ -132,21 +137,21 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime) -> tuple[str, Run
 
     assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
-    ctx = get_runtime_ctx()
-
     # Start the sandbox session to ensure that the sandbox session is started before running the commands.
     # If the sandbox session already exists in the store, it will be reused.
-    await start_sandbox_session(StartSessionRequest(base_image=ctx.config.sandbox.base_image), runtime.store)
+    await start_sandbox_session(
+        StartSessionRequest(base_image=runtime.context.config.sandbox.base_image), runtime.store
+    )
 
     tar_archive = io.BytesIO()
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
-        tar.add(ctx.repo_dir, arcname=ctx.repo_dir.name)
+        tar.add(runtime.context.repo_dir, arcname=runtime.context.repo_dir.name)
 
     try:
         response = await run_sandbox_commands(
             RunCommandsRequest(
                 commands=commands,
-                workdir=ctx.repo_dir.name,
+                workdir=runtime.context.repo_dir.name,
                 archive=base64.b64encode(tar_archive.getvalue()).decode(),
                 fail_fast=True,
                 extract_patch=True,
@@ -173,9 +178,64 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime) -> tuple[str, Run
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, runtime.store, ctx.repo_dir)
+            await _update_store_and_ctx(response.patch, runtime.store, runtime.context.repo_dir)
         except Exception:
             logger.exception("[%s] Error updating store and ctx.", bash_tool.name)
             return "error: Failed to finalize the commands.", None
 
     return json.dumps([result.model_dump(mode="json") for result in response.results]), response.results[-1]
+
+
+@tool(FORMAT_CODE_TOOL_NAME, parse_docstring=True)
+async def format_code_tool(placeholder: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+    """
+    Applies code formatting and linting fixes to the repository to resolve style and linting issues introduced by recent changes.
+
+    **Usage rules:**
+     - This tool runs the repository's configured formatting tool (e.g., `ruff format`, `black`, `prettier`, etc.).
+     - Use this tool after making code changes to ensure compliance with the project's code style guidelines.
+     - You must use your `edit`, `write`, `delete`, `rename` tools at least once in the conversation before formatting the code. This tool will error if you attempt to format the code without changing any files.
+     - The tool will return the output of the formatting command if it fails with the details of the error for you to fix. If the formatting command succeeds, the tool will return a success message.
+
+    Args:
+        placeholder: Unused parameter (for compatibility). Leave empty.
+
+    Returns:
+        str: The output of the format code command execution.
+    """  # noqa: E501
+    if not runtime.context.config.sandbox.enabled or not runtime.context.config.sandbox.format_code:
+        return "warning: Format code is not enabled for this repository."
+
+    if not await has_file_changes(runtime.store):
+        return "warning: No changes were made to any files, skipping formatting the code."
+
+    tool_call_id = uuid.uuid4()
+
+    # we need to pass a tool call in order to get the artifact, otherwise the tool will return only a string
+    tool_message: ToolMessage = await bash_tool.ainvoke({
+        "type": "tool_call",
+        "name": bash_tool.name,
+        "id": tool_call_id,
+        "args": {
+            "commands": runtime.context.config.sandbox.format_code,
+            "runtime": ToolRuntime[RuntimeCtx, StateT](
+                state=runtime.state,
+                tool_call_id=tool_call_id,
+                config=runtime.config,
+                context=runtime.context,
+                store=runtime.store,
+                stream_writer=runtime.stream_writer,
+            ),
+        },
+    })
+
+    if tool_message.artifact is None:
+        return "error: Failed to format code. The format code tool is not working properly."
+    elif tool_message.artifact.exit_code != 0:
+        return dedent(f"""\
+            error: Failed to format code:
+            <command>{tool_message.artifact.command}</command>
+            <exit_code>{tool_message.artifact.exit_code}</exit_code>
+            <output>{tool_message.artifact.output}</output>""")
+
+    return "success: Code formatted."

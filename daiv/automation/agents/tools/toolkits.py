@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from .editing import delete_tool, diff_tool, edit_tool, rename_tool, write_tool
+from .editing import delete_tool, edit_tool, rename_tool, write_tool
 from .merge_request import job_logs_tool, pipeline_tool
 from .navigation import glob_tool, grep_tool, ls_tool, read_tool
 from .sandbox import bash_tool
@@ -44,7 +44,7 @@ class FileEditingToolkit(BaseToolkit):
 
     @classmethod
     def get_tools(cls) -> list[BaseTool]:
-        return [write_tool, edit_tool, delete_tool, rename_tool, diff_tool]
+        return [write_tool, edit_tool, delete_tool, rename_tool]
 
 
 class SandboxToolkit(BaseToolkit):

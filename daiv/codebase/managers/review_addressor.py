@@ -189,6 +189,7 @@ class ReviewAddressorManager(BaseManager):
         super().__init__(client, repo_id, ref)
         self.merge_request_id = kwargs["merge_request_id"]
         self.note_processor = NoteProcessor()
+        self.ctx = get_runtime_ctx()
 
     @classmethod
     async def process_review_comments(cls, repo_id: str, merge_request_id: int, ref: str | None = None):
@@ -236,6 +237,7 @@ class ReviewAddressorManager(BaseManager):
         config = RunnableConfig(
             tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
             metadata={"merge_request_id": self.merge_request_id},
+            recursion_limit=review_addressor_settings.RECURSION_LIMIT,
             configurable={
                 "source_repo_id": self.repo_id,
                 "source_ref": self.ref,
@@ -243,29 +245,52 @@ class ReviewAddressorManager(BaseManager):
             },
         )
 
-        reviewer_addressor = await ReviewAddressorAgent.get_runnable(store=self._file_changes_store)
+        reviewer_addressor = await ReviewAddressorAgent.get_runnable(
+            store=self._file_changes_store,
+            skip_format_code=not bool(self.ctx.config.sandbox.enabled and self.ctx.config.sandbox.format_code),
+        )
+
+        started_discussions = []
+        resolved_discussions_ids = []
 
         try:
             async for result in reviewer_addressor.astream(
-                {"to_review": review_contexts}, config, stream_mode="custom"
+                {"to_review": review_contexts}, config, stream_mode="custom", context=self.ctx
             ):
+                discussion = result["review_context"].discussion
+
                 if result.get("plan_and_execute") == "starting":
+                    started_discussions.append(discussion)
                     self.client.create_merge_request_note_emoji(
-                        self.repo_id, self.merge_request_id, Emoji.THUMBSUP, result["discussion_id"]
+                        self.repo_id, self.merge_request_id, Emoji.THUMBSUP, result["review_context"].notes[-1].id
                     )
                 elif result.get("plan_and_execute") == "completed":
-                    self.client.mark_merge_request_comment_as_resolved(
-                        self.repo_id, self.merge_request_id, result["discussion_id"]
-                    )
-                elif result.get("reply"):
+                    started_discussions.remove(discussion)
+                    resolved_discussions_ids.append(discussion.resolve_id)
+
+                if result.get("reply"):
                     self.client.create_merge_request_comment(
-                        self.repo_id, self.merge_request_id, result["reply"], reply_to_id=result["discussion_id"]
+                        self.repo_id,
+                        self.merge_request_id,
+                        result["reply"],
+                        reply_to_id=discussion.id if discussion.is_thread else None,
                     )
         except Exception:
             logger.exception("Error processing review comments")
-            note_message = "⚠️ I was unable to address the request due to an unexpected error."
-            self.client.create_merge_request_comment(self.repo_id, self.merge_request_id, note_message)
-        else:
+            for discussion in started_discussions:
+                self.client.create_merge_request_comment(
+                    self.repo_id,
+                    self.merge_request_id,
+                    (
+                        "⚠️ I was unable to address the request due to an unexpected error. "
+                        "Reply to this comment to try again."
+                    ),
+                    reply_to_id=discussion.id if discussion.is_thread else None,
+                )
+        finally:
+            for resolve_id in resolved_discussions_ids:
+                self.client.mark_merge_request_comment_as_resolved(self.repo_id, self.merge_request_id, resolve_id)
+
             if file_changes := await get_file_changes(self._file_changes_store):
                 await self._commit_changes(file_changes=file_changes)
 
@@ -299,11 +324,7 @@ class ReviewAddressorManager(BaseManager):
                 logger.info("Ignoring discussion, no DAIV mention in latest note: %s", discussion.id)
                 continue
 
-            context = ReviewContext(
-                discussion_id=discussion.id,
-                resolve_id=discussion.resolve_id or discussion.id,
-                notes=notes_to_messages(discussion.notes, self.client.current_user.id),
-            )
+            context = ReviewContext(discussion=discussion.as_simple())
 
             for note in discussion.notes:
                 if note.type == NoteType.DISCUSSION_NOTE:
@@ -320,12 +341,10 @@ class ReviewAddressorManager(BaseManager):
                         logger.warning("Ignoring note, path not found in patches: %s", note.id)
                         continue
 
-                    if context.patch_file is None:
+                    if context.diff is None:
                         # This logic assumes that all notes will have the same patch file
-                        context.patch_file = merge_request_patches[path]
-
                         context.diff = self.note_processor.extract_diff(
-                            note, context.patch_file, self._get_file_content(path)
+                            note, merge_request_patches[path], self._get_file_content(path)
                         )
                 else:
                     raise ValueError(f"Unsupported note type: {note.type}")
@@ -333,6 +352,7 @@ class ReviewAddressorManager(BaseManager):
                 context.notes.append(note)
 
             if context.notes:
+                context.notes = notes_to_messages(context.notes, self.client.current_user.id)
                 review_contexts.append(context)
         return review_contexts
 
@@ -353,9 +373,7 @@ class ReviewAddressorManager(BaseManager):
             return None
 
         review_context = ReviewContext(
-            discussion_id=latest_comment.id,
-            resolve_id=latest_comment.resolve_id or latest_comment.id,
-            diff=merge_request_patches["__all__"].__str__(),
+            discussion=latest_comment.as_simple(), diff=merge_request_patches["__all__"].__str__()
         )
 
         # If the latest comment is a thread, we only include the notes from the thread.
