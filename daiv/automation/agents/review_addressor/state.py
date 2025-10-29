@@ -18,17 +18,6 @@ class ReviewInState(TypedDict):
     """
 
 
-class ReviewOutState(TypedDict):
-    """
-    The state of the review addressor agent.
-    """
-
-    replies: Annotated[list[tuple[str, str]], add]
-    """
-    Collection of all replies generated during the workflow.
-    """
-
-
 class ReplyReviewerState(TypedDict):
     """
     Schema for the reply reviewer agent.
@@ -40,7 +29,7 @@ class ReplyReviewerState(TypedDict):
     """
 
 
-class OverallState(ReviewInState, ReviewOutState):
+class OverallState(ReviewInState):
     to_reply: Annotated[list[ReviewContext], add]
     """
     The discussions to reply the reviewer for.

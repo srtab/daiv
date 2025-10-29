@@ -223,6 +223,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             context=runtime.context,
         )
 
+        if "structured_response" not in response:
+            return Command(goto=END, update={"messages": [response["messages"][-1]]})
+
         structured_response: FinalizerOutput = response["structured_response"]
 
         if structured_response.type == "plan":
@@ -278,7 +281,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if runtime.context.config.sandbox.enabled:
             all_tools += SandboxToolkit.get_tools()
 
-            if not self.skip_format_code and runtime.context.config.sandbox.format_code:
+            if not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled:
                 all_tools.append(format_code_tool)
 
         executor_agent = create_agent(
@@ -290,7 +293,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             middleware=[
                 ExecutorMiddleware(
                     enable_bash=runtime.context.config.sandbox.enabled,
-                    enable_format_code=not self.skip_format_code and runtime.context.config.sandbox.format_code,
+                    enable_format_code=not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled,
                 ),
                 TodoListMiddleware(),
                 AnthropicPromptCachingMiddleware(),

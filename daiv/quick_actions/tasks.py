@@ -52,7 +52,7 @@ async def execute_issue_task(repo_id: str, action_command: str, action_args: str
 
         error_message = jinja2_formatter(
             QUICK_ACTION_ERROR_MESSAGE,
-            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
+            command=f"@{client.current_user.username} /{action_command} {action_args}".strip(),
         )
 
         client.create_issue_comment(repo_id, issue_id, error_message)
@@ -106,7 +106,7 @@ async def execute_merge_request_task(
 
         error_message = jinja2_formatter(
             QUICK_ACTION_ERROR_MESSAGE,
-            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
+            command=f"@{client.current_user.username} /{action_command} {action_args}".strip(),
         )
 
         client.create_merge_request_comment(repo_id, merge_request.merge_request_id, error_message)

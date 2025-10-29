@@ -55,25 +55,6 @@ ISSUE_NO_CHANGES_NEEDED_TEMPLATE = """### ✅ ***No Changes Needed***
 """  # noqa: E501
 
 
-ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE = """### 🤔 Can't Draft a Plan Yet
-
-I couldn't generate a detailed plan because the issue is missing a few key details.
-
-**Please help by:**
-
-* **Expanding the description** - What behaviour are you seeing and what did you expect?
-* **Adding concrete examples** - failing tests, stack traces, screenshots, or sample input/output.
-* **Stating acceptance criteria** - How will we know the fix is complete?
-
----
-
-💡 **Next steps**
-
-1. Edit the issue's **title and/or description** to include the details above.
-2. After you save, I'll automatically attempt to draft a new plan and post an update.
-"""  # noqa: E501
-
-
 ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE = """### ⚠️ Error Executing the Plan
 
 An error occurred while applying the implementation plan.

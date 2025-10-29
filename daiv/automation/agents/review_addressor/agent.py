@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from textwrap import dedent
 from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
@@ -12,7 +11,6 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain.tools import ToolRuntime
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
-from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -34,7 +32,7 @@ from core.constants import BOT_NAME
 from .conf import settings
 from .prompts import respond_reviewer_system, review_comment_system, review_human
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
-from .state import OverallState, ReplyAgentState, ReplyReviewerState, ReviewInState, ReviewOutState
+from .state import OverallState, ReplyAgentState, ReplyReviewerState, ReviewInState
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
@@ -114,9 +112,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled workflow.
         """
-        workflow = StateGraph(
-            OverallState, input_schema=ReviewInState, output_schema=ReviewOutState, context_schema=RuntimeCtx
-        )
+        workflow = StateGraph(OverallState, input_schema=ReviewInState, context_schema=RuntimeCtx)
 
         workflow.add_node("evaluate_review_comments", self.evaluate_review_comments)
         workflow.add_node("collect_evaluations", self.collect_evaluations, defer=True)
@@ -228,8 +224,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 completed_data["reply"] = plan_questions
             elif no_changes_needed := result.get("no_changes_needed"):
                 completed_data["reply"] = no_changes_needed
-            elif "plan_tasks" in result and result["messages"][-1].type == "ai":
+            else:
                 # if a plan has been generated, means that the changes have been applied
+                # if not, we share the final message from the agent with the human
                 completed_data["reply"] = result["messages"][-1].content
 
             stream_writer(completed_data)
@@ -304,7 +301,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             return {}
 
         tool_call_id = uuid.uuid4()
-        result = await bash_tool.ainvoke({
+        await bash_tool.ainvoke({
             "type": "tool_call",
             "name": bash_tool.name,
             "id": tool_call_id,
@@ -321,18 +318,4 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             },
         })
 
-        # If the command failed to format the code, we need to ask the user to agent to try to fix the formatting errors
-        if result.artifact is not None and result.artifact.exit_code != 0:
-            plan_and_execute_agent = await PlanAndExecuteAgent.get_runnable(
-                store=runtime.store, checkpointer=self.checkpointer
-            )
-            prompt = dedent("""\
-                The following command failed to format the code. Analyze the output and fix the formatting errors:
-
-                <command>{result.artifact.command}</command>
-                <exit_code>{result.artifact.exit_code}</exit_code>
-                <output>
-                    {result.artifact.output}
-                </output>""")
-            await plan_and_execute_agent.ainvoke({"messages": [HumanMessage(content=prompt)]}, context=runtime.context)
         return {}

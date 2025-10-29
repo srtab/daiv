@@ -92,6 +92,13 @@ class Sandbox(BaseModel):
         """
         return self.base_image is not None
 
+    @property
+    def format_code_enabled(self) -> bool:
+        """
+        Check if the format code is enabled.
+        """
+        return self.enabled and self.format_code is not None
+
 
 class RepositoryConfig(BaseModel):
     """

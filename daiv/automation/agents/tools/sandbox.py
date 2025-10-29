@@ -203,7 +203,7 @@ async def format_code_tool(placeholder: str, runtime: ToolRuntime[RuntimeCtx]) -
     Returns:
         str: The output of the format code command execution.
     """  # noqa: E501
-    if not runtime.context.config.sandbox.enabled or not runtime.context.config.sandbox.format_code:
+    if not runtime.context.config.sandbox.format_code_enabled:
         return "warning: Format code is not enabled for this repository."
 
     if not await has_file_changes(runtime.store):
