@@ -18,13 +18,12 @@ from langgraph.types import Command, interrupt
 from automation.agents import BaseAgent
 from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.tools.navigation import READ_MAX_LINES
-from automation.agents.tools.sandbox import BASH_TOOL_NAME, format_code_tool
+from automation.agents.tools.sandbox import BASH_TOOL_NAME, FORMAT_CODE_TOOL_NAME, SandboxMiddleware
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
     MCPToolkit,
     MergeRequestToolkit,
-    SandboxToolkit,
     WebSearchToolkit,
 )
 from codebase.context import RuntimeCtx
@@ -99,17 +98,7 @@ class ExecutorMiddleware(AgentMiddleware):
     Middleware to select the tools for the executor agent based on the tool calls.
     """
 
-    def __init__(self, *, enable_bash: bool = False, enable_format_code: bool = False):
-        """
-        Initialize the middleware.
-
-        Args:
-            enable_bash (bool): Whether to enable the bash tool.
-            enable_format_code (bool): Whether to enable the format code tool.
-        """
-        super().__init__()
-        self.enable_bash = enable_bash
-        self.enable_format_code = enable_format_code
+    name = "executor_middleware"
 
     async def abefore_agent(self, state: ExecutorState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -138,14 +127,14 @@ class ExecutorMiddleware(AgentMiddleware):
         Returns:
             ModelCallResult: The result of the model call.
         """
+        tools_names = [tool.name for tool in request.tools]
         request.system_prompt = execute_plan_system.format(
             current_date_time=timezone.now().strftime("%d %B, %Y"),
             repository=request.runtime.context.repo_id,
-            commands_enabled=self.enable_bash,
-            format_code_enabled=self.enable_format_code,
-            tools_names=[tool.name for tool in request.tools],
+            commands_enabled=BASH_TOOL_NAME in tools_names,
+            format_code_enabled=FORMAT_CODE_TOOL_NAME in tools_names,
+            tools_names=tools_names,
         ).content
-
         return await handler(request)
 
 
@@ -195,14 +184,20 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        mcp_tools = await MCPToolkit.get_tools()
-        file_navigation_tools = FileNavigationToolkit.get_tools()
-        web_search_tools = WebSearchToolkit.get_tools()
 
-        all_tools: list[BaseTool] = mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool]
+        all_tools: list[BaseTool] = (
+            (await MCPToolkit.get_tools())
+            + FileNavigationToolkit.get_tools()
+            + WebSearchToolkit.get_tools()
+            + [plan_think_tool]
+        )
 
         if runtime.context.merge_request_id:
             all_tools.extend(MergeRequestToolkit.get_tools())
+
+        conditional_middlewares: list[AgentMiddleware] = []
+        if runtime.context.config.sandbox.enabled:
+            conditional_middlewares.append(SandboxMiddleware(read_only_bash=True))
 
         planner_agent = create_agent(
             model=BaseAgent.get_model(
@@ -213,7 +208,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             checkpointer=False,
             context_schema=RuntimeCtx,
             response_format=ToolStrategy(FinalizerOutput),
-            middleware=[plan_system_prompt, InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
+            middleware=[
+                plan_system_prompt,
+                InjectImagesMiddleware(),
+                *conditional_middlewares,
+                AnthropicPromptCachingMiddleware(),
+            ],
             name="planner_agent",
         )
 
@@ -274,27 +274,25 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        all_tools: list[BaseTool] = (
-            FileNavigationToolkit.get_tools() + FileEditingToolkit.get_tools() + [review_code_changes_tool]
-        )
-
+        conditional_middlewares: list[AgentMiddleware] = []
         if runtime.context.config.sandbox.enabled:
-            all_tools += SandboxToolkit.get_tools()
-
-            if not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled:
-                all_tools.append(format_code_tool)
+            conditional_middlewares.append(
+                SandboxMiddleware(
+                    include_format_code=bool(
+                        not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled
+                    )
+                )
+            )
 
         executor_agent = create_agent(
             model=BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME, max_tokens=8_192),
             state_schema=ExecutorState,
             context_schema=RuntimeCtx,
-            tools=all_tools,
+            tools=(FileNavigationToolkit.get_tools() + FileEditingToolkit.get_tools() + [review_code_changes_tool]),
             store=runtime.store,
             middleware=[
-                ExecutorMiddleware(
-                    enable_bash=runtime.context.config.sandbox.enabled,
-                    enable_format_code=not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled,
-                ),
+                ExecutorMiddleware(),
+                *conditional_middlewares,
                 TodoListMiddleware(),
                 AnthropicPromptCachingMiddleware(),
             ],

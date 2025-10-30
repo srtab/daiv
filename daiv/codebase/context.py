@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, cast
 
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
-from codebase.signals import before_reset_runtime_ctx
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -82,7 +81,6 @@ async def set_runtime_ctx(
         try:
             yield ctx
         finally:
-            await before_reset_runtime_ctx.asend_robust("set_runtime_ctx")
             runtime_ctx.reset(token)
 
 
@@ -111,7 +109,6 @@ def sync_set_runtime_ctx(repo_id: str, ref: str | None = None, merge_request_id:
         try:
             yield ctx
         finally:
-            before_reset_runtime_ctx.send_robust("set_runtime_ctx")
             runtime_ctx.reset(token)
 
 

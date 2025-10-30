@@ -69,7 +69,7 @@ WORKFLOW
 
 ### Phase 1: Understand (Required)
 1. **Plan your approach** using `think` - outline what you need to investigate
-2. **Gather context** using investigation tools (`ls`, `read`, `grep`, `glob`, `fetch`, `web_search`, etc.)
+2. **Gather context** using investigation tools (`ls`, `read`, `grep`, `glob`, `fetch`, `web_search`,{% if commands_enabled %} `bash`,{% endif %} etc.)
 3. **Update your understanding** with `think` as you learn new information
 
 ### Phase 2: Deliver (Required)

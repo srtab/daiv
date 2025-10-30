@@ -26,7 +26,8 @@ def plan_think_tool(plan: str):
 
     **Usage rules:**
     - Does NOT fetch new information or modify anything, it's just a placeholder to help you track progress.
-    - Update tasks as you learn new information to help you track progress.
+    - Add any new follow-up tasks as you discover them during your investigation.
+    - You can also update future tasks, such as deleting them if they are no longer necessary, or adding new tasks that are necessary. Don't change previously completed tasks.
     - **Important:** It is critical that you mark tasks as completed as soon as you are done with them. Do not batch up multiple tasks before marking them as completed.
 
     **Skip using this tool when:**
@@ -35,8 +36,10 @@ def plan_think_tool(plan: str):
     - The task can be completed in less than 3 trivial steps
     - The task is purely conversational or informational
 
+    Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
+
     Args:
-        plan (str): The plan to investigate.
+        plan (str): The plan to investigate in markdown format.
 
     Returns:
         A message indicating that the thought has been registered.
