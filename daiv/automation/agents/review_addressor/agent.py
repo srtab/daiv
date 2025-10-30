@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
@@ -9,10 +8,9 @@ from django.utils import timezone
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
-from langchain.tools import ToolRuntime
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import START
@@ -23,11 +21,13 @@ from langgraph.types import Send
 from automation.agents import BaseAgent
 from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.tools.sandbox import bash_tool
+from automation.agents.tools.sandbox import _run_bash_commands
 from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
 from automation.utils import has_file_changes
 from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
+from core.sandbox.client import DAIVSandboxClient
+from core.sandbox.schemas import StartSessionRequest
 
 from .conf import settings
 from .prompts import respond_reviewer_system, review_comment_system, review_human
@@ -110,7 +110,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Compile the workflow for the agent.
 
         Returns:
-            CompiledStateGraph: The compiled workflow.
+            CompiledStateGraph: The compiled state graph.
         """
         workflow = StateGraph(OverallState, input_schema=ReviewInState, context_schema=RuntimeCtx)
 
@@ -165,7 +165,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             state (ReviewState): The state of the agent.
 
         Returns:
-            dict: The next step in the workflow.
+            dict: The result of the evaluate review comments.
         """
         review_comment_evaluator = await ReviewCommentEvaluator.get_runnable()
         response = await review_comment_evaluator.ainvoke({"messages": state["review_context"].notes})
@@ -181,6 +181,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         This deferred node waits for all parallel assessment tasks to complete
         and collects the classified reviews into to_reply and to_plan_and_execute lists.
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            dict: The result of the collect evaluations.
         """
         # Just pass through - the state reducers will have collected everything
         return {}
@@ -191,6 +197,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         - to_reply reviews are sent to reply_reviewer in parallel (one Send per review)
         - to_plan_and_execute reviews are sent as a batch to sequential_processor
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            list[Send]: The sends to the processors.
         """
         sends = []
 
@@ -210,6 +222,13 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         Each review that requires code changes is processed one at a time,
         ensuring that file modifications don't conflict with each other.
+
+        Args:
+            state (OverallState): The state of the agent.
+            runtime (Runtime[RuntimeCtx]): The runtime context.
+
+        Returns:
+            dict: The result of the plan and execute processor.
         """
         stream_writer = get_stream_writer()
 
@@ -238,6 +257,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         This deferred node waits for both reply_reviewer and sequential_processor
         to complete and collects all replies.
+
+        Args:
+            state (OverallState): The state of the agent.
+
+        Returns:
+            dict: The result of the final aggregation.
         """
         # All replies have been collected via the state reducers
         return {}
@@ -291,31 +316,26 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         return {}
 
-    async def apply_format_code(
-        self, state: OverallState, config: RunnableConfig, runtime: Runtime[RuntimeCtx]
-    ) -> dict:
+    async def apply_format_code(self, state: OverallState, runtime: Runtime[RuntimeCtx]) -> dict:
         """
         Apply format code to the file changes.
+
+        Args:
+            state (OverallState): The state of the agent.
+            runtime (Runtime[RuntimeCtx]): The runtime context.
+
+        Returns:
+            dict: The result of the format code application.
         """
         if not await has_file_changes(runtime.store):
             return {}
 
-        tool_call_id = uuid.uuid4()
-        await bash_tool.ainvoke({
-            "type": "tool_call",
-            "name": bash_tool.name,
-            "id": tool_call_id,
-            "args": {
-                "commands": runtime.context.config.sandbox.format_code,
-                "runtime": ToolRuntime[RuntimeCtx](
-                    state=state,
-                    tool_call_id=tool_call_id,
-                    config=config,
-                    context=runtime.context,
-                    store=runtime.store,
-                    stream_writer=runtime.stream_writer,
-                ),
-            },
-        })
+        daiv_sandbox_client = DAIVSandboxClient()
+
+        session_id = await daiv_sandbox_client.start_session(
+            StartSessionRequest(base_image=runtime.context.config.sandbox.base_image)
+        )
+        await _run_bash_commands(runtime.context.config.sandbox.format_code, runtime.context.repo_dir, session_id)
+        await daiv_sandbox_client.close_session(session_id)
 
         return {}
