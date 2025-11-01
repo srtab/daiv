@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from quick_actions.base import Scope
 from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
@@ -27,7 +26,6 @@ class TestExecuteQuickActionTask:
             target_branch="target_branch",
         )
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_execute_action_success_issue(self, mock_registry, mock_repo_client):
         """Test successful execution of quick action on issue."""
@@ -67,7 +65,6 @@ class TestExecuteQuickActionTask:
             repo_id="repo123", comment=self.discussion, issue=self.issue, args="arg1 arg2"
         )
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_execute_action_success_merge_request(self, mock_registry, mock_repo_client):
         """Test successful execution of quick action on merge request."""
@@ -106,7 +103,6 @@ class TestExecuteQuickActionTask:
             repo_id="repo123", args="", comment=self.discussion, merge_request=self.merge_request
         )
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_action_not_found(self, mock_registry):
         """Test when quick action is not found in registry."""
@@ -124,7 +120,6 @@ class TestExecuteQuickActionTask:
         # Verify registry was called
         mock_registry.get_actions.assert_called_once_with(command="nonexistent", scope=Scope.ISSUE)
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_multiple_actions_found(self, mock_registry):
         """Test when multiple actions are found for same command/scope."""
@@ -147,7 +142,6 @@ class TestExecuteQuickActionTask:
         # Verify registry was called
         mock_registry.get_actions.assert_called_once_with(command="duplicate", scope=Scope.ISSUE)
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_action_execution_exception_issue(self, mock_registry, mock_repo_client):
         """Test handling of exception during action execution on issue."""
@@ -181,7 +175,6 @@ class TestExecuteQuickActionTask:
         assert "failing_action" in call_args[0][2]
         assert "reply_to_id" not in call_args[1]  # to make sure we don't reply to the comment as thread
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_action_execution_exception_merge_request(self, mock_registry, mock_repo_client):
         """Test handling of exception during action execution on merge request."""
@@ -215,7 +208,6 @@ class TestExecuteQuickActionTask:
         assert "failing_action" in call_args[0][2]
         assert "reply_to_id" not in call_args[1]  # to make sure we don't reply to the comment as thread
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_scope_conversion(self, mock_registry, mock_repo_client):
         """Test that string scope is converted to Scope enum."""
@@ -244,7 +236,6 @@ class TestExecuteQuickActionTask:
 
         mock_action_instance.execute_for_merge_request.assert_called_once()
 
-    @pytest.mark.asyncio
     @patch("quick_actions.tasks.quick_action_registry")
     async def test_execute_with_empty_action_args(self, mock_registry, mock_repo_client):
         """Test execution with empty action_args string."""

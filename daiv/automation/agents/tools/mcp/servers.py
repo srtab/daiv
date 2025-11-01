@@ -39,4 +39,4 @@ class SentryMCPServer(MCPServer):
     )
 
     def is_enabled(self) -> bool:
-        return settings.SENTRY_ENABLED and settings.SENTRY_ACCESS_TOKEN
+        return bool(settings.SENTRY_ENABLED and settings.SENTRY_ACCESS_TOKEN)

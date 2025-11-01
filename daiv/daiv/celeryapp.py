@@ -29,20 +29,26 @@ def _async_to_sync_wrapper(async_func: Callable[..., Any]) -> Callable[..., Any]
     @functools.wraps(async_func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
         async def wrapped_with_context() -> Any:
-            async with ThreadSensitiveContext():
-                return await async_func(*args, **kwargs)
+            try:
+                # Close stale connections BEFORE task execution
+                close_old_connections()
 
+                async with ThreadSensitiveContext():
+                    return await async_func(*args, **kwargs)
+            finally:
+                # Close connections AFTER task execution
+                close_old_connections()
+
+        # Check if we're already in an event loop (e.g., during tests with CELERY_TASK_ALWAYS_EAGER)
         try:
-            # Close stale connections BEFORE task execution
-            # (Matches Django's request_started signal behavior)
-            close_old_connections()
-
-            # Run the async task with per-task executor isolation
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running, create a new one (normal Celery worker behavior)
             return asyncio.run(wrapped_with_context())
-        finally:
-            # Close connections AFTER task execution
-            # (Matches Django's request_finished signal behavior)
-            close_old_connections()
+        else:
+            # Already in an event loop (test scenario)
+            # Return the coroutine directly so it can be awaited by the async test
+            return wrapped_with_context()
 
     # Preserve function signature for inspection
     sync_wrapper.__signature__ = inspect.signature(async_func)
