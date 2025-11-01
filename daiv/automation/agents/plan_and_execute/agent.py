@@ -6,64 +6,43 @@ from typing import TYPE_CHECKING, Any, Literal
 from django.utils import timezone
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelRequest, before_agent, dynamic_prompt
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse, TodoListMiddleware, dynamic_prompt
 from langchain.agents.structured_output import ToolStrategy
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.store.base import BaseStore  # noqa: TC002
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.middleware import FormatCodeMiddleware, InjectImagesMiddleware
-from automation.agents.tools import think_tool
-from automation.agents.tools.navigation import READ_MAX_LINES
+from automation.agents.middleware import AgentsMDMiddleware, InjectImagesMiddleware
+from automation.agents.tools.sandbox import BASH_TOOL_NAME, FORMAT_CODE_TOOL_NAME, SandboxMiddleware
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
     MCPToolkit,
     MergeRequestToolkit,
-    SandboxToolkit,
     WebSearchToolkit,
 )
-from codebase.context import RuntimeCtx, get_runtime_ctx
+from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
 
 from .conf import settings
 from .prompts import execute_plan_human, execute_plan_system, plan_system
-from .schemas import FinalizerOutput
+from .schemas import FinalizerOutput, FinishOutput
 from .state import ExecutorState, PlanAndExecuteState
-from .tools import plan_think_tool
+from .tools import plan_think_tool, review_code_changes_tool
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+    from collections.abc import Awaitable, Callable
+
+    from langchain.agents.middleware.types import ModelCallResult
     from langchain_core.tools import BaseTool
     from langgraph.runtime import Runtime
 
 
 logger = logging.getLogger("daiv.agents")
-
-
-def get_agents_md_content(ctx: RuntimeCtx) -> str | None:
-    """
-    Get the agent instructions from the AGENTS.md file case insensitive.
-    If multiple files are found, return the first one.
-    If the file is too long, return the first `max_lines` lines.
-
-    Args:
-        ctx (RuntimeCtx): The runtime context.
-
-    Returns:
-        str | None: The agents instructions from the AGENTS.md file.
-    """
-    if not ctx.config.context_file_name:
-        return None
-
-    for path in ctx.repo_dir.glob(ctx.config.context_file_name, case_sensitive=False):
-        if path.is_file() and path.name.endswith(".md"):
-            return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
-    return None
 
 
 @dynamic_prompt
@@ -77,50 +56,60 @@ def plan_system_prompt(request: ModelRequest) -> str:
     Returns:
         str: The dynamic prompt for the plan system.
     """
+    tools_names = [tool.name for tool in request.tools]
     return plan_system.format(
         current_date_time=timezone.now().strftime("%d %B, %Y"),
         repository=request.runtime.context.repo_id,
-        agents_md_content=get_agents_md_content(request.runtime.context),
-        tools_names=[tool.name for tool in request.tools],
+        tools_names=tools_names,
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
-        commands_enabled=request.runtime.context.config.sandbox.enabled,
+        commands_enabled=BASH_TOOL_NAME in tools_names,
     ).content
 
 
-@dynamic_prompt
-def executor_system_prompt(request: ModelRequest) -> str:
+class ExecutorMiddleware(AgentMiddleware):
     """
-    Dynamic prompt for the executor system.
-
-    Args:
-        request (ModelRequest): The request to the model.
-
-    Returns:
-        str: The dynamic prompt for the executor system.
+    Middleware to select the tools for the executor agent based on the tool calls.
     """
-    return execute_plan_system.format(
-        current_date_time=timezone.now().strftime("%d %B, %Y"),
-        repository=request.runtime.context.repo_id,
-        commands_enabled=request.runtime.context.config.sandbox.enabled,
-        tools_names=[tool.name for tool in request.tools],
-    ).content
 
+    name = "executor_middleware"
 
-@before_agent
-async def change_plan_formatter(state: ExecutorState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
-    """
-    Format the change plan message to the executor agent.
+    async def abefore_agent(self, state: ExecutorState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """
+        Inject the change plan into the messages as a human message.
 
-    Args:
-        state (ExecutorState): The state of the executor agent.
-        runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
+        Args:
+            state (ExecutorState): The state of the executor agent.
+            runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
 
-    Returns:
-        dict[str, Any] | None: The state updates with the formatted messages.
-    """
-    prompt = ChatPromptTemplate.from_messages([execute_plan_human])
-    return {"messages": await prompt.aformat_messages(**state)}
+        Returns:
+            dict[str, Any] | None: The state updates with the formatted messages.
+        """
+        prompt = ChatPromptTemplate.from_messages([execute_plan_human])
+        return {"messages": await prompt.aformat_messages(**state)}
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelCallResult:
+        """
+        Select the tools for the executor agent based on the tool calls.
+
+        Args:
+            request (ModelRequest): The request to the model.
+            handler (Callable[[ModelRequest], ModelResponse]): The handler to call the model.
+
+        Returns:
+            ModelCallResult: The result of the model call.
+        """
+        tools_names = [tool.name for tool in request.tools]
+        request.system_prompt = execute_plan_system.format(
+            current_date_time=timezone.now().strftime("%d %B, %Y"),
+            repository=request.runtime.context.repo_id,
+            commands_enabled=BASH_TOOL_NAME in tools_names,
+            format_code_enabled=FORMAT_CODE_TOOL_NAME in tools_names,
+            tools_names=tools_names,
+        ).content
+        return await handler(request)
 
 
 class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
@@ -138,7 +127,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
-        self.ctx = get_runtime_ctx()
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -148,7 +136,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled workflow.
         """
-        workflow = StateGraph(PlanAndExecuteState)
+        workflow = StateGraph(PlanAndExecuteState, context_schema=RuntimeCtx)
 
         workflow.add_node("plan", self.plan)
         workflow.add_node("plan_approval", self.plan_approval)
@@ -158,45 +146,60 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         return workflow.compile(checkpointer=self.checkpointer, store=self.store, name=settings.NAME)
 
     async def plan(
-        self, state: PlanAndExecuteState, store: BaseStore, config: RunnableConfig
+        self, state: PlanAndExecuteState, runtime: Runtime[RuntimeCtx]
     ) -> Command[Literal["plan_approval", "__end__"]]:
         """
         Node to plan the steps to follow.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
-            store (BaseStore): The store to use for caching.
+            runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        mcp_tools = await MCPToolkit.get_tools()
-        file_navigation_tools = FileNavigationToolkit.get_tools()
-        web_search_tools = WebSearchToolkit.get_tools()
 
-        all_tools: list[BaseTool] = mcp_tools + file_navigation_tools + web_search_tools + [plan_think_tool]
+        all_tools: list[BaseTool] = (
+            (await MCPToolkit.get_tools())
+            + FileNavigationToolkit.get_tools()
+            + WebSearchToolkit.get_tools()
+            + [plan_think_tool]
+        )
 
-        if self.ctx.merge_request_id:
+        if runtime.context.merge_request_id:
             all_tools.extend(MergeRequestToolkit.get_tools())
+
+        conditional_middlewares: list[AgentMiddleware] = []
+        if runtime.context.config.sandbox.enabled:
+            conditional_middlewares.append(SandboxMiddleware(read_only_bash=True))
 
         planner_agent = create_agent(
             model=BaseAgent.get_model(
                 model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
             ),
             tools=all_tools,
-            store=store,
+            store=runtime.store,
             checkpointer=False,
             context_schema=RuntimeCtx,
             response_format=ToolStrategy(FinalizerOutput),
-            middleware=[plan_system_prompt, InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
+            middleware=[
+                plan_system_prompt,
+                InjectImagesMiddleware(),
+                AgentsMDMiddleware(),
+                *conditional_middlewares,
+                AnthropicPromptCachingMiddleware(),
+            ],
             name="planner_agent",
         )
 
         response = await planner_agent.ainvoke(
             {"messages": state["messages"]},
             config={"recursion_limit": settings.PLANNING_RECURSION_LIMIT},
-            context=self.ctx,
+            context=runtime.context,
         )
+
+        if "structured_response" not in response:
+            return Command(goto=END, update={"messages": [response["messages"][-1]]})
 
         structured_response: FinalizerOutput = response["structured_response"]
 
@@ -233,42 +236,47 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         return Command(goto="execute_plan")
 
-    async def execute_plan(self, state: PlanAndExecuteState, store: BaseStore) -> Command[Literal["__end__"]]:
+    async def execute_plan(
+        self, state: PlanAndExecuteState, runtime: Runtime[RuntimeCtx]
+    ) -> Command[Literal["__end__"]]:
         """
         Node to execute the plan.
 
         Args:
             state (PlanAndExecuteState): The state of the agent.
-            store (BaseStore): The store to use for caching.
+            runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        file_navigation_tools = FileNavigationToolkit.get_tools()
-        file_editing_tools = FileEditingToolkit.get_tools()
-
-        all_tools: list[BaseTool] = file_navigation_tools + file_editing_tools + [think_tool]
-
-        if self.ctx.config.sandbox.enabled:
-            all_tools.extend(SandboxToolkit.get_tools())
+        conditional_middlewares: list[AgentMiddleware] = []
+        if runtime.context.config.sandbox.enabled:
+            conditional_middlewares.append(
+                SandboxMiddleware(
+                    include_format_code=bool(
+                        not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled
+                    )
+                )
+            )
 
         executor_agent = create_agent(
             model=BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME, max_tokens=8_192),
             state_schema=ExecutorState,
             context_schema=RuntimeCtx,
-            tools=all_tools,
-            store=store,
+            tools=(FileNavigationToolkit.get_tools() + FileEditingToolkit.get_tools() + [review_code_changes_tool]),
+            store=runtime.store,
             middleware=[
-                executor_system_prompt,
-                change_plan_formatter,
-                FormatCodeMiddleware(skip_format_code=self.skip_format_code),
+                ExecutorMiddleware(),
+                *conditional_middlewares,
+                TodoListMiddleware(),
                 AnthropicPromptCachingMiddleware(),
             ],
+            response_format=ToolStrategy(FinishOutput),
             checkpointer=False,
             name="executor_agent",
         )
 
-        await executor_agent.ainvoke(
+        response = await executor_agent.ainvoke(
             {
                 "plan_tasks": state["plan_tasks"],
                 "relevant_files": list({
@@ -276,7 +284,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 }),
             },
             config={"recursion_limit": settings.EXECUTION_RECURSION_LIMIT},
-            context=self.ctx,
+            context=runtime.context,
         )
 
-        return Command(goto=END)
+        structured_response: FinishOutput = response["structured_response"]
+
+        return Command(goto=END, update={"messages": [AIMessage(content=structured_response.message)]})

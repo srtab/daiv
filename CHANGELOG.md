@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fixed async Celery tasks to properly handle Django connection pooling by implementing `ThreadSensitiveContext` wrapper and worker process signal handlers, preventing connection pool exhaustion.
 - Migrated LangChain and LangGraph to v1.x with updated imports and API patterns.
 - Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
 - Changed `CodebaseChatAgent` to only be able to answer questions about a repository at a time by passing the repository id as a header. This is direct consequence of removing codebase indexation, making it difficult to answer questions about multiple repositories at the same time. **BREAKING CHANGE**

@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import base64
-import uuid
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from langchain.agents.middleware import AgentMiddleware, hook_config
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
-from langchain_core.messages.content import ImageContentBlock, TextContentBlock
-from langchain_core.messages.tool import tool_call
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain_core.messages.content import ImageContentBlock, create_image_block, create_text_block
+from langgraph.types import Overwrite
 
-from automation.agents.tools.sandbox import bash_tool
+from automation.agents.tools.navigation import READ_MAX_LINES
 from automation.agents.utils import extract_images_from_text
-from automation.utils import has_file_changes
 from codebase.base import ClientType
 from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from langchain.agents.middleware.types import AgentState
     from langgraph.runtime import Runtime
 
@@ -89,13 +90,14 @@ class InjectImagesMiddleware(AgentMiddleware):
         # Convert images to proper content blocks
         extracted_images = await self._images_to_content_blocks(runtime.context.repo_id, extracted_images_data)
 
+        if not extracted_images:
+            return None
+
         # Return state update that removes old message and adds new one with structured content
         return {
             "messages": [
                 RemoveMessage(id=latest_message.id),
-                HumanMessage(
-                    content_blocks=[TextContentBlock(type="text", text=latest_message.content)] + extracted_images
-                ),
+                HumanMessage(content_blocks=[create_text_block(text=latest_message.content)] + extracted_images),
             ]
         }
 
@@ -139,95 +141,86 @@ class InjectImagesMiddleware(AgentMiddleware):
                     mime_type := extract_valid_image_mimetype(image_content)
                 ):
                     content_blocks.append(
-                        ImageContentBlock(
-                            type="image", base64=base64.b64encode(image_content).decode(), mime_type=mime_type
-                        )
+                        create_image_block(base64=base64.b64encode(image_content).decode(), mime_type=mime_type)
                     )
 
             # Handle generic valid URLs (external images)
             elif is_valid_url(image.url):
-                content_blocks.append(ImageContentBlock(type="image", url=image.url))
+                content_blocks.append(create_image_block(url=image.url))
 
         return content_blocks
 
 
-class FormatCodeMiddleware(AgentMiddleware):
+class AgentsMDMiddleware(AgentMiddleware):
     """
-    Middleware to apply format code to the repository to fix the linting issues in the pipeline at the end of the loop.
+    Middleware to inject the agents instructions from the AGENTS.md file into the agent state.
 
-    The middleware will only apply format code if the:
-    - Format code is enabled in the repository configuration.
-    - There are file changes made by the executor agent.
+    Example:
+        ```python
+        from langchain.agents import create_agent
+
+        agent = create_agent(
+            model="openai:gpt-4o",
+            middleware=[AgentsMDMiddleware()],
+            context_schema=RuntimeCtx,
+        )
+        ```
     """
 
-    name = "format_code_middleware"
+    name = "agents_md_middleware"
 
-    def __init__(self, *, skip_format_code: bool = False):
+    async def abefore_agent(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        Initialize the format code middleware.
+        Before the agent starts, inject the agents instructions from the AGENTS.md file into the agent state.
 
         Args:
-            skip_format_code (bool): Whether to skip the format code step.
-        """
-        super().__init__()
-        self.skip_format_code = skip_format_code
-        self._tool_call_id = f"tool_call__{uuid.uuid4().hex[:8]}"
-
-    @hook_config(can_jump_to=["end"])
-    async def abefore_model(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
-        """
-        Before the model call to apply the format code.
-
-        Args:
-            state (AgentState): The current agent state containing messages.
+            state (AgentState): The state of the agent.
             runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
 
         Returns:
-            dict[str, Any] | None: The state updates with the jump to, or None if no format code is needed.
+            dict[str, Any] | None: The state updates with the agents instructions from the AGENTS.md file.
         """
-        if (
-            not self.skip_format_code
-            and state["messages"][-1].type == "tool"
-            and state["messages"][-1].tool_call_id == self._tool_call_id
-        ):
-            return {"jump_to": "end"}
-        return None
+        agents_md_content = self._get_agents_md_content(
+            runtime.context.repo_dir, runtime.context.config.context_file_name
+        )
 
-    @hook_config(can_jump_to=["tools"])
-    async def aafter_model(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        if not agents_md_content:
+            return None
+
+        prepend_messages = [
+            HumanMessage(
+                content=dedent(
+                    """
+                    # AGENTS.md
+
+                    Here are instructions extracted from the AGENTS.md file for you to follow. If they are contradictory with your own instructions (system prompt), follow your own.
+
+                    ~~~markdown
+                    {agents_md_content}
+                    ~~~
+                    """  # noqa: E501
+                ).format(agents_md_content=agents_md_content)
+            )
+        ]
+
+        return {"messages": Overwrite(prepend_messages + state["messages"])}
+
+    def _get_agents_md_content(self, repo_dir: Path, context_file_name: str | None) -> str | None:
         """
-        After the model call to format the code.
+        Get the agent instructions from the AGENTS.md file case insensitive.
+        If multiple files are found, return the first one.
+        If the file is too long, return the first `max_lines` lines.
 
         Args:
-            state (AgentState): The current agent state containing messages.
-            runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
+            context_file_name (str | None): The name of the context file.
 
         Returns:
-            dict[str, Any] | None: State updates with new messages, or None if no format code is needed.
+            str | None: The agents instructions from the AGENTS.md file.
         """
+        if not context_file_name:
+            return None
 
-        if (
-            not self.skip_format_code
-            and runtime.context.config.sandbox.enabled
-            and runtime.context.config.sandbox.format_code
-            and await has_file_changes(runtime.store)
-            and (state["messages"][-1].type == "ai" and not state["messages"][-1].tool_calls)
-        ):
-            return {
-                "messages": [
-                    RemoveMessage(id=state["messages"][-1].id),
-                    AIMessage(
-                        content=state["messages"][-1].content,
-                        tool_calls=[
-                            tool_call(
-                                name=bash_tool.name,
-                                args={"commands": runtime.context.config.sandbox.format_code},
-                                id=self._tool_call_id,
-                            )
-                        ],
-                    ),
-                ],
-                "jump_to": "tools",
-            }
-
+        for path in repo_dir.glob(context_file_name, case_sensitive=False):
+            if path.is_file() and path.name.endswith(".md"):
+                return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
         return None

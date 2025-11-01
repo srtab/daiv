@@ -1,6 +1,6 @@
 from pydantic import Base64Str, BaseModel, Field, field_validator
 
-MAX_OUTPUT_LENGTH = 10000
+MAX_OUTPUT_LENGTH = 2000
 
 
 class StartSessionRequest(BaseModel):

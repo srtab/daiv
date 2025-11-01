@@ -11,7 +11,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ImageContentBlock
 
 from automation.utils import register_file_read
-from codebase.context import get_runtime_ctx
+from codebase.context import RuntimeCtx  # noqa: TC001
 from core.utils import extract_valid_image_mimetype
 
 logger = logging.getLogger("daiv.tools")
@@ -26,7 +26,7 @@ READ_MAX_LINES = 2000
 
 
 @tool(GLOB_TOOL_NAME, parse_docstring=True)
-def glob_tool(pattern: str, path: str | None = None) -> str:
+def glob_tool(pattern: str, runtime: ToolRuntime[RuntimeCtx], path: str | None = None) -> str:
     """
     Find files by name using a glob pattern.
 
@@ -45,9 +45,7 @@ def glob_tool(pattern: str, path: str | None = None) -> str:
     """  # noqa: E501
     logger.debug("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or "repository root")
 
-    ctx = get_runtime_ctx()
-
-    root = ctx.repo_dir if path is None else (ctx.repo_dir / path).resolve()
+    root = runtime.context.repo_dir if path is None else (runtime.context.repo_dir / path.strip()).resolve()
 
     # We assume that the root path is valid if it is not provided.
     if path is not None and (not root.exists() or not root.is_dir()):
@@ -86,7 +84,9 @@ def _run_ripgrep(pattern: str, root: Path, include: str | None) -> list[str]:
 
 
 @tool(GREP_TOOL_NAME, parse_docstring=True)
-def grep_tool(pattern: str, path: str | None = None, include: str | None = None) -> str:
+def grep_tool(
+    pattern: str, runtime: ToolRuntime[RuntimeCtx], path: str | None = None, include: str | None = None
+) -> str:
     """
     Search for files whose *contents* match a regex pattern.
 
@@ -114,9 +114,7 @@ def grep_tool(pattern: str, path: str | None = None, include: str | None = None)
         include,
     )
 
-    ctx = get_runtime_ctx()
-
-    root = ctx.repo_dir if path is None else (ctx.repo_dir / path).resolve()
+    root = runtime.context.repo_dir if path is None else (runtime.context.repo_dir / path.strip()).resolve()
 
     # We assume that the root path is valid if it is not provided.
     if path is not None and (not root.exists() or not root.is_dir()):
@@ -135,7 +133,7 @@ def grep_tool(pattern: str, path: str | None = None, include: str | None = None)
 
 
 @tool(LS_TOOL_NAME, parse_docstring=True)
-def ls_tool(path: str) -> str:
+def ls_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Lists files and directories in a given path. The path parameter must be a relative path. You should generally prefer the `glob` and `grep` tools, if you know which directories to search. The results are sorted by name.
 
@@ -149,9 +147,7 @@ def ls_tool(path: str) -> str:
     """  # noqa: E501
     logger.debug("[%s] Listing files in %s", ls_tool.name, path)
 
-    ctx = get_runtime_ctx()
-
-    root = (ctx.repo_dir / path).resolve()
+    root = (runtime.context.repo_dir / path.strip()).resolve()
 
     if not root.exists() or not root.is_dir():
         logger.warning("[%s] The '%s' does not exist or is not a directory.", ls_tool.name, path)
@@ -172,7 +168,7 @@ def ls_tool(path: str) -> str:
 
 
 @tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, runtime: ToolRuntime) -> str:
+async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
@@ -191,18 +187,17 @@ async def read_tool(file_path: str, runtime: ToolRuntime) -> str:
     """  # noqa: E501
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
-    ctx = get_runtime_ctx()
-    resolved_file_path = (ctx.repo_dir / file_path).resolve()
+    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
 
     if (
         not resolved_file_path.exists()
         or not resolved_file_path.is_file()
-        or any(fnmatch.fnmatch(file_path, pattern) for pattern in ctx.config.combined_exclude_patterns)
+        or any(fnmatch.fnmatch(file_path, pattern) for pattern in runtime.context.config.combined_exclude_patterns)
     ):
         logger.warning("[%s] The '%s' does not exist or is not a file.", read_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
-    if any(fnmatch.fnmatch(file_path, pattern) for pattern in ctx.config.omit_content_patterns):
+    if any(fnmatch.fnmatch(file_path, pattern) for pattern in runtime.context.config.omit_content_patterns):
         # We can't return None on this cases, otherwise the llm will think the file does not exist and
         # try to create it on some specific scenarios.
         return "[File content was intentionally excluded by the repository configuration]"

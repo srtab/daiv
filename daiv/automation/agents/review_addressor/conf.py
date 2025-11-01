@@ -16,6 +16,9 @@ class ReviewAddressorSettings(BaseSettings):
         description="Model that will interpret the review comment and reply or ask clarifying questions.",
     )
     REPLY_TEMPERATURE: float = Field(default=0.2, description="Temperature for the reply model.")
+    RECURSION_LIMIT: int = Field(
+        default=100, description="Recursion limit for the agent to address all the review comments in a single run."
+    )
 
 
 settings = ReviewAddressorSettings()  # type: ignore

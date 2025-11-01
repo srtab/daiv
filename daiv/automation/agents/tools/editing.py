@@ -5,9 +5,9 @@ import logging
 from langchain.tools import ToolRuntime, tool
 
 from automation.agents.utils import find_original_snippet
-from automation.utils import check_file_read, get_file_change, get_file_changes, register_file_change
+from automation.utils import check_file_read, register_file_change, register_file_read
 from codebase.base import FileChangeAction
-from codebase.context import get_runtime_ctx
+from codebase.context import RuntimeCtx  # noqa: TC001
 
 logger = logging.getLogger("daiv.tools")
 
@@ -16,14 +16,13 @@ EDIT_TOOL_NAME = "edit"
 WRITE_TOOL_NAME = "write"
 DELETE_TOOL_NAME = "delete"
 RENAME_TOOL_NAME = "rename"
-DIFF_TOOL_NAME = "diff"
 
-EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_NAME, DIFF_TOOL_NAME]
+EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_NAME]
 
 
 @tool(EDIT_TOOL_NAME, parse_docstring=True)
 async def edit_tool(
-    file_path: str, old_string: str, new_string: str, runtime: ToolRuntime, replace_all: bool = False
+    file_path: str, old_string: str, new_string: str, runtime: ToolRuntime[RuntimeCtx], replace_all: bool = False
 ) -> str:
     """
     Performs exact string replacements in files.
@@ -45,14 +44,13 @@ async def edit_tool(
     """  # noqa: E501
     logger.debug("[%s] Editing file '%s'", edit_tool.name, file_path)
 
-    ctx = get_runtime_ctx()
-    resolved_file_path = (ctx.repo_dir / file_path).resolve()
+    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The '%s' does not exist or is not a file.", edit_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
-    if await check_file_read(runtime.store, file_path) is False:
+    if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before editing it.", edit_tool.name, file_path)
         return "error: You must read the file before editing it."
 
@@ -97,7 +95,7 @@ async def edit_tool(
 
 
 @tool(WRITE_TOOL_NAME, parse_docstring=True)
-async def write_tool(file_path: str, content: str, runtime: ToolRuntime) -> str:
+async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Writes a file to the repository.
 
@@ -114,15 +112,14 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime) -> str:
     """  # noqa: E501
     logger.debug("[%s] Writing to file '%s'", write_tool.name, file_path)
 
-    ctx = get_runtime_ctx()
-    resolved_file_path = (ctx.repo_dir / file_path).resolve()
+    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
     file_exists = resolved_file_path.exists()
 
     if file_exists and not resolved_file_path.is_file():
         logger.warning("[%s] The '%s' is not a file.", write_tool.name, file_path)
         return f"error: File '{file_path}' is not a file. Only use this tool to write to files."
 
-    if file_exists and await check_file_read(runtime.store, file_path) is False:
+    if file_exists and await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
         return "error: You must read the file before writing to it."
 
@@ -132,6 +129,11 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime) -> str:
     resolved_file_path.parent.mkdir(parents=True, exist_ok=True)
 
     resolved_file_path.write_text(content)
+
+    if runtime.store:
+        # This file was just created and the llm already knows its content so we can register it as read to avoid
+        # the need to read it again later.
+        await register_file_read(runtime.store, file_path)
 
     await register_file_change(
         store=runtime.store,
@@ -145,7 +147,7 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime) -> str:
 
 
 @tool(DELETE_TOOL_NAME, parse_docstring=True)
-async def delete_tool(file_path: str, runtime: ToolRuntime) -> str:
+async def delete_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Deletes a file from the repository.
 
@@ -163,14 +165,13 @@ async def delete_tool(file_path: str, runtime: ToolRuntime) -> str:
     """  # noqa: E501
     logger.debug("[%s] Deleting file '%s'", delete_tool.name, file_path)
 
-    ctx = get_runtime_ctx()
-    resolved_file_path = (ctx.repo_dir / file_path).resolve()
+    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The file '%s' does not exist or is not a file.", delete_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
-    if await check_file_read(runtime.store, file_path) is False:
+    if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before deleting it.", delete_tool.name, file_path)
         return "error: You must read the file before deleting it."
 
@@ -194,7 +195,7 @@ async def delete_tool(file_path: str, runtime: ToolRuntime) -> str:
 
 
 @tool(RENAME_TOOL_NAME, parse_docstring=True)
-async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime) -> str:
+async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Renames a file in the repository.
 
@@ -212,10 +213,8 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime) 
     """  # noqa: E501
     logger.debug("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
 
-    ctx = get_runtime_ctx()
-
-    resolved_file_path = (ctx.repo_dir / file_path).resolve()
-    resolved_new_file_path = (ctx.repo_dir / new_file_path).resolve()
+    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
+    resolved_new_file_path = (runtime.context.repo_dir / new_file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The file '%s' does not exist or is not a file.", rename_tool.name, file_path)
@@ -225,7 +224,7 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime) 
         logger.warning("[%s] The file '%s' already exists.", rename_tool.name, new_file_path)
         return f"error: File with path '{new_file_path}' already exists."
 
-    if await check_file_read(runtime.store, file_path) is False:
+    if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before renaming it.", rename_tool.name, file_path)
         return "error: You must read the file before renaming it."
 
@@ -245,54 +244,3 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime) 
     )
 
     return f"success: Renamed file '{file_path}' to '{new_file_path}'"
-
-
-@tool(DIFF_TOOL_NAME, parse_docstring=True)
-async def diff_tool(file_paths: list[str], runtime: ToolRuntime) -> str:
-    """
-    Retrieve unified diffs showing changes made to files. This tool shows only the changed lines (with context), not the entire file content, making it efficient for verifying edits.
-
-    **Usage rules:**
-    - If `file_paths` is empty list, returns diffs for all changed files
-    - If `file_paths` is not empty list, returns diffs only for those specific files
-    - Returns unified diff format (same as `git diff`)
-    - Use this tool to verify changes after editing files
-
-    Args:
-        file_paths (list[str]): List of relative file paths to get diffs for. If empty list, returns diffs for all changed files.
-
-    Returns:
-        str: Unified diff output showing the changes made to the specified files.
-    """  # noqa: E501
-    logger.debug("[%s] Getting diffs for files: %s", diff_tool.name, file_paths or "all changed files")
-
-    if not file_paths:
-        # Get all file changes
-        file_changes = await get_file_changes(runtime.store)
-        if not file_changes:
-            return "No file changes have been made yet."
-
-        diffs = [file_change.diff_hunk for file_change in file_changes if file_change.diff_hunk]
-        return "\n".join(diffs) if diffs else "No file changes have been made yet."
-    else:
-        # Get specific file changes
-        diffs = []
-        missing_files = []
-
-        for file_path in file_paths:
-            file_change = await get_file_change(runtime.store, file_path)
-            if file_change is None:
-                missing_files.append(file_path)
-            else:
-                if diff_hunk := file_change.diff_hunk:
-                    diffs.append(diff_hunk)
-        if missing_files and not diffs:
-            return f"No changes found for: {', '.join(missing_files)}"
-
-        result_parts = []
-        if diffs:
-            result_parts.append("\n".join(diffs))
-        if missing_files:
-            result_parts.append(f"\nNote: No changes found for: {', '.join(missing_files)}")
-
-        return "\n".join(result_parts) if result_parts else "No changes found for the specified files."

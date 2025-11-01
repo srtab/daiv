@@ -1,6 +1,6 @@
 import logging
 from textwrap import dedent
-from typing import Literal, cast, override
+from typing import TYPE_CHECKING, Literal, cast, override
 
 from django.conf import settings as django_settings
 
@@ -15,8 +15,6 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.utils import get_file_changes
 from codebase.base import ClientType, FileChange, Issue
-from codebase.clients import RepoClient
-from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -28,10 +26,13 @@ from .templates import (
     ISSUE_PROCESSED_TEMPLATE,
     ISSUE_QUESTIONS_TEMPLATE,
     ISSUE_REVIEW_PLAN_TEMPLATE,
-    ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE,
     ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
     ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
 )
+
+if TYPE_CHECKING:
+    from automation.agents.plan_and_execute.state import PlanAndExecuteState
+    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.managers")
 
@@ -73,49 +74,39 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, repo_id: str, issue_iid: int, ref: str | None = None):
-        super().__init__(RepoClient.create_instance(), repo_id, ref)
-        self.repository = self.client.get_repository(repo_id)
-        self.repo_config = RepositoryConfig.get_config(repo_id)
-        self.issue: Issue = self.client.get_issue(repo_id, issue_iid)
-        self.thread_id = generate_uuid(f"{repo_id}{issue_iid}")
+    def __init__(self, *, issue_iid: int, runtime_ctx: RuntimeCtx):
+        super().__init__(runtime_ctx=runtime_ctx)
+        self.issue: Issue = self.client.get_issue(self.ctx.repo_id, issue_iid)
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue_iid}")
 
     @classmethod
-    async def plan_issue(cls, repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
+    async def plan_issue(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx, should_reset_plan: bool = False):
         """
         Plan the issue.
 
         Args:
-            repo_id: The repository ID.
-            issue_iid: The issue ID.
-            ref: The reference branch.
-            should_reset_plan: Whether to reset the plan.
+            issue_iid (int): The issue ID.
+            runtime_ctx (RuntimeCtx): The runtime context.
+            should_reset_plan (bool): Whether to reset the plan.
         """
-        manager = cls(repo_id, issue_iid, ref)
+        manager = cls(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
 
         try:
             await manager._plan_issue(should_reset_plan)
-        except UnableToPlanIssueError as e:
-            if e.soft:
-                logger.warning("Soft error planning issue %d: %s", issue_iid, e)
-            else:
-                logger.exception("Error planning issue %d: %s", issue_iid, e)
-            manager._add_unable_to_define_plan_note()
         except Exception as e:
-            logger.exception("Error processing issue %d: %s", issue_iid, e)
+            logger.exception("Error planning issue %d: %s", issue_iid, e)
             manager._add_unable_to_process_issue_note()
 
     @classmethod
-    async def approve_plan(cls, repo_id: str, issue_iid: int, ref: str | None = None):
+    async def approve_plan(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx):
         """
         Approve the plan for the given issue.
 
         Args:
-            repo_id: The repository ID.
             issue_iid: The issue ID.
-            ref: The reference branch.
+            runtime_ctx: The runtime context.
         """
-        manager = cls(repo_id, issue_iid, ref)
+        manager = cls(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
 
         try:
             await manager._approve_plan()
@@ -150,37 +141,33 @@ class IssueAddressorManager(BaseManager):
                 current_state is None or (not current_state.next and current_state.created_at is None)
             ):
                 self._add_workflow_step_note("plan")
+
                 human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
                     issue_title=self.issue.title, issue_description=self.issue.description
                 )
-                await plan_and_execute.ainvoke({"messages": [human_message]}, config)
+                result = await plan_and_execute.ainvoke({"messages": [human_message]}, config, context=self.ctx)
 
-                after_run_state = await plan_and_execute.aget_state(config)
+                self._handle_initial_result(result)
 
-                if "plan_approval" in after_run_state.next and after_run_state.interrupts:
-                    values = after_run_state.interrupts[0].value
-                else:
-                    values = after_run_state.values
-
-                self._handle_initial_result(values)
-
-    def _handle_initial_result(self, state: dict):
+    def _handle_initial_result(self, state: PlanAndExecuteState):
         """
-        Handle the initial state of issue processing.
+        Handle the initial result of the plan and execute agent.
 
         Args:
-            state: The state of the agent.
+            state (PlanAndExecuteState): The state of the agent.
         """
-        if state.get("request_for_changes") is False:
-            raise UnableToPlanIssueError("The issue is not a request for changes.", soft=True)
         # We share the plan with the human to review and approve
-        elif plan_tasks := state.get("plan_tasks"):
+        if plan_tasks := state.get("plan_tasks"):
             self._add_review_plan_note(plan_tasks)
-        # We share the questions with the human to answer
+        # We share the plan questions with the human to answer
         elif plan_questions := state.get("plan_questions"):
             self._add_plan_questions_note(plan_questions)
+        # We share the no changes needed message with the human
         elif no_changes_needed := state.get("no_changes_needed"):
             self._add_no_changes_needed_note(no_changes_needed)
+        # We share the final message from the agent with the human
+        elif messages := state.get("messages"):
+            self._create_or_update_comment(messages[-1].content)
         else:
             raise ValueError(f"Unexpected state returned: {state}")
 
@@ -202,7 +189,7 @@ class IssueAddressorManager(BaseManager):
             ):
                 self._add_workflow_step_note("execute_plan")
 
-                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config)
+                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config, context=self.ctx)
             else:
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 
@@ -223,7 +210,7 @@ class IssueAddressorManager(BaseManager):
         return RunnableConfig(
             tags=[str(self.client.client_slug)],
             metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
-            configurable={"thread_id": self.thread_id, "bot_username": self.client.current_user.username},
+            configurable={"thread_id": self.thread_id, "bot_username": self.ctx.bot_username},
         )
 
     @override
@@ -250,14 +237,14 @@ class IssueAddressorManager(BaseManager):
                     Issue description: {description}
                     """
                 ).format(title=self.issue.title, description=self.issue.description),
-                "branch_name_convention": self.repo_config.pull_request.branch_name_convention,
+                "branch_name_convention": self.ctx.config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
             ),
         )
         merge_requests = self.client.get_issue_related_merge_requests(
-            self.repo_id, cast("int", self.issue.iid), label=BOT_LABEL
+            self.ctx.repo_id, cast("int", self.issue.iid), label=BOT_LABEL
         )
 
         if merge_requests:
@@ -270,11 +257,11 @@ class IssueAddressorManager(BaseManager):
             commit_message = f"[skip ci] {commit_message}"
 
         self.client.commit_changes(
-            self.repo_id,
+            self.ctx.repo_id,
             changes_description.branch,
             commit_message,
             file_changes,
-            start_branch=self.ref,
+            start_branch=self.ctx.ref,
             override_commits=True,
         )
 
@@ -286,9 +273,9 @@ class IssueAddressorManager(BaseManager):
             assignee_id = None
 
         return self.client.update_or_create_merge_request(
-            repo_id=self.repo_id,
+            repo_id=self.ctx.repo_id,
             source_branch=changes_description.branch,
-            target_branch=self.ref,
+            target_branch=self.ctx.ref,
             labels=[BOT_LABEL],
             title=changes_description.title,
             assignee_id=assignee_id,
@@ -296,10 +283,10 @@ class IssueAddressorManager(BaseManager):
                 ISSUE_MERGE_REQUEST_TEMPLATE,
                 description=changes_description.description,
                 summary=changes_description.summary,
-                source_repo_id=self.repo_id,
+                source_repo_id=self.ctx.repo_id,
                 issue_id=self.issue.iid,
                 bot_name=BOT_NAME,
-                bot_username=self.client.current_user.username,
+                bot_username=self.ctx.bot_username,
                 is_gitlab=self.client.client_slug == ClientType.GITLAB,
             ),
         )
@@ -310,7 +297,7 @@ class IssueAddressorManager(BaseManager):
         """
         if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
             self.client.create_issue_comment(
-                self.repo_id,
+                self.ctx.repo_id,
                 cast("int", self.issue.iid),
                 jinja2_formatter(
                     ISSUE_PLANNING_TEMPLATE,
@@ -335,12 +322,6 @@ class IssueAddressorManager(BaseManager):
                 approve_plan_command=ApprovePlanQuickAction().command_to_activate,
             )
         )
-
-    def _add_unable_to_define_plan_note(self):
-        """
-        Add a note to the issue to inform the user that the plan could not be defined.
-        """
-        self._create_or_update_comment(ISSUE_UNABLE_DEFINE_PLAN_TEMPLATE)
 
     def _add_unable_to_process_issue_note(self):
         """
@@ -377,7 +358,7 @@ class IssueAddressorManager(BaseManager):
         self._create_or_update_comment(
             jinja2_formatter(
                 ISSUE_PROCESSED_TEMPLATE,
-                source_repo_id=self.repo_id,
+                source_repo_id=self.ctx.repo_id,
                 merge_request_id=merge_request_id,
                 # GitHub already shows the merge request link right after the comment.
                 show_merge_request_link=self.client.client_slug == ClientType.GITLAB,
@@ -419,3 +400,12 @@ class IssueAddressorManager(BaseManager):
             note_message = "🚀 Executing the plan to address the issue — *in progress* ..."
 
         self._create_or_update_comment(note_message)
+
+    def _create_or_update_comment(self, note_message: str):
+        """
+        Create or update a comment on the issue.
+        """
+        if self._comment_id is not None:
+            self.client.update_issue_comment(self.ctx.repo_id, self.issue.iid, self._comment_id, note_message)
+        else:
+            self._comment_id = self.client.create_issue_comment(self.ctx.repo_id, self.issue.iid, note_message)

@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import logging
 
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
-from codebase.context import get_runtime_ctx
+from codebase.context import RuntimeCtx  # noqa: TC001
 
 logger = logging.getLogger("daiv.tools")
 
@@ -18,7 +18,7 @@ JOB_LOGS_DEFAULT_LINE_COUNT = 100
 
 
 @tool(PIPELINE_TOOL_NAME, parse_docstring=True)
-def pipeline_tool(placeholder: str = "") -> str:
+def pipeline_tool(runtime: ToolRuntime[RuntimeCtx], placeholder: str = "") -> str:
     """
     Get the latest pipeline/workflow status for a merge/pull request.
 
@@ -35,21 +35,22 @@ def pipeline_tool(placeholder: str = "") -> str:
     Returns:
         str: JSON formatted pipeline/workflow information including status and job details.
     """
-    ctx = get_runtime_ctx()
-
-    logger.debug("[%s] Getting pipeline for merge request %d", pipeline_tool.name, ctx.merge_request_id)
+    logger.debug("[%s] Getting pipeline for merge request %d", pipeline_tool.name, runtime.context.merge_request_id)
 
     client = RepoClient.create_instance()
     try:
-        pipelines = client.get_merge_request_latest_pipelines(ctx.repo_id, ctx.merge_request_id)
+        pipelines = client.get_merge_request_latest_pipelines(runtime.context.repo_id, runtime.context.merge_request_id)
     except Exception as e:
         logger.warning(
-            "[%s] Failed to get pipeline for merge request %d: %s", pipeline_tool.name, ctx.merge_request_id, e
+            "[%s] Failed to get pipeline for merge request %d: %s",
+            pipeline_tool.name,
+            runtime.context.merge_request_id,
+            e,
         )
-        return f"error: Failed to get pipeline for merge request {ctx.merge_request_id}. Error: {e}"
+        return f"error: Failed to get pipeline for merge request {runtime.context.merge_request_id}. Error: {e}"
 
     if not pipelines:
-        return f"No pipelines found for merge request {ctx.merge_request_id}."
+        return f"No pipelines found for merge request {runtime.context.merge_request_id}."
 
     output_data = []
     for pipeline in pipelines:
@@ -93,7 +94,12 @@ def pipeline_tool(placeholder: str = "") -> str:
 
 
 @tool(JOB_LOGS_TOOL_NAME, parse_docstring=True)
-def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_LOGS_DEFAULT_LINE_COUNT) -> str:
+def job_logs_tool(
+    job_id: int,
+    runtime: ToolRuntime[RuntimeCtx],
+    offset_from_end: int = 0,
+    line_count: int = JOB_LOGS_DEFAULT_LINE_COUNT,
+) -> str:
     """
     Get logs from a specific pipeline job with pagination support (bottom-to-top).
 
@@ -120,19 +126,18 @@ def job_logs_tool(job_id: int, offset_from_end: int = 0, line_count: int = JOB_L
         offset_from_end,
     )
 
-    ctx = get_runtime_ctx()
     client = RepoClient.create_instance()
 
     # Get job details to determine status
     try:
-        job = client.get_job(ctx.repo_id, job_id)
+        job = client.get_job(runtime.context.repo_id, job_id)
     except Exception as e:
         logger.warning("[%s] Failed to get job details for job %d: %s", job_logs_tool.name, job_id, e)
         return f"error: Failed to get job details for job {job_id}. Error: {e}"
 
     # Get job logs
     try:
-        raw_logs = client.job_log_trace(ctx.repo_id, job_id)
+        raw_logs = client.job_log_trace(runtime.context.repo_id, job_id)
     except Exception as e:
         logger.warning("[%s] Failed to get logs for job %d: %s", job_logs_tool.name, job_id, e)
         return f"error: Failed to get logs for job {job_id}. Error: {e}"

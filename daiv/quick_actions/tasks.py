@@ -1,10 +1,9 @@
 import logging
 
-from asgiref.sync import async_to_sync
-from celery import shared_task
 from langchain_core.prompts import jinja2_formatter
 
 from codebase.clients import RepoClient
+from daiv import async_task
 
 from .base import Scope
 from .registry import quick_action_registry
@@ -13,8 +12,8 @@ from .templates import QUICK_ACTION_ERROR_MESSAGE
 logger = logging.getLogger("daiv.quick_actions")
 
 
-@shared_task(pydantic=True)
-def execute_issue_task(repo_id: str, action_command: str, action_args: str, comment_id: str, issue_id: int):
+@async_task(pydantic=True)
+async def execute_issue_task(repo_id: str, action_command: str, action_args: str, comment_id: str, issue_id: int):
     """
     Execute a quick action asynchronously.
 
@@ -47,13 +46,13 @@ def execute_issue_task(repo_id: str, action_command: str, action_args: str, comm
 
     try:
         action = action_classes[0]()
-        async_to_sync(action.execute_for_issue)(repo_id=repo_id, args=action_args, comment=comment, issue=issue)
+        await action.execute_for_issue(repo_id=repo_id, args=action_args, comment=comment, issue=issue)
     except Exception as e:
         logger.exception("Error executing quick action '%s' for repo '%s': %s", action_command, repo_id, str(e))
 
         error_message = jinja2_formatter(
             QUICK_ACTION_ERROR_MESSAGE,
-            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
+            command=f"@{client.current_user.username} /{action_command} {action_args}".strip(),
         )
 
         client.create_issue_comment(repo_id, issue_id, error_message)
@@ -63,8 +62,8 @@ def execute_issue_task(repo_id: str, action_command: str, action_args: str, comm
         )
 
 
-@shared_task(pydantic=True)
-def execute_merge_request_task(
+@async_task(pydantic=True)
+async def execute_merge_request_task(
     repo_id: str, action_command: str, action_args: str, comment_id: str, merge_request_id: int
 ) -> None:
     """
@@ -99,7 +98,7 @@ def execute_merge_request_task(
 
     try:
         action = action_classes[0]()
-        async_to_sync(action.execute_for_merge_request)(
+        await action.execute_for_merge_request(
             repo_id=repo_id, args=action_args, comment=comment, merge_request=merge_request
         )
     except Exception as e:
@@ -107,7 +106,7 @@ def execute_merge_request_task(
 
         error_message = jinja2_formatter(
             QUICK_ACTION_ERROR_MESSAGE,
-            command=f"@{client.current_user.username} {action_command} {action_args}".strip(),
+            command=f"@{client.current_user.username} /{action_command} {action_args}".strip(),
         )
 
         client.create_merge_request_comment(repo_id, merge_request.merge_request_id, error_message)

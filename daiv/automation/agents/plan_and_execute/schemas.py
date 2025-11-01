@@ -15,7 +15,7 @@ class ChangeInstructions(BaseModel):
     relevant_files: list[str] = Field(
         description=dedent(
             """\
-            Every file path a developer should open to implement this change (implementation, helpers, tests, docs, configs...). Include ALL files that provide necessary context.
+            Every file path a developer should open to implement this change (implementation, helpers, tests, docs, configs...). Include ALL files that provide necessary and relevant context.
             """  # noqa: E501
         )
     )
@@ -29,11 +29,36 @@ class ChangeInstructions(BaseModel):
     details: str = Field(
         description=dedent(
             """\
-            Clear, human-readable instructions covering the required change: affected symbols/APIs, algorithms, naming conventions, error handling, edge cases, test approach, performance notes, shell commands to run, etc.
-             - **Do NOT** write or paste a full diff / complete implementation you have invented;
-             - You **may** embed short illustrative snippets **or** verbatim user-supplied code **only if it is syntactically correct**. If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code;
+            Clear, concise, human-readable instructions covering the required change: affected symbols/APIs, algorithms, naming conventions, error handling, edge cases, test approach, performance notes, shell commands to run, etc.
+             - IMPORTANT: **Do NOT** write or paste a full diff / complete implementation you have invented;
+             - **Prefer** diff-like or path+pseudocode; include only key fragments.
+             - You **may** embed verbatim user-supplied code **only if it is syntactically correct**. If the user's snippet contains errors, describe or reference it in prose instead of pasting the faulty code;
              - Use the safe format: fenced with tildes `~~~language` … `~~~` for markdown code blocks;
              - Use markdown formatting (e.g., for `variables`, `files`, `directories`, `dependencies`) as needed.
+            """  # noqa: E501
+        )
+    )
+
+
+class FinishOutput(BaseModel):
+    """
+    Deliver a concise summary message reporting the execution outcome.
+
+    **Usage rules:**
+    - The agent has completed the execution phase (successfully or partially or aborted).
+    - All change instructions have been attempted.
+    """
+
+    aborting: bool = Field(default=False, description="Indicates if the execution is aborted or not")
+    message: str = Field(
+        description=dedent(
+            """\
+            Concise summary of the execution outcome:
+            - List what was successfully applied;
+            - Highlight any changes that could not be applied and why (e.g., command failed, file not found, permission issues);
+            - If the execution is aborted, the message should indicate the reason why.
+            - No chit-chat.
+            - Use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
             """  # noqa: E501
         )
     )
@@ -58,7 +83,7 @@ class PlanOutput(BaseModel):
     changes: list[ChangeInstructions] = Field(
         description=(
             "List of ChangeInstructions in the order they should be executed. "
-            "Group adjacent items when they affect the same file."
+            "Group adjacent items when they affect the same file, including repository-wide changes."
         ),
         min_length=1,
     )
@@ -70,7 +95,7 @@ class ClarifyOutput(BaseModel):
 
     **Usage rules:**
     - There's uncertainty about the requirements/changes needed.
-    - The context is insufficient to deliver the plan with the user's intent with confidence.
+    - The context is insufficient to deliver the plan with the user's intent with high confidence.
     - The user needs to provide additional details that could not be covered by the context.
     """
 
@@ -90,12 +115,15 @@ class CompleteOutput(BaseModel):
 
     **Usage rules:**
     - The context is sufficient to confirm no changes or actions are needed.
-    - The current state meets the requirements.
+    - The current state already meets the requirements.
     """
 
     type: Literal["complete"] = Field(default="complete", description="Type discriminator for complete output")
     message: str = Field(
-        description="The message to demonstrate how current state meets requirements with specific evidence."
+        description=(
+            "Human-readable concise message to demonstrate how current state meets requirements with specific evidence."
+            "No chit-chat. Use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed."
+        )
     )
 
 

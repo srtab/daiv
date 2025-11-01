@@ -37,20 +37,6 @@ def file_reads_namespace(repo_id: str, ref: str) -> tuple[str, ...]:
     return (repo_id, ref, "file_reads")
 
 
-def sandbox_session_namespace(repo_id: str, ref: str) -> tuple[str, ...]:
-    """
-    Namespace to register sandbox session in the store.
-
-    Args:
-        repo_id: The ID of the source repository.
-        ref: The reference of the source repository.
-
-    Returns:
-        The store namespace for the sandbox session.
-    """
-    return (repo_id, ref, "sandbox_session")
-
-
 async def register_file_change(
     store: BaseStore,
     action: FileChangeAction,
@@ -213,49 +199,3 @@ async def check_file_read(store: BaseStore, file_path: str) -> bool:
     namespace = file_reads_namespace(ctx.repo_id, ctx.ref)
 
     return await store.aget(namespace=namespace, key=file_path) is not None
-
-
-async def register_sandbox_session(store: BaseStore, session_id: str):
-    """
-    Register sandbox session in the store.
-
-    Args:
-        store: The store to use for caching.
-        session_id: The sandbox session ID.
-    """
-    ctx = get_runtime_ctx()
-    namespace = sandbox_session_namespace(ctx.repo_id, ctx.ref)
-
-    await store.aput(namespace=namespace, key="session_id", value={"data": session_id})
-
-
-async def get_sandbox_session(store: BaseStore) -> str | None:
-    """
-    Get the sandbox session ID from the store.
-
-    Args:
-        store: The store to use for caching.
-
-    Returns:
-        The session ID if found, None otherwise.
-    """
-    ctx = get_runtime_ctx()
-    namespace = sandbox_session_namespace(ctx.repo_id, ctx.ref)
-
-    if stored_session := await store.aget(namespace=namespace, key="session_id"):
-        return cast("str", stored_session.value["data"])
-
-    return None
-
-
-async def delete_sandbox_session(store: BaseStore):
-    """
-    Delete the sandbox session from the store.
-
-    Args:
-        store: The store to use for caching.
-    """
-    ctx = get_runtime_ctx()
-    namespace = sandbox_session_namespace(ctx.repo_id, ctx.ref)
-
-    await store.adelete(namespace=namespace, key="session_id")

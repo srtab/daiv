@@ -6,10 +6,9 @@ from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from .editing import delete_tool, diff_tool, edit_tool, rename_tool, write_tool
+from .editing import delete_tool, edit_tool, rename_tool, write_tool
 from .merge_request import job_logs_tool, pipeline_tool
 from .navigation import glob_tool, grep_tool, ls_tool, read_tool
-from .sandbox import bash_tool
 from .web_search import web_search_tool
 
 if TYPE_CHECKING:
@@ -44,17 +43,7 @@ class FileEditingToolkit(BaseToolkit):
 
     @classmethod
     def get_tools(cls) -> list[BaseTool]:
-        return [write_tool, edit_tool, delete_tool, rename_tool, diff_tool]
-
-
-class SandboxToolkit(BaseToolkit):
-    """
-    Toolkit for running bash commands in a sandbox environment.
-    """
-
-    @classmethod
-    def get_tools(cls) -> list[BaseTool]:
-        return [bash_tool]
+        return [write_tool, edit_tool, delete_tool, rename_tool]
 
 
 class WebSearchToolkit(BaseToolkit):
@@ -81,7 +70,7 @@ class MCPToolkit(BaseToolkit):
         try:
             tools = await client.get_tools()
         except ExceptionGroup:
-            logger.warning("Error getting tools from MCP servers: Connection refused.")
+            logger.warning("Error getting tools from MCP servers: Connection refused.", exc_info=True)
             tools = []
 
         return tools
