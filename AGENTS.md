@@ -33,7 +33,7 @@ To add, update or remove dependencies, use the native `uv add` or `uv remove` co
 
 We use `pytest` to write the tests with `pytest-asyncio` for async tests. All the tests are located in the `tests/` directory. Add/update unit tests to cover new added code or changed code.
 
-Do not try to run the tests directly, it will not work.
+Do not try to run `pytest` command directly, it will not work as it will not have the correct environment variables set neither a database set up.
 
 ## Linting
 

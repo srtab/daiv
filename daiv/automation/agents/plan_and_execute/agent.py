@@ -16,8 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.middleware import InjectImagesMiddleware
-from automation.agents.tools.navigation import READ_MAX_LINES
+from automation.agents.middleware import AgentsMDMiddleware, InjectImagesMiddleware
 from automation.agents.tools.sandbox import BASH_TOOL_NAME, FORMAT_CODE_TOOL_NAME, SandboxMiddleware
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
@@ -37,7 +36,6 @@ from .tools import plan_think_tool, review_code_changes_tool
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from pathlib import Path
 
     from langchain.agents.middleware.types import ModelCallResult
     from langchain_core.tools import BaseTool
@@ -45,27 +43,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agents")
-
-
-def get_agents_md_content(repo_dir: Path, context_file_name: str | None) -> str | None:
-    """
-    Get the agent instructions from the AGENTS.md file case insensitive.
-    If multiple files are found, return the first one.
-    If the file is too long, return the first `max_lines` lines.
-
-    Args:
-        context_file_name (str | None): The name of the context file.
-
-    Returns:
-        str | None: The agents instructions from the AGENTS.md file.
-    """
-    if not context_file_name:
-        return None
-
-    for path in repo_dir.glob(context_file_name, case_sensitive=False):
-        if path.is_file() and path.name.endswith(".md"):
-            return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
-    return None
 
 
 @dynamic_prompt
@@ -83,9 +60,6 @@ def plan_system_prompt(request: ModelRequest) -> str:
     return plan_system.format(
         current_date_time=timezone.now().strftime("%d %B, %Y"),
         repository=request.runtime.context.repo_id,
-        agents_md_content=get_agents_md_content(
-            request.runtime.context.repo_dir, request.runtime.context.config.context_file_name
-        ),
         tools_names=tools_names,
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
@@ -211,6 +185,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             middleware=[
                 plan_system_prompt,
                 InjectImagesMiddleware(),
+                AgentsMDMiddleware(),
                 *conditional_middlewares,
                 AnthropicPromptCachingMiddleware(),
             ],

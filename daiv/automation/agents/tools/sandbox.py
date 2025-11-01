@@ -113,19 +113,52 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
 @tool(BASH_TOOL_NAME, parse_docstring=True)
 async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Executes a given list of bash commands in a persistent shell session relative to the repository root directory, ensuring proper handling and security measures.
+    Run a list of Bash commands in a WRITE-ENABLED, persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
 
-    **Usage rules:**
-     - The commands are executed in the order they are provided.
-     - When a command fails, the session is terminated and the results are returned.
-     - Results are returned with output (truncated to 10000 characters) and exit code for each successful command.
-     - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the plan explicitly requests it. `pytest /foo/bar/tests cd /foo/bar && pytest tests`.
-     - IMPORTANT: Only execute commands that are directly requested.
-     - VERY IMPORTANT: You MUST avoid using search commands like `find` and `grep`. Instead use `grep` or `glob` to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use `read` and `ls` to read files.
+    PURPOSE
+    - Execute project-native CLIs that perform writes (e.g., formatters with --fix, code generators, package manager install/update/remove).
+    - Do not use it for file I/O tasks that the companion tools handle directly.
 
-    **Common operations:**
-     - When the plan includes package management operations:
-         - **ALWAYS** use the project's package manager native commands to add / update / remove packages to ensure the lock file (if present) is regenerated automatically. Do **NOT** edit lock files by hand.
+    SESSION & EXECUTION
+    - Persistent shell session across tool calls; commands run in order; pipelines/compound commands allowed.
+    - Start in repo root. Prefer absolute paths. Avoid `cd` unless the plan explicitly requires it.
+    - Run only the commands explicitly requested by the plan.
+
+    OUTPUT CONTRACT
+    - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
+    - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
+    - Output is unnormalized (may include ANSI). Add flags like `--no-color` if needed.
+
+    WRITE SCOPE & BOUNDARIES
+    - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
+    - **No Git commands** (no add/commit/checkout/rebase/push).
+    - Default to **non-interactive**: add flags/env to avoid prompts (`-y/--yes`, `CI=1`, `--no-progress`, etc.).
+    - Avoid high-impact/system-level actions:
+    - No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
+    - No Docker builds/pushes or container/image manipulation.
+    - No unscoped destructive ops (e.g., `rm -rf` outside targeted paths).
+    - No DB schema changes/migrations/seeds.
+    - No editing secrets/credentials (e.g., `.env`) or CI settings.
+    - Network access is allowed for project package managers as required by the plan.
+
+    PACKAGE MANAGEMENT POLICY
+    - **Always** use the project's native package manager to add/update/remove dependencies; let it regenerate lockfiles. **Never** edit lockfiles by hand.
+    - Examples: npm/pnpm/yarn/bun; pip/poetry/pip-tools/uv; cargo; go; bundler; composer; etc.
+    - Prefer flags that keep output stable/parseable (e.g., `--json`, `--quiet`) when available.
+
+    PREFERRED COMPANION TOOLS (USE INSTEAD OF SHELL EQUIVALENTS)
+    - Reads/search/listing: `glob` (discovery), `grep` (content search), `ls` (directory metadata), `read` (file contents).
+    - Writes/FS changes: `write` (create file), `edit` (replace old content with new), `delete` (remove file), `rename` (rename file).
+    - Therefore, **avoid** shell substitutes like `touch`, `echo > file`, `sed -i`, `rm`, `mv`, `cp` when the companion tools can perform the same operation.
+    - Fall back to Bash only when the companion tools cannot achieve the goal or when invoking project-native CLIs that must perform writes.
+
+    WHEN TO USE
+    - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`), run code generators/scaffolding, and perform dependency installs/updates/removals via the project's package manager.
+
+    WHEN NOT TO USE
+    - Any file creation/edit/rename/delete that the `write`/`edit`/`rename`/`delete` tools can do.
+    - Raw reads/search/listing that `glob`/`grep`/`ls`/`read` can handle.
+    - Any operation outside the repository root or involving Git/system-level changes.
 
     Args:
         commands: The list of commands to execute.
@@ -156,19 +189,50 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
 @tool(BASH_TOOL_NAME, parse_docstring=True)
 async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Executes a given list of bash commands in a persistent shell session relative to the repository root directory without persisting any changes to the codebase.
+    Run a list of Bash commands in a READ-ONLY, persistent shell session rooted at the repository's root. Designed for a planning agent to probe a codebase (any tech stack) and turn the findings into an execution plan for a later agent.
 
-    **Usage rules:**
-     - The commands are executed in the order they are provided.
-     - When a command fails, the session is terminated and the results are returned.
-     - Results are returned with output (truncated to 10000 characters) and exit code for each successful command.
-     - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the plan explicitly requests it.
-     - IMPORTANT: Only execute commands that are directly requested or are necessary to complete your task.
-     - VERY IMPORTANT: This tool is READ-ONLY. Any changes made by the commands will NOT be persisted to the codebase. Use this tool for reading information, testing, or inspecting the codebase without making permanent changes.
-     - VERY IMPORTANT: You MUST avoid using search commands like `find` and `grep`. Instead use `grep` or `glob` to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use `read` and `ls` to read files.
+    PURPOSE
+    - Execute project CLIs (linters, type checkers, test discovery, i18n generators, build analyzers, etc.) to collect signals that inform a plan.
+    - Use this to inspect and diagnose; not to change the codebase.
 
-    **Common operations:**
-     - Use this tool when you need to run commands for inspection (e.g. generate translations and catch missing translations, linting tests without auto-fix and catch linting errors, etc.), testing, etc.
+    SESSION & COMMANDS
+    - The shell session persists across multiple tool calls and retains the working directory.
+    - Commands run in order. Compound commands, pipelines, and redirections are allowed (e.g., `cmd1 && cmd2`, `cmd | jq ...`, `> /dev/null`).
+    - Start in the repo root. Prefer absolute paths. Avoid `cd` unless your plan requires it.
+
+    READ-ONLY & SAFETY
+    - Changes are NOT persisted. Treat the environment as read-only.
+    - Avoid heavy/destructive operations (e.g., installs, container builds, mass formatting). Prefer dry-run/diagnostic flags when available (`--check`, `--dry-run`, `--no-color`, `--no-write`).
+    - Network access is allowed; be judicious.
+
+    OUTPUT CONTRACT
+    - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
+    - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
+    - Output is unnormalized (may include ANSI). Add flags like `--no-color` if needed.
+
+    PREFERRED COMPANION TOOLS (USE THESE FIRST)
+    - Use structured tools instead of shell equivalents whenever feasible:
+    - `glob` for file pattern expansion (instead of `find`/shell globs for discovery logic).
+    - `grep` tool for content search (instead of the shell `grep` command).
+    - `ls` tool for directory listings/metadata (instead of shell `ls`).
+    - `read` tool for file contents (instead of `cat`/`head`/`tail`).
+    - Fall back to Bash only when these tools cannot achieve the goal or when invoking project-native CLIs (e.g., `django-admin`, `eslint`, `ruff`, `pytest`, `tsc`, `mypy`, `npm`, `poetry`).
+
+    WHEN TO USE
+    - To run project CLIs in inspection/diagnostic modes and extract actionable signals (e.g., missing translations, lint/type errors, failing tests, dependency issues).
+
+    WHEN NOT TO USE
+    - For raw file reading, listing, or searching that the `glob`/`grep`/`ls`/`read` tools can handle.
+    - For operations intended to modify the repo or environment.
+
+    PRACTICAL TIPS
+    - Reduce noise to avoid truncation: prefer `--quiet`, `--format json`, `--reporter`, `--no-color`, and scoped paths.
+    - Validate prerequisites early (e.g., `tool --version`) before long-running checks.
+
+    EXAMPLES
+    - Django i18n probe: `django-admin makemessages` → parse missing/obsolete entries; add locale/file actions to the plan.
+    - Lint scan (no autofix): `eslint . --format json --max-warnings=0` or `ruff check --output-format json` → summarize rules/files for the plan.
+    - Type checks: `tsc --noEmit`, `mypy --no-color-output` → capture error counts and hotspots to sequence fixes.
 
     Args:
         commands: The list of commands to execute.
@@ -295,6 +359,19 @@ class SandboxState(AgentState):
 class SandboxMiddleware(AgentMiddleware):
     """
     Middleware to start a sandbox session before running the commands.
+
+    This middleware starts a sandbox session before agent starts the execution loop and
+    closes it after the agent finishes the execution loop. It also adds the sandbox tools to the agent.
+
+    Example:
+        ```python
+        from langchain.agents import create_agent
+
+        agent = create_agent(
+            model="openai:gpt-4o",
+            middleware=[SandboxMiddleware()],
+        )
+        ```
     """
 
     name = "sandbox_middleware"

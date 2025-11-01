@@ -70,7 +70,7 @@ class MCPToolkit(BaseToolkit):
         try:
             tools = await client.get_tools()
         except ExceptionGroup:
-            logger.warning("Error getting tools from MCP servers: Connection refused.")
+            logger.warning("Error getting tools from MCP servers: Connection refused.", exc_info=True)
             tools = []
 
         return tools
