@@ -54,7 +54,8 @@ class TestRegisterFileChange:
         with patch("automation.utils.get_runtime_ctx") as mock_get_ctx:
             mock_ctx = Mock(spec=RuntimeCtx)
             mock_ctx.repo_id = "test_repo"
-            mock_ctx.ref = "main"
+            mock_ctx.repo = Mock(active_branch=Mock())
+            mock_ctx.repo.active_branch.configure_mock(name="main")
             mock_get_ctx.return_value = mock_ctx
             yield mock_ctx
 
@@ -303,7 +304,8 @@ class TestFileChangeQueries:
         with patch("automation.utils.get_runtime_ctx") as mock_get_ctx:
             mock_ctx = Mock(spec=RuntimeCtx)
             mock_ctx.repo_id = "test_repo"
-            mock_ctx.ref = "main"
+            mock_ctx.repo = Mock(active_branch=Mock())
+            mock_ctx.repo.active_branch.configure_mock(name="main")
             mock_get_ctx.return_value = mock_ctx
             yield mock_ctx
 
@@ -380,7 +382,8 @@ class TestDeleteFileChange:
         with patch("automation.utils.get_runtime_ctx") as mock_get_ctx:
             mock_ctx = Mock(spec=RuntimeCtx)
             mock_ctx.repo_id = "test_repo"
-            mock_ctx.ref = "main"
+            mock_ctx.repo = Mock(active_branch=Mock())
+            mock_ctx.repo.active_branch.configure_mock(name="main")
             mock_get_ctx.return_value = mock_ctx
             yield mock_ctx
 
@@ -433,7 +436,8 @@ class TestFileReadFunctions:
         with patch("automation.utils.get_runtime_ctx") as mock_get_ctx:
             mock_ctx = Mock(spec=RuntimeCtx)
             mock_ctx.repo_id = "test_repo"
-            mock_ctx.ref = "main"
+            mock_ctx.repo = Mock(active_branch=Mock())
+            mock_ctx.repo.active_branch.configure_mock(name="main")
             mock_get_ctx.return_value = mock_ctx
             yield mock_ctx
 

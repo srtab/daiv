@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, cast
+
+from git import Repo  # noqa: TC002
 
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
@@ -26,11 +27,8 @@ class RuntimeCtx:
     repo_id: str
     """The repository identifier"""
 
-    ref: str
-    """The reference branch or tag"""
-
-    repo_dir: Path
-    """The temporary directory containing the repository files"""
+    repo: Repo
+    """The Git repository object"""
 
     config: RepositoryConfig
     """The repository configuration"""
@@ -68,11 +66,10 @@ async def set_runtime_ctx(
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    with repo_client.load_repo(repository, sha=ref) as repo_dir:
+    with repo_client.load_repo(repository, sha=ref) as repo:
         ctx = RuntimeCtx(
             repo_id=repo_id,
-            ref=ref,
-            repo_dir=repo_dir,
+            repo=repo,
             config=config,
             merge_request_id=merge_request_id,
             bot_username=repo_client.current_user.username,

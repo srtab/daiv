@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
@@ -303,6 +304,10 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: Result containing the reply generated during the workflow.
         """
+        stream_writer = get_stream_writer()
+
+        stream_writer({"reply_reviewer": "starting", "review_context": state["review_context"]})
+
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             reply_reviewer_agent = await ReplyReviewerAgent.get_runnable(store=runtime.store, checkpointer=checkpointer)
             result = await reply_reviewer_agent.ainvoke(
@@ -311,8 +316,11 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 config={"configurable": {"thread_id": state["review_context"].discussion.id}},
             )
 
-        stream_writer = get_stream_writer()
-        stream_writer({"reply": result["messages"][-1].content, "review_context": state["review_context"]})
+        stream_writer({
+            "reply_reviewer": "completed",
+            "reply": result["messages"][-1].content,
+            "review_context": state["review_context"],
+        })
 
         return {}
 
@@ -335,7 +343,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         session_id = await daiv_sandbox_client.start_session(
             StartSessionRequest(base_image=runtime.context.config.sandbox.base_image)
         )
-        await _run_bash_commands(runtime.context.config.sandbox.format_code, runtime.context.repo_dir, session_id)
+        await _run_bash_commands(
+            runtime.context.config.sandbox.format_code, Path(runtime.context.repo.working_dir), session_id
+        )
         await daiv_sandbox_client.close_session(session_id)
 
         return {}

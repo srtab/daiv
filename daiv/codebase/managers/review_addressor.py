@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
@@ -237,7 +238,7 @@ class ReviewAddressorManager(BaseManager):
             recursion_limit=review_addressor_settings.RECURSION_LIMIT,
             configurable={
                 "source_repo_id": self.ctx.repo_id,
-                "source_ref": self.ctx.ref,
+                "source_ref": self.ctx.repo.active_branch.name,
                 "bot_username": self.ctx.bot_username,
             },
         )
@@ -263,6 +264,11 @@ class ReviewAddressorManager(BaseManager):
                 elif result.get("plan_and_execute") == "completed":
                     started_discussions.remove(discussion)
                     resolved_discussions.append(discussion)
+
+                if result.get("reply_reviewer") == "starting":
+                    self.client.create_merge_request_note_emoji(
+                        self.ctx.repo_id, self.merge_request_id, Emoji.THUMBSUP, result["review_context"].notes[-1].id
+                    )
 
                 if result.get("reply"):
                     self.client.create_merge_request_comment(
@@ -394,7 +400,7 @@ class ReviewAddressorManager(BaseManager):
         """
         Get the file content from the repository.
         """
-        resolved_file_path = (self.ctx.repo_dir / path).resolve()
+        resolved_file_path = (Path(self.ctx.repo.working_dir) / path).resolve()
 
         if (
             not resolved_file_path.exists()

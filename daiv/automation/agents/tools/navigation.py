@@ -45,7 +45,8 @@ def glob_tool(pattern: str, runtime: ToolRuntime[RuntimeCtx], path: str | None =
     """  # noqa: E501
     logger.debug("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or "repository root")
 
-    root = runtime.context.repo_dir if path is None else (runtime.context.repo_dir / path.strip()).resolve()
+    repo_working_dir = Path(runtime.context.repo.working_dir)
+    root = repo_working_dir if path is None else (repo_working_dir / path.strip()).resolve()
 
     # We assume that the root path is valid if it is not provided.
     if path is not None and (not root.exists() or not root.is_dir()):
@@ -114,7 +115,8 @@ def grep_tool(
         include,
     )
 
-    root = runtime.context.repo_dir if path is None else (runtime.context.repo_dir / path.strip()).resolve()
+    repo_working_dir = Path(runtime.context.repo.working_dir)
+    root = repo_working_dir if path is None else (repo_working_dir / path.strip()).resolve()
 
     # We assume that the root path is valid if it is not provided.
     if path is not None and (not root.exists() or not root.is_dir()):
@@ -147,7 +149,7 @@ def ls_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """  # noqa: E501
     logger.debug("[%s] Listing files in %s", ls_tool.name, path)
 
-    root = (runtime.context.repo_dir / path.strip()).resolve()
+    root = (Path(runtime.context.repo.working_dir) / path.strip()).resolve()
 
     if not root.exists() or not root.is_dir():
         logger.warning("[%s] The '%s' does not exist or is not a directory.", ls_tool.name, path)
@@ -187,7 +189,7 @@ async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """  # noqa: E501
     logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
 
-    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
+    resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
     if (
         not resolved_file_path.exists()

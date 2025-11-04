@@ -6,6 +6,7 @@ MAX_OUTPUT_LENGTH = 2000
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
+    extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
 
     @classmethod
     @field_validator("base_image", "dockerfile")
@@ -19,7 +20,6 @@ class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
     workdir: str | None = Field(default=None, description="The working directory to use for the commands.")
     archive: str = Field(description="The archive to use as the working directory for the commands.")
-    extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
 
 

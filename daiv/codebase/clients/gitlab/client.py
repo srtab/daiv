@@ -4,10 +4,10 @@ import logging
 import tempfile
 from contextlib import contextmanager
 from functools import cached_property
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from zipfile import ZipFile
+from urllib.parse import urlparse
 
+from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 from unidiff import PatchSet
 
@@ -79,6 +79,7 @@ class GitLabClient(RepoClient):
             pk=cast("int", project.get_id()),
             slug=project.path_with_namespace,
             name=project.name,
+            clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
             default_branch=project.default_branch,
             client=self.client_slug,
             topics=project.topics,
@@ -401,41 +402,26 @@ class GitLabClient(RepoClient):
         project.commits.create(commits)
 
     @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Path]:
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         """
-        Load a repository to a temporary directory.
+        Clone a repository to a temporary directory.
 
         Args:
             repository: The repository.
             sha: The commit sha.
 
         Yields:
-            The path to the repository directory.
+            The repository object cloned to the temporary directory.
         """
-        project = self.client.projects.get(repository.slug, lazy=True)
         safe_sha = sha.replace("/", "_").replace(" ", "-")
 
-        tmpdir = tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo")
-        logger.debug("Loading repository to %s", tmpdir)
+        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+            logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
-        try:
-            with tempfile.NamedTemporaryFile(
-                prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
-            ) as repo_archive:
-                project.repository_archive(streamed=True, action=repo_archive.write, format="zip", sha=sha)
-                repo_archive.flush()
-                repo_archive.seek(0)
+            parsed = urlparse(repository.clone_url)
+            clone_url = f"{parsed.scheme}://oauth2:{self.client.private_token}@{parsed.netloc}{parsed.path}"
 
-                with ZipFile(repo_archive.name, "r") as zipfile:
-                    zipfile.extractall(path=tmpdir.name)
-                    # The first file in the archive is the repository directory.
-                    repo_dirname = zipfile.filelist[0].filename
-        except:
-            raise
-        else:
-            yield Path(tmpdir.name).joinpath(repo_dirname)
-        finally:
-            tmpdir.cleanup()
+            yield Repo.clone_from(clone_url, tmpdir, branch=sha)
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """

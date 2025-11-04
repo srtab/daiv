@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import httpx
 
 from core.conf import settings
@@ -42,6 +44,9 @@ class DAIVSandboxClient:
         Returns:
             RunCommandResponse: The response from running the commands.
         """
+        with Path("request.json").open("w") as f:
+            f.write(request.model_dump_json())
+
         async with httpx.AsyncClient(
             timeout=settings.SANDBOX_TIMEOUT, base_url=self.url, headers=self._get_headers()
         ) as client:

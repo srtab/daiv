@@ -18,4 +18,5 @@ check_interval = 0
     privileged = true
     disable_cache = false
     pull_policy = "if-not-present"
+    extra_hosts = ["postgres:127.0.0.1"]
     volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]

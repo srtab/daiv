@@ -24,12 +24,6 @@ unit:
   interruptible: true
   coverage: "/\\d+.\\d+\\%\\s*$/"
   variables:
-    POSTGRES_DB: postgres
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: dbpass
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: 5432
-    POSTGRES_SSLMODE: prefer
     DB_NAME: postgres
     DB_USER: postgres
     DB_PASSWORD: dbpass
@@ -43,6 +37,14 @@ unit:
   services:
     - name: postgres:17.6
       alias: postgres
+      variables:
+        POSTGRES_DB: postgres
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: dbpass
+        POSTGRES_HOST: postgres
+        POSTGRES_PORT: 5432
+        POSTGRES_SSLMODE: prefer
+        POSTGRES_HOST_AUTH_METHOD: trust
   needs:
     - lint
 

@@ -103,6 +103,8 @@ services:
     volumes:
       - ./docker/local/gitlab-runner/config.toml:/etc/gitlab-runner/config.toml
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "postgres:127.0.0.1"
     depends_on:
       gitlab:
         condition: service_healthy

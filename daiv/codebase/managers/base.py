@@ -75,4 +75,4 @@ class BaseManager:
         if skip_ci:
             commit_message = f"[skip ci] {commit_message}"
 
-        self.client.commit_changes(self.ctx.repo_id, self.ctx.ref, commit_message, file_changes)
+        self.client.commit_changes(self.ctx.repo_id, self.ctx.repo.active_branch.name, commit_message, file_changes)

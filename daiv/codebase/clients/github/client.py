@@ -5,12 +5,11 @@ import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
-from pathlib import Path
 from typing import TYPE_CHECKING
-from zipfile import ZipFile
+from urllib.parse import urlparse
 
-import httpx
 from asgiref.sync import async_to_sync
+from git import Repo
 from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
 from github import Repository as GithubRepository
 from github.GithubException import GithubException
@@ -86,6 +85,7 @@ class GitHubClient(RepoClient):
             pk=repo.id,
             slug=repo.full_name,
             name=repo.name,
+            clone_url=repo.clone_url,
             default_branch=repo.default_branch,
             client=self.client_slug,
             topics=repo.topics,
@@ -794,41 +794,25 @@ class GitHubClient(RepoClient):
         return None
 
     @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Path]:
-        client_repo = self.client.get_repo(repository.slug, lazy=True)
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+        """
+        Clone a repository to a temporary directory.
 
+        Args:
+            repository: The repository.
+            sha: The commit sha.
+
+        Yields:
+            The repository object cloned to the temporary directory.
+        """
         safe_sha = sha.replace("/", "_").replace(" ", "-")
 
-        tmpdir = tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo")
-        logger.debug("Loading repository to %s", tmpdir)
-
-        archive_url = client_repo.get_archive_link("zipball", ref=sha)
-
-        try:
-            with (
-                tempfile.NamedTemporaryFile(
-                    prefix=f"{repository.pk}-{safe_sha}-archive", suffix=".zip"
-                ) as repo_archive,
-                httpx.stream("GET", archive_url, timeout=10.0, headers={"User-Agent": USER_AGENT}) as response,
-            ):
-                response.raise_for_status()
-
-                for line in response.iter_bytes():
-                    repo_archive.write(line)
-
-                repo_archive.flush()
-                repo_archive.seek(0)
-
-                with ZipFile(repo_archive.name, "r") as zipfile:
-                    zipfile.extractall(path=tmpdir.name)
-                    # The first file in the archive is the repository directory.
-                    repo_dirname = zipfile.filelist[0].filename
-        except:
-            raise
-        else:
-            yield Path(tmpdir.name).joinpath(repo_dirname)
-        finally:
-            tmpdir.cleanup()
+        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+            logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
+            token = self.client.requester.auth.token
+            parsed = urlparse(repository.clone_url)
+            clone_url = f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
+            yield Repo.clone_from(clone_url, tmpdir, branch=sha)
 
     def update_or_create_merge_request(
         self,

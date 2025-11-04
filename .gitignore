@@ -164,3 +164,5 @@ state-snapshots.txt
 
 .ruff_cache/
 .cursor
+
+request.json

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -19,8 +20,6 @@ from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from langchain.agents.middleware.types import AgentState
     from langgraph.runtime import Runtime
 
@@ -181,7 +180,7 @@ class AgentsMDMiddleware(AgentMiddleware):
             dict[str, Any] | None: The state updates with the agents instructions from the AGENTS.md file.
         """
         agents_md_content = self._get_agents_md_content(
-            runtime.context.repo_dir, runtime.context.config.context_file_name
+            Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name
         )
 
         if not agents_md_content:

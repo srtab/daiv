@@ -261,7 +261,7 @@ class IssueAddressorManager(BaseManager):
             changes_description.branch,
             commit_message,
             file_changes,
-            start_branch=self.ctx.ref,
+            start_branch=self.ctx.repo.active_branch.name,
             override_commits=True,
         )
 
@@ -275,7 +275,7 @@ class IssueAddressorManager(BaseManager):
         return self.client.update_or_create_merge_request(
             repo_id=self.ctx.repo_id,
             source_branch=changes_description.branch,
-            target_branch=self.ctx.ref,
+            target_branch=self.ctx.repo.active_branch.name,
             labels=[BOT_LABEL],
             title=changes_description.title,
             assignee_id=assignee_id,
