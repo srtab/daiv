@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from langchain.tools import ToolRuntime, tool
 
@@ -44,7 +45,7 @@ async def edit_tool(
     """  # noqa: E501
     logger.debug("[%s] Editing file '%s'", edit_tool.name, file_path)
 
-    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
+    resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The '%s' does not exist or is not a file.", edit_tool.name, file_path)
@@ -112,12 +113,19 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeC
     """  # noqa: E501
     logger.debug("[%s] Writing to file '%s'", write_tool.name, file_path)
 
-    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
+    resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
     file_exists = resolved_file_path.exists()
 
     if file_exists and not resolved_file_path.is_file():
         logger.warning("[%s] The '%s' is not a file.", write_tool.name, file_path)
         return f"error: File '{file_path}' is not a file. Only use this tool to write to files."
+
+    if runtime.context.repo.ignored([file_path]):
+        logger.warning("[%s] The file '%s' matches patterns in .gitignore.", write_tool.name, file_path)
+        return (
+            f"error: Cannot create/write file '{file_path}' because it matches patterns in .gitignore. "
+            "Files matching .gitignore should not be committed."
+        )
 
     if file_exists and await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
@@ -165,7 +173,7 @@ async def delete_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """  # noqa: E501
     logger.debug("[%s] Deleting file '%s'", delete_tool.name, file_path)
 
-    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
+    resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The file '%s' does not exist or is not a file.", delete_tool.name, file_path)
@@ -213,8 +221,9 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[R
     """  # noqa: E501
     logger.debug("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
 
-    resolved_file_path = (runtime.context.repo_dir / file_path.strip()).resolve()
-    resolved_new_file_path = (runtime.context.repo_dir / new_file_path.strip()).resolve()
+    repo_working_dir = Path(runtime.context.repo.working_dir)
+    resolved_file_path = (repo_working_dir / file_path.strip()).resolve()
+    resolved_new_file_path = (repo_working_dir / new_file_path.strip()).resolve()
 
     if not resolved_file_path.exists() or not resolved_file_path.is_file():
         logger.warning("[%s] The file '%s' does not exist or is not a file.", rename_tool.name, file_path)
@@ -223,6 +232,15 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[R
     if resolved_new_file_path.exists():
         logger.warning("[%s] The file '%s' already exists.", rename_tool.name, new_file_path)
         return f"error: File with path '{new_file_path}' already exists."
+
+    if runtime.context.repo.ignored([new_file_path]):
+        logger.warning(
+            "[%s] The destination file '%s' matches patterns in .gitignore.", rename_tool.name, new_file_path
+        )
+        return (
+            f"error: Cannot rename file to '{new_file_path}' because it matches patterns in .gitignore. "
+            "Files matching .gitignore should not be committed."
+        )
 
     if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before renaming it.", rename_tool.name, file_path)

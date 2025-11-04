@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
 import pytest
-from daiv.api import api
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey
 from automation.agents.tools.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
+from daiv.api import api
 
 
 @pytest.fixture

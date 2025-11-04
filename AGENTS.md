@@ -27,7 +27,7 @@ uv sync --only-group=docs  # install only the docs dependencies
 uv lock  # update the lock file
 ```
 
-To add, update or remove dependencies, use the native `uv add` or `uv remove` commands to ensure the lock file is always updated. Avoid editing the `pyproject.toml` file directly to install/update/remove dependencies.
+Never edit `pyproject.toml` directly to manage dependencies. Always use the native uv commands (`uv add`, `uv remove`, `uv lock`) to add, remove, or update dependencies, and to update the lock file.
 
 ## Testing
 

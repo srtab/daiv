@@ -1,4 +1,5 @@
 import pytest
+
 from quick_actions.base import QuickAction, Scope
 from quick_actions.registry import QuickActionRegistry
 

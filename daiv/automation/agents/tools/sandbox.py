@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess  # noqa: S404
 import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -23,8 +24,6 @@ from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from langgraph.runtime import Runtime
     from langgraph.store.base import BaseStore
 
@@ -113,7 +112,7 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
 @tool(BASH_TOOL_NAME, parse_docstring=True)
 async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Run a list of Bash commands in a WRITE-ENABLED, persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
+    Run a list of Bash commands in a persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
 
     PURPOSE
     - Execute project-native CLIs that perform writes (e.g., formatters with --fix, code generators, package manager install/update/remove).
@@ -126,6 +125,7 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
 
     OUTPUT CONTRACT
     - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
+    - Patch with the changes made by the executed commands.
     - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
     - Output is unnormalized (may include ANSI). Add flags like `--no-color` if needed.
 
@@ -153,7 +153,9 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     - Fall back to Bash only when the companion tools cannot achieve the goal or when invoking project-native CLIs that must perform writes.
 
     WHEN TO USE
-    - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`), run code generators/scaffolding, and perform dependency installs/updates/removals via the project's package manager.
+    - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`);
+    - Run code generators/scaffolding;
+    - Manage dependencies via the project's package manager.
 
     WHEN NOT TO USE
     - Any file creation/edit/rename/delete that the `write`/`edit`/`rename`/`delete` tools can do.
@@ -168,7 +170,8 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     """  # noqa: E501
     logger.info("[%s] Running bash commands: %s", bash_tool.name, commands)
 
-    response = await _run_bash_commands(commands, runtime.context.repo_dir, runtime.state["session_id"])
+    repo_working_dir = Path(runtime.context.repo.working_dir)
+    response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"])
 
     if response is None:
         return (
@@ -178,22 +181,22 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, runtime.store, runtime.context.repo_dir)
+            await _update_store_and_ctx(response.patch, runtime.store, repo_working_dir)
         except Exception:
             logger.exception("Error updating store and ctx.")
             return None
 
-    return json.dumps([result.model_dump(mode="json") for result in response.results])
+    return json.dumps(response.model_dump(mode="json", exclude_none=True))
 
 
 @tool(BASH_TOOL_NAME, parse_docstring=True)
 async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Run a list of Bash commands in a READ-ONLY, persistent shell session rooted at the repository's root. Designed for a planning agent to probe a codebase (any tech stack) and turn the findings into an execution plan for a later agent.
+    Run a list of Bash commands in a shell session rooted at the repository's root. Designed for a planning agent to probe a repository and turn the findings into an execution plan for a later agent. All changes made by the commands are not persisted/committed to the repository.
 
     PURPOSE
     - Execute project CLIs (linters, type checkers, test discovery, i18n generators, build analyzers, etc.) to collect signals that inform a plan.
-    - Use this to inspect and diagnose; not to change the codebase.
+    - Use this to inspect and diagnose the repository, not to change it.
 
     SESSION & COMMANDS
     - The shell session persists across multiple tool calls and retains the working directory.
@@ -201,7 +204,7 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
     - Start in the repo root. Prefer absolute paths. Avoid `cd` unless your plan requires it.
 
     READ-ONLY & SAFETY
-    - Changes are NOT persisted. Treat the environment as read-only.
+    - Changes are NOT persisted. Treat the environment as read-only. Use this tool to inspect and diagnose the repository, not to change it.
     - Avoid heavy/destructive operations (e.g., installs, container builds, mass formatting). Prefer dry-run/diagnostic flags when available (`--check`, `--dry-run`, `--no-color`, `--no-write`).
     - Network access is allowed; be judicious.
 
@@ -223,7 +226,7 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
 
     WHEN NOT TO USE
     - For raw file reading, listing, or searching that the `glob`/`grep`/`ls`/`read` tools can handle.
-    - For operations intended to modify the repo or environment.
+    - For operations intended to modify the repository that are meant to be persisted/committed to the repository.
 
     PRACTICAL TIPS
     - Reduce noise to avoid truncation: prefer `--quiet`, `--format json`, `--reporter`, `--no-color`, and scoped paths.
@@ -242,9 +245,8 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
     """  # noqa: E501
     logger.info("[%s] Running read-only bash commands: %s", read_only_bash_tool.name, commands)
 
-    response = await _run_bash_commands(
-        commands, runtime.context.repo_dir, runtime.state["session_id"], extract_patch=False
-    )
+    repo_working_dir = Path(runtime.context.repo.working_dir)
+    response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"], extract_patch=False)
 
     if response is None:
         return (
@@ -278,8 +280,9 @@ async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False
     if not force and not await has_file_changes(runtime.store):
         return "warning: No changes were made to any files, skipping formatting the code."
 
+    repo_working_dir = Path(runtime.context.repo.working_dir)
     response = await _run_bash_commands(
-        runtime.context.config.sandbox.format_code, runtime.context.repo_dir, runtime.state["session_id"]
+        runtime.context.config.sandbox.format_code, repo_working_dir, runtime.state["session_id"]
     )
     if response is None:
         return "error: Failed to format code. The format code tool is not working properly."
@@ -290,7 +293,7 @@ async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, runtime.store, runtime.context.repo_dir)
+            await _update_store_and_ctx(response.patch, runtime.store, repo_working_dir)
         except Exception:
             logger.exception("[%s] Error updating store and ctx.", format_code_tool.name)
             return "error: Failed to format code. The format code tool is not working properly."
@@ -387,6 +390,7 @@ class SandboxMiddleware(AgentMiddleware):
         super().__init__()
 
         self.tools = []
+        self.read_only_bash = read_only_bash
 
         if read_only_bash:
             self.tools.append(read_only_bash_tool)
@@ -408,7 +412,9 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, list] | None: The state updates with the sandbox session.
         """
         session_id = await DAIVSandboxClient().start_session(
-            StartSessionRequest(base_image=runtime.context.config.sandbox.base_image)
+            StartSessionRequest(
+                base_image=runtime.context.config.sandbox.base_image, extract_patch=not self.read_only_bash
+            )
         )
         return {"session_id": session_id}
 

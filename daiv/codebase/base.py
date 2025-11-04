@@ -18,6 +18,7 @@ class Repository(BaseModel):
     pk: int
     slug: str
     name: str
+    clone_url: str
     default_branch: str
     client: ClientType
     topics: list[str] = Field(default_factory=list)

@@ -1,9 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from codebase.base import Discussion, Issue, MergeRequest, Note, NoteableType, User
 from quick_actions.base import Scope
 from quick_actions.tasks import execute_issue_task, execute_merge_request_task
-
-from codebase.base import Discussion, Issue, MergeRequest, Note, NoteableType, User
 
 
 class TestExecuteQuickActionTask:

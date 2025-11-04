@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
 import pytest
-from daiv.api import api
 from ninja.testing import TestAsyncClient
 
 from codebase.clients.gitlab.api.callbacks import PushCallback
 from codebase.clients.gitlab.api.models import Project
+from daiv.api import api
 
 
 @pytest.fixture

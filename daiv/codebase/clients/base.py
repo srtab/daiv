@@ -12,8 +12,8 @@ from codebase.conf import settings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
+    from git import Repo
     from github import Github
     from gitlab import Gitlab
     from unidiff import PatchSet
@@ -106,7 +106,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_repo(self, repo_id: str, sha: str) -> Iterator[Path]:
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         pass
 
     @abc.abstractmethod

@@ -41,7 +41,12 @@ def mock_repo_client():
 
         # Mock basic repository operations
         mock_client.get_repository.return_value = Repository(
-            pk=1, slug="test/test-repo", name="test-repo", default_branch="main", client=ClientType.GITLAB
+            pk=1,
+            slug="test/test-repo",
+            name="test-repo",
+            default_branch="main",
+            client=ClientType.GITLAB,
+            clone_url="https://test-repo.com",
         )
         mock_client.list_repositories.return_value = []
         mock_client.get_repository_file.return_value = None
