@@ -3,10 +3,6 @@ from functools import cached_property
 from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
-from quick_actions.base import Scope
-from quick_actions.parser import QuickActionCommand, parse_quick_action
-from quick_actions.registry import quick_action_registry
-from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
 from codebase.api.callbacks import BaseCallback
 from codebase.base import NoteType
@@ -15,6 +11,10 @@ from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
 from codebase.utils import note_mentions_daiv
+from quick_actions.base import Scope
+from quick_actions.parser import QuickActionCommand, parse_quick_action
+from quick_actions.registry import quick_action_registry
+from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
 from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 

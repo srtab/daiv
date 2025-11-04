@@ -1,4 +1,5 @@
 import pytest
+
 from quick_actions.parser import parse_quick_action
 
 

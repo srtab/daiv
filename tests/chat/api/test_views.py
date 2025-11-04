@@ -1,8 +1,8 @@
 import pytest
-from daiv.api import api
 from ninja.testing import TestAsyncClient
 
 from chat.api.views import MODEL_ID
+from daiv.api import api
 
 
 @pytest.fixture
