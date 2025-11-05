@@ -19,25 +19,20 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_THINKING_MODELS = (
-    "claude-sonnet-4",
-    "claude-opus-4",
-    "claude-opus-4.1",
-    "anthropic/claude-sonnet-4",
-    "anthropic/claude-opus-4",
-    "anthropic/claude-opus-4.1",
-)
 CLAUDE_MAX_TOKENS = 4_096
 
+CLAUDE_THINKING_MODELS = (
+    "claude-sonnet-4.5",
+    "claude-opus-4.1",
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4.1",
+)
+
 OPENAI_THINKING_MODELS = (
-    "o1",
-    "o3",
     "o4",
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
-    "openai/o1",
-    "openai/o3",
     "openai/o4",
     "openai/gpt-5",
     "openai/gpt-5-mini",
@@ -141,6 +136,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENAI:
             assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
             _kwargs["api_key"] = settings.OPENAI_API_KEY.get_secret_value()
+            _kwargs["use_responses_api"] = True
             if thinking_level and _kwargs["model"].startswith(OPENAI_THINKING_MODELS):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
@@ -252,7 +248,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             ModelProvider: The model provider
         """
-        if any(model_name.startswith(pre) for pre in ("gpt-4", "gpt-5", "o1", "o3", "o4")):
+        if any(model_name.startswith(pre) for pre in ("gpt-4", "gpt-5", "o4")):
             return ModelProvider.OPENAI
         elif model_name.startswith("claude"):
             return ModelProvider.ANTHROPIC
