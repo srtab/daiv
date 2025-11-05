@@ -55,7 +55,6 @@ def mock_repo_client():
 
         # Mock repository modification operations
         mock_client.set_repository_webhooks.return_value = True
-        mock_client.get_merge_request_diff.return_value = iter([])
         mock_client.commit_changes.return_value = None
 
         # Mock issue operations

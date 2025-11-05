@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
-from unidiff import PatchSet
 
 from codebase.base import (
     ClientType,
@@ -284,26 +283,6 @@ class GitLabClient(RepoClient):
                 ],
             )
         ]
-
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
-        """
-        Get the latest diff of a merge request.
-        https://docs.gitlab.com/ee/administration/instance_limits.html#diff-limits
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-
-        Returns:
-            The generator of merge request diffs.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-
-        response = self.client.http_get(
-            f"/projects/{project.id}/merge_requests/{merge_request.iid}/raw_diffs", streamed=False, raw=True
-        )
-        return PatchSet.from_string(response.text)
 
     def update_or_create_merge_request(
         self,

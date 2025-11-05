@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from git import Repo
     from github import Github
     from gitlab import Gitlab
-    from unidiff import PatchSet
 
 logger = logging.getLogger("daiv.clients")
 
@@ -62,10 +61,6 @@ class RepoClient(abc.ABC):
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
     ) -> bool:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
         pass
 
     @abc.abstractmethod
