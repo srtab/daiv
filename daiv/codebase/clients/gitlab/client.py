@@ -105,6 +105,7 @@ class GitLabClient(RepoClient):
                 pk=cast("int", project.get_id()),
                 slug=project.path_with_namespace,
                 name=project.name,
+                clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
                 default_branch=project.default_branch,
                 client=self.client_slug,
                 topics=project.topics,
