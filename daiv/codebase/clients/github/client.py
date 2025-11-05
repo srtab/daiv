@@ -15,7 +15,6 @@ from github import Repository as GithubRepository
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
-from unidiff import PatchSet
 
 from codebase.base import (
     ClientType,
@@ -526,21 +525,6 @@ class GitHubClient(RepoClient):
                 )
 
         return linked_prs
-
-    def get_merge_request_diff(self, repo_id: str, merge_request_id: int) -> PatchSet:
-        """
-        Get the diff of a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-
-        Returns:
-            The diff patch set.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        headers, data = self.client.requester.requestJsonAndCheck("GET", pr.diff_url, follow_302_redirect=True)
-        return PatchSet.from_string(data["data"])
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
-from unidiff.patch import Line
+from unidiff.patch import Line, PatchSet
 
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
@@ -303,7 +303,13 @@ class ReviewAddressorManager(BaseManager):
         """
         Extract patch files from merge request.
         """
-        patch_set_all = self.client.get_merge_request_diff(self.ctx.repo_id, self.merge_request_id)
+        merge_request = self.client.get_merge_request(self.ctx.repo_id, self.merge_request_id)
+        patch_set_all = PatchSet.from_string(
+            # prefix the branches with "origin/" to get the diff from the remote repository.
+            self.ctx.repo.git.diff(
+                f"origin/{merge_request.target_branch}..origin/{merge_request.source_branch}", "--patch", "--binary"
+            )
+        )
         merge_request_patches: dict[str, PatchedFile] = {patch_file.path: patch_file for patch_file in patch_set_all}
         merge_request_patches["__all__"] = patch_set_all
         return merge_request_patches
