@@ -7,10 +7,11 @@ from langchain_core.tools import tool
 from openevals.llm import create_async_llm_as_judge
 
 from automation.agents import BaseAgent
-from automation.agents.constants import ModelName
 from automation.agents.plan_and_execute.prompts import review_code_changes_prompt
 from automation.utils import get_file_changes
 from codebase.context import RuntimeCtx  # noqa: TC001
+
+from .conf import settings
 
 logger = logging.getLogger("daiv.tools")
 
@@ -76,7 +77,10 @@ async def review_code_changes_tool(placeholder: str, runtime: ToolRuntime[Runtim
         return "No changes have been made yet to review."
 
     evaluator = create_async_llm_as_judge(
-        prompt=review_code_changes_prompt, judge=BaseAgent.get_model(model=ModelName.GPT_5_MINI)
+        prompt=review_code_changes_prompt,
+        judge=BaseAgent.get_model(
+            model=settings.CODE_REVIEW_MODEL_NAME, thinking_level=settings.CODE_REVIEW_THINKING_LEVEL
+        ),
     )
     inputs = [task.model_dump(mode="json") for task in runtime.state["plan_tasks"]]
     outputs = "\n".join(diffs)

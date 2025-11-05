@@ -26,6 +26,13 @@ class PlanAndExecuteSettings(BaseSettings):
         default=ModelName.CLAUDE_SONNET_4_5,
         description="Model to write code and run commands with capabilities to call tools.",
     )
+    CODE_REVIEW_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.GPT_5_MINI, description="Model to review code changes against the plan tasks ."
+    )
+    CODE_REVIEW_THINKING_LEVEL: ThinkingLevel | None = Field(
+        default=ThinkingLevel.MEDIUM,
+        description="Thinking level to be used for code review. Set as `None` to disable thinking.",
+    )
 
 
 settings = PlanAndExecuteSettings()
