@@ -42,23 +42,31 @@ class ChangeInstructions(BaseModel):
 
 class FinishOutput(BaseModel):
     """
-    Deliver a concise summary message reporting the execution outcome.
+    Deliver a concise summary of changes made to the repository.
 
     **Usage rules:**
-    - The agent has completed the execution phase (successfully or partially or aborted).
-    - All change instructions have been attempted.
+    - Report only actual modifications made to the codebase.
+    - Focus on observable changes: files, commands, installations.
     """
 
-    aborting: bool = Field(default=False, description="Indicates if the execution is aborted or not")
+    aborting: bool = Field(default=False, description="Indicates if execution was aborted before completing")
     message: str = Field(
         description=dedent(
             """\
-            Concise summary of the execution outcome:
-            - List what was successfully applied;
-            - Highlight any changes that could not be applied and why (e.g., command failed, file not found, permission issues);
-            - If the execution is aborted, the message should indicate the reason why.
-            - No chit-chat.
-            - Use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
+            Concise summary of changes made to the repository.
+
+            **Include:**
+            - Files modified, created, or deleted with brief description of changes
+            - Commands executed (dependencies installed, scripts run)
+            - Changes that failed and why (file not found, permission denied, command failed)
+            - If aborted, state what prevented completion
+
+            **Avoid:**
+            - Internal workflow steps (plans, reviews, verification, analysis)
+            - Meta-commentary about the process
+            - Terms like "change plan", "code review", "requirements satisfied"
+
+            Use markdown for `files`, `directories`, `variables`, `commands`. Be factual and specific.
             """  # noqa: E501
         )
     )
@@ -66,7 +74,7 @@ class FinishOutput(BaseModel):
 
 class PlanOutput(BaseModel):
     """
-    Deliver a self-contained implementation plan that satisfies the user's request.
+    Deliver a self-contained implementation plan that meets the user's requirements.
 
     **Usage rules:**
     - The requirements are clear and changes are needed.
@@ -91,19 +99,30 @@ class PlanOutput(BaseModel):
 
 class ClarifyOutput(BaseModel):
     """
-    Deliver targeted grounded questions to clarify the user's intent.
+    Ask targeted questions to clarify the user's requirements.
 
     **Usage rules:**
-    - There's uncertainty about the requirements/changes needed.
-    - The context is insufficient to deliver the plan with the user's intent with high confidence.
-    - The user needs to provide additional details that could not be covered by the context.
+    - Use when requirements are ambiguous or incomplete.
+    - Ask only what's necessary to understand what changes to make.
     """
 
     type: Literal["clarify"] = Field(default="clarify", description="Type discriminator for clarify output")
     questions: str = Field(
         description=dedent(
             """\
-            Targeted concise, direct and to the point questions. No chit-chat. Ground them in the codebase and search results; use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed.
+            Targeted questions to clarify requirements.
+
+            **Include:**
+            - Reference specific files, functions, or code when relevant
+            - Ask about concrete choices (which approach, which file, what behavior)
+            - Present options when multiple valid interpretations exist
+
+            **Avoid:**
+            - Generic or vague questions
+            - Asking about things already visible in the codebase
+            - Mentioning internal processes (search, analysis, planning)
+
+            Be direct and concise. Use markdown for `files`, `variables`, `functions`.
             """  # noqa: E501
         )
     )
@@ -111,18 +130,31 @@ class ClarifyOutput(BaseModel):
 
 class CompleteOutput(BaseModel):
     """
-    Deliver a message to confirm no changes or actions are needed.
+    Deliver a message confirming the repository already satisfies the requirements.
 
     **Usage rules:**
-    - The context is sufficient to confirm no changes or actions are needed.
-    - The current state already meets the requirements.
+    - Use when the current state already meets what was requested.
+    - Provide concrete evidence from the codebase.
     """
 
     type: Literal["complete"] = Field(default="complete", description="Type discriminator for complete output")
     message: str = Field(
-        description=(
-            "Human-readable concise message to demonstrate how current state meets requirements with specific evidence."
-            "No chit-chat. Use markdown formatting for `variables`, `files`, `directories`, `dependencies` as needed."
+        description=dedent(
+            """\
+            Explain why no changes are needed with specific evidence from the repository.
+
+            **Include:**
+            - State that the requirement is already satisfied
+            - Cite specific evidence: files, code excerpts, configurations, dependencies
+            - Reference exact locations (file paths, line numbers, function names)
+
+            **Avoid:**
+            - Mentioning investigation or analysis processes
+            - Vague statements without concrete evidence
+            - Internal workflow references
+
+            Use markdown for `files`, `code`, `variables`. Keep code excerpts brief.
+            """  # noqa: E501
         )
     )
 
