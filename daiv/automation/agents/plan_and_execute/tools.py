@@ -21,32 +21,44 @@ REVIEW_CODE_CHANGES_TOOL_NAME = "review_code_changes"
 
 
 @tool(PLAN_THINK_TOOL_NAME, parse_docstring=True)
-def plan_think_tool(plan: str):
+def plan_think_tool(notes: str):
     """
-    Use this tool to outline what you need to investigate to assist the user. This helps you track progress and organize complex tasks in a structured way.
+    Use this tool to outline your investigation approach and track progress through complex tasks. This is a planning and progress-tracking tool ONLY - it does NOT fetch information or modify anything.
+
+    **When to use:**
+    - Planning which files/patterns to search for before investigating
+    - Tracking progress on multi-step investigations
+    - Updating your task list as you discover new requirements
+
+    **When NOT to use:**
+    - Summarizing your final plan (use `PlanOutput` instead)
+    - Concluding your investigation (call an output tool immediately)
+    - Saying 'ready to create plan' or 'all clear' (call `PlanOutput` NOW)
+
+    **CRITICAL:** If your `plan` field contains phrases like:
+    - 'Ready to plan'
+    - 'Ready to create implementation plan'
+    - 'All information is clear'
+    - 'Now I'll create the plan'
+
+    Then you should call `PlanOutput`, `ClarifyOutput`, or `CompleteOutput` instead of this tool.
 
     **Usage rules:**
-    - Does NOT fetch new information or modify anything, it's just a placeholder to help you track progress.
-    - Add any new follow-up tasks as you discover them during your investigation.
-    - You can also update future tasks, such as deleting them if they are no longer necessary, or adding new tasks that are necessary. Don't change previously completed tasks.
-    - **Important:** It is critical that you mark tasks as completed as soon as you are done with them. Do not batch up multiple tasks before marking them as completed.
-
-    **Skip using this tool when:**
-    - There is only a single, straightforward task
-    - The task is trivial and tracking it provides no organizational benefit
-    - The task can be completed in less than 3 trivial steps
-    - The task is purely conversational or informational
+    - Does NOT fetch new information - use investigation tools for that
+    - Mark tasks as completed immediately when done, don't batch them
+    - Update or remove tasks as you learn new information
+    - Skip using this tool if the task is simple/straightforward
 
     Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 
     Args:
-        plan (str): The plan to investigate in markdown format.
+        notes (str): Your investigation approach or progress update in markdown format. Should contain tasks to complete, not final conclusions.
 
     Returns:
-        A message indicating that the thought has been registered.
+        A message indicating that the notes have been registered.
     """  # noqa: E501
-    logger.info("[%s] Thinking about: %s", plan_think_tool.name, plan)
-    return "Thought registered."
+    logger.info("[%s] Thinking notes: %s", plan_think_tool.name, notes)
+    return "Thinking notes registered."
 
 
 @tool(REVIEW_CODE_CHANGES_TOOL_NAME, parse_docstring=True)
