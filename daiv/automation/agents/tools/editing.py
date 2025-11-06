@@ -53,7 +53,7 @@ async def edit_tool(
 
     if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before editing it.", edit_tool.name, file_path)
-        return "error: You must read the file before editing it."
+        return "error: You must read the file before editing it. Call the `read` tool to read the file first."
 
     if not (content := resolved_file_path.read_text()):
         return "error: The file exists but is empty. Use the `write` tool to write to it instead."
@@ -129,7 +129,7 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeC
 
     if file_exists and await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
-        return "error: You must read the file before writing to it."
+        return "error: You must read the file before writing to it. Call the `read` tool to read the file first."
 
     previous_content = resolved_file_path.read_text() if file_exists else ""
 
@@ -181,7 +181,7 @@ async def delete_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
 
     if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before deleting it.", delete_tool.name, file_path)
-        return "error: You must read the file before deleting it."
+        return "error: You must read the file before deleting it. Call the `read` tool to read the file first."
 
     previous_content = resolved_file_path.read_text()
 
@@ -244,7 +244,7 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[R
 
     if await check_file_read(runtime.store, file_path.strip()) is False:
         logger.warning("[%s] The '%s' was not read before renaming it.", rename_tool.name, file_path)
-        return "error: You must read the file before renaming it."
+        return "error: You must read the file before renaming it. Call the `read` tool to read the file first."
 
     file_content = resolved_file_path.read_text()
 

@@ -200,6 +200,10 @@ async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         logger.warning("[%s] The '%s' does not exist or is not a file.", read_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
+    if runtime.store:
+        # We don't need to store the content, just the fact that the file was read.
+        await register_file_read(runtime.store, file_path)
+
     if any(fnmatch.fnmatch(file_path, pattern) for pattern in runtime.context.config.omit_content_patterns):
         # We can't return None on this cases, otherwise the llm will think the file does not exist and
         # try to create it on some specific scenarios.
@@ -207,10 +211,6 @@ async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
 
     if not (content := resolved_file_path.read_text()):
         return "warning: The file exists but is empty."
-
-    if runtime.store:
-        # We don't need to store the content, just the fact that the file was read.
-        await register_file_read(runtime.store, file_path)
 
     # If the file is an image, return the image template.
     if mime_type := extract_valid_image_mimetype(content.encode()):
