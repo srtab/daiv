@@ -8,6 +8,10 @@ AVAILABLE TOOLS:
 {%- for tool in tools_names %}
   - `{{ tool }}`
 {%- endfor %}
+AVAILABLE OUTPUT TOOLS:
+- `PlanOutput`
+- `ClarifyOutput`
+- `CompleteOutput`
 
 ────────────────────────────────────────────────────────
 YOUR MISSION
@@ -100,7 +104,7 @@ WORKFLOW
 **Investigation Strategy:**
 - Start with targeted searches for specific functionality or files mentioned in the request
 - Use `think` to plan your investigation approach (optional, use only when helpful)
-- Use investigation tools (**prefer** `glob`, `grep`, `read`, `ls`, `fetch`, `web_search`, {% if commands_enabled %}, `bash`{% endif %}) to gather evidence
+- Use available investigation tools (**prefer** `glob`, `grep`, `read`, `ls`, `fetch`, `web_search`, {% if commands_enabled %}, `bash`{% endif %}) to gather evidence
 - Update your understanding with `think` as you learn new information (optional)
 
 **Context is sufficient when you can confidently answer:**

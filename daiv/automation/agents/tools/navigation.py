@@ -93,15 +93,16 @@ def grep_tool(
 
     **Usage rules:**
     - Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.)
-    - Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}", etc.)
+    - Filter files by pattern with the `include` parameter (eg. "*.js", "*.{ts,tsx}", etc.)
     - Returns file paths with at least one match sorted by name
     - Use this tool when you need to find files containing specific patterns
-    - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
+    - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful
     - Under the hood, this tool uses ripgrep
+    - **Important:** The `path` parameter must be a directory relative path. If you want to search a single file, leave `path` as None and set `include` to the file path (e.g., ".daiv.yml").
 
     Args:
         pattern (str): Regular expression to search for (e.g., 'useMemo\\(' or 'class\\s+HttpClient').
-        path (str | None): Directory to search in. If not specified, defaults to the repository root. Must be a relative path.
+        path (str | None): A directory to search in. If not specified, defaults to the repository root. Must be a directory relative path.
         include (str | None): Glob filter for file paths (e.g., '*.js', '*.{ts,tsx}', etc.).
 
     Returns:
