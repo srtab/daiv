@@ -24,6 +24,7 @@ from automation.agents.middleware import InjectImagesMiddleware
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.tools.sandbox import _run_bash_commands
 from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
+from automation.agents.utils import extract_text_content
 from automation.utils import has_file_changes
 from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
@@ -247,7 +248,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             else:
                 # if a plan has been generated, means that the changes have been applied
                 # if not, we share the final message from the agent with the human
-                completed_data["reply"] = result["messages"][-1].content
+                completed_data["reply"] = extract_text_content(result["messages"][-1].content)
 
             stream_writer(completed_data)
         return {}
@@ -318,7 +319,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         stream_writer({
             "reply_reviewer": "completed",
-            "reply": result["messages"][-1].content,
+            "reply": extract_text_content(result["messages"][-1].content),
             "review_context": state["review_context"],
         })
 

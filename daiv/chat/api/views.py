@@ -9,6 +9,7 @@ from ninja import Router
 
 from automation.agents.codebase_chat.agent import CodebaseChatAgent
 from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
+from automation.agents.utils import extract_text_content
 from codebase.conf import settings
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
@@ -68,7 +69,11 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             choices=[
                 {
                     "index": 1,
-                    "message": {"content": result["messages"][-1].content, "role": "assistant", "tool_calls": []},
+                    "message": {
+                        "content": extract_text_content(result["messages"][-1].content),
+                        "role": "assistant",
+                        "tool_calls": [],
+                    },
                     "finish_reason": "stop",
                 }
             ],

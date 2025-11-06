@@ -1,4 +1,9 @@
-from automation.agents.utils import compute_similarity, extract_images_from_text, find_original_snippet
+from automation.agents.utils import (
+    compute_similarity,
+    extract_images_from_text,
+    extract_text_content,
+    find_original_snippet,
+)
 
 
 def test_compute_similarity_exact_match():
@@ -274,3 +279,105 @@ def test_extract_images_from_text_github_user_attachments_legitimate_subdomains(
     assert images[0].url == "https://github.com/user-attachments/assets/abc123"
     assert images[1].url == "https://private-user-images.githubusercontent.com/123/456/image.png"
     assert images[2].url == "https://user-images.githubusercontent.com/user-attachments/assets/def456"
+
+
+# Tests for extract_text_content
+
+
+def test_extract_text_content_from_string():
+    """Test extracting text from string content."""
+    content = "This is a simple text message"
+    result = extract_text_content(content)
+    assert result == "This is a simple text message"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_empty_string():
+    """Test extracting text from empty string."""
+    content = ""
+    result = extract_text_content(content)
+    assert result == ""
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_list_with_text_blocks():
+    """Test extracting text from list of content blocks with type field."""
+    content = [{"type": "text", "text": "Hello "}, {"type": "text", "text": "world!"}]
+    result = extract_text_content(content)
+    assert result == "Hello world!"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_list_with_mixed_blocks():
+    """Test extracting text from list with mixed block types."""
+    content = [
+        {"type": "text", "text": "Text part"},
+        {"type": "image", "url": "http://example.com/image.png"},
+        {"type": "text", "text": " continues here"},
+    ]
+    result = extract_text_content(content)
+    assert result == "Text part continues here"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_list_with_text_field_only():
+    """Test extracting text from list of blocks with only text field."""
+    content = [{"text": "First part"}, {"text": " second part"}]
+    result = extract_text_content(content)
+    assert result == "First part second part"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_list_with_string_items():
+    """Test extracting text from list of plain strings."""
+    content = ["Hello ", "world", "!"]
+    result = extract_text_content(content)
+    assert result == "Hello world!"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_empty_list():
+    """Test extracting text from empty list."""
+    content = []
+    result = extract_text_content(content)
+    assert result == ""
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_list_with_no_text():
+    """Test extracting text from list with no text content."""
+    content = [
+        {"type": "image", "url": "http://example.com/image.png"},
+        {"type": "audio", "url": "http://example.com/audio.mp3"},
+    ]
+    result = extract_text_content(content)
+    assert result == ""
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_complex_structure():
+    """Test extracting text from complex multimodal content structure."""
+    # This simulates the structure that was causing the bug
+    content = [
+        {"id": "rs_050509c9a1c76d8900690cbf77cf5481a0aed3d5a2228f6dd0", "type": "text", "text": "Sure, "},
+        {"type": "text", "text": "I can help with that."},
+    ]
+    result = extract_text_content(content)
+    assert result == "Sure, I can help with that."
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_handles_unexpected_types_gracefully():
+    """Test that unexpected content types are converted to string."""
+    content = 123
+    result = extract_text_content(content)
+    assert result == "123"
+    assert isinstance(result, str)
+
+
+def test_extract_text_content_from_none():
+    """Test extracting text from None value."""
+    content = None
+    result = extract_text_content(content)
+    assert result == "None"
+    assert isinstance(result, str)

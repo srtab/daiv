@@ -113,6 +113,40 @@ def _extract_filename(url: str, alt_text: str = "") -> str:
     return ""
 
 
+def extract_text_content(content: str | list) -> str:
+    """
+    Extract text content from a message's content field.
+
+    LangChain messages can have content as either a string or a list of content blocks.
+    This function handles both formats and extracts the text.
+
+    Args:
+        content: The message content (string or list of content blocks)
+
+    Returns:
+        str: The extracted text content
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        # For list-based content (multimodal messages), extract text from text blocks
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict):
+                # Handle different block types
+                if block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+                elif "text" in block:
+                    text_parts.append(block["text"])
+            elif isinstance(block, str):
+                text_parts.append(block)
+        return "".join(text_parts)
+
+    # Fallback for unexpected types
+    return str(content)
+
+
 def find_original_snippet(snippet: str, file_contents: str, threshold=0.8, initial_line_threshold=0.9) -> list[str]:
     """
     This function finds the original snippet of code in a file given a snippet and the file contents.
