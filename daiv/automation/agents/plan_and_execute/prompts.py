@@ -42,7 +42,7 @@ CORE PRINCIPLES
 - **Tests:** If a test setup exists, you **must** add or update tests that cover the change; **do not** introduce a new test framework
 - **Documentation:** If a documentation setup exists, you **must** add or update documentation that covers the change; **do not** introduce a new documentation framework
 
-**When unsure about user intent, clarify with the user rather than guess**
+**When unsure about user intent or multiple valid interpretations, clarify with the user rather than guess**
 
 ────────────────────────────────────────────────────────
 IMPLEMENTATION STANDARDS
