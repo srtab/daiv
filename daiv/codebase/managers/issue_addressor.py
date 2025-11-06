@@ -13,6 +13,7 @@ from langgraph.types import Command
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.agents.utils import extract_text_content
 from automation.utils import get_file_changes
 from codebase.base import ClientType, FileChange, Issue
 from core.constants import BOT_LABEL, BOT_NAME
@@ -167,7 +168,7 @@ class IssueAddressorManager(BaseManager):
             self._add_no_changes_needed_note(no_changes_needed)
         # We share the final message from the agent with the human
         elif messages := state.get("messages"):
-            self._create_or_update_comment(messages[-1].content)
+            self._create_or_update_comment(extract_text_content(messages[-1].content))
         else:
             raise ValueError(f"Unexpected state returned: {state}")
 

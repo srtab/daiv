@@ -177,16 +177,16 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
         return (
             "error: Failed to run commands. Verify that the commands are valid. "
             "If the commands are valid, maybe the bash tool is not working properly."
-        ), None
+        )
 
     if response.patch:
         try:
             await _update_store_and_ctx(response.patch, runtime.store, repo_working_dir)
         except Exception:
             logger.exception("Error updating store and ctx.")
-            return None
+            return "error: Failed to persist the changes. The bash tool is not working properly."
 
-    return json.dumps(response.model_dump(mode="json", exclude_none=True))
+    return response.model_dump_json(exclude_none=True)
 
 
 @tool(BASH_TOOL_NAME, parse_docstring=True)
