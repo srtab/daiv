@@ -1,11 +1,10 @@
 from typing import TYPE_CHECKING
 
 from langchain_core.tools import ToolException
-from langchain_core.tools.base import _handle_tool_error, _handle_validation_error
+from langchain_core.tools.base import _handle_tool_error
 from langchain_mcp_adapters.interceptors import ToolCallInterceptor as BaseToolCallInterceptor
 from langchain_mcp_adapters.tools import MCPToolCallResult
 from mcp.types import ContentBlock
-from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -25,5 +24,3 @@ class ToolCallInterceptor(BaseToolCallInterceptor):
             return await handler(request)
         except ToolException as e:
             return MCPToolCallResult(isError=True, content=[ContentBlock(text=_handle_tool_error(e, flag=True))])
-        except ValidationError as e:
-            return MCPToolCallResult(isError=True, content=[ContentBlock(text=_handle_validation_error(e, flag=True))])
