@@ -11,7 +11,7 @@ class FetchMCPServer(MCPServer):
     name = "fetch"
     proxy_config = StdioMcpServer(
         command="uvx",
-        args=[f"mcp-server-fetch=={settings.FETCH_VERSION}", "--user-agent", USER_AGENT],
+        args=[f"mcp-server-fetch=={settings.FETCH_VERSION}", "--user-agent", USER_AGENT, "--ignore-robots-txt"],
         options=CommonOptions(panic_if_invalid=False, log_enabled=True),
     )
 
