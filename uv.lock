@@ -548,7 +548,7 @@ requires-dist = [
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai"], specifier = "==1.0.3" },
     { name = "langchain-mcp-adapters", specifier = "==0.1.12" },
     { name = "langgraph", specifier = "==1.0.2" },
-    { name = "langgraph-checkpoint-postgres", specifier = "==3.0.0" },
+    { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.4.41" },
     { name = "openevals", specifier = "==0.1.2" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.12" },
@@ -1435,7 +1435,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint-postgres"
-version = "3.0.0"
+version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
@@ -1443,9 +1443,9 @@ dependencies = [
     { name = "psycopg" },
     { name = "psycopg-pool" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/8f/5f24d6be066e85de10e782726d95e4ce9f5f09f31ba937226481cd987144/langgraph_checkpoint_postgres-3.0.0.tar.gz", hash = "sha256:645a3130ff308aba934914d19d1c8861e18f40ed90e97a80d9f0801b66f83652", size = 113103, upload-time = "2025-10-20T18:46:03.014Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/5e/c96bbded68a72757607e653c0f9cfaa02078da17e0999626f3c1ddc65ce9/langgraph_checkpoint_postgres-3.0.1.tar.gz", hash = "sha256:4ff0f04a70ce8f5b49d373f521eba97ccf0bb61181de1535e5d91e99db2ce7da", size = 113134, upload-time = "2025-11-06T16:21:47.855Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/c0/d8383ab20f312900bfce64f91977ac8b62696d7ea9e0254104cb1dee2d3f/langgraph_checkpoint_postgres-3.0.0-py3-none-any.whl", hash = "sha256:8e4fb5fe92deb7d5e58be2c85969cc8da87bc6c76f2481af2506538f274735ce", size = 40909, upload-time = "2025-10-20T18:46:02.085Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/01/5a5de9187f8a7f55fa546eb815fbeb4a41b10688d9a77b84224cb98ae0de/langgraph_checkpoint_postgres-3.0.1-py3-none-any.whl", hash = "sha256:f79eb588b328f05d715c7ed35d20895cd0a126b524f95edbbebedc4a595f43dd", size = 40914, upload-time = "2025-11-06T16:21:46.303Z" },
 ]
 
 [[package]]
