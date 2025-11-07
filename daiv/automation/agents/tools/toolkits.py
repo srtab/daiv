@@ -63,9 +63,10 @@ class MCPToolkit(BaseToolkit):
 
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
+        from .mcp.interceptors import ToolCallInterceptor
         from .mcp.registry import mcp_registry
 
-        client = MultiServerMCPClient(mcp_registry.get_connections())
+        client = MultiServerMCPClient(mcp_registry.get_connections(), tool_call_interceptor=ToolCallInterceptor())
 
         try:
             tools = await client.get_tools()
