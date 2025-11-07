@@ -41,4 +41,4 @@ class ModelName(StrEnum):
     QWEN_3_CODER_PLUS = "openrouter:qwen/qwen3-coder-plus"
 
     # MoonshotAI models
-    MOONSHOTAI_KIMI_K2_0905 = "openrouter:moonshotai/kimi-k2-0905:exacto"
+    MOONSHOTAI_KIMI_K2_THINKING = "openrouter:moonshotai/kimi-k2-thinking"

@@ -319,7 +319,9 @@ async def _run_bash_commands(
     tar_archive = io.BytesIO()
 
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
-        tar.add(repo_dir, arcname=repo_dir.name)
+        # Ignore .git directory to avoid including it in the archive and risking to include access tokens used
+        # to clone the repository.
+        tar.add(repo_dir, arcname=repo_dir.name, filter=lambda info: None if info.name.startswith(".git") else info)
 
     try:
         response = await DAIVSandboxClient().run_commands(
