@@ -12,7 +12,7 @@ class ReviewAddressorSettings(BaseSettings):
         default=ModelName.GPT_4_1_MINI, description="Model to route the review comment to the correct agent."
     )
     REPLY_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_CODEX,
+        default=ModelName.CLAUDE_HAIKU_4_5,
         description="Model that will interpret the review comment and reply or ask clarifying questions.",
     )
     REPLY_TEMPERATURE: float = Field(default=0.2, description="Temperature for the reply model.")
