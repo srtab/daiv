@@ -66,11 +66,11 @@ class MCPToolkit(BaseToolkit):
         from .mcp.interceptors import ToolCallInterceptor
         from .mcp.registry import mcp_registry
 
-        client = MultiServerMCPClient(mcp_registry.get_connections(), tool_call_interceptor=ToolCallInterceptor())
+        client = MultiServerMCPClient(mcp_registry.get_connections(), tool_interceptors=[ToolCallInterceptor()])
 
         try:
             tools = await client.get_tools()
-        except ExceptionGroup:
+        except Exception:
             logger.warning("Error getting tools from MCP servers: Connection refused.", exc_info=True)
             tools = []
 
