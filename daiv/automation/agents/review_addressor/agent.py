@@ -86,14 +86,19 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
 
     async def compile(self) -> CompiledStateGraph:
         tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + MergeRequestToolkit.get_tools()
+        model = BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE)
         return create_agent(
-            BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE),
+            model=model,
             state_schema=ReplyAgentState,
             context_schema=RuntimeCtx,
             tools=tools,
             store=self.store,
             checkpointer=self.checkpointer,
-            middleware=[respond_reviewer_system_prompt, InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
+            middleware=[
+                respond_reviewer_system_prompt,
+                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+                AnthropicPromptCachingMiddleware(),
+            ],
             name="reply_reviewer_agent",
         )
 

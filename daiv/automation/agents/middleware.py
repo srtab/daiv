@@ -46,16 +46,28 @@ class InjectImagesMiddleware(AgentMiddleware):
 
     Example:
         ```python
+        from langchain.chat_models import init_chat_model
         from langchain.agents import create_agent
 
+        model = init_chat_model(
+            model="openai:gpt-5",
+        )
+
         agent = create_agent(
-            model="openai:gpt-4o",
-            middleware=[InjectImagesMiddleware()],
+            model=model,
+            middleware=[InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True))],
         )
         ```
     """
 
     name = "inject_images_middleware"
+
+    def __init__(self, *, image_inputs_supported: bool = True):
+        """
+        Initialize the middleware.
+        """
+        super().__init__()
+        self.image_inputs_supported = image_inputs_supported
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """
@@ -68,7 +80,7 @@ class InjectImagesMiddleware(AgentMiddleware):
         Returns:
             dict[str, list] | None: State updates with new messages, or None if no images found.
         """
-        if not state["messages"]:
+        if not state["messages"] or not self.image_inputs_supported:
             return None
 
         latest_message = state["messages"][-1]
