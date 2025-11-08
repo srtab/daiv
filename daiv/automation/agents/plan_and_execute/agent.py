@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING, Any, Literal
 from django.utils import timezone
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse, TodoListMiddleware, dynamic_prompt
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelFallbackMiddleware,
+    ModelRequest,
+    ModelResponse,
+    TodoListMiddleware,
+    dynamic_prompt,
+)
 from langchain.agents.structured_output import ToolStrategy
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.messages import AIMessage
@@ -176,6 +183,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         model = BaseAgent.get_model(
             model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
         )
+        fallback_model = BaseAgent.get_model(
+            model=settings.PLANNING_FALLBACK_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL
+        )
         planner_agent = create_agent(
             model=model,
             tools=all_tools,
@@ -188,6 +198,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
                 AgentsMDMiddleware(),
                 *conditional_middlewares,
+                ModelFallbackMiddleware(first_model=fallback_model),
                 AnthropicPromptCachingMiddleware(),
             ],
             name="planner_agent",
@@ -270,6 +281,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 ExecutorMiddleware(),
                 *conditional_middlewares,
                 TodoListMiddleware(),
+                ModelFallbackMiddleware(first_model=BaseAgent.get_model(model=settings.EXECUTION_FALLBACK_MODEL_NAME)),
                 AnthropicPromptCachingMiddleware(),
             ],
             response_format=ToolStrategy(FinishOutput),
