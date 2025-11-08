@@ -173,10 +173,11 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if runtime.context.config.sandbox.enabled:
             conditional_middlewares.append(SandboxMiddleware(read_only_bash=True))
 
+        model = BaseAgent.get_model(
+            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+        )
         planner_agent = create_agent(
-            model=BaseAgent.get_model(
-                model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
-            ),
+            model=model,
             tools=all_tools,
             store=runtime.store,
             checkpointer=False,
@@ -184,7 +185,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             response_format=ToolStrategy(FinalizerOutput),
             middleware=[
                 plan_system_prompt,
-                InjectImagesMiddleware(),
+                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
                 AgentsMDMiddleware(),
                 *conditional_middlewares,
                 AnthropicPromptCachingMiddleware(),

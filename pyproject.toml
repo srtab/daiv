@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
   "celery[redis]==5.5.3",
-  "ddgs==9.7.1",
+  "ddgs==9.8.0",
   "django==5.2.8",
   "django-extensions==4.1",
   "django-ninja==1.4.5",
@@ -27,7 +27,7 @@ dependencies = [
   "httpx==0.28.1",
   "ipython==9.7.0",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai]==1.0.3",
+  "langchain[anthropic,community,google-genai,model-profiles,openai]==1.0.5",
   "langchain-mcp-adapters==0.1.12",
   "langgraph==1.0.2",
   "langgraph-checkpoint-postgres==3.0.1",
@@ -53,7 +53,7 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.11.0",
+  "coverage==7.11.1",
   "mypy==1.18.2",
   "pre-commit==4.3",
   "pyopenssl==25.3",
@@ -66,7 +66,7 @@ dev = [
   "pytest-mock==3.15.1",
   "pytest-xdist==3.8",
   "python-dotenv==1.2.1",
-  "ruff==0.14.3",
+  "ruff==0.14.4",
   "types-pyyaml==6.0.12.20250915",
   "watchdog==6",
 ]

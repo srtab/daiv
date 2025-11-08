@@ -45,13 +45,18 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled graph.
         """
+        model = BaseAgent.get_model(
+            model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
+        )
         return create_agent(
-            BaseAgent.get_model(
-                model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
-            ),
+            model=model,
             tools=FileNavigationToolkit.get_tools(),
             store=InMemoryStore(),
             context_schema=RuntimeCtx,
-            middleware=[codebase_chat_system_prompt, InjectImagesMiddleware(), AnthropicPromptCachingMiddleware()],
+            middleware=[
+                codebase_chat_system_prompt,
+                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+                AnthropicPromptCachingMiddleware(),
+            ],
             name=settings.NAME,
         ).with_config(RunnableConfig(recursion_limit=settings.RECURSION_LIMIT))
