@@ -63,16 +63,22 @@ class MCPToolkit(BaseToolkit):
 
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
-        from .mcp.interceptors import ToolCallInterceptor
         from .mcp.registry import mcp_registry
 
-        client = MultiServerMCPClient(mcp_registry.get_connections(), tool_interceptors=[ToolCallInterceptor()])
+        client = MultiServerMCPClient(mcp_registry.get_connections())
 
         try:
             tools = await client.get_tools()
         except Exception:
-            logger.warning("Error getting tools from MCP servers: Connection refused.", exc_info=True)
+            logger.warning("Error getting tools from MCP servers.", exc_info=True)
             tools = []
+
+        # Handle tool errors and validation errors gracefully to allow the agent to continue
+        for tool in tools:
+            tool.handle_tool_error = True
+            tool.handle_validation_error = True
+            tool.tags = ["mcp_server"]
+            tool.metadata = {"mcp_server": tool.name}
 
         return tools
 
