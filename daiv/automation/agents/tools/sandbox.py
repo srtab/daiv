@@ -186,7 +186,7 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
             logger.exception("Error updating store and ctx.")
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
-    return response.model_dump_json(exclude_none=True)
+    return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
 @tool(BASH_TOOL_NAME, parse_docstring=True)

@@ -416,7 +416,6 @@ execute_plan_human = HumanMessagePromptTemplate.from_template(
 
 </plan>""",
     "jinja2",
-    additional_kwargs={"cache-control": {"type": "ephemeral"}},
 )
 
 
