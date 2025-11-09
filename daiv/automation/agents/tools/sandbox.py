@@ -58,6 +58,8 @@ async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_di
         if patched_file.is_added_file:
             file_changes.append({
                 "action": FileChangeAction.CREATE,
+                "old_file_content": "",
+                "old_file_path": None,
                 "new_file_content": None,
                 "new_file_path": target_path,
             })
