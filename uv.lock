@@ -557,11 +557,11 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "ipython", specifier = "==9.7.0" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai", "model-profiles"], specifier = "==1.0.5" },
+    { name = "langchain", extras = ["anthropic", "community", "google-genai", "model-profiles", "openai"], specifier = "==1.0.5" },
     { name = "langchain-mcp-adapters", specifier = "==0.1.12" },
     { name = "langgraph", specifier = "==1.0.2" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.41" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.42" },
     { name = "openevals", specifier = "==0.1.2" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.12" },
     { name = "pydantic", specifier = "==2.12.4" },
@@ -1503,7 +1503,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.4.41"
+version = "0.4.42"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1514,9 +1514,9 @@ dependencies = [
     { name = "requests-toolbelt" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/7d/5c658251230b233958cbf8be46600254d6248613081d670dc7fe9b241778/langsmith-0.4.41.tar.gz", hash = "sha256:b88d03bb157cf69d1afee250a658d847003babbbd9647f720edcc9b03a0857cd", size = 949854, upload-time = "2025-11-04T22:31:32.367Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/91/939cb2fa0317a8aedd0b4dab6c189722e5ef15abcf65304dc929e582826a/langsmith-0.4.42.tar.gz", hash = "sha256:a6e808e47581403cb019b47c8c10627c1644f78ed4c03fa877d6ad661476c38f", size = 953877, upload-time = "2025-11-09T16:31:21.503Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/4c/6c0c338ca7182e4ecb7af61049415e7b3513cc6cea9aa5bf8ca508f53539/langsmith-0.4.41-py3-none-any.whl", hash = "sha256:5cdc554e5f0361bf791fdd5e8dea16d5ba9dfce09b3b8f8bba5e99450c569b27", size = 399279, upload-time = "2025-11-04T22:31:30.268Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/17/4280bc381b40a642ea5efe1bab0237f03507a9d4281484c5baa1db82055a/langsmith-0.4.42-py3-none-any.whl", hash = "sha256:015b0a0c17eb1a61293e8cbb7d41778a4b37caddd267d54274ba94e4721b301b", size = 401937, upload-time = "2025-11-09T16:31:19.163Z" },
 ]
 
 [package.optional-dependencies]
