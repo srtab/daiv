@@ -6,8 +6,7 @@ from pathlib import Path
 from langchain.tools import ToolRuntime, tool
 
 from automation.agents.utils import find_original_snippet
-from automation.utils import check_file_read, register_file_change, register_file_read
-from codebase.base import FileChangeAction
+from automation.utils import check_file_read, register_file_read
 from codebase.context import RuntimeCtx  # noqa: TC001
 
 logger = logging.getLogger("daiv.tools")
@@ -84,14 +83,6 @@ async def edit_tool(
 
     resolved_file_path.write_text(replaced_content)
 
-    await register_file_change(
-        store=runtime.store,
-        action=FileChangeAction.UPDATE,
-        old_file_content=content,
-        old_file_path=file_path,
-        new_file_content=replaced_content,
-    )
-
     return f"success: Replaced `old_string` with `new_string` in file {file_path}"
 
 
@@ -131,25 +122,14 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeC
         logger.warning("[%s] The '%s' was not read before writing to it.", write_tool.name, file_path)
         return "error: You must read the file before writing to it. Call the `read` tool to read the file first."
 
-    previous_content = resolved_file_path.read_text() if file_exists else ""
-
     # Create parent directories if they don't exist
     resolved_file_path.parent.mkdir(parents=True, exist_ok=True)
-
     resolved_file_path.write_text(content)
 
     if runtime.store:
         # This file was just created and the llm already knows its content so we can register it as read to avoid
         # the need to read it again later.
         await register_file_read(runtime.store, file_path)
-
-    await register_file_change(
-        store=runtime.store,
-        action=FileChangeAction.UPDATE if file_exists else FileChangeAction.CREATE,
-        old_file_content=previous_content,
-        old_file_path=file_path,
-        new_file_content=content,
-    )
 
     return f"success: Wrote to file {file_path}"
 
@@ -183,21 +163,11 @@ async def delete_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         logger.warning("[%s] The '%s' was not read before deleting it.", delete_tool.name, file_path)
         return "error: You must read the file before deleting it. Call the `read` tool to read the file first."
 
-    previous_content = resolved_file_path.read_text()
-
     try:
         resolved_file_path.unlink()
     except FileNotFoundError:
         logger.warning("[%s] The file '%s' does not exist.", delete_tool.name, file_path)
         return f"error: File '{file_path}' does not exist."
-
-    await register_file_change(
-        store=runtime.store,
-        action=FileChangeAction.DELETE,
-        old_file_content=previous_content,
-        old_file_path=file_path,
-        new_file_content="",
-    )
 
     return f"success: Deleted file {file_path}"
 
@@ -246,19 +216,8 @@ async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[R
         logger.warning("[%s] The '%s' was not read before renaming it.", rename_tool.name, file_path)
         return "error: You must read the file before renaming it. Call the `read` tool to read the file first."
 
-    file_content = resolved_file_path.read_text()
-
     # Create parent directories for the new path if they don't exist
     resolved_new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
     resolved_file_path.rename(resolved_new_file_path)
-
-    await register_file_change(
-        store=runtime.store,
-        action=FileChangeAction.MOVE,
-        old_file_content=file_content,
-        old_file_path=file_path,
-        new_file_path=new_file_path,
-    )
 
     return f"success: Renamed file '{file_path}' to '{new_file_path}'"

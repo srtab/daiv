@@ -1,11 +1,15 @@
+import io
 import re
 from typing import TYPE_CHECKING
 
+from git import GitCommandError
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
+    from git import Repo
+
     from codebase.base import Discussion, Note, User
 
 
@@ -60,3 +64,134 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
         else:
             messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
     return messages
+
+
+class GitManager:
+    """
+    Manager for interacting with a Git repository.
+
+    Args:
+        repo: The repository to interact with.
+    """
+
+    def __init__(self, repo: Repo):
+        """
+        Initialize the Git repository manager.
+
+        Args:
+            repo: The repository to interact with.
+        """
+        self.repo = repo
+
+    def get_diff(self) -> str:
+        """
+        Get the diff of the repository's including unstaged changes.
+
+        Returns:
+            The diff of the repository.
+        """
+        try:
+            self.repo.git.add("-A")
+            return self.repo.git.diff("--cached", "HEAD")
+        finally:
+            # Always unstage changes, even if something goes wrong
+            self.repo.git.reset("HEAD")
+
+    def is_dirty(self) -> bool:
+        """
+        Check if the repository is dirty.
+
+        Returns:
+            True if the repository is dirty, False otherwise.
+        """
+        return self.repo.is_dirty(index=True, working_tree=True, untracked_files=True)
+
+    def commit_changes(
+        self,
+        commit_message: str,
+        *,
+        branch_name: str,
+        skip_ci: bool = False,
+        override_commits: bool = False,
+        use_branch_if_exists: bool = True,
+    ) -> str:
+        """
+        Commit the changes to the repository.
+
+        Args:
+            commit_message: The commit message.
+            branch_name: The branch name to commit the changes to.
+            skip_ci: Whether to skip the CI.
+            override_commits: Whether to override existing commits.
+            use_branch_if_exists: Whether to use the branch if it exists.
+
+        Returns:
+            The branch name.
+        """
+        self.repo.remotes.origin.fetch()
+
+        existing_branch_names = [head.name for head in self.repo.heads]
+
+        if branch_name in existing_branch_names:
+            if override_commits:
+                self.repo.delete_head(branch_name)
+                self.repo.create_head(branch_name)
+
+            elif not use_branch_if_exists:
+                branch_name = self._gen_unique_branch_name(branch_name, existing_branch_names)
+                self.repo.create_head(branch_name)
+        else:
+            self.repo.create_head(branch_name)
+
+        self.repo.heads[branch_name].checkout()
+
+        self.repo.git.add("-A")
+        self.repo.index.commit(commit_message if not skip_ci else f"[skip ci] {commit_message}")
+        self.repo.remotes.origin.push(branch_name, force=override_commits)
+        return branch_name
+
+    def _gen_unique_branch_name(
+        self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = 10
+    ) -> str:
+        """
+        Generate a unique branch name.
+
+        Args:
+            original_branch_name: The original branch name.
+            existing_branch_names: The existing branch names.
+            max_attempts: The maximum number of attempts to generate a unique branch name.
+
+        Returns:
+            A unique branch name.
+        """
+        suffix_count = 1
+        branch_name = original_branch_name
+
+        while branch_name in existing_branch_names and suffix_count < max_attempts:
+            branch_name = f"{original_branch_name}-{suffix_count}"
+            suffix_count += 1
+
+        if suffix_count == max_attempts:
+            raise ValueError(
+                f"Failed to generate a unique branch name for {original_branch_name}, "
+                f"max attempts reached {max_attempts}."
+            )
+
+        return branch_name
+
+    def apply_patch(self, patch: str):
+        """
+        Apply a patch to the repository.
+
+        Args:
+            patch: The patch to apply.
+        """
+        diff_bytes = patch.encode("utf-8", "surrogateescape")
+        diff_args = ["--whitespace=nowarn"]
+
+        try:
+            self.repo.git.apply(*diff_args, "--check", "-", istream=io.BytesIO(diff_bytes))
+        except GitCommandError as e:
+            raise RuntimeError("git apply failed. The patch is not valid.") from e
+
+        self.repo.git.apply(*diff_args, "-", istream=io.BytesIO(diff_bytes))

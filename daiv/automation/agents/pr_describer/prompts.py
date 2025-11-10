@@ -11,11 +11,7 @@ CURRENT DATE:  {{ current_date_time }}
 INPUT PAYLOAD
 
 <changes>
-{%- for change in changes %}
-  <change action="{{ change.action }}">
-    {{ change.diff_hunk|indent(4) }}
-  </change>
-{%- endfor %}
+{{ changes }}
 </changes>
 
 {%- if branch_name_convention %}

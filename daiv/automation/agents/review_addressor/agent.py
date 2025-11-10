@@ -25,8 +25,8 @@ from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.tools.sandbox import _run_bash_commands
 from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
 from automation.agents.utils import extract_text_content
-from automation.utils import has_file_changes
 from codebase.context import RuntimeCtx
+from codebase.utils import GitManager
 from core.constants import BOT_NAME
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import StartSessionRequest
@@ -341,7 +341,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The result of the format code application.
         """
-        if not await has_file_changes(runtime.store):
+        if not GitManager(runtime.context.repo).is_dirty():
             return {}
 
         daiv_sandbox_client = DAIVSandboxClient()

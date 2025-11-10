@@ -13,7 +13,6 @@ from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationErr
 from codebase.base import (
     ClientType,
     Discussion,
-    FileChange,
     Issue,
     Job,
     MergeRequest,
@@ -334,52 +333,6 @@ class GitLabClient(RepoClient):
                 merge_request.save()
                 return merge_request.get_id()
             raise e
-
-    def commit_changes(
-        self,
-        repo_id: str,
-        target_branch: str,
-        commit_message: str,
-        file_changes: list[FileChange],
-        start_branch: str | None = None,
-        override_commits: bool = False,
-    ):
-        """
-        Commit changes to a repository.
-
-        Args:
-            repo_id: The repository ID.
-            ref: The branch or tag name.
-            target_branch: The target branch.
-            commit_message: The commit message.
-            file_changes: The list of file changes.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        actions: list[dict[str, str]] = []
-
-        for file_change in file_changes:
-            action = {"action": file_change.action, "file_path": file_change.file_path}
-            if file_change.action in ["create", "update"]:
-                action["content"] = cast("str", file_change.content)
-            if file_change.action == "move":
-                action["previous_path"] = cast("str", file_change.previous_path)
-                # Move actions that do not specify content preserve the existing file content,
-                # and any other value of content overwrites the file content.
-                if file_change.content:
-                    action["content"] = cast("str", file_change.content)
-            actions.append(action)
-
-        commits = {
-            "branch": target_branch,
-            "commit_message": commit_message,
-            "actions": actions,
-            "force": override_commits,
-        }
-
-        if start_branch:
-            commits["start_branch"] = start_branch
-
-        project.commits.create(commits)
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:

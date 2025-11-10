@@ -55,7 +55,6 @@ def mock_repo_client():
 
         # Mock repository modification operations
         mock_client.set_repository_webhooks.return_value = True
-        mock_client.commit_changes.return_value = None
 
         # Mock issue operations
         mock_client.get_issue.return_value = Mock()

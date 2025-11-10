@@ -295,51 +295,6 @@ class GitHubClient(RepoClient):
             sha=mr.head.sha,
         )
 
-    def commit_changes(
-        self,
-        repo_id: str,
-        target_branch: str,
-        commit_message: str,
-        file_changes: list[FileChange],
-        start_branch: str | None = None,
-        override_commits: bool = False,
-    ):
-        """
-        Commit changes to a repository.
-
-        Args:
-            repo_id: The repository ID.
-            target_branch: The target branch.
-            commit_message: The commit message.
-            file_changes: The list of file changes.
-            start_branch: The start branch to base the commit on. If None, uses target_branch.
-            override_commits: Whether to override existing commits (force-push behavior).
-        """
-        repo = self.client.get_repo(repo_id, lazy=True)
-
-        base_branch = start_branch or target_branch
-
-        try:
-            base_branch_obj = repo.get_branch(base_branch)
-            head_sha = base_branch_obj.commit.sha
-        except UnknownObjectException as err:
-            raise ValueError(f"Base branch '{base_branch}' does not exist") from err
-
-        try:
-            target_ref = repo.get_git_ref(f"heads/{target_branch}")
-        except UnknownObjectException:
-            target_ref = repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=head_sha)
-
-        # Create the new tree and commit
-        elements = self._create_git_tree_element(repo, file_changes, head_sha)
-        base_tree = repo.get_git_tree(sha=head_sha)
-        tree = repo.create_git_tree(elements, base_tree)
-        parent = repo.get_git_commit(sha=head_sha)
-        new_commit = repo.create_git_commit(commit_message, tree, [parent])
-
-        # Update the target branch reference
-        target_ref.edit(sha=new_commit.sha, force=override_commits)
-
     def _create_git_tree_element(
         self, repo: GithubRepository.Repository, file_changes: list[FileChange], head_sha: str
     ) -> list[InputGitTreeElement]:
