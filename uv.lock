@@ -547,7 +547,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = "==5.5.3" },
-    { name = "ddgs", specifier = "==9.8.0" },
+    { name = "ddgs", specifier = "==9.9.0" },
     { name = "django", specifier = "==5.2.8" },
     { name = "django-extensions", specifier = "==4.1" },
     { name = "django-ninja", specifier = "==1.4.5" },
@@ -617,7 +617,7 @@ wheels = [
 
 [[package]]
 name = "ddgs"
-version = "9.8.0"
+version = "9.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -625,9 +625,9 @@ dependencies = [
     { name = "lxml" },
     { name = "primp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0c/51/4cc2b0cb41a1ad8edd86b08ac7e878b343c14212b9396abb0f9150987ba3/ddgs-9.8.0.tar.gz", hash = "sha256:1d5a49d41c13418e5ecddaaac2324143d4e2f27bfdd528d9c0e6a3ac5b612849", size = 36613, upload-time = "2025-11-07T05:02:39.407Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/eb/9640f60c68bbdbb59cb9383c2a467f64a8e8da4af607ba0469c7e367b458/ddgs-9.9.0.tar.gz", hash = "sha256:6e192b6d11b35b76f6677c748036709fc48e287720a9e315b654e1933406340b", size = 35873, upload-time = "2025-11-09T15:16:33.089Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/a7/f9188bda3a74fda6a95834b577393abb3d09b624647c98ac0b67bb19d246/ddgs-9.8.0-py3-none-any.whl", hash = "sha256:63a28abc463bf2bbe33c4c58f6f864288b003c0d75a9129d31357d2c6f8d7707", size = 42499, upload-time = "2025-11-07T05:02:38.265Z" },
+    { url = "https://files.pythonhosted.org/packages/82/72/9c592440105a8dbab4840f1b7523c3573d0bc6ecb11d022ea4ceb3130c07/ddgs-9.9.0-py3-none-any.whl", hash = "sha256:dcdf5cdbd66050333dd1283948b15bbeaa8f8efe71067ad71880fb952369867a", size = 40843, upload-time = "2025-11-09T15:16:32.196Z" },
 ]
 
 [[package]]
