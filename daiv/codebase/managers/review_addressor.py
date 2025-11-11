@@ -14,7 +14,7 @@ from automation.agents.review_addressor.conf import settings as review_addressor
 from automation.agents.review_addressor.schemas import ReviewContext
 from codebase.base import Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType, SimpleDiscussion
 from codebase.clients.base import Emoji
-from codebase.utils import note_mentions_daiv, notes_to_messages
+from codebase.utils import note_mentions_daiv, notes_to_messages, redact_diff_content
 
 from .base import BaseManager
 
@@ -303,12 +303,16 @@ class ReviewAddressorManager(BaseManager):
         Extract patch files from merge request.
         """
         merge_request = self.client.get_merge_request(self.ctx.repo_id, self.merge_request_id)
-        patch_set_all = PatchSet.from_string(
+
+        patch_set_all: PatchSet = redact_diff_content(
             # prefix the branches with "origin/" to get the diff from the remote repository.
             self.ctx.repo.git.diff(
                 f"origin/{merge_request.target_branch}..origin/{merge_request.source_branch}", "--patch", "--binary"
-            )
+            ),
+            self.ctx.config.omit_content_patterns,
+            as_patch_set=True,
         )
+
         merge_request_patches: dict[str, PatchedFile] = {patch_file.path: patch_file for patch_file in patch_set_all}
         merge_request_patches["__all__"] = patch_set_all
         return merge_request_patches

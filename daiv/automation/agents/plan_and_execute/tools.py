@@ -9,7 +9,7 @@ from openevals.llm import create_async_llm_as_judge
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute.prompts import review_code_changes_prompt
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager  # noqa: TC001
+from codebase.utils import GitManager, redact_diff_content  # noqa: TC001
 
 from .conf import settings
 
@@ -92,7 +92,7 @@ async def review_code_changes_tool(placeholder: str, runtime: ToolRuntime[Runtim
         ),
     )
     inputs = [task.model_dump(mode="json") for task in runtime.state["plan_tasks"]]
-    outputs = git_manager.get_diff()
+    outputs = redact_diff_content(git_manager.get_diff(), runtime.context.config.omit_content_patterns)
 
     result = await evaluator(inputs=inputs, outputs=outputs)
 

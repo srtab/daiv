@@ -1,4 +1,5 @@
 import contextlib
+import fnmatch
 import re
 import tempfile
 from pathlib import Path
@@ -6,6 +7,9 @@ from typing import TYPE_CHECKING
 
 from git import GitCommandError
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from unidiff import PatchSet
+from unidiff.constants import LINE_TYPE_CONTEXT
+from unidiff.patch import Line
 
 from core.constants import BOT_NAME
 
@@ -66,6 +70,32 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
         else:
             messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
     return messages
+
+
+def redact_diff_content(
+    diff: str, omit_content_patterns: tuple[str, ...], as_patch_set: bool = False
+) -> str | PatchSet:
+    """
+    Redact the diff content of the file that are marked as omit_content_patterns.
+
+    Args:
+        diff: The diff to redact.
+        omit_content_patterns: The patterns to omit from the diff.
+        as_patch_set: Whether to return the diff as a PatchSet.
+
+    Returns:
+        The redacted diff as a string or a PatchSet.
+    """
+    patch_set = PatchSet.from_string(diff)
+
+    for patch_file in patch_set:
+        for hunk in patch_file:
+            if any(fnmatch.fnmatch(patch_file.path, pattern) for pattern in omit_content_patterns):
+                hunk.clear()
+                hunk.append(
+                    Line("[Diff content was intentionally excluded by the repository configuration]", LINE_TYPE_CONTEXT)
+                )
+    return str(patch_set) if not as_patch_set else patch_set
 
 
 class GitManager:
