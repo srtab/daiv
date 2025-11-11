@@ -35,7 +35,7 @@ dependencies = [
   "openevals==0.1.2",
   "psycopg[pool]==3.2.12",
   "pydantic==2.12.4",
-  "pydantic-settings==2.11",
+  "pydantic-settings==2.12.0",
   "pygithub>=2.8.1",
   "python-decouple==3.8",
   "python-gitlab==7.0.0",
