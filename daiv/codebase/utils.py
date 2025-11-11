@@ -1,5 +1,7 @@
-import io
+import contextlib
 import re
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from git import GitCommandError
@@ -74,6 +76,8 @@ class GitManager:
         repo: The repository to interact with.
     """
 
+    BRANCH_NAME_MAX_ATTEMPTS = 10
+
     def __init__(self, repo: Repo):
         """
         Initialize the Git repository manager.
@@ -123,7 +127,7 @@ class GitManager:
             branch_name: The branch name to commit the changes to.
             skip_ci: Whether to skip the CI.
             override_commits: Whether to override existing commits.
-            use_branch_if_exists: Whether to use the branch if it exists.
+            use_branch_if_exists: Whether to use the branch if it exists or generate a unique branch name.
 
         Returns:
             The branch name.
@@ -133,7 +137,7 @@ class GitManager:
         existing_branch_names = [head.name for head in self.repo.heads]
 
         if branch_name in existing_branch_names:
-            if override_commits:
+            if override_commits and use_branch_if_exists:
                 self.repo.delete_head(branch_name)
                 self.repo.create_head(branch_name)
 
@@ -151,7 +155,7 @@ class GitManager:
         return branch_name
 
     def _gen_unique_branch_name(
-        self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = 10
+        self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS
     ) -> str:
         """
         Generate a unique branch name.
@@ -186,12 +190,28 @@ class GitManager:
         Args:
             patch: The patch to apply.
         """
+        if not patch or not patch.strip():
+            return
+
         diff_bytes = patch.encode("utf-8", "surrogateescape")
         diff_args = ["--whitespace=nowarn"]
 
-        try:
-            self.repo.git.apply(*diff_args, "--check", "-", istream=io.BytesIO(diff_bytes))
-        except GitCommandError as e:
-            raise RuntimeError("git apply failed. The patch is not valid.") from e
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp:
+            tmp.write(diff_bytes)
+            tmp.flush()
+            tmp_path = tmp.name
 
-        self.repo.git.apply(*diff_args, "-", istream=io.BytesIO(diff_bytes))
+        try:
+            try:
+                self.repo.git.apply(*diff_args, "--check", tmp_path)
+            except GitCommandError as e:
+                # Check if the error is about empty/invalid patches
+                if "No valid patches in input" in str(e):
+                    # Empty or invalid patch - this is not an error, just skip it
+                    return
+                raise RuntimeError("git apply failed. The patch is not valid.") from e
+
+            self.repo.git.apply(*diff_args, tmp_path)
+        finally:
+            with contextlib.suppress(OSError):
+                Path(tmp_path).unlink()

@@ -117,15 +117,14 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
 
     PURPOSE
     - Execute project CLIs (linters, type checkers, test discovery, i18n generators, build analyzers, etc.) to collect signals that inform a plan.
-    - Use this to inspect and diagnose the repository, not to change it.
+    - Use this to inspect and diagnose the repository or predict the changes that will be made by a later agent. The changes are **not persisted to the repository**.
 
     SESSION & COMMANDS
-    - The shell session persists across multiple tool calls and retains the working directory.
     - Commands run in order. Compound commands, pipelines, and redirections are allowed (e.g., `cmd1 && cmd2`, `cmd | jq ...`, `> /dev/null`).
     - Start in the repo root. Prefer absolute paths. Avoid `cd` unless your plan requires it.
 
     READ-ONLY & SAFETY
-    - Changes are NOT persisted. Treat the environment as read-only. Use this tool to inspect and diagnose the repository, not to change it.
+    - This tool executes in a volatile sandbox. **No changes are persisted to the repo.** Even if the command outputs phrases like: "Fixed N errors" or "Reformatted M files", always assume that the changes were not applied to the repository.
     - Avoid heavy/destructive operations (e.g., installs, container builds, mass formatting). Prefer dry-run/diagnostic flags when available (`--check`, `--dry-run`, `--no-color`, `--no-write`).
     - Network access is allowed; be judicious.
 
