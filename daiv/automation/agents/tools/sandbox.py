@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
+INSPECT_BASH_TOOL_NAME = "inspect_bash"
+
 FORMAT_CODE_TOOL_NAME = "format_code"
 
 
@@ -110,52 +112,88 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
-@tool(BASH_TOOL_NAME, parse_docstring=True)
-async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(INSPECT_BASH_TOOL_NAME, parse_docstring=True)
+async def inspect_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Run a list of Bash commands in a shell session rooted at the repository's root. Designed for a planning agent to probe a repository and turn the findings into an execution plan for a later agent. All changes made by the commands are not persisted/committed to the repository.
+    Execute commands in an EPHEMERAL investigation sandbox.
 
-    PURPOSE
-    - Execute project CLIs (linters, type checkers, test discovery, i18n generators, build analyzers, etc.) to collect signals that inform a plan.
-    - Use this to inspect and diagnose the repository or predict the changes that will be made by a later agent. The changes are **not persisted to the repository**.
+    **CRITICAL: EXECUTION MODEL**
+    This tool runs in a DISPOSABLE container where:
+    - All command outputs are INFORMATIONAL ONLY
+    - NO changes persist to the actual repository
+    - File modifications, package installations, and fixes are DISCARDED after each command
+    - Even if a command reports 'Fixed', 'Installed', or 'Applied', those changes DO NOT affect the real codebase
 
-    SESSION & COMMANDS
-    - Commands run in order. Compound commands, pipelines, and redirections are allowed (e.g., `cmd1 && cmd2`, `cmd | jq ...`, `> /dev/null`).
-    - Start in the repo root. Prefer absolute paths. Avoid `cd` unless your plan requires it.
+    **YOUR ROLE: INFORMATION GATHERING**
+    You are in the PLANNING phase. Your job is to:
+    1. Run diagnostic commands to understand the current state
+    2. Observe what WOULD happen if changes were made
+    3. Collect this information to create a plan
+    4. NEVER claim that you've made changes to the repository
 
-    READ-ONLY & SAFETY
-    - This tool executes in a volatile sandbox. **No changes are persisted to the repo.** Even if the command outputs phrases like: "Fixed N errors" or "Reformatted M files", always assume that the changes were not applied to the repository.
-    - Avoid heavy/destructive operations (e.g., installs, container builds, mass formatting). Prefer dry-run/diagnostic flags when available (`--check`, `--dry-run`, `--no-color`, `--no-write`).
-    - Network access is allowed; be judicious.
+    **INTERPRETING COMMAND OUTPUTS**
+    When you see outputs like:
+    - 'Fixed 2 errors' → Means: 2 errors EXIST that CAN be fixed (add to plan)
+    - 'Installed 36 packages' → Means: These packages WILL NEED to be installed (add to plan)
+    - 'Formatted 10 files' → Means: 10 files NEED formatting (add to plan)
+    - 'Tests passed' → Means: Tests currently pass (no action needed)
 
-    OUTPUT CONTRACT
-    - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
-    - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
-    - Output is unnormalized (may include ANSI). Add flags like `--no-color` if needed.
+    **TRANSLATION RULES**
+    Command says → You understand as → Your action
+    'Fixed X' → 'X needs fixing' → Add fix command to PlanOutput
+    'Installed Y' → 'Y needs installation' → Add install command to PlanOutput
+    'Applied Z' → 'Z needs applying' → Add apply command to PlanOutput
+    'No issues found' → 'No changes needed' → Use CompleteOutput if appropriate
+    'X errors found' → 'X errors exist' → Investigate and plan fixes
 
-    PREFERRED COMPANION TOOLS (USE THESE FIRST)
-    - Use structured tools instead of shell equivalents whenever feasible:
-    - `glob` for file pattern expansion (instead of `find`/shell globs for discovery logic).
-    - `grep` tool for content search (instead of the shell `grep` command).
-    - `ls` tool for directory listings/metadata (instead of shell `ls`).
-    - `read` tool for file contents (instead of `cat`/`head`/`tail`).
-    - Fall back to Bash only when these tools cannot achieve the goal or when invoking project-native CLIs (e.g., `django-admin`, `eslint`, `ruff`, `pytest`, `tsc`, `mypy`, `npm`, `poetry`).
+    **FORBIDDEN INTERPRETATIONS**
+    NEVER say or imply:
+    - 'I have fixed the linting errors'
+    - 'Changes have been applied'
+    - 'I installed the dependencies'
+    - 'The issues are now resolved'
+    - 'I ran lint-fix and it succeeded'
 
-    WHEN TO USE
-    - To run project CLIs in inspection/diagnostic modes and extract actionable signals (e.g., missing translations, lint/type errors, failing tests, dependency issues).
+    ALWAYS say instead:
+    - 'I found 2 linting errors that need fixing'
+    - 'The plan includes running lint-fix to resolve these issues'
+    - 'Dependencies will need to be installed'
+    - 'The following command should be executed: make lint-fix'
 
-    WHEN NOT TO USE
-    - For raw file reading, listing, or searching that the `glob`/`grep`/`ls`/`read` tools can handle.
-    - For operations intended to modify the repository that are meant to be persisted/committed to the repository.
+    **EXAMPLE WORKFLOW**
+    User: 'run lint-fix to fix the errors'
 
-    PRACTICAL TIPS
-    - Reduce noise to avoid truncation: prefer `--quiet`, `--format json`, `--reporter`, `--no-color`, and scoped paths.
-    - Validate prerequisites early (e.g., `tool --version`) before long-running checks.
+    Wrong approach:
+    1. Execute: make lint-fix
+    2. See: 'Fixed 2 errors'
+    3. Report: 'I fixed the errors ✓'
 
-    EXAMPLES
-    - Django i18n probe: `django-admin makemessages` → parse missing/obsolete entries; add locale/file actions to the plan.
-    - Lint scan (no autofix): `eslint . --format json --max-warnings=0` or `ruff check --output-format json` → summarize rules/files for the plan.
-    - Type checks: `tsc --noEmit`, `mypy --no-color-output` → capture error counts and hotspots to sequence fixes.
+    Correct approach:
+    1. Execute: make lint (check only, if available)
+    2. See: '2 errors found in file.py'
+    3. Create PlanOutput with step: 'Run make lint-fix to fix 2 linting errors in file.py' ✓
+
+    **WHEN TO USE THIS TOOL**
+    Use bash for:
+    - Diagnostic commands: ruff check (NOT --fix), mypy, pytest --collect-only, npm ls, etc.
+    - Version checks: tool --version
+    - Dry runs: make --dry-run, npm run build --dry-run
+    - Information gathering: git status, git log, git diff
+
+    Avoid bash for:
+    - File reading (use `read` tool instead)
+    - File searching (use `grep`, `glob` tools instead)
+    - Directory listing (use `ls` tool instead)
+
+    **COMMAND EXECUTION**
+    - Commands run in the repository root
+    - Exit code and output (stdout+stderr) are returned
+    - Output is truncated to 2000 characters
+    - Use --no-color, --json, --quiet flags to reduce noise
+    - Execution stops on first non-zero exit code
+
+    **REMEMBER**
+    You are a PLANNER, not an EXECUTOR. Your bash commands are RECONNAISSANCE, not DEPLOYMENT.
 
     Args:
         commands: The list of commands to execute.
@@ -163,7 +201,7 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
     Returns:
         str: The output of the commands.
     """  # noqa: E501
-    logger.info("[%s] Running read-only bash commands: %s", read_only_bash_tool.name, commands)
+    logger.info("[%s] Running read-only bash commands: %s", inspect_bash_tool.name, commands)
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
     response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"])
@@ -313,7 +351,7 @@ class SandboxMiddleware(AgentMiddleware):
         self.read_only_bash = read_only_bash
 
         if read_only_bash:
-            self.tools.append(read_only_bash_tool)
+            self.tools.append(inspect_bash_tool)
         else:
             self.tools.append(bash_tool)
 
