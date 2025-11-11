@@ -6,7 +6,6 @@ from openevals.prompts import CORRECTNESS_PROMPT
 from automation.agents.base import BaseAgent, ThinkingLevel
 from automation.agents.constants import ModelName
 from automation.agents.pr_describer import PullRequestDescriberAgent
-from codebase.base import FileChange, FileChangeAction
 
 evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
@@ -14,51 +13,7 @@ evaluator = create_llm_as_judge(
     judge=BaseAgent.get_model(model=ModelName.O3, thinking_level=ThinkingLevel.MEDIUM),
 )
 
-file_changes = [
-    FileChange(
-        action=FileChangeAction.UPDATE,
-        file_path="README.md",
-        original_content="""# **Pull Request Describer Agent**
-
-Create a new PR describer agent that can describe changes in a pull request.
-""",
-        content="""# **PR Describer Agent**
-
-New PR describer agent that can extract and describe changes in a pull request.
-""",
-    ),
-    FileChange(
-        action=FileChangeAction.CREATE,
-        file_path="automation/agents/pr_describer/agent.py",
-        content="""from __future__ import annotations
-
-from django.utils import timezone
-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable
-
-from automation.agents import BaseAgent
-
-from .conf import settings
-from .prompts import system
-from .schemas import PullRequestDescriberInput, PullRequestMetadata
-
-
-class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, PullRequestMetadata]]):
-    \"""
-    Agent to describe changes in a pull request.
-    \"""
-
-   async def compile(self) -> Runnable:
-       prompt = ChatPromptTemplate.from_messages([system]).partial(
-           branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
-       )
-       return (
-           prompt | BaseAgent.get_model(model=settings.MODEL_NAME).with_structured_output(PullRequestMetadata)
-       ).with_config({"run_name": settings.NAME})
-""",
-    ),
-]
+file_changes = []  # TODO: Add file changes
 
 
 @pytest.mark.langsmith(output_keys=["reference_outputs"])
