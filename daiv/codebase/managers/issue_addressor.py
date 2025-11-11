@@ -7,6 +7,7 @@ from django.conf import settings as django_settings
 from langchain_core.prompts import HumanMessagePromptTemplate
 from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
@@ -14,8 +15,7 @@ from automation.agents.plan_and_execute import PlanAndExecuteAgent
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content
-from automation.utils import get_file_changes
-from codebase.base import ClientType, FileChange, Issue
+from codebase.base import ClientType, Issue
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -127,9 +127,7 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
-                checkpointer=checkpointer, store=self._file_changes_store
-            )
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=self.store)
             current_state = None
 
             if should_reset_plan:
@@ -146,7 +144,11 @@ class IssueAddressorManager(BaseManager):
                 human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
                     issue_title=self.issue.title, issue_description=self.issue.description
                 )
-                result = await plan_and_execute.ainvoke({"messages": [human_message]}, config, context=self.ctx)
+                result = await plan_and_execute.ainvoke(
+                    {"messages": [human_message]},
+                    merge_configs(config, RunnableConfig(tags=[plan_and_execute.name], metadata={"phase": "plan"})),
+                    context=self.ctx,
+                )
 
                 self._handle_initial_result(result)
 
@@ -177,9 +179,7 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
-                checkpointer=checkpointer, store=self._file_changes_store
-            )
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=self.store)
 
             current_state = await plan_and_execute.aget_state(self._config)
 
@@ -190,12 +190,18 @@ class IssueAddressorManager(BaseManager):
             ):
                 self._add_workflow_step_note("execute_plan")
 
-                await plan_and_execute.ainvoke(Command(resume="Plan approved"), self._config, context=self.ctx)
+                await plan_and_execute.ainvoke(
+                    Command(resume="Plan approved"),
+                    merge_configs(
+                        self._config, RunnableConfig(tags=[plan_and_execute.name], metadata={"phase": "execute_plan"})
+                    ),
+                    context=self.ctx,
+                )
             else:
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 
-            if file_changes := await get_file_changes(self._file_changes_store):
-                if merge_request_id := await self._commit_changes(file_changes=file_changes, thread_id=self.thread_id):
+            if self.git_manager.is_dirty():
+                if merge_request_id := await self._commit_changes(thread_id=self.thread_id):
                     self._add_issue_processed_note(merge_request_id)
             else:
                 after_run_state = await plan_and_execute.aget_state(self._config)
@@ -211,25 +217,22 @@ class IssueAddressorManager(BaseManager):
         return RunnableConfig(
             tags=[str(self.client.client_slug)],
             metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
-            configurable={"thread_id": self.thread_id, "bot_username": self.ctx.bot_username},
+            configurable={"thread_id": self.thread_id},
         )
 
     @override
-    async def _commit_changes(
-        self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False
-    ) -> int | str | None:
+    async def _commit_changes(self, *, thread_id: str | None = None, skip_ci: bool = False) -> int | str | None:
         """
         Process file changes and create or update merge request.
 
         Args:
-            file_changes: The file changes to commit.
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {
-                "changes": file_changes,
+                "changes": self.git_manager.get_diff(),
                 "extra_context": dedent(
                     """\
                     This changes were made to address the following issue:
@@ -250,20 +253,13 @@ class IssueAddressorManager(BaseManager):
 
         if merge_requests:
             changes_description.branch = merge_requests[0].source_branch
-        else:
-            changes_description.branch = self._get_unique_branch_name(changes_description.branch)
 
-        commit_message = changes_description.commit_message
-        if skip_ci:
-            commit_message = f"[skip ci] {commit_message}"
-
-        self.client.commit_changes(
-            self.ctx.repo_id,
-            changes_description.branch,
-            commit_message,
-            file_changes,
-            start_branch=self.ctx.repo.active_branch.name,
+        branch_name = self.git_manager.commit_changes(
+            changes_description.commit_message,
+            branch_name=changes_description.branch,
+            skip_ci=skip_ci,
             override_commits=True,
+            use_branch_if_exists=bool(merge_requests),
         )
 
         if self.issue.assignee:
@@ -275,8 +271,8 @@ class IssueAddressorManager(BaseManager):
 
         return self.client.update_or_create_merge_request(
             repo_id=self.ctx.repo_id,
-            source_branch=changes_description.branch,
-            target_branch=self.ctx.repo.active_branch.name,
+            source_branch=branch_name,
+            target_branch=self.ctx.config.default_branch,
             labels=[BOT_LABEL],
             title=changes_description.title,
             assignee_id=assignee_id,

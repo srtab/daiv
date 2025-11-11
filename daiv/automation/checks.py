@@ -10,7 +10,10 @@ from .conf import settings
 declared_model_names = {
     codebase_chat_settings.MODEL_NAME,
     plan_and_execute_settings.EXECUTION_MODEL_NAME,
+    plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
     plan_and_execute_settings.PLANNING_MODEL_NAME,
+    plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
+    plan_and_execute_settings.CODE_REVIEW_MODEL_NAME,
     pr_describer_settings.MODEL_NAME,
     review_addressor_settings.REPLY_MODEL_NAME,
     review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,

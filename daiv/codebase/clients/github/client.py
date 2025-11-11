@@ -10,8 +10,7 @@ from urllib.parse import urlparse
 
 from asgiref.sync import async_to_sync
 from git import Repo
-from github import Auth, Consts, Github, GithubIntegration, InputGitTreeElement, Installation, UnknownObjectException
-from github import Repository as GithubRepository
+from github import Auth, Consts, Github, GithubIntegration, Installation, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
@@ -19,8 +18,6 @@ from github.PullRequestComment import PullRequestComment
 from codebase.base import (
     ClientType,
     Discussion,
-    FileChange,
-    FileChangeAction,
     Issue,
     Job,
     MergeRequest,
@@ -294,105 +291,6 @@ class GitHubClient(RepoClient):
             labels=[label.name for label in mr.labels],
             sha=mr.head.sha,
         )
-
-    def commit_changes(
-        self,
-        repo_id: str,
-        target_branch: str,
-        commit_message: str,
-        file_changes: list[FileChange],
-        start_branch: str | None = None,
-        override_commits: bool = False,
-    ):
-        """
-        Commit changes to a repository.
-
-        Args:
-            repo_id: The repository ID.
-            target_branch: The target branch.
-            commit_message: The commit message.
-            file_changes: The list of file changes.
-            start_branch: The start branch to base the commit on. If None, uses target_branch.
-            override_commits: Whether to override existing commits (force-push behavior).
-        """
-        repo = self.client.get_repo(repo_id, lazy=True)
-
-        base_branch = start_branch or target_branch
-
-        try:
-            base_branch_obj = repo.get_branch(base_branch)
-            head_sha = base_branch_obj.commit.sha
-        except UnknownObjectException as err:
-            raise ValueError(f"Base branch '{base_branch}' does not exist") from err
-
-        try:
-            target_ref = repo.get_git_ref(f"heads/{target_branch}")
-        except UnknownObjectException:
-            target_ref = repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=head_sha)
-
-        # Create the new tree and commit
-        elements = self._create_git_tree_element(repo, file_changes, head_sha)
-        base_tree = repo.get_git_tree(sha=head_sha)
-        tree = repo.create_git_tree(elements, base_tree)
-        parent = repo.get_git_commit(sha=head_sha)
-        new_commit = repo.create_git_commit(commit_message, tree, [parent])
-
-        # Update the target branch reference
-        target_ref.edit(sha=new_commit.sha, force=override_commits)
-
-    def _create_git_tree_element(
-        self, repo: GithubRepository.Repository, file_changes: list[FileChange], head_sha: str
-    ) -> list[InputGitTreeElement]:
-        elements = []
-
-        for file_change in file_changes:
-            if file_change.action in [FileChangeAction.CREATE, FileChangeAction.UPDATE]:
-                blob = repo.create_git_blob(file_change.content, "utf-8")
-                elements.append(
-                    InputGitTreeElement(path=file_change.file_path, mode="100644", type="blob", sha=blob.sha)
-                )
-
-            elif file_change.action == FileChangeAction.DELETE:
-                elements.append(
-                    InputGitTreeElement(
-                        path=file_change.file_path,
-                        mode="100644",
-                        type="blob",
-                        sha=None,  # This signals deletion
-                    )
-                )
-
-            elif file_change.action == FileChangeAction.MOVE:
-                # For move operations, we need to handle both the old and new paths
-                if file_change.previous_path:
-                    # Delete the old file
-                    elements.append(
-                        InputGitTreeElement(
-                            path=file_change.previous_path,
-                            mode="100644",
-                            type="blob",
-                            sha=None,  # This signals deletion
-                        )
-                    )
-
-                # Create the new file (with content if provided, otherwise preserve existing content)
-                if not file_change.content:
-                    blob = repo.create_git_blob(file_change.content, "utf-8")
-                else:
-                    # If no content provided, try to get existing content from previous path
-                    try:
-                        existing_file = repo.get_contents(file_change.previous_path, ref=head_sha)
-                        blob = repo.create_git_blob(existing_file.decoded_content.decode(), "utf-8")
-                    except UnknownObjectException as err:
-                        raise ValueError(f"Cannot move file '{file_change.previous_path}': file not found") from err
-
-                elements.append(
-                    InputGitTreeElement(path=file_change.file_path, mode="100644", type="blob", sha=blob.sha)
-                )
-            else:
-                raise ValueError(f"Unsupported file change action: {file_change.action}")
-
-        return elements
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """

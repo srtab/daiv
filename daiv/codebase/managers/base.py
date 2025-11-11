@@ -6,9 +6,9 @@ from langgraph.store.memory import InMemoryStore
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.clients import RepoClient
+from codebase.utils import GitManager
 
 if TYPE_CHECKING:
-    from codebase.base import FileChange
     from codebase.context import RuntimeCtx
 
 
@@ -23,7 +23,8 @@ class BaseManager:
     def __init__(self, *, runtime_ctx: RuntimeCtx):
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
-        self._file_changes_store = InMemoryStore()
+        self.store = InMemoryStore()
+        self.git_manager = GitManager(self.ctx.repo)
 
     def _get_unique_branch_name(self, original_branch_name: str, max_attempts: int = 10) -> str:
         """
@@ -53,26 +54,25 @@ class BaseManager:
 
         return branch_name
 
-    async def _commit_changes(
-        self, *, file_changes: list[FileChange], thread_id: str | None = None, skip_ci: bool = False
-    ):
+    async def _commit_changes(self, *, thread_id: str | None = None, skip_ci: bool = False):
         """
-        Commit changes to the merge request.
+        Commit changes to the branch.
 
         Args:
-            file_changes: The file changes to commit.
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
-            {"changes": file_changes, "branch_name_convention": self.ctx.config.pull_request.branch_name_convention},
+            {
+                "changes": self.git_manager.get_diff(),
+                "branch_name_convention": self.ctx.config.pull_request.branch_name_convention,
+            },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
             ),
         )
-        commit_message = changes_description.commit_message
-        if skip_ci:
-            commit_message = f"[skip ci] {commit_message}"
 
-        self.client.commit_changes(self.ctx.repo_id, self.ctx.repo.active_branch.name, commit_message, file_changes)
+        self.git_manager.commit_changes(
+            changes_description.commit_message, branch_name=self.ctx.repo.active_branch.name, skip_ci=skip_ci
+        )

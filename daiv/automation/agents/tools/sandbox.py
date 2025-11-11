@@ -4,7 +4,6 @@ import base64
 import io
 import json
 import logging
-import subprocess  # noqa: S404
 import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,101 +13,21 @@ from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
-from unidiff import PatchSet
 
-from automation.utils import has_file_changes, register_file_change
-from codebase.base import FileChangeAction
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.utils import GitManager
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
-    from langgraph.store.base import BaseStore
 
 
 logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
 FORMAT_CODE_TOOL_NAME = "format_code"
-
-NUM_LEADING_SLASH = 1
-
-
-async def _update_store_and_ctx(patch: str, store: BaseStore, repository_root_dir: Path):
-    """
-    Update the store and the repository root directory with the changes from the patch.
-
-    Args:
-        patch (str): The patch with the file changes.
-        store (BaseStore): The store to save the file changes to.
-        repository_root_dir (Path): The root directory of the repository.
-    """
-    patch_set = PatchSet.from_string(patch)
-    file_changes = []
-
-    # We need to populate the file changes before applying the patch to ensure that we have the old file content.
-    for patched_file in patch_set:
-        source_path = patched_file.source_file.split("/", NUM_LEADING_SLASH)[-1]
-        target_path = patched_file.target_file.split("/", NUM_LEADING_SLASH)[-1]
-
-        fs_file_path = repository_root_dir / patched_file.path
-
-        if patched_file.is_added_file:
-            file_changes.append({
-                "action": FileChangeAction.CREATE,
-                "old_file_content": "",
-                "old_file_path": None,
-                "new_file_content": None,
-                "new_file_path": target_path,
-            })
-        elif patched_file.is_removed_file:
-            file_changes.append({
-                "action": FileChangeAction.DELETE,
-                "old_file_content": fs_file_path.read_text(),
-                "old_file_path": source_path,
-                "new_file_content": "",
-            })
-        elif patched_file.is_modified_file:
-            file_changes.append({
-                "action": FileChangeAction.UPDATE,
-                "old_file_content": fs_file_path.read_text(),
-                "old_file_path": source_path,
-                "new_file_content": None,
-            })
-        elif patched_file.is_rename:
-            file_changes.append({
-                "action": FileChangeAction.MOVE,
-                "old_file_content": fs_file_path.read_text(),
-                "old_file_path": source_path,
-                "new_file_content": None,
-                "new_file_path": target_path,
-            })
-        else:
-            continue
-
-    # Apply the patch to the repository root directory.
-    apply_result = subprocess.run(  # noqa: S603 No risk of command injection
-        ["/usr/bin/git", "apply", "--reject", "--whitespace=nowarn"],
-        input=patch,
-        cwd=repository_root_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if apply_result.returncode != 0:
-        raise RuntimeError(f"git apply failed: {apply_result.stdout}")
-
-    # Register the file changes to the store .
-    for file_change in file_changes:
-        if file_change["action"] == FileChangeAction.UPDATE:
-            file_change["new_file_content"] = (repository_root_dir / file_change["old_file_path"]).read_text()
-        elif file_change["action"] in [FileChangeAction.CREATE, FileChangeAction.MOVE]:
-            file_change["new_file_content"] = (repository_root_dir / file_change["new_file_path"]).read_text()
-
-        await register_file_change(store, **file_change)
 
 
 @tool(BASH_TOOL_NAME, parse_docstring=True)
@@ -183,9 +102,9 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, runtime.store, repo_working_dir)
+            GitManager(runtime.context.repo).apply_patch(response.patch)
         except Exception:
-            logger.exception("Error updating store and ctx.")
+            logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
     return json.dumps([result.model_dump(mode="json") for result in response.results])
@@ -198,15 +117,14 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
 
     PURPOSE
     - Execute project CLIs (linters, type checkers, test discovery, i18n generators, build analyzers, etc.) to collect signals that inform a plan.
-    - Use this to inspect and diagnose the repository, not to change it.
+    - Use this to inspect and diagnose the repository or predict the changes that will be made by a later agent. The changes are **not persisted to the repository**.
 
     SESSION & COMMANDS
-    - The shell session persists across multiple tool calls and retains the working directory.
     - Commands run in order. Compound commands, pipelines, and redirections are allowed (e.g., `cmd1 && cmd2`, `cmd | jq ...`, `> /dev/null`).
     - Start in the repo root. Prefer absolute paths. Avoid `cd` unless your plan requires it.
 
     READ-ONLY & SAFETY
-    - Changes are NOT persisted. Treat the environment as read-only. Use this tool to inspect and diagnose the repository, not to change it.
+    - This tool executes in a volatile sandbox. **No changes are persisted to the repo.** Even if the command outputs phrases like: "Fixed N errors" or "Reformatted M files", always assume that the changes were not applied to the repository.
     - Avoid heavy/destructive operations (e.g., installs, container builds, mass formatting). Prefer dry-run/diagnostic flags when available (`--check`, `--dry-run`, `--no-color`, `--no-write`).
     - Network access is allowed; be judicious.
 
@@ -248,7 +166,7 @@ async def read_only_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeC
     logger.info("[%s] Running read-only bash commands: %s", read_only_bash_tool.name, commands)
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
-    response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"], extract_patch=False)
+    response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"])
 
     if response is None:
         return (
@@ -279,7 +197,9 @@ async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False
     """  # noqa: E501
     logger.info("[%s] Formatting code (force: %s)", format_code_tool.name, force)
 
-    if not force and not await has_file_changes(runtime.store):
+    git_manager = GitManager(runtime.context.repo)
+
+    if not force and not git_manager.is_dirty():
         return "warning: No changes were made to any files, skipping formatting the code."
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
@@ -295,17 +215,15 @@ async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False
 
     if response.patch:
         try:
-            await _update_store_and_ctx(response.patch, runtime.store, repo_working_dir)
+            git_manager.apply_patch(response.patch)
         except Exception:
-            logger.exception("[%s] Error updating store and ctx.", format_code_tool.name)
+            logger.exception("[%s] Error applying patch to the repository.", format_code_tool.name)
             return "error: Failed to format code. The format code tool is not working properly."
 
     return "success: Code formatted."
 
 
-async def _run_bash_commands(
-    commands: list[str], repo_dir: Path, session_id: str, extract_patch: bool = True
-) -> RunCommandsResponse | None:
+async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
     """
     Run bash commands in the sandbox session.
 
@@ -313,7 +231,6 @@ async def _run_bash_commands(
         commands: The list of commands to execute.
         repo_dir: The repository directory.
         session_id: The sandbox session ID.
-        extract_patch: Whether to extract the patch with the changes made by the executed commands.
 
     Returns:
         The response from running the commands.
@@ -333,7 +250,6 @@ async def _run_bash_commands(
                 workdir=repo_dir.name,
                 archive=base64.b64encode(tar_archive.getvalue()).decode(),
                 fail_fast=True,
-                extract_patch=extract_patch,
             ),
         )
     except httpx.RequestError:

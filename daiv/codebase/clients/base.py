@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from codebase.base import ClientType, Discussion, FileChange, Issue, Job, MergeRequest, Pipeline, Repository, User
+from codebase.base import ClientType, Discussion, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -86,18 +86,6 @@ class RepoClient(abc.ABC):
         as_thread: bool = False,
         mark_as_resolved: bool = False,
     ) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    def commit_changes(
-        self,
-        repo_id: str,
-        target_branch: str,
-        commit_message: str,
-        file_changes: list[FileChange],
-        start_branch: str | None = None,
-        override_commits: bool = False,
-    ):
         pass
 
     @abc.abstractmethod

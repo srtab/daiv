@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from codebase.base import FileChange
-
 
 class PullRequestDescriberInput(TypedDict):
-    changes: list[FileChange]
+    changes: str
     extra_context: NotRequired[str]
     branch_name_convention: NotRequired[str]
 

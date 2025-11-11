@@ -12,7 +12,6 @@ from unidiff.patch import Line, PatchSet
 from automation.agents.review_addressor.agent import ReviewAddressorAgent
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 from automation.agents.review_addressor.schemas import ReviewContext
-from automation.utils import get_file_changes
 from codebase.base import Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType, SimpleDiscussion
 from codebase.clients.base import Emoji
 from codebase.utils import note_mentions_daiv, notes_to_messages
@@ -244,7 +243,7 @@ class ReviewAddressorManager(BaseManager):
         )
 
         reviewer_addressor = await ReviewAddressorAgent.get_runnable(
-            store=self._file_changes_store, skip_format_code=not self.ctx.config.sandbox.format_code_enabled
+            store=self.store, skip_format_code=not self.ctx.config.sandbox.format_code_enabled
         )
 
         started_discussions: list[SimpleDiscussion] = []
@@ -290,8 +289,8 @@ class ReviewAddressorManager(BaseManager):
                     reply_to_id=discussion.id if discussion.is_thread else None,
                 )
         finally:
-            if file_changes := await get_file_changes(self._file_changes_store):
-                await self._commit_changes(file_changes=file_changes)
+            if self.git_manager.is_dirty():
+                await self._commit_changes()
 
             for discussion in resolved_discussions:
                 if discussion.is_resolvable and discussion.resolve_id:

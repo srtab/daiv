@@ -8,8 +8,8 @@ from openevals.llm import create_async_llm_as_judge
 
 from automation.agents import BaseAgent
 from automation.agents.plan_and_execute.prompts import review_code_changes_prompt
-from automation.utils import get_file_changes
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.utils import GitManager  # noqa: TC001
 
 from .conf import settings
 
@@ -78,14 +78,11 @@ async def review_code_changes_tool(placeholder: str, runtime: ToolRuntime[Runtim
     Returns:
         The result of the review code changes tool evaluation.
     """  # noqa: E501
-    logger.info("[%s] Reviewing code changes", review_code_changes_tool.name)
+    logger.info("[%s] Reviewing code changes...", review_code_changes_tool.name)
 
-    file_changes = await get_file_changes(runtime.store)
-    if not file_changes:
-        return "No changes have been made yet to review."
+    git_manager = GitManager(runtime.context.repo)
 
-    diffs = [file_change.diff_hunk for file_change in file_changes if file_change.diff_hunk]
-    if not diffs:
+    if not git_manager.is_dirty():
         return "No changes have been made yet to review."
 
     evaluator = create_async_llm_as_judge(
@@ -95,7 +92,7 @@ async def review_code_changes_tool(placeholder: str, runtime: ToolRuntime[Runtim
         ),
     )
     inputs = [task.model_dump(mode="json") for task in runtime.state["plan_tasks"]]
-    outputs = "\n".join(diffs)
+    outputs = git_manager.get_diff()
 
     result = await evaluator(inputs=inputs, outputs=outputs)
 
