@@ -5,7 +5,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE != "merge_request_event" && $CI_COMMIT_REF_NAME =~ /^(release\/.*|dev|master|main)$/
     - if: "$CI_COMMIT_TAG"
 
-image: ghcr.io/astral-sh/uv:python3.13-bookworm
+image: ghcr.io/astral-sh/uv:python3.14-bookworm
 stages:
   - static
   - test
@@ -23,28 +23,10 @@ unit:
   stage: test
   interruptible: true
   coverage: "/\\d+.\\d+\\%\\s*$/"
-  variables:
-    DB_NAME: postgres
-    DB_USER: postgres
-    DB_PASSWORD: dbpass
-    DB_HOST: postgres
-    DB_PORT: 5432
-    DB_SSLMODE: prefer
   before_script:
     - uv sync --locked --all-extras
   script:
     - make test
-  services:
-    - name: postgres:17.6
-      alias: postgres
-      variables:
-        POSTGRES_DB: postgres
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: dbpass
-        POSTGRES_HOST: postgres
-        POSTGRES_PORT: 5432
-        POSTGRES_SSLMODE: prefer
-        POSTGRES_HOST_AUTH_METHOD: trust
   needs:
     - lint
 
