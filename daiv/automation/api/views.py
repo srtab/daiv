@@ -9,7 +9,7 @@ from .security import AuthBearer
 router = Router(auth=AuthBearer(), tags=["mcp"])
 
 
-@router.get("/mcp-proxy/config")
+@router.get("/mcp-proxy/config/")
 async def get_mcp_proxy_config(request: HttpRequest):
     """
     Get the MCP proxy configuration.

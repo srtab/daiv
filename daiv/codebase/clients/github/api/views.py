@@ -11,6 +11,7 @@ from .security import validate_github_webhook
 logger = logging.getLogger("daiv.webhooks")
 
 
+@router.post("/callbacks/github", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 @router.post("/callbacks/github/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 async def callback(request, payload: IssueCallback | IssueCommentCallback | PushCallback | PullRequestReviewCallback):
     """

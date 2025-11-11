@@ -28,7 +28,7 @@ def mock_mcp_configuration():
 async def test_get_mcp_proxy_config_requires_authentication():
     """Test that the endpoint returns 401/403 when no authentication is provided."""
     client = TestAsyncClient(api)
-    response = await client.get("/automation/mcp-proxy/config")
+    response = await client.get("/automation/mcp-proxy/config/")
 
     assert response.status_code in [401, 403]
 
@@ -46,7 +46,7 @@ async def test_get_mcp_proxy_config_with_valid_api_key(django_user_model, mock_m
 
         client = TestAsyncClient(api)
         response = await client.get(
-            "/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
+            "/automation/mcp-proxy/config/", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
 
         assert response.status_code == 200
@@ -68,7 +68,7 @@ async def test_get_mcp_proxy_config_returns_valid_json(django_user_model, mock_m
 
         client = TestAsyncClient(api)
         response = await client.get(
-            "/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
+            "/automation/mcp-proxy/config/", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
 
         assert response.status_code == 200
@@ -99,7 +99,7 @@ async def test_get_mcp_proxy_config_uses_aliases(django_user_model, mock_mcp_con
 
         client = TestAsyncClient(api)
         response = await client.get(
-            "/automation/mcp-proxy/config", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
+            "/automation/mcp-proxy/config/", headers={"Authorization": f"Bearer {api_key_instance[1]}"}
         )
 
         assert response.status_code == 200

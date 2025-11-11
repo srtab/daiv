@@ -1,5 +1,6 @@
 TESTING = True
 
+# I18N
 
 LANGUAGES = (("en", "English"),)
 LANGUAGE_CODE = "en"
@@ -8,6 +9,10 @@ LANGUAGE_CODE = "en"
 
 WAGTAIL_CONTENT_LANGUAGES = LANGUAGES
 WAGTAILADMIN_PERMITTED_LANGUAGES = LANGUAGES
+
+# Use memory database to run tests faster
+
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
 
 
 # Use memory cache to run tests faster
