@@ -29,7 +29,7 @@ dependencies = [
   "jinja2==3.1.6",
   "langchain[anthropic,community,google-genai,model-profiles,openai]==1.0.5",
   "langchain-mcp-adapters==0.1.12",
-  "langgraph==1.0.2",
+  "langgraph==1.0.3",
   "langgraph-checkpoint-postgres==3.0.1",
   "langsmith[pytest]==0.4.42",
   "openevals==0.1.2",
