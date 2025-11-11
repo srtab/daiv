@@ -29,13 +29,13 @@ class RunCommandResult(BaseModel):
     """
 
     command: str
-    output: str = Field(description="The output of the command. Truncated to 10000 characters.")
+    output: str = Field(description=f"The output of the command. Truncated to {MAX_OUTPUT_LENGTH} lines.")
     exit_code: int
 
     @field_validator("output")
     @classmethod
     def validate_output(cls, v):
-        return v[:MAX_OUTPUT_LENGTH]
+        return "\n".join(v.split("\n")[:MAX_OUTPUT_LENGTH]) if v else ""
 
 
 class RunCommandsResponse(BaseModel):
