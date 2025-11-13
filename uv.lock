@@ -260,11 +260,11 @@ redis = [
 
 [[package]]
 name = "certifi"
-version = "2025.10.5"
+version = "2025.11.12"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4c/5b/b6ce21586237c77ce67d01dc5507039d444b630dd76611bbca2d8e5dcd91/certifi-2025.10.5.tar.gz", hash = "sha256:47c09d31ccf2acf0be3f701ea53595ee7e0b8fa08801c6624be771df09ae7b43", size = 164519, upload-time = "2025-10-05T04:12:15.808Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/8c/58f469717fa48465e4a50c014a0400602d3c437d7c0c468e17ada824da3a/certifi-2025.11.12.tar.gz", hash = "sha256:d8ab5478f2ecd78af242878415affce761ca6bc54a22a27e026d7c25357c3316", size = 160538, upload-time = "2025-11-12T02:54:51.517Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/37/af0d2ef3967ac0d6113837b44a4f0bfe1328c2b9763bd5b1744520e5cfed/certifi-2025.10.5-py3-none-any.whl", hash = "sha256:0f212c2744a9bb6de0c56639a6f68afe01ecd92d91f14ae897c4fe7bbeeef0de", size = 163286, upload-time = "2025-10-05T04:12:14.03Z" },
+    { url = "https://files.pythonhosted.org/packages/70/7d/9bc192684cea499815ff478dfcdc13835ddf401365057044fb721ec6bddb/certifi-2025.11.12-py3-none-any.whl", hash = "sha256:97de8790030bbd5c2d96b7ec782fc2f7820ef8dba6db909ccf95449f2d062d4b", size = 159438, upload-time = "2025-11-12T02:54:49.735Z" },
 ]
 
 [[package]]
@@ -716,11 +716,11 @@ wheels = [
 
 [[package]]
 name = "execnet"
-version = "2.1.1"
+version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bb/ff/b4c0dc78fbe20c3e59c0c7334de0c27eb4001a2b2017999af398bf730817/execnet-2.1.1.tar.gz", hash = "sha256:5189b52c6121c24feae288166ab41b32549c7e2348652736540b9e6e7d4e72e3", size = 166524, upload-time = "2024-04-08T09:04:19.245Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/89/780e11f9588d9e7128a3f87788354c7946a9cbb1401ad38a48c4db9a4f07/execnet-2.1.2.tar.gz", hash = "sha256:63d83bfdd9a23e35b9c6a3261412324f964c2ec8dcd8d3c6916ee9373e0befcd", size = 166622, upload-time = "2025-11-12T09:56:37.75Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/09/2aea36ff60d16dd8879bdb2f5b3ee0ba8d08cbbdcdfe870e695ce3784385/execnet-2.1.1-py3-none-any.whl", hash = "sha256:26dee51f1b80cebd6d0ca8e74dd8745419761d3bef34163928cbebbdc4749fdc", size = 40612, upload-time = "2024-04-08T09:04:17.414Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/84/02fc1827e8cdded4aa65baef11296a9bbe595c474f0d6d758af082d849fd/execnet-2.1.2-py3-none-any.whl", hash = "sha256:67fba928dd5a544b783f6056f449e5e3931a5c378b128bc18501f7ea79e296ec", size = 40708, upload-time = "2025-11-12T09:56:36.333Z" },
 ]
 
 [[package]]
@@ -1292,16 +1292,16 @@ openai = [
 
 [[package]]
 name = "langchain-anthropic"
-version = "1.0.2"
+version = "1.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
     { name = "langchain-core" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/17/cac4e8dd225cfea43db167d062ea6108e179f42be5851a67f3c1d6e4aac5/langchain_anthropic-1.0.2.tar.gz", hash = "sha256:e88bd692e12d44d6368d336e2c9c650690f57291fa1c5060108f714c115a0c72", size = 669557, upload-time = "2025-11-07T21:51:07.239Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/6b/aaa770beea6f4ed4c3f5c75fd6d80ed5c82708aec15318c06d9379dd3543/langchain_anthropic-1.0.3.tar.gz", hash = "sha256:91083c5df82634602f6772989918108d9448fa0b7499a11434687198f5bf9aef", size = 680336, upload-time = "2025-11-12T15:58:58.54Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/b6/e3e00374124609ecf1157ad687e2d67cdc6e97e84177f8e70a936fd8c51f/langchain_anthropic-1.0.2-py3-none-any.whl", hash = "sha256:271740dacf08dc9a4fec3a282781b0a0359b2b081230785895afd27cc93c9c8f", size = 46423, upload-time = "2025-11-07T21:51:05.699Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/3d/0499eeb10d333ea79e1c156b84d075e96cfde2fbc6a9ec9cbfa50ac3e47e/langchain_anthropic-1.0.3-py3-none-any.whl", hash = "sha256:0d4106111d57e19988e2976fb6c6e59b0c47ca7afb0f6a2f888362006f871871", size = 46608, upload-time = "2025-11-12T15:58:57.28Z" },
 ]
 
 [[package]]
@@ -1365,7 +1365,7 @@ wheels = [
 
 [[package]]
 name = "langchain-google-genai"
-version = "3.0.2"
+version = "3.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filetype" },
@@ -1373,9 +1373,9 @@ dependencies = [
     { name = "langchain-core" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/c7/9814a370dc6682bd9f8d643616e6e6a6e06196d1ef36f3d8d42500e1b4ed/langchain_google_genai-3.0.2.tar.gz", hash = "sha256:06794e0c73674e37c63038beb45df820cc305f7477b0025b2abdfdcddc96b4b4", size = 216580, upload-time = "2025-11-10T23:40:22.289Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/63/6c9a99f277bb7cb6f25e86eff79d1e780f20820f8de7bdb0ca03bcc0d81a/langchain_google_genai-3.0.3.tar.gz", hash = "sha256:d5ae8dc8101de4597384bd9c822740a4caadbf18dddb031c7be33e6f8ee7e154", size = 235887, upload-time = "2025-11-12T21:01:21.885Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/3e/f7f1741902216b73ec46da1e4958e6e371d638dbb50e531dc268a89e8b75/langchain_google_genai-3.0.2-py3-none-any.whl", hash = "sha256:d3ba6174f2044b9711a08159aa4c585745eca341dcefb97b8c65c175b0ef0097", size = 55522, upload-time = "2025-11-10T23:40:21.401Z" },
+    { url = "https://files.pythonhosted.org/packages/68/0c/f9cad31c7aa1d6c791d6d097de2675dd4051710f8d6401b864353cd0bca1/langchain_google_genai-3.0.3-py3-none-any.whl", hash = "sha256:e77d7d42d7167aa0bcf73742c4b237b6378a35436c3f1a5703a67804b1556b4e", size = 56477, upload-time = "2025-11-12T21:01:20.758Z" },
 ]
 
 [[package]]

@@ -48,9 +48,7 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
 
     OUTPUT CONTRACT
     - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
-    - Patch with the changes made by the executed commands.
     - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
-    - Output is unnormalized (may include ANSI). Add flags like `--no-color` if needed.
 
     WRITE SCOPE & BOUNDARIES
     - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
@@ -62,12 +60,6 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     - No unscoped destructive ops (e.g., `rm -rf` outside targeted paths).
     - No DB schema changes/migrations/seeds.
     - No editing secrets/credentials (e.g., `.env`) or CI settings.
-    - Network access is allowed for project package managers as required by the plan.
-
-    PACKAGE MANAGEMENT POLICY
-    - **Always** use the project's native package manager to add/update/remove dependencies; let it regenerate lockfiles. **Never** edit lockfiles by hand.
-    - Examples: npm/pnpm/yarn/bun; pip/poetry/pip-tools/uv; cargo; go; bundler; composer; etc.
-    - Prefer flags that keep output stable/parseable (e.g., `--json`, `--quiet`) when available.
 
     PREFERRED COMPANION TOOLS (USE INSTEAD OF SHELL EQUIVALENTS)
     - Reads/search/listing: `glob` (discovery), `grep` (content search), `ls` (directory metadata), `read` (file contents).
@@ -84,6 +76,23 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     - Any file creation/edit/rename/delete that the `write`/`edit`/`rename`/`delete` tools can do.
     - Raw reads/search/listing that `glob`/`grep`/`ls`/`read` can handle.
     - Any operation outside the repository root or involving Git/system-level changes.
+
+    Examples:
+      Good examples:
+        - bash(commands=["pytest /foo/bar/tests"])
+        - bash(commands=["python /path/to/script.py"])
+        - bash(commands=["npm install", "npm test"])
+        - bash(commands=["uv lock"])
+
+      Bad examples (avoid these):
+        - bash(commands=["cd /foo/bar", "pytest tests"])  # Use absolute path instead
+        - bash(commands=["cat file.txt | head -10"])  # Use read tool instead
+        - bash(commands=["find . -name '*.py'"])  # Use glob tool instead
+        - bash(commands=["grep -r 'pattern' ."])  # Use grep tool instead
+        - bash(commands=["rm -rf /foo/bar"])  # Use delete tool instead
+        - bash(commands=["sed -i 's/old/new/g' file.txt"])  # Use edit tool instead
+        - bash(commands=["mv file.txt file2.txt"])  # Use rename tool instead
+        - bash(commands=["echo 'Hello, world!' > file.txt"])  # Use write tool instead
 
     Args:
         commands: The list of commands to execute.
@@ -175,12 +184,12 @@ async def inspect_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx
 
     **WHEN TO USE THIS TOOL**
     Use bash for:
-    - Diagnostic commands: ruff check (NOT --fix), mypy, pytest --collect-only, npm ls, etc.
-    - Version checks: tool --version
-    - Dry runs: make --dry-run, npm run build --dry-run
-    - Information gathering: git status, git log, git diff
+    - Diagnostic commands (e.g. ruff check (NOT --fix), mypy, pytest --collect-only, npm ls, etc.)
+    - Version checks (e.g. tool --version)
+    - Dry runs (e.g. make --dry-run, npm run build --dry-run)
+    - Information gathering (e.g. pytest --collect-only, npm ls, etc.)
 
-    Avoid bash for:
+    VERY IMPORTANT: **You must avoid using bash for the following tasks:**
     - File reading (use `read` tool instead)
     - File searching (use `grep`, `glob` tools instead)
     - Directory listing (use `ls` tool instead)
@@ -194,6 +203,22 @@ async def inspect_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx
 
     **REMEMBER**
     You are a PLANNER, not an EXECUTOR. Your bash commands are RECONNAISSANCE, not DEPLOYMENT.
+
+    Examples:
+      Good examples:
+        - inspect_bash(commands=["pytest foo/bar/tests"])
+        - inspect_bash(commands=["python path/to/script.py"])
+        - inspect_bash(commands=["npm ls"])
+        - inspect_bash(commands=["uv lock"])
+        - inspect_bash(commands=["ruff check"])
+        - inspect_bash(commands=["pytest --collect-only"])
+
+      Bad examples (avoid these):
+        - inspect_bash(commands=["cd foo/bar", "pytest tests"]) # Use relative path instead
+        - inspect_bash(commands=["cat file.txt | head -10"])  # Use read tool instead
+        - inspect_bash(commands=["find . -name '*.py'"])  # Use glob tool instead
+        - inspect_bash(commands=["grep -r 'pattern' ."])  # Use grep tool instead
+        - inspect_bash(commands=["ls -la foo/bar"])  # Use ls tool instead
 
     Args:
         commands: The list of commands to execute.
