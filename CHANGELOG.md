@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `pipeline` and `job_logs` tools to allow `PlanAndExecuteAgent` agent to fix pipelines by retrieving the pipeline status and job logs when planning.
 - Added `diff` tool to allow the `PlanAndExecuteAgent` executor to retrieve unified diffs showing only changed lines instead of rereading entire files, reducing token consumption by up to 98% for large files with small changes.
 - Added `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
+- Added support to delete entire directories with the `delete` tool.
 
 ### Changed
 

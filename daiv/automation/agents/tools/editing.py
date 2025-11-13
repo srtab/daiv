@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from langchain.tools import ToolRuntime, tool
@@ -135,41 +136,54 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeC
 
 
 @tool(DELETE_TOOL_NAME, parse_docstring=True)
-async def delete_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+async def delete_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Deletes a file from the repository.
+    Deletes a file or directory from the repository.
 
     **Usage rules:**
-    - This tool will delete the file if there is one at the provided path.
-    - Do not use this tool to delete directories or non-file entities.
-    - Exercise caution to avoid unintended data loss.
-    - You must use your `read` tool at least once in the conversation before deleting. This tool will error if you attempt to delete without reading the file.
+    - For FILES: Deletes the specified file. You MUST read the file first using the `read` tool.
+    - For DIRECTORIES: Recursively deletes the directory and ALL its contents. Use with EXTREME caution.
+    - Before deleting a directory, you should use the `ls` or `glob` tool to examine its contents.
+    - You must verify the path exists and understand what you're deleting before using this tool.
+    - This operation is irreversible - exercise caution to avoid unintended data loss.
 
     Args:
-        file_path (str): The relative path to the file to delete.
+        path (str): The relative path to the file or directory to delete.
 
     Returns:
         str: A message indicating the success of the deletion.
     """  # noqa: E501
-    logger.debug("[%s] Deleting file '%s'", delete_tool.name, file_path)
+    logger.debug("[%s] Deleting path '%s'", delete_tool.name, path)
 
-    resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
+    resolved_path = (Path(runtime.context.repo.working_dir) / path.strip()).resolve()
 
-    if not resolved_file_path.exists() or not resolved_file_path.is_file():
-        logger.warning("[%s] The file '%s' does not exist or is not a file.", delete_tool.name, file_path)
-        return f"error: File '{file_path}' does not exist or is not a file."
+    if not resolved_path.exists():
+        logger.warning("[%s] The path '%s' does not exist.", delete_tool.name, path)
+        return f"error: Path '{path}' does not exist."
 
-    if await check_file_read(runtime.store, file_path.strip()) is False:
-        logger.warning("[%s] The '%s' was not read before deleting it.", delete_tool.name, file_path)
-        return "error: You must read the file before deleting it. Call the `read` tool to read the file first."
+    if resolved_path.is_file():
+        if await check_file_read(runtime.store, path.strip()) is False:
+            logger.warning("[%s] The file '%s' was not read before deleting it.", delete_tool.name, path)
+            return "error: You must read the file before deleting it. Call the `read` tool to read the file first."
 
-    try:
-        resolved_file_path.unlink()
-    except FileNotFoundError:
-        logger.warning("[%s] The file '%s' does not exist.", delete_tool.name, file_path)
-        return f"error: File '{file_path}' does not exist."
+        try:
+            resolved_path.unlink()
+            return f"success: Deleted file '{path}'"
+        except FileNotFoundError:
+            logger.warning("[%s] The file '%s' does not exist.", delete_tool.name, path)
+            return f"error: File '{path}' does not exist."
 
-    return f"success: Deleted file {file_path}"
+    elif resolved_path.is_dir():
+        try:
+            shutil.rmtree(resolved_path)
+            return f"success: Deleted directory '{path}' and all its contents"
+        except OSError:
+            logger.warning("[%s] Failed to delete directory '%s'.", delete_tool.name, path, exc_info=True)
+            return f"error: Failed to delete directory '{path}'."
+
+    else:
+        logger.warning("[%s] The path '%s' is neither a file nor a directory.", delete_tool.name, path)
+        return f"error: Path '{path}' is neither a file nor a directory."
 
 
 @tool(RENAME_TOOL_NAME, parse_docstring=True)

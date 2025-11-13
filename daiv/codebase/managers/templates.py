@@ -83,7 +83,7 @@ Something went wrong while processing this issue.
 
 ISSUE_PROCESSED_TEMPLATE = """### ✅ ***Process Completed***
 
-I have created a merge request with the requested changes.
+{{ message }}
 
 ---
 

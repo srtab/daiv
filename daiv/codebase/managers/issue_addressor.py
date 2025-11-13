@@ -182,6 +182,7 @@ class IssueAddressorManager(BaseManager):
             plan_and_execute = await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=self.store)
 
             current_state = await plan_and_execute.aget_state(self._config)
+            result = None
 
             if (
                 "plan_approval" in current_state.next
@@ -190,7 +191,7 @@ class IssueAddressorManager(BaseManager):
             ):
                 self._add_workflow_step_note("execute_plan")
 
-                await plan_and_execute.ainvoke(
+                result = await plan_and_execute.ainvoke(
                     Command(resume="Plan approved"),
                     merge_configs(
                         self._config, RunnableConfig(tags=[plan_and_execute.name], metadata={"phase": "execute_plan"})
@@ -202,7 +203,7 @@ class IssueAddressorManager(BaseManager):
 
             if self.git_manager.is_dirty():
                 if merge_request_id := await self._commit_changes(thread_id=self.thread_id):
-                    self._add_issue_processed_note(merge_request_id)
+                    self._add_issue_processed_note(merge_request_id, result["messages"][-1].content)
             else:
                 after_run_state = await plan_and_execute.aget_state(self._config)
 
@@ -348,7 +349,7 @@ class IssueAddressorManager(BaseManager):
             )
         )
 
-    def _add_issue_processed_note(self, merge_request_id: int):
+    def _add_issue_processed_note(self, merge_request_id: int, message: str):
         """
         Add a note to the issue to inform the user that the issue has been processed.
         """
@@ -359,6 +360,7 @@ class IssueAddressorManager(BaseManager):
                 merge_request_id=merge_request_id,
                 # GitHub already shows the merge request link right after the comment.
                 show_merge_request_link=self.client.client_slug == ClientType.GITLAB,
+                message=message,
             )
         )
 
