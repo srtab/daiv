@@ -503,7 +503,6 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
-    { name = "langgraph-cli" },
     { name = "langsmith", extra = ["pytest"] },
     { name = "openevals" },
     { name = "psycopg", extra = ["pool"] },
@@ -562,7 +561,6 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.1.12" },
     { name = "langgraph", specifier = "==1.0.3" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
-    { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.1.54" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.4.42" },
     { name = "openevals", specifier = "==0.1.2" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.2.12" },
@@ -1475,18 +1473,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/00/5e/c96bbded68a72757607e653c0f9cfaa02078da17e0999626f3c1ddc65ce9/langgraph_checkpoint_postgres-3.0.1.tar.gz", hash = "sha256:4ff0f04a70ce8f5b49d373f521eba97ccf0bb61181de1535e5d91e99db2ce7da", size = 113134, upload-time = "2025-11-06T16:21:47.855Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/01/5a5de9187f8a7f55fa546eb815fbeb4a41b10688d9a77b84224cb98ae0de/langgraph_checkpoint_postgres-3.0.1-py3-none-any.whl", hash = "sha256:f79eb588b328f05d715c7ed35d20895cd0a126b524f95edbbebedc4a595f43dd", size = 40914, upload-time = "2025-11-06T16:21:46.303Z" },
-]
-
-[[package]]
-name = "langgraph-cli"
-version = "0.1.54"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f1/5c/e8fc086a2c4e7021ec87088165f02f5c5e4f7441f864b0809ed49ba50d79/langgraph_cli-0.1.54.tar.gz", hash = "sha256:2714a62616ae9d9d7363d8a597f18c85aa38b8ed27bc85d6106c98da67e796eb", size = 17855, upload-time = "2024-11-15T19:03:22.55Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/e4/fac960db5b6cb1690018021a0ea77aa42b654048787a625c553b8f6b8e01/langgraph_cli-0.1.54-py3-none-any.whl", hash = "sha256:24f6e858e69c5e0f7d25e915742bf3506cdf7d3bc9033c2c0fbc950a3954fa85", size = 21084, upload-time = "2024-11-15T19:03:21.493Z" },
 ]
 
 [[package]]
