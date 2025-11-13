@@ -203,7 +203,9 @@ class IssueAddressorManager(BaseManager):
 
             if self.git_manager.is_dirty():
                 if merge_request_id := await self._commit_changes(thread_id=self.thread_id):
-                    self._add_issue_processed_note(merge_request_id, result["messages"][-1].content)
+                    self._add_issue_processed_note(
+                        merge_request_id, result and extract_text_content(result["messages"][-1].content)
+                    )
             else:
                 after_run_state = await plan_and_execute.aget_state(self._config)
 
