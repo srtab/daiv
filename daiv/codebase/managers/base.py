@@ -6,7 +6,7 @@ from langgraph.store.memory import InMemoryStore
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from codebase.clients import RepoClient
-from codebase.utils import GitManager
+from codebase.utils import GitManager, redact_diff_content
 
 if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
@@ -65,7 +65,7 @@ class BaseManager:
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {
-                "changes": self.git_manager.get_diff(),
+                "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
                 "branch_name_convention": self.ctx.config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(

@@ -6,42 +6,110 @@ import json
 import logging
 import subprocess  # noqa: S404
 from pathlib import Path
+from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ImageContentBlock
 
 from automation.utils import register_file_read
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.repo_config import CONFIGURATION_FILE_NAME
 from core.utils import extract_valid_image_mimetype
 
 logger = logging.getLogger("daiv.tools")
+
+READ_MAX_LINES = 2000
 
 GLOB_TOOL_NAME = "glob"
 GREP_TOOL_NAME = "grep"
 LS_TOOL_NAME = "ls"
 READ_TOOL_NAME = "read"
+
 NAVIGATION_TOOLS = [GLOB_TOOL_NAME, LS_TOOL_NAME, READ_TOOL_NAME, GREP_TOOL_NAME]
 
-READ_MAX_LINES = 2000
+
+GLOB_TOOL_DESCRIPTION = f"""\
+Find files by name using a glob pattern.
+
+**Usage rules:**
+ - Supports glob patterns like "*.js" or "src/*.ts".
+ - Returns matching file paths sorted by name.
+ - Use this tool when you need to find files by name patterns.
+ - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
+
+Examples:
+  Good examples:
+    - {GLOB_TOOL_NAME}(pattern="**/*.ts")  # Find all TypeScript files recursively
+    - {GLOB_TOOL_NAME}(pattern="**/*.test.js", path="src")  # Find test files only in src directory
+    - {GLOB_TOOL_NAME}(pattern="*.config.js")  # Find config files in root (webpack.config.js, etc.)
+    - {GLOB_TOOL_NAME}(pattern="**/README.md")  # Find all README files throughout the project
+    - {GLOB_TOOL_NAME}(pattern="**/*.py", path="src/components")  # Constrained search in specific directory
+
+  Bad examples (avoid these):
+    - {GLOB_TOOL_NAME}(pattern="/home/user/project/*.py")  # Non-relative patterns unsupported
+    - {GLOB_TOOL_NAME}(pattern="*.py", path="/absolute/path")  # Path must be relative
+    - {GLOB_TOOL_NAME}(pattern="**/*")  # Too broad, returns all files
+    - {GLOB_TOOL_NAME}(pattern="package.json")  # Use `{READ_TOOL_NAME}` tool for known files instead
+    - {GLOB_TOOL_NAME}(pattern="**/tests/*.py")  # Use path="tests", pattern="*.py" instead
+"""  # noqa: E501
 
 
-@tool(GLOB_TOOL_NAME, parse_docstring=True)
-def glob_tool(pattern: str, runtime: ToolRuntime[RuntimeCtx], path: str | None = None) -> str:
+GREP_TOOL_DESCRIPTION = f"""\
+Search for files whose *contents* match a regex pattern.
+
+**Usage rules:**
+ - Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.)
+ - Filter files by pattern with the `include` parameter (eg. "*.js", "*.{{ts,tsx}}", etc.)
+ - Returns file paths with at least one match sorted by name
+ - Use this tool when you need to find files containing specific patterns
+ - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful
+ - Under the hood, this tool uses ripgrep
+ - **Important:** The `path` parameter must be a directory relative path. If you want to search a single file, leave `path` as None and set `include` to the file path (e.g., "{CONFIGURATION_FILE_NAME}")
+
+Examples:
+  Good examples:
+    - {GREP_TOOL_NAME}(pattern="useMemo\\(")  # Find React useMemo hook usage
+    - {GREP_TOOL_NAME}(pattern="class\\s+\\w+", include="*.py")  # Find Python class definitions
+    - {GREP_TOOL_NAME}(pattern="TODO|FIXME", path="src")  # Find TODO/FIXME comments in src directory
+    - {GREP_TOOL_NAME}(pattern="function\\s+\\w+", include="*.{{js,ts}}")  # Find function declarations in JS/TS files
+    - {GREP_TOOL_NAME}(pattern="import.*from", include="tests/test_utils.py")  # Search in a specific file using include
+
+  Bad examples (avoid these):
+    - {GREP_TOOL_NAME}(pattern="*.py")  # This is a glob pattern, not regex; use `{GLOB_TOOL_NAME}` tool instead
+    - {GREP_TOOL_NAME}(pattern="myFunction", path="src/utils/helper.js")  # Path must be directory; use include="src/utils/helper.js" instead
+    - {GREP_TOOL_NAME}(pattern="error", path="/absolute/path")  # Path must be relative
+    - {GREP_TOOL_NAME}(pattern="[unclosed")  # Invalid regex pattern
+    - {GREP_TOOL_NAME}(pattern=".*")  # Too broad, matches everything
+"""  # noqa: E501
+
+
+LS_TOOL_DESCRIPTION = f"""\
+Lists files and directories in a given path. The path parameter must be a relative path. You should generally prefer the `{GLOB_TOOL_NAME}` and `{GREP_TOOL_NAME}` tools, if you know which directories to search. The results are sorted by name.
+"""  # noqa: E501
+
+
+READ_TOOL_DESCRIPTION = """\
+Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+**Usage rules:**
+ - The `file_path` must be a relative path to the repository root.
+ - Results are returned with line numbers starting at 1 (e.g., "1: line1\\n2: line2\\n3: line3")
+ - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
+ - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
+"""  # noqa: E501
+
+
+@tool(GLOB_TOOL_NAME, description=GLOB_TOOL_DESCRIPTION)
+def glob_tool(
+    pattern: Annotated[str, "Glob pattern to match files against. Non-relative patterns are unsupported."],
+    runtime: ToolRuntime[RuntimeCtx],
+    path: Annotated[
+        str | None,
+        "Directory to search in. If not specified, defaults to the repository root. Must be a relative path.",
+    ] = None,
+) -> str:
     """
-    Find files by name using a glob pattern.
-
-    **Usage rules:**
-    - Supports glob patterns like "*.js" or "src/*.ts".
-    - Returns matching file paths sorted by name.
-    - Use this tool when you need to find files by name patterns.
-    - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
-
-    Args:
-        pattern (str): Glob pattern to match files against. Non-relative patterns are unsupported. (e.g., "**/*.js", "src/**/*.ts", "*.py", "*.md", etc.)
-        path (str | None): Directory to search in. If not specified, defaults to the repository root. Must be a relative path.
-
-    Returns:
-        A list of file paths with at least one match sorted by name.
+    Tool to find files by name using a glob pattern.
     """  # noqa: E501
     logger.debug("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or "repository root")
 
@@ -84,36 +152,22 @@ def _run_ripgrep(pattern: str, root: Path, include: str | None) -> list[str]:
     return [(root / line.strip()).relative_to(root).as_posix() for line in proc.stdout.splitlines() if line.strip()]
 
 
-@tool(GREP_TOOL_NAME, parse_docstring=True)
+@tool(GREP_TOOL_NAME, description=GREP_TOOL_DESCRIPTION)
 def grep_tool(
-    pattern: str, runtime: ToolRuntime[RuntimeCtx], path: str | None = None, include: str | None = None
+    pattern: Annotated[str, "Regular expression to search for (e.g., 'useMemo\\(' or 'class\\s+HttpClient')."],
+    runtime: ToolRuntime[RuntimeCtx],
+    path: Annotated[
+        str | None,
+        "A directory to search in. If not specified, defaults to the repository root. "
+        "Must be a directory relative path.",
+    ] = None,
+    include: Annotated[str | None, "Glob filter for file paths (e.g., '*.js', '*.{ts,tsx}', etc.)."] = None,
 ) -> str:
     """
-    Search for files whose *contents* match a regex pattern.
-
-    **Usage rules:**
-    - Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.)
-    - Filter files by pattern with the `include` parameter (eg. "*.js", "*.{ts,tsx}", etc.)
-    - Returns file paths with at least one match sorted by name
-    - Use this tool when you need to find files containing specific patterns
-    - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful
-    - Under the hood, this tool uses ripgrep
-    - **Important:** The `path` parameter must be a directory relative path. If you want to search a single file, leave `path` as None and set `include` to the file path (e.g., ".daiv.yml").
-
-    Args:
-        pattern (str): Regular expression to search for (e.g., 'useMemo\\(' or 'class\\s+HttpClient').
-        path (str | None): A directory to search in. If not specified, defaults to the repository root. Must be a directory relative path.
-        include (str | None): Glob filter for file paths (e.g., '*.js', '*.{ts,tsx}', etc.).
-
-    Returns:
-        str: A list of file paths with at least one match sorted by name.
+    Tool to search for files whose contents match a regex pattern.
     """  # noqa: E501
-    logger.debug(
-        "[%s] Finding files matching '%s' in %s (include: '%s')",
-        grep_tool.name,
-        pattern,
-        path or "repository root",
-        include,
+    logger.info(
+        "[%s] Searching for files matching '%s' in %s (include: '%s')", grep_tool.name, pattern, path or ".", include
     )
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
@@ -135,20 +189,12 @@ def grep_tool(
     return "\n".join(files)
 
 
-@tool(LS_TOOL_NAME, parse_docstring=True)
-def ls_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(LS_TOOL_NAME, description=LS_TOOL_DESCRIPTION)
+def ls_tool(path: Annotated[str, "The relative path to the repository root."], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Lists files and directories in a given path. The path parameter must be a relative path. You should generally prefer the `glob` and `grep` tools, if you know which directories to search. The results are sorted by name.
-
-    Args:
-        path (str): The relative path to the repository root.
-
-    Returns:
-        A JSON object with the following fields:
-        - type: The type of the entry (e.g., "file", "dir")
-        - path: The relative path to the entry. (e.g., "file.txt", "dir/file.txt", "dir/subdir/file.txt", etc.)
+    Tool to list files and directories in a given path.
     """  # noqa: E501
-    logger.debug("[%s] Listing files in %s", ls_tool.name, path)
+    logger.info("[%s] Listing files in '%s'", ls_tool.name, path)
 
     root = (Path(runtime.context.repo.working_dir) / path.strip()).resolve()
 
@@ -157,7 +203,7 @@ def ls_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         return f"error: The '{path}' does not exist or is not a directory."
 
     if Path(path).anchor:
-        return "error: Non-relative paths are unsupported. Use a relative path."
+        return "error: The path is not a relative path."
 
     results = []
     for child in sorted(root.iterdir(), key=lambda p: p.name):
@@ -170,25 +216,14 @@ def ls_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
     return json.dumps(results)
 
 
-@tool(READ_TOOL_NAME, parse_docstring=True)
-async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(READ_TOOL_NAME, description=READ_TOOL_DESCRIPTION)
+async def read_tool(
+    file_path: Annotated[str, "The relative path to the file to read."], runtime: ToolRuntime[RuntimeCtx]
+) -> str:
     """
-    Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
-
-    **Usage rules:**
-     - The `file_path` must be a relative path to the repository root.
-     - Results are returned with line numbers starting at 1 (e.g., "1: line1\\n2: line2\\n3: line3")
-     - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
-     - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
-     - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
-
-    Args:
-        file_path (str): The relative path to the file to read.
-
-    Returns:
-        str: The content of the file.
+    Tool to read the full content of a file from the repository.
     """  # noqa: E501
-    logger.debug("[%s] Reading file '%s'", read_tool.name, file_path)
+    logger.info("[%s] Reading file '%s'", read_tool.name, file_path)
 
     resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
@@ -197,7 +232,7 @@ async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         or not resolved_file_path.is_file()
         or any(fnmatch.fnmatch(file_path, pattern) for pattern in runtime.context.config.combined_exclude_patterns)
     ):
-        logger.warning("[%s] The '%s' does not exist or is not a file.", read_tool.name, file_path)
+        logger.warning("[%s] The file '%s' does not exist or is not a file.", read_tool.name, file_path)
         return f"error: File '{file_path}' does not exist or is not a file."
 
     if runtime.store:
@@ -210,7 +245,7 @@ async def read_tool(file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         return "[File content was intentionally excluded by the repository configuration]"
 
     if not (content := resolved_file_path.read_text()):
-        return "warning: The file exists but is empty."
+        return f"warning: The file '{file_path}' exists but is empty."
 
     # If the file is an image, return the image template.
     if mime_type := extract_valid_image_mimetype(content.encode()):

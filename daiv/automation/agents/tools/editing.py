@@ -3,12 +3,15 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
 
 from automation.agents.utils import find_original_snippet
 from automation.utils import check_file_read, register_file_read
 from codebase.context import RuntimeCtx  # noqa: TC001
+
+from .navigation import READ_TOOL_NAME
 
 logger = logging.getLogger("daiv.tools")
 
@@ -20,28 +23,55 @@ RENAME_TOOL_NAME = "rename"
 
 EDITING_TOOLS = [EDIT_TOOL_NAME, WRITE_TOOL_NAME, DELETE_TOOL_NAME, RENAME_TOOL_NAME]
 
+EDIT_TOOL_DESCRIPTION = f"""\
+Performs exact string replacements in files.
 
-@tool(EDIT_TOOL_NAME, parse_docstring=True)
+**Usage rules:**
+ - You must use your `{READ_TOOL_NAME}` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+ - When editing text from `{READ_TOOL_NAME}` tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + 1 space. Everything after that space is the actual file content to match. Never include any part of the line number prefix in the `old_string` or `new_string`.
+ - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
+ - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+"""  # noqa: E501
+
+WRITE_TOOL_DESCRIPTION = f"""\
+Writes a file to the repository.
+
+**Usage rules:**
+ - This tool will overwrite the existing file if there is one at the provided path.
+ - If this is an existing file, you MUST use the `{READ_TOOL_NAME}` tool first to read the file's contents. This tool will fail if you did not read the file first.
+"""  # noqa: E501
+
+DELETE_TOOL_DESCRIPTION = f"""\
+Deletes a file or directory from the repository.
+
+**Usage rules:**
+ - For FILES: Deletes the specified file. You MUST read the file first using the `{READ_TOOL_NAME}` tool.
+ - For DIRECTORIES: Recursively deletes the directory and ALL its contents. Use with EXTREME caution.
+ - Before deleting a directory, you should use the `ls` or `glob` tool to examine its contents.
+ - You must verify the path exists and understand what you're deleting before using this tool.
+ - This operation is irreversible - exercise caution to avoid unintended data loss.
+"""  # noqa: E501
+
+RENAME_TOOL_DESCRIPTION = f"""\
+Renames a file in the repository.
+
+**Usage rules:**
+ - This tool will rename the file if it exists.
+ - If the file does not exist or the new path already exists, this tool will return an error.
+ - You must use your `{READ_TOOL_NAME}` tool at least once in the conversation before renaming. This tool will error if you attempt to rename without reading the file.
+"""  # noqa: E501
+
+
+@tool(EDIT_TOOL_NAME, description=EDIT_TOOL_DESCRIPTION)
 async def edit_tool(
-    file_path: str, old_string: str, new_string: str, runtime: ToolRuntime[RuntimeCtx], replace_all: bool = False
+    file_path: Annotated[str, "The relative path to the file to modify."],
+    old_string: Annotated[str, "The text to replace."],
+    new_string: Annotated[str, "The text to replace it with (must be different from old_string)."],
+    runtime: ToolRuntime[RuntimeCtx],
+    replace_all: Annotated[bool, "Replace all occurences of `old_string` (default false)."] = False,
 ) -> str:
     """
-    Performs exact string replacements in files.
-
-    **Usage rules:**
-    - You must use your `read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-    - When editing text from `read` tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + 1 space. Everything after that space is the actual file content to match. Never include any part of the line number prefix in the `old_string` or `new_string`.
-    - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
-    - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
-
-    Args:
-        file_path (str): The relative path to the file to modify.
-        old_string (str): The text to replace.
-        new_string (str): The text to replace it with (must be different from old_string)
-        replace_all (bool): Replace all occurences of `old_string` (default false)
-
-    Returns:
-        str: A message indicating the success of the editing or an error message if the operation failed.
+    Tool to perform exact string replacements in files.
     """  # noqa: E501
     logger.debug("[%s] Editing file '%s'", edit_tool.name, file_path)
 
@@ -87,21 +117,14 @@ async def edit_tool(
     return f"success: Replaced `old_string` with `new_string` in file {file_path}"
 
 
-@tool(WRITE_TOOL_NAME, parse_docstring=True)
-async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(WRITE_TOOL_NAME, description=WRITE_TOOL_DESCRIPTION)
+async def write_tool(
+    file_path: Annotated[str, "The relative path to the file to write to."],
+    content: Annotated[str, "The content to write to the file."],
+    runtime: ToolRuntime[RuntimeCtx],
+) -> str:
     """
-    Writes a file to the repository.
-
-    **Usage rules:**
-    - This tool will overwrite the existing file if there is one at the provided path.
-    - If this is an existing file, you MUST use the `read` tool first to read the file's contents. This tool will fail if you did not read the file first.
-
-    Args:
-        file_path (str): The relative path to the file to write to.
-        content (str): The content to write to the file.
-
-    Returns:
-        str: A message indicating the success of the writing.
+    Tool to write content to a file.
     """  # noqa: E501
     logger.debug("[%s] Writing to file '%s'", write_tool.name, file_path)
 
@@ -135,23 +158,12 @@ async def write_tool(file_path: str, content: str, runtime: ToolRuntime[RuntimeC
     return f"success: Wrote to file {file_path}"
 
 
-@tool(DELETE_TOOL_NAME, parse_docstring=True)
-async def delete_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(DELETE_TOOL_NAME, description=DELETE_TOOL_DESCRIPTION)
+async def delete_tool(
+    path: Annotated[str, "The relative path to the file or directory to delete."], runtime: ToolRuntime[RuntimeCtx]
+) -> str:
     """
-    Deletes a file or directory from the repository.
-
-    **Usage rules:**
-    - For FILES: Deletes the specified file. You MUST read the file first using the `read` tool.
-    - For DIRECTORIES: Recursively deletes the directory and ALL its contents. Use with EXTREME caution.
-    - Before deleting a directory, you should use the `ls` or `glob` tool to examine its contents.
-    - You must verify the path exists and understand what you're deleting before using this tool.
-    - This operation is irreversible - exercise caution to avoid unintended data loss.
-
-    Args:
-        path (str): The relative path to the file or directory to delete.
-
-    Returns:
-        str: A message indicating the success of the deletion.
+    Tool to delete a file or directory from the repository.
     """  # noqa: E501
     logger.debug("[%s] Deleting path '%s'", delete_tool.name, path)
 
@@ -186,22 +198,14 @@ async def delete_tool(path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
         return f"error: Path '{path}' is neither a file nor a directory."
 
 
-@tool(RENAME_TOOL_NAME, parse_docstring=True)
-async def rename_tool(file_path: str, new_file_path: str, runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(RENAME_TOOL_NAME, description=RENAME_TOOL_DESCRIPTION)
+async def rename_tool(
+    file_path: Annotated[str, "The relative path to the file to rename."],
+    new_file_path: Annotated[str, "The new relative path to the file."],
+    runtime: ToolRuntime[RuntimeCtx],
+) -> str:
     """
-    Renames a file in the repository.
-
-    **Usage rules:**
-    - This tool will rename the file if it exists.
-    - If the file does not exist or the new path already exists, this tool will return an error.
-    - You must use your `read` tool at least once in the conversation before renaming. This tool will error if you attempt to rename without reading the file.
-
-    Args:
-        file_path (str): The relative path to the file to rename.
-        new_file_path (str): The new relative path to the file.
-
-    Returns:
-        str: A message indicating the success of the renaming.
+    Tool to rename a file in the repository.
     """  # noqa: E501
     logger.debug("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
 

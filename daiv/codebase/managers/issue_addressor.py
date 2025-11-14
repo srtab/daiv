@@ -16,6 +16,7 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content
 from codebase.base import ClientType, Issue
+from codebase.utils import redact_diff_content
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
@@ -235,7 +236,7 @@ class IssueAddressorManager(BaseManager):
         pr_describer = await PullRequestDescriberAgent.get_runnable()
         changes_description = await pr_describer.ainvoke(
             {
-                "changes": self.git_manager.get_diff(),
+                "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
                 "extra_context": dedent(
                     """\
                     This changes were made to address the following issue:
