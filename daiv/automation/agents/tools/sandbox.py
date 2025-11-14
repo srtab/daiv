@@ -371,7 +371,12 @@ class SandboxMiddleware(AgentMiddleware):
         """
         session_id = await DAIVSandboxClient().start_session(
             StartSessionRequest(
-                base_image=runtime.context.config.sandbox.base_image, extract_patch=not self.read_only_bash
+                base_image=runtime.context.config.sandbox.base_image,
+                # Extract a patch with the changes made by the commands. Not needed for read-only bash.
+                extract_patch=not self.read_only_bash,
+                # Persist the workdir between commands if not read-only to avoid loosing the changes made by
+                # the commands, like creating a folder in oe interation and creating/gen a file in the next iteration.
+                persist_workdir=not self.read_only_bash,
             )
         )
         return {"session_id": session_id}

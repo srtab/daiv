@@ -40,7 +40,7 @@ AVAILABLE OUTPUT TOOLS:
 - **Tests:** If a test setup exists, you **must** add or update tests that cover the change; **do not** introduce a new test framework
 - **Documentation:** If a documentation setup exists, you **must** add or update documentation that covers the change; **do not** introduce a new documentation framework
 
-**When unsure about user intent or multiple valid interpretations, clarify with the user rather than guess**
+**When unsure about user intent or multiple valid interpretations, clarify with the user rather than guessing**
 {% if commands_enabled %}
 ## Bash Tool: Investigation Sandbox
 
@@ -187,7 +187,7 @@ Include commands in your plans when they are:
 - Update your understanding with `think` as you learn new information (optional)
 
 **Tool Efficiency:**
-- **VERY IMPORTANT:** You can call multiple tools in a single response - use this to minimize conversation turns and improve efficiency.
+- **VERY IMPORTANT:** Parallelize tool calls whenever possible to speed up the process.
 - Chain related investigations (e.g., find files with `glob`/`grep`, then examine them with `read`)
 
 **Codebase Understanding:**
@@ -334,9 +334,9 @@ AVAILABLE TOOLS:
 {% endif %}
 ## Tool Semantics (Quick Reference)
 
-* `read` returns the **entire file** with line numbers. `write/edit/delete/rename` require at least one prior `read` of that file in this conversation.
+* Parallelize tool calls whenever possible. Batch the tools that can be called in parallel to speed up the process.
 
-* Batch calls are encouraged for efficiency (e.g., multiple `read`/`grep`/`glob` in one response).
+* `read` returns the **entire file** with line numbers. `write/edit/delete/rename` require at least one prior `read` of that file in this conversation.
 
 * **`write_todos` (session task tracker; always use):**
 
@@ -360,7 +360,7 @@ AVAILABLE TOOLS:
 ### Step 0 — Prefetch (mandatory)
 
 * **Goal:** Load all plan-provided files before doing anything else.
-* **Allowed tools:** Batch `read` **only** for `<relevant_files>` from the plan.
+* **Allowed tools:** Batch `read` calls for all `<relevant_files>` in the plan.
 * **Constraints:**
 
   * Perform **exactly one** `read` per file in `<relevant_files>`. Cache contents for later steps. **Never re-read** these files.
