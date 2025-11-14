@@ -558,7 +558,7 @@ requires-dist = [
     { name = "ipython", specifier = "==9.7.0" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "model-profiles", "openai"], specifier = "==1.0.5" },
-    { name = "langchain-mcp-adapters", specifier = "==0.1.12" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.13" },
     { name = "langgraph", specifier = "==1.0.3" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.4.42" },
@@ -1380,16 +1380,16 @@ wheels = [
 
 [[package]]
 name = "langchain-mcp-adapters"
-version = "0.1.12"
+version = "0.1.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "mcp" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/c7/2f6fdebb39d20e97866f8dce67b2f910e814cb618cded9e29e5c9674bd7c/langchain_mcp_adapters-0.1.12.tar.gz", hash = "sha256:0c7baa974278e44148b36fe6cb04173e9bf3c540619017a8f1bb602f90a24c1f", size = 29353, upload-time = "2025-10-30T21:19:39.893Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/65/39658ca230a30267b393dcc733912de4235bc861b8df8e6d5d9921d287de/langchain_mcp_adapters-0.1.13.tar.gz", hash = "sha256:7ea50997b0599a5337a17fa33d37300b5ec009ecbf9ff915c914a68e2640af26", size = 29472, upload-time = "2025-11-13T14:32:28.107Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/5e/285001f98420304b2a03d38b341a9c0ec9ebb2a47d06fc0338d5f757d145/langchain_mcp_adapters-0.1.12-py3-none-any.whl", hash = "sha256:ea9894ed8baf83dce485cf4fb64d7afb74c34b95e2e627fde6bf307eaa49ea1c", size = 20429, upload-time = "2025-10-30T21:19:38.85Z" },
+    { url = "https://files.pythonhosted.org/packages/98/03/3013857f3cd6358799338b8140423b2da048b0860c87507803d52f7753d3/langchain_mcp_adapters-0.1.13-py3-none-any.whl", hash = "sha256:2aae0f13321e7d40d676aa7b4a9325d16b4395bbe1f5fde690f85d3cc2ad4b02", size = 20670, upload-time = "2025-11-13T14:32:26.944Z" },
 ]
 
 [[package]]
