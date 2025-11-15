@@ -6,7 +6,7 @@ import json
 import logging
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState
@@ -15,10 +15,14 @@ from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.repo_config import CONFIGURATION_FILE_NAME
 from codebase.utils import GitManager
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+from core.sandbox.schemas import MAX_OUTPUT_LENGTH, RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+
+from .editing import DELETE_TOOL_NAME, EDIT_TOOL_NAME, RENAME_TOOL_NAME, WRITE_TOOL_NAME
+from .navigation import GLOB_TOOL_NAME, GREP_TOOL_NAME, LS_TOOL_NAME, READ_TOOL_NAME
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
@@ -28,77 +32,157 @@ logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
 INSPECT_BASH_TOOL_NAME = "inspect_bash"
-
 FORMAT_CODE_TOOL_NAME = "format_code"
 
 
-@tool(BASH_TOOL_NAME, parse_docstring=True)
-async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+BASH_TOOL_DESCRIPTION = f"""\
+Execute a list of Bash commands in a persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
+
+## Purpose
+
+ - Execute project-native CLIs that perform writes (e.g., formatters with --fix, code generators, package manager install/update/remove).
+ - Do not use it for file I/O tasks that the companion tools handle directly.
+
+## Session & Execution
+
+ - Persistent shell session across tool calls; commands run in order; pipelines/compound commands allowed.
+ - Start in repo root. Prefer absolute paths. Avoid `cd` unless the plan explicitly requires it.
+
+## Output Contract
+
+ - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to {MAX_OUTPUT_LENGTH} lines.
+ - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
+
+## Write Scope & Boundaries
+
+ - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
+ - **No Git commands** (no add/commit/checkout/rebase/push).
+ - Default to **non-interactive**: add flags/env to avoid prompts (`-y/--yes`, `CI=1`, `--no-progress`, etc.).
+ - Avoid high-impact/system-level actions:
+ - No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
+ - No Docker builds/pushes or container/image manipulation.
+ - No unscoped destructive ops (e.g., `rm -rf` outside targeted paths).
+ - No DB schema changes/migrations/seeds.
+ - No editing secrets/credentials (e.g., `.env`) or CI settings.
+
+## Preferred Companion Tools (use instead of shell equivalents)
+
+ - Reads/search/listing: {GLOB_TOOL_NAME} (discovery), {GREP_TOOL_NAME} (content search), {LS_TOOL_NAME} (directory metadata), {READ_TOOL_NAME} (file contents).
+ - Writes/FS changes: {WRITE_TOOL_NAME} (create file), {EDIT_TOOL_NAME} (replace old content with new), {DELETE_TOOL_NAME} (remove file), {RENAME_TOOL_NAME} (rename file).
+ - Therefore, **avoid** shell substitutes like `touch`, `echo > file`, `sed -i`, `rm`, `mv`, `cp` when the companion tools can perform the same operation.
+ - Fall back to Bash only when the companion tools cannot achieve the goal or when invoking project-native CLIs that must perform writes.
+
+## When to Use
+
+ - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`);
+ - Run code generators/scaffolding;
+ - Manage dependencies via the project's package manager.
+
+## When Not to Use
+
+ - Any file creation/edit/rename/delete that the {WRITE_TOOL_NAME}/{EDIT_TOOL_NAME}/{RENAME_TOOL_NAME}/{DELETE_TOOL_NAME} tools can do.
+ - Raw reads/search/listing that {GLOB_TOOL_NAME}/{GREP_TOOL_NAME}/{LS_TOOL_NAME}/{READ_TOOL_NAME} can handle.
+ - Any operation outside the repository root or involving Git/system-level changes.
+
+## Examples
+
+  Good examples:
+    - {BASH_TOOL_NAME}(commands=["pytest /foo/bar/tests"])
+    - {BASH_TOOL_NAME}(commands=["python /path/to/script.py"])
+    - {BASH_TOOL_NAME}(commands=["npm install", "npm test"])
+    - {BASH_TOOL_NAME}(commands=["uv lock"])
+
+  Bad examples (avoid these):
+    - {BASH_TOOL_NAME}(commands=["cd /foo/bar", "pytest tests"])  # Use absolute path instead
+    - {BASH_TOOL_NAME}(commands=["cat file.txt | head -10"])  # Use {READ_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["find . -name '*.py'"])  # Use {GLOB_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["grep -r 'pattern' ."])  # Use {GREP_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["rm -rf /foo/bar"])  # Use {DELETE_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["sed -i 's/old/new/g' file.txt"])  # Use {EDIT_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["mv file.txt file2.txt"])  # Use {RENAME_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(commands=["echo 'Hello, world!' > file.txt"])  # Use {WRITE_TOOL_NAME} tool instead
+"""  # noqa: E501
+
+INSPECT_BASH_TOOL_DESCRIPTION = f"""\
+Execute commands in an ephemeral investigation sandbox to gather information for your plan.
+
+## Understanding This Tool
+
+**What it does:**
+This tool runs commands in a disposable container where outputs are informational only. No changes persist to the actual repository - think of it as a "read-only" diagnostic environment.
+
+**Your goal:**
+Gather information to create an accurate plan. You're in the planning phase, not the execution phase.
+
+## Mental Model
+
+Commands run in a sandbox → Observe what exists/what would happen → Use findings to build your plan
+
+**Key insight:** When you see "Fixed 2 errors", translate this as "2 errors exist that need fixing" and add the fix to your plan.
+
+## Interpreting Outputs
+
+| Command Output | What It Means | Your Action |
+|----------------|---------------|-------------|
+| "Fixed X errors" | X errors exist that can be fixed | Add fix command to plan |
+| "Installed Y packages" | Y packages will need installation | Add install to plan |
+| "Tests passed" | Tests currently pass | No action needed |
+| "X errors found" | X errors exist | Investigate and plan fixes |
+
+## Best Use Cases
+
+**Use this tool for information gathering:**
+ - Diagnostic commands (`ruff check`, `mypy`, `pytest --collect-only`)
+ - Version checks (`tool --version`)
+ - Dry runs (`npm run build --dry-run`)
+ - Listing/inspection (`npm ls`, `pip list`)
+
+**Use specialized tools instead for:**
+ - File reading → Use {READ_TOOL_NAME} tool for better formatting
+ - File searching → Use {GREP_TOOL_NAME}/{GLOB_TOOL_NAME} tools for efficiency
+ - Directory listing → Use {LS_TOOL_NAME} tool for structured output
+
+## Command Execution Details
+
+ - Commands run from repository root
+ - Output truncated to {MAX_OUTPUT_LENGTH} lines
+ - Use `--no-color`, `--json`, `--quiet` flags to reduce noise when available
+ - Execution stops on first non-zero exit code
+ - Prefer absolute paths over `cd`
+
+## Examples:
+  Good examples:
+    - {INSPECT_BASH_TOOL_NAME}(commands=["pytest foo/bar/tests"])
+    - {INSPECT_BASH_TOOL_NAME}(commands=["python path/to/script.py"])
+    - {INSPECT_BASH_TOOL_NAME}(commands=["ruff check"])  # Check only, not --fix
+    - {INSPECT_BASH_TOOL_NAME}(commands=["pytest --collect-only"])
+    - {INSPECT_BASH_TOOL_NAME}(commands=["npm ls --depth=0"])
+
+  Bad examples (avoid these):
+    - {INSPECT_BASH_TOOL_NAME}(commands=["cd foo/bar", "pytest tests"])  # Use relative path instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["cat file.txt"])  # Use {READ_TOOL_NAME} tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["find . -name '*.py'"])  # Use {GLOB_TOOL_NAME} tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["grep -r 'pattern' ."])  # Use {GREP_TOOL_NAME} tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["ls -la foo/bar"])  # Use {LS_TOOL_NAME} tool instead
+"""  # noqa: E501
+
+FORMAT_CODE_TOOL_DESCRIPTION = f"""\
+Applies code formatting and linting fixes using the repository's configured formatter in `{CONFIGURATION_FILE_NAME}` configuration file.
+
+**When to use:**
+- **After making code changes** to ensure style compliance and minimize linting issues.
+- **You can call this tool automatically** once you've modified files via {EDIT_TOOL_NAME}/{WRITE_TOOL_NAME}/{DELETE_TOOL_NAME}/{RENAME_TOOL_NAME} tools.
+- **Tip:** The tool warns if no changes were made (use `force=True` to override).
+- **Returns:** Success message or error details for troubleshooting.
+"""  # noqa: E501
+
+
+@tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
+async def bash_tool(
+    commands: Annotated[list[str], "The list of commands to execute."], runtime: ToolRuntime[RuntimeCtx]
+) -> str:
     """
-    Run a list of Bash commands in a persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
-
-    PURPOSE
-    - Execute project-native CLIs that perform writes (e.g., formatters with --fix, code generators, package manager install/update/remove).
-    - Do not use it for file I/O tasks that the companion tools handle directly.
-
-    SESSION & EXECUTION
-    - Persistent shell session across tool calls; commands run in order; pipelines/compound commands allowed.
-    - Start in repo root. Prefer absolute paths. Avoid `cd` unless the plan explicitly requires it.
-    - Run only the commands explicitly requested by the plan.
-
-    OUTPUT CONTRACT
-    - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to 2000 chars.
-    - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
-
-    WRITE SCOPE & BOUNDARIES
-    - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
-    - **No Git commands** (no add/commit/checkout/rebase/push).
-    - Default to **non-interactive**: add flags/env to avoid prompts (`-y/--yes`, `CI=1`, `--no-progress`, etc.).
-    - Avoid high-impact/system-level actions:
-    - No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
-    - No Docker builds/pushes or container/image manipulation.
-    - No unscoped destructive ops (e.g., `rm -rf` outside targeted paths).
-    - No DB schema changes/migrations/seeds.
-    - No editing secrets/credentials (e.g., `.env`) or CI settings.
-
-    PREFERRED COMPANION TOOLS (USE INSTEAD OF SHELL EQUIVALENTS)
-    - Reads/search/listing: `glob` (discovery), `grep` (content search), `ls` (directory metadata), `read` (file contents).
-    - Writes/FS changes: `write` (create file), `edit` (replace old content with new), `delete` (remove file), `rename` (rename file).
-    - Therefore, **avoid** shell substitutes like `touch`, `echo > file`, `sed -i`, `rm`, `mv`, `cp` when the companion tools can perform the same operation.
-    - Fall back to Bash only when the companion tools cannot achieve the goal or when invoking project-native CLIs that must perform writes.
-
-    WHEN TO USE
-    - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`);
-    - Run code generators/scaffolding;
-    - Manage dependencies via the project's package manager.
-
-    WHEN NOT TO USE
-    - Any file creation/edit/rename/delete that the `write`/`edit`/`rename`/`delete` tools can do.
-    - Raw reads/search/listing that `glob`/`grep`/`ls`/`read` can handle.
-    - Any operation outside the repository root or involving Git/system-level changes.
-
-    Examples:
-      Good examples:
-        - bash(commands=["pytest /foo/bar/tests"])
-        - bash(commands=["python /path/to/script.py"])
-        - bash(commands=["npm install", "npm test"])
-        - bash(commands=["uv lock"])
-
-      Bad examples (avoid these):
-        - bash(commands=["cd /foo/bar", "pytest tests"])  # Use absolute path instead
-        - bash(commands=["cat file.txt | head -10"])  # Use read tool instead
-        - bash(commands=["find . -name '*.py'"])  # Use glob tool instead
-        - bash(commands=["grep -r 'pattern' ."])  # Use grep tool instead
-        - bash(commands=["rm -rf /foo/bar"])  # Use delete tool instead
-        - bash(commands=["sed -i 's/old/new/g' file.txt"])  # Use edit tool instead
-        - bash(commands=["mv file.txt file2.txt"])  # Use rename tool instead
-        - bash(commands=["echo 'Hello, world!' > file.txt"])  # Use write tool instead
-
-    Args:
-        commands: The list of commands to execute.
-
-    Returns:
-        str: The output of the commands.
+    Tool to run a list of Bash commands in a persistent shell session rooted at the repository's root.
     """  # noqa: E501
     logger.info("[%s] Running bash commands: %s", bash_tool.name, commands)
 
@@ -121,110 +205,12 @@ async def bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> st
     return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
-@tool(INSPECT_BASH_TOOL_NAME, parse_docstring=True)
-async def inspect_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+@tool(INSPECT_BASH_TOOL_NAME, description=INSPECT_BASH_TOOL_DESCRIPTION)
+async def inspect_bash_tool(
+    commands: Annotated[list[str], "The list of commands to execute."], runtime: ToolRuntime[RuntimeCtx]
+) -> str:
     """
-    Execute commands in an EPHEMERAL investigation sandbox.
-
-    **CRITICAL: EXECUTION MODEL**
-    This tool runs in a DISPOSABLE container where:
-    - All command outputs are INFORMATIONAL ONLY
-    - NO changes persist to the actual repository
-    - File modifications, package installations, and fixes are DISCARDED after each command
-    - Even if a command reports 'Fixed', 'Installed', or 'Applied', those changes DO NOT affect the real codebase
-
-    **YOUR ROLE: INFORMATION GATHERING**
-    You are in the PLANNING phase. Your job is to:
-    1. Run diagnostic commands to understand the current state
-    2. Observe what WOULD happen if changes were made
-    3. Collect this information to create a plan
-    4. NEVER claim that you've made changes to the repository
-
-    **INTERPRETING COMMAND OUTPUTS**
-    When you see outputs like:
-    - 'Fixed 2 errors' → Means: 2 errors EXIST that CAN be fixed (add to plan)
-    - 'Installed 36 packages' → Means: These packages WILL NEED to be installed (add to plan)
-    - 'Formatted 10 files' → Means: 10 files NEED formatting (add to plan)
-    - 'Tests passed' → Means: Tests currently pass (no action needed)
-
-    **TRANSLATION RULES**
-    Command says → You understand as → Your action
-    'Fixed X' → 'X needs fixing' → Add fix command to PlanOutput
-    'Installed Y' → 'Y needs installation' → Add install command to PlanOutput
-    'Applied Z' → 'Z needs applying' → Add apply command to PlanOutput
-    'No issues found' → 'No changes needed' → Use CompleteOutput if appropriate
-    'X errors found' → 'X errors exist' → Investigate and plan fixes
-
-    **FORBIDDEN INTERPRETATIONS**
-    NEVER say or imply:
-    - 'I have fixed the linting errors'
-    - 'Changes have been applied'
-    - 'I installed the dependencies'
-    - 'The issues are now resolved'
-    - 'I ran lint-fix and it succeeded'
-
-    ALWAYS say instead:
-    - 'I found 2 linting errors that need fixing'
-    - 'The plan includes running lint-fix to resolve these issues'
-    - 'Dependencies will need to be installed'
-    - 'The following command should be executed: make lint-fix'
-
-    **EXAMPLE WORKFLOW**
-    User: 'run lint-fix to fix the errors'
-
-    Wrong approach:
-    1. Execute: make lint-fix
-    2. See: 'Fixed 2 errors'
-    3. Report: 'I fixed the errors ✓'
-
-    Correct approach:
-    1. Execute: make lint (check only, if available)
-    2. See: '2 errors found in file.py'
-    3. Create PlanOutput with step: 'Run make lint-fix to fix 2 linting errors in file.py' ✓
-
-    **WHEN TO USE THIS TOOL**
-    Use bash for:
-    - Diagnostic commands (e.g. ruff check (NOT --fix), mypy, pytest --collect-only, npm ls, etc.)
-    - Version checks (e.g. tool --version)
-    - Dry runs (e.g. make --dry-run, npm run build --dry-run)
-    - Information gathering (e.g. pytest --collect-only, npm ls, etc.)
-
-    VERY IMPORTANT: **You must avoid using bash for the following tasks:**
-    - File reading (use `read` tool instead)
-    - File searching (use `grep`, `glob` tools instead)
-    - Directory listing (use `ls` tool instead)
-
-    **COMMAND EXECUTION**
-    - Commands run in the repository root
-    - Exit code and output (stdout+stderr) are returned
-    - Output is truncated to 2000 characters
-    - Use --no-color, --json, --quiet flags to reduce noise
-    - Execution stops on first non-zero exit code
-
-    **REMEMBER**
-    You are a PLANNER, not an EXECUTOR. Your bash commands are RECONNAISSANCE, not DEPLOYMENT.
-
-    Examples:
-      Good examples:
-        - inspect_bash(commands=["pytest foo/bar/tests"])
-        - inspect_bash(commands=["python path/to/script.py"])
-        - inspect_bash(commands=["npm ls"])
-        - inspect_bash(commands=["uv lock"])
-        - inspect_bash(commands=["ruff check"])
-        - inspect_bash(commands=["pytest --collect-only"])
-
-      Bad examples (avoid these):
-        - inspect_bash(commands=["cd foo/bar", "pytest tests"]) # Use relative path instead
-        - inspect_bash(commands=["cat file.txt | head -10"])  # Use read tool instead
-        - inspect_bash(commands=["find . -name '*.py'"])  # Use glob tool instead
-        - inspect_bash(commands=["grep -r 'pattern' ."])  # Use grep tool instead
-        - inspect_bash(commands=["ls -la foo/bar"])  # Use ls tool instead
-
-    Args:
-        commands: The list of commands to execute.
-
-    Returns:
-        str: The output of the commands.
+    Tool to execute commands in an EPHEMERAL investigation sandbox.
     """  # noqa: E501
     logger.info("[%s] Running read-only bash commands: %s", inspect_bash_tool.name, commands)
 
@@ -240,23 +226,14 @@ async def inspect_bash_tool(commands: list[str], runtime: ToolRuntime[RuntimeCtx
     return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
-@tool(FORMAT_CODE_TOOL_NAME, parse_docstring=True)
-async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False) -> str:
+@tool(FORMAT_CODE_TOOL_NAME, description=FORMAT_CODE_TOOL_DESCRIPTION)
+async def format_code_tool(
+    placeholder: Annotated[str, "Unused parameter (for compatibility). Leave empty."],
+    runtime: ToolRuntime[RuntimeCtx],
+    force: Annotated[bool, "Whether to force the formatting of the code."] = False,
+) -> str:
     """
-    Applies code formatting and linting fixes to the repository to resolve style and linting issues introduced by recent changes.
-
-    **Usage rules:**
-     - This tool runs the repository's configured formatting tool (e.g., `ruff format`, `black`, `prettier`, etc.).
-     - Use this tool after making code changes to ensure compliance with the project's code style guidelines.
-     - You must use your `edit`, `write`, `delete`, `rename` tools at least once in the conversation before formatting the code. This tool will error if you attempt to format the code without changing any files.
-     - The tool will return the output of the formatting command if it fails with the details of the error for you to fix. If the formatting command succeeds, the tool will return a success message.
-     - If the `force` parameter is set to `True`, the tool will format the code even if no changes were made to the repository.
-
-    Args:
-        force: Whether to force the formatting of the code.
-
-    Returns:
-        str: The JSON string of the results of the format code command execution.
+    Tool to apply code formatting and linting fixes to the repository to resolve style and linting issues.
     """  # noqa: E501
     logger.info("[%s] Formatting code (force: %s)", format_code_tool.name, force)
 
@@ -288,7 +265,7 @@ async def format_code_tool(runtime: ToolRuntime[RuntimeCtx], force: bool = False
 
 async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
     """
-    Run bash commands in the sandbox session.
+    Run bash commands in the daiv-sandbox service session.
 
     Args:
         commands: The list of commands to execute.
@@ -396,7 +373,13 @@ class SandboxMiddleware(AgentMiddleware):
         """
         session_id = await DAIVSandboxClient().start_session(
             StartSessionRequest(
-                base_image=runtime.context.config.sandbox.base_image, extract_patch=not self.read_only_bash
+                base_image=runtime.context.config.sandbox.base_image,
+                # Extract a patch with the changes made by the commands. Not needed for read-only bash.
+                extract_patch=not self.read_only_bash,
+                # Persist the workdir between commands if not read-only to avoid loosing the changes made by
+                # the commands, like creating a folder in one iteration and creating/gen a file in that folder in
+                # the next iteration.
+                persist_workdir=not self.read_only_bash,
             )
         )
         return {"session_id": session_id}

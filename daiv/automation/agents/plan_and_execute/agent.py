@@ -24,7 +24,12 @@ from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.agents.middleware import AgentsMDMiddleware, InjectImagesMiddleware
-from automation.agents.tools.sandbox import BASH_TOOL_NAME, FORMAT_CODE_TOOL_NAME, SandboxMiddleware
+from automation.agents.tools.sandbox import (
+    BASH_TOOL_NAME,
+    FORMAT_CODE_TOOL_NAME,
+    INSPECT_BASH_TOOL_NAME,
+    SandboxMiddleware,
+)
 from automation.agents.tools.toolkits import (
     FileEditingToolkit,
     FileNavigationToolkit,
@@ -70,7 +75,7 @@ def plan_system_prompt(request: ModelRequest) -> str:
         tools_names=tools_names,
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
-        commands_enabled=BASH_TOOL_NAME in tools_names,
+        commands_enabled=INSPECT_BASH_TOOL_NAME in tools_names,
     ).content
 
 

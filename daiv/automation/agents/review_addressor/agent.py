@@ -349,9 +349,14 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         session_id = await daiv_sandbox_client.start_session(
             StartSessionRequest(base_image=runtime.context.config.sandbox.base_image)
         )
-        await _run_bash_commands(
+        response = await _run_bash_commands(
             runtime.context.config.sandbox.format_code, Path(runtime.context.repo.working_dir), session_id
         )
         await daiv_sandbox_client.close_session(session_id)
 
+        if response and response.patch:
+            try:
+                GitManager(runtime.context.repo).apply_patch(response.patch)
+            except Exception:
+                logger.exception("Error applying patch to the repository.")
         return {}
