@@ -7,6 +7,7 @@ class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
     extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
+    persist_workdir: bool = Field(default=True, description="Whether to persist the workdir between commands.")
 
     @classmethod
     @field_validator("base_image", "dockerfile")

@@ -228,7 +228,9 @@ async def inspect_bash_tool(
 
 @tool(FORMAT_CODE_TOOL_NAME, description=FORMAT_CODE_TOOL_DESCRIPTION)
 async def format_code_tool(
-    runtime: ToolRuntime[RuntimeCtx], force: Annotated[bool, "Whether to force the formatting of the code."] = False
+    placeholder: Annotated[str, "Unused parameter (for compatibility). Leave empty."],
+    runtime: ToolRuntime[RuntimeCtx],
+    force: Annotated[bool, "Whether to force the formatting of the code."] = False,
 ) -> str:
     """
     Tool to apply code formatting and linting fixes to the repository to resolve style and linting issues.
@@ -375,7 +377,8 @@ class SandboxMiddleware(AgentMiddleware):
                 # Extract a patch with the changes made by the commands. Not needed for read-only bash.
                 extract_patch=not self.read_only_bash,
                 # Persist the workdir between commands if not read-only to avoid loosing the changes made by
-                # the commands, like creating a folder in oe interation and creating/gen a file in the next iteration.
+                # the commands, like creating a folder in one iteration and creating/gen a file in that folder in
+                # the next iteration.
                 persist_workdir=not self.read_only_bash,
             )
         )
