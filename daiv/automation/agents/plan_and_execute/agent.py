@@ -12,7 +12,6 @@ from langchain.agents.middleware import (
     ModelRequest,
     ModelResponse,
     TodoListMiddleware,
-    dynamic_prompt,
 )
 from langchain.agents.structured_output import ToolStrategy
 from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
@@ -57,26 +56,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agents")
 
 
-@dynamic_prompt
-def plan_system_prompt(request: ModelRequest) -> str:
+class PlanMiddleware(AgentMiddleware):
     """
-    Dynamic prompt for the plan system.
-
-    Args:
-        request (ModelRequest): The request to the model.
-
-    Returns:
-        str: The dynamic prompt for the plan system.
+    Middleware to format the system prompt for the plan agent with a optional specialized prompt.
     """
-    tools_names = [tool.name for tool in request.tools]
-    return plan_system.format(
-        current_date_time=timezone.now().strftime("%d %B, %Y"),
-        repository=request.runtime.context.repo_id,
-        tools_names=tools_names,
-        bot_name=BOT_NAME,
-        bot_username=request.runtime.context.bot_username,
-        commands_enabled=INSPECT_BASH_TOOL_NAME in tools_names,
-    ).content
+
+    name = "plan_middleware"
+
+    def __init__(self, *, specialized_planner_prompt: str | None = None):
+        """
+        Initialize the middleware.
+        """
+        super().__init__()
+        self.specialized_planner_prompt = specialized_planner_prompt
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelCallResult:
+        """
+        Format the system prompt for the plan agent with a optional specialized prompt.
+
+        Args:
+            request (ModelRequest): The request to the model.
+            handler (Callable[[ModelRequest], ModelResponse]): The handler to call the model.
+
+        Returns:
+            ModelCallResult: The result of the model call.
+        """
+        tools_names = [tool.name for tool in request.tools]
+        request.system_prompt = plan_system.format(
+            current_date_time=timezone.now().strftime("%d %B, %Y"),
+            repository=request.runtime.context.repo_id,
+            tools_names=tools_names,
+            bot_name=BOT_NAME,
+            bot_username=request.runtime.context.bot_username,
+            commands_enabled=INSPECT_BASH_TOOL_NAME in tools_names,
+        ).content
+        if self.specialized_planner_prompt:
+            request.system_prompt += "\n" + self.specialized_planner_prompt
+        return await handler(request)
 
 
 class ExecutorMiddleware(AgentMiddleware):
@@ -129,7 +147,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
     Agent to plan and execute a task.
     """
 
-    def __init__(self, *, skip_approval: bool = False, skip_format_code: bool = False, **kwargs):
+    def __init__(
+        self,
+        *,
+        skip_approval: bool = False,
+        skip_format_code: bool = False,
+        specialized_planner_prompt: str | None = None,
+        **kwargs,
+    ):
         """
         Initialize the agent.
 
@@ -139,6 +164,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         """
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
+        self.specialized_planner_prompt = specialized_planner_prompt
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -199,7 +225,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             context_schema=RuntimeCtx,
             response_format=ToolStrategy(FinalizerOutput),
             middleware=[
-                plan_system_prompt,
+                PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
                 InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
                 AgentsMDMiddleware(),
                 *conditional_middlewares,

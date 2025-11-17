@@ -32,7 +32,7 @@ from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import StartSessionRequest
 
 from .conf import settings
-from .prompts import respond_reviewer_system, review_comment_system, review_human
+from .prompts import respond_reviewer_system, review_comment_system, review_human, review_plan_system
 from .schemas import ReviewCommentEvaluation, ReviewCommentInput
 from .state import OverallState, ReplyAgentState, ReplyReviewerState, ReviewInState
 
@@ -289,6 +289,7 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
             store=runtime.store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
+            specialized_planner_prompt=review_plan_system,
             checkpointer=False,
         )
 
