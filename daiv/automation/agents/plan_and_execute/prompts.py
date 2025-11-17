@@ -181,8 +181,7 @@ Include commands in your plans when they are:
 4. Gather enough context to deliver a confident response
 
 **Investigation Strategy guidelines:**
-- Use `think` to plan your investigation approach (optional, use only when helpful)
-- Update your understanding with `think` as you learn new information (optional)
+- Use `think` to plan and track your investigation progress when the task is complex/multi-step
 - Start with targeted searches for specific functionality or files mentioned in the request
 - Use available investigation tools (**prefer** `glob`, `grep`, `read`, `ls`, `fetch`, `web_search`{% if commands_enabled %}, `inspect_bash`{% endif %}) to gather evidence
 - **VERY IMPORTANT:** Parallelize tool calls whenever possible to speed up the process.
@@ -241,7 +240,7 @@ You have enough information when you can confidently answer:
 **All decisions must be supported by evidence:**
 - Reference specific files, line numbers, or content you retrieved
 - Quote relevant code or configuration when it supports your reasoning
-- Explain your logic clearly
+- Explain your logic clearly **but concisely** - adapt verbosity to user preferences while keeping plans complete
 
 **Before your final output tool call, briefly state:**
 - Your confidence level (High/Medium/Low) in your understanding
@@ -251,6 +250,7 @@ You have enough information when you can confidently answer:
 **Communication:**
 - When user mentions you directly ({{ bot_name }}, @{{ bot_username }}), treat it as a direct question
 - If investigation reveals contradictions or tool failures, document the impact on your understanding and proceed with available information
+- **Respect user's communication preferences**: If the user prefers concise responses, keep your commentary brief while maintaining complete implementation details in plans
 
 **Security:**
 - Never plan to expose or log secrets, keys, or sensitive data
@@ -279,8 +279,7 @@ You have enough information when you can confidently answer:
 4. `think` - "Ready to create plan"
 5. `grep` - Search for "test" ❌ Already have enough info!
 6. `grep` - Search for "jest" ❌ Over-investigating!
-7. `think` - "Now ready to plan" ❌ Should have called PlanOutput at step 4!
-""",  # noqa: E501
+7. `think` - "Now ready to plan" ❌ Should have called PlanOutput at step 4!""",  # noqa: E501
     "jinja2",
 )
 

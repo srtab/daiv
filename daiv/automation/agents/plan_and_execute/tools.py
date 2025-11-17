@@ -13,7 +13,7 @@ from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, redact_diff_content  # noqa: TC001
 
 from .conf import settings
-from .schemas import ClarifyOutput, CompleteOutput, PlanOutput
+from .schemas import ClarifyOutput, CompleteOutput, FinishOutput, PlanOutput
 
 logger = logging.getLogger("daiv.tools")
 
@@ -31,6 +31,7 @@ Use this tool to outline your investigation approach and track progress through 
 - Summarizing your final plan (use `{PlanOutput.__name__}` instead)
 - Concluding your investigation (call an output tool immediately)
 - Saying 'ready to create plan' or 'all clear' (call `{PlanOutput.__name__}` NOW)
+- When the task is simple/straightforward
 
 **CRITICAL:** If your `plan` field contains phrases like:
 - 'Ready to plan'
@@ -44,21 +45,30 @@ Then you should call `{PlanOutput.__name__}`, `{ClarifyOutput.__name__}`, or `{C
 - Does NOT fetch new information - use investigation tools for that
 - Mark tasks as completed immediately when done, don't batch them
 - Update or remove tasks as you learn new information
-- Skip using this tool if the task is simple/straightforward
 
 Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 """  # noqa: E501
 
 
 REVIEW_CODE_CHANGES_TOOL_NAME = "review_code_changes"
-REVIEW_CODE_CHANGES_TOOL_DESCRIPTION = """\
-Verifies that code changes are correct and complete by evaluating them against the original plan.
+REVIEW_CODE_CHANGES_TOOL_DESCRIPTION = f"""\
+**INTERNAL VERIFICATION TOOL** — Validates that applied changes match the plan requirements.
+
+**Purpose:**
+- Automated quality gate for your edits before calling `{FinishOutput.__name__}`.
+- Returns PASS (changes are correct) or FAIL (with reasons for what needs fixing).
 
 **Usage rules:**
-- Use this tool when you have finished making all the changes for the plan and want to verify their correctness.
-- This is a **vital step** before marking the task as complete - always review your changes before finishing.
-- The tool will automatically evaluate the changes you made against the plan tasks.
-- If the review fails, you will receive specific reasoning about what needs to be fixed.
+- Call this tool ONLY after completing all edits in a cycle (Step 2 of the workflow).
+- **Rate limit: ≤3 total calls per session.** Use it strategically at natural checkpoints.
+- Act on FAIL results by fixing identified issues, then optionally re-review (consumes another call).
+
+**CRITICAL — Do NOT mention this tool in {FinishOutput.__name__}:**
+
+**When NOT to use:**
+- During discovery (Step 0/1) — no changes exist yet to review.
+- After already calling `{FinishOutput.__name__}` — the session is over.
+- To verify individual file edits — this tool evaluates **all changes** against the **entire plan**.
 """  # noqa: E501
 
 
