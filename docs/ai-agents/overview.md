@@ -171,7 +171,7 @@ PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME=openrouter:openai/gpt-4.1
 **Poor Quality Responses**:
 
 - Improve issue descriptions with more context
-- Update repository description in `.daiv.yml`
+- Update repository `AGENTS.md` file to provide more context about the repository
 - Consider adjusting model selection
 
 ### Getting Help

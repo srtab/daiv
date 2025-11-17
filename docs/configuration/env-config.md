@@ -237,17 +237,20 @@ All the default models where chosen to be the most effective models. You can cha
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `PLAN_AND_EXECUTE_PLANNING_RECURSION_LIMIT` | Recursion limit for planning steps each. | `100` |
 | `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
+| `PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME` | Fallback model for planning tasks. | `openrouter:openai/gpt-5-codex` |
 | `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
 | `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
-| `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `50` |
+| `PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME`| Fallback model for executing tasks. | `openrouter:openai/gpt-5-codex` |
+| `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `100` |
 
 ### Review Addressor
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
 | `REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME` | Model for review assessment. | `openrouter:openai/gpt-4.1-mini` |
-| `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:openai/gpt-5-codex` |
+| `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:anthropic/claude-haiku-4.5` |
 | `REVIEW_ADDRESSOR_REPLY_TEMPERATURE` | Temperature for the reply model. | `0.2` |
+| `REVIEW_ADDRESSOR_RECURSION_LIMIT` | Recursion limit for the agent to address all the review comments in a single run. | `100` |
 
 ### Pull Request Describer
 
@@ -261,3 +264,4 @@ All the default models where chosen to be the most effective models. You can cha
 |----------------------------------------|----------------------------------------------------------|--------------------|
 | `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:openai/gpt-5-mini` |
 | `CODEBASE_CHAT_TEMPERATURE` | Temperature for codebase chat. | `0.2` |
+| `CODEBASE_CHAT_RECURSION_LIMIT` | Recursion limit for the codebase chat agent. | `50` |

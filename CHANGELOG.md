@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.0] - 2025-11-17
+
 ### Added
 
 - Added support to `github` client type to allow users to use GitHub as the client for the codebase.
@@ -14,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - load images from the user message to help the agent to visualize them (using `InjectImagesMiddleware`).
   - plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
   - load the repository instructions from a `AGENTS.md` file, which is a markdown file that follows the [AGENTS.md](https://agents.md/) format.
+  - fix pipelines by retrieving the pipeline status and job logs when planning using the new `pipeline` and `job_logs` tools.
+  - review code changes against the plan tasks using the new `review_code_changes` tool ensuring the changes are correct and complete.
 - Added `InjectImagesMiddleware` LangChain v1 middleware to automatically extract and process images from markdown/HTML syntax in user messages, supporting GitHub user-attachments, GitLab uploads, and external URLs.
 - Added `AGENTS.md` file to the project.
 - Added `omit_content_patterns` to DAIV configuration to allow users to omit files content, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
@@ -25,8 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support to `glm-4.6` model from Z-AI.
 - Added support to `qwen3-max` and `qwen3-coder-plus` models from Qwen.
 - Added support to `kimi-k2-thinking` model from MoonshotAI.
-- Added `pipeline` and `job_logs` tools to allow `PlanAndExecuteAgent` agent to fix pipelines by retrieving the pipeline status and job logs when planning.
-- Added `diff` tool to allow the `PlanAndExecuteAgent` executor to retrieve unified diffs showing only changed lines instead of rereading entire files, reducing token consumption by up to 98% for large files with small changes.
 - Added `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
 - Added support to delete entire directories with the `delete` tool.
 
@@ -250,7 +252,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dependency on `gunicorn` and used `uvicorn` as the default server.
 
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/srtab/daiv/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/srtab/daiv/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/srtab/daiv/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/srtab/daiv/compare/v0.1.5...v0.2.0
