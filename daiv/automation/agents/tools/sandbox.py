@@ -249,16 +249,16 @@ async def format_code_tool(
     if response is None:
         return "error: Failed to format code. The format code tool is not working properly."
 
-    # Return only the last failed result, respecting the fail fast flag.
-    if response.results[-1].exit_code != 0:
-        return response.results[-1].model_dump_json()
-
     if response.patch:
         try:
             git_manager.apply_patch(response.patch)
         except Exception:
             logger.exception("[%s] Error applying patch to the repository.", format_code_tool.name)
             return "error: Failed to format code. The format code tool is not working properly."
+
+    # Return only the last failed result, respecting the fail fast flag.
+    if response.results[-1].exit_code != 0:
+        return response.results[-1].model_dump_json()
 
     return "success: Code formatted."
 
@@ -280,7 +280,7 @@ async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: st
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
         # Ignore .git directory to avoid including it in the archive and risking to include access tokens used
         # to clone the repository.
-        tar.add(repo_dir, arcname=repo_dir.name, filter=lambda info: None if info.name.startswith(".git") else info)
+        tar.add(repo_dir, arcname=repo_dir.name, filter=lambda info: None if ".git" in info.name.split("/") else info)
 
     try:
         response = await DAIVSandboxClient().run_commands(
