@@ -1,12 +1,12 @@
-# **:material-robot-industrial-outline: DAIV** : SWE's AI Assistant
+# **:material-robot-industrial-outline: DAIV** : Async SWE's Agent
 
 ![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml)
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
 [![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
 
-Software engineers spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing AI agents directly to their existing Git workflow. It's like having a pair programming assistant directly in your Platform.
+Software engineers spend countless hours on repetitive tasks: responding to code reviews, fixing broken builds, and manually implementing feature requests. DAIV changes this by bringing async SWE AI agents directly to their existing Git workflow. It's like having a pair programming assistant directly in your Platform.
 
-**DAIV is an open-source SWE AI Agent that automates development tasks.** It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.
+**DAIV is an open-source async SWE AI Agent that automates development tasks.** It integrates with your repositories to handle routine work, letting you focus on creative problem-solving.
 
 ## 🎯 What DAIV Does
 

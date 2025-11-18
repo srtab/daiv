@@ -1,3 +1,16 @@
+# 🤖 Review Addressor
+
+Review Addressor is a feature that allows DAIV to address code review comments by applying the changes suggested by the reviewer or answering questions about the codebase.
+
+## Triggering runs
+
+DAIV monitor merge/pull requests for comments that mention DAIV using webhooks. This streamlines the process of addressing code review comments and requires no manual intervention to start a run.
+
+Just leave a comment on the merge/pull request and reference DAIV (e.g. `@daiv use Redis instead of in-memory storage`) in the comment to trigger the agent to address the comment.
+
+You can leave comments in the *diff* of the merge/pull request or *directly* on the merge/pull request.
+
+## Workflow
 
 #### 💬 Code Review Response Workflow
 
