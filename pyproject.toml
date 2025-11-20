@@ -54,6 +54,7 @@ urls.source = "https://github.com/srtab/daiv"
 [dependency-groups]
 dev = [
   "coverage==7.12.0",
+  "datasets==4.4.1",
   "mypy==1.18.2",
   "pre-commit==4.4.0",
   "pyopenssl==25.3",

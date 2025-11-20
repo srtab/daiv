@@ -19,6 +19,26 @@ if TYPE_CHECKING:
     from codebase.base import Discussion, Note, User
 
 
+def get_repo_ref(repo: Repo) -> str:
+    """
+    Get the current reference (branch name or commit SHA) from a repository.
+
+    When HEAD is attached to a branch, returns the branch name.
+    When HEAD is detached (e.g., checking out a specific commit), returns the commit SHA.
+
+    Args:
+        repo: The Git repository object.
+
+    Returns:
+        The branch name if HEAD is attached, or the commit SHA if HEAD is detached.
+    """
+    try:
+        return repo.active_branch.name
+    except TypeError:
+        # HEAD is detached, return the commit SHA
+        return repo.head.commit.hexsha
+
+
 def note_mentions_daiv(note_body: str, current_user: User) -> bool:
     """
     Check if the note body references the DAIV GitLab account.
@@ -126,7 +146,10 @@ class GitManager:
         """
         try:
             self.repo.git.add("-A")
-            return self.repo.git.diff("--cached", "HEAD")
+            diff = self.repo.git.diff("--cached", "HEAD")
+            if diff and not diff.endswith("\n"):
+                diff += "\n"
+            return diff
         finally:
             # Always unstage changes, even if something goes wrong
             self.repo.git.reset("HEAD")

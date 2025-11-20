@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
 
@@ -45,7 +45,7 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 
 @asynccontextmanager
 async def set_runtime_ctx(
-    repo_id: str, *, ref: str | None = None, merge_request_id: int | None = None
+    repo_id: str, *, ref: str | None = None, merge_request_id: int | None = None, offline: bool = False, **kwargs: Any
 ) -> Iterator[RuntimeCtx]:
     """
     Set the runtime context and load repository files to a temporary directory.
@@ -54,14 +54,17 @@ async def set_runtime_ctx(
         repo_id: The repository identifier
         ref: The reference branch or tag. If None, the default branch will be used.
         merge_request_id: The merge request identifier if the context is set for a merge request.
+        offline: Whether to use the cached configuration or to fetch it from the repository.
+        **kwargs: Additional keyword arguments to pass to the repository client.
+
     Yields:
         RuntimeCtx: The runtime context
     """
-    repo_client = RepoClient.create_instance()
+    repo_client = RepoClient.create_instance(**kwargs)
 
     repository = repo_client.get_repository(repo_id)
 
-    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository)
+    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 
     if ref is None:
         ref = cast("str", config.default_branch)

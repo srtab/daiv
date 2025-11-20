@@ -52,6 +52,8 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.runtime import Runtime
 
+    from automation.agents.constants import ModelName
+
 
 logger = logging.getLogger("daiv.agents")
 
@@ -153,6 +155,14 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         skip_approval: bool = False,
         skip_format_code: bool = False,
         specialized_planner_prompt: str | None = None,
+        planning_model_names: list[ModelName | str] = (
+            settings.PLANNING_MODEL_NAME,
+            settings.PLANNING_FALLBACK_MODEL_NAME,
+        ),
+        execution_model_names: list[ModelName | str] = (
+            settings.EXECUTION_MODEL_NAME,
+            settings.EXECUTION_FALLBACK_MODEL_NAME,
+        ),
         **kwargs,
     ):
         """
@@ -161,10 +171,24 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Args:
             skip_approval (bool): Whether to skip the approval step.
             skip_format_code (bool): Whether to skip the format code step.
+            specialized_planner_prompt (str | None): The specialized planner prompt to use.
+            planning_model_names (list[ModelName | str]): The names of the planning models to use.
+            execution_model_names (list[ModelName | str]): The names of the execution models to use.
         """
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
         self.specialized_planner_prompt = specialized_planner_prompt
+        self._planning_model = BaseAgent.get_model(
+            model=planning_model_names[0], max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+        )
+        self._planning_fallback_models = [
+            BaseAgent.get_model(model=model_name, thinking_level=settings.PLANNING_THINKING_LEVEL)
+            for model_name in planning_model_names[1:]
+        ]
+        self._execution_model = BaseAgent.get_model(model=execution_model_names[0], max_tokens=8_192)
+        self._execution_fallback_models = [
+            BaseAgent.get_model(model=model_name, max_tokens=8_192) for model_name in execution_model_names[1:]
+        ]
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -208,17 +232,17 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             all_tools.extend(MergeRequestToolkit.get_tools())
 
         conditional_middlewares: list[AgentMiddleware] = []
+
         if runtime.context.config.sandbox.enabled:
             conditional_middlewares.append(SandboxMiddleware(read_only_bash=True))
 
-        model = BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
-        )
-        fallback_model = BaseAgent.get_model(
-            model=settings.PLANNING_FALLBACK_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL
-        )
+        if self._planning_fallback_models:
+            conditional_middlewares.append(
+                ModelFallbackMiddleware(self._planning_fallback_models[0], *self._planning_fallback_models[1:])
+            )
+
         planner_agent = create_agent(
-            model=model,
+            model=self._planning_model,
             tools=all_tools,
             store=runtime.store,
             checkpointer=False,
@@ -226,10 +250,9 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             response_format=ToolStrategy(FinalizerOutput),
             middleware=[
                 PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
-                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+                InjectImagesMiddleware(image_inputs_supported=self._planning_model.profile.get("image_inputs", True)),
                 AgentsMDMiddleware(),
                 *conditional_middlewares,
-                ModelFallbackMiddleware(first_model=fallback_model),
                 AnthropicPromptCachingMiddleware(),
             ],
             name="planner_agent",
@@ -293,6 +316,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             Command[Literal["__end__"]]: The next step in the workflow.
         """
         conditional_middlewares: list[AgentMiddleware] = []
+
         if runtime.context.config.sandbox.enabled:
             conditional_middlewares.append(
                 SandboxMiddleware(
@@ -302,8 +326,13 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 )
             )
 
+        if self._execution_fallback_models:
+            conditional_middlewares.append(
+                ModelFallbackMiddleware(self._execution_fallback_models[0], *self._execution_fallback_models[1:])
+            )
+
         executor_agent = create_agent(
-            model=BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME, max_tokens=8_192),
+            model=self._execution_model,
             state_schema=ExecutorState,
             context_schema=RuntimeCtx,
             tools=(FileNavigationToolkit.get_tools() + FileEditingToolkit.get_tools() + [review_code_changes_tool]),
@@ -312,7 +341,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 ExecutorMiddleware(),
                 *conditional_middlewares,
                 TodoListMiddleware(),
-                ModelFallbackMiddleware(first_model=BaseAgent.get_model(model=settings.EXECUTION_FALLBACK_MODEL_NAME)),
                 AnthropicPromptCachingMiddleware(),
             ],
             response_format=ToolStrategy(FinishOutput),

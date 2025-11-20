@@ -178,7 +178,7 @@ class RepositoryConfig(BaseModel):
     )
 
     @staticmethod
-    def get_config(repo_id: str, repository: Repository | None = None) -> RepositoryConfig:
+    def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:
         """
         Get the configuration for a repository.
         If the configuration file is not found, a default configuration is returned.
@@ -186,6 +186,8 @@ class RepositoryConfig(BaseModel):
 
         Args:
             repo_id (str): The repository ID.
+            repository (Repository | None): The repository object.
+            offline (bool): Whether to use the cached configuration or to fetch it from the repository.
 
         Returns:
             RepositoryConfig: The configuration for the repository.
@@ -202,8 +204,10 @@ class RepositoryConfig(BaseModel):
         if repository is None:
             repository = repo_client.get_repository(repo_id)
 
-        if config_file := repo_client.get_repository_file(
-            repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch
+        if not offline and (
+            config_file := repo_client.get_repository_file(
+                repo_id, CONFIGURATION_FILE_NAME, ref=repository.default_branch
+            )
         ):
             try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))

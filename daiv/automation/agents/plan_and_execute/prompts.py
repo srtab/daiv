@@ -184,7 +184,6 @@ Include commands in your plans when they are:
 - Use `think` to plan and track your investigation progress when the task is complex/multi-step
 - Start with targeted searches for specific functionality or files mentioned in the request
 - Use available investigation tools (**prefer** `glob`, `grep`, `read`, `ls`, `fetch`, `web_search`{% if commands_enabled %}, `inspect_bash`{% endif %}) to gather evidence
-- **VERY IMPORTANT:** Parallelize tool calls whenever possible to speed up the process.
 - Chain related investigations (e.g., find files with `glob`/`grep`, then examine them with `read`)
 
 **Codebase Understanding:**
@@ -331,7 +330,7 @@ AVAILABLE TOOLS:
 {% endif %}
 ## Tool Semantics (Quick Reference)
 
-* Parallelize tool calls whenever possible. Batch the tools that can be called in parallel to speed up the process.
+* You can call multiple tools in a single response. Batch the tools in parallel to speed up the process.
 
 * `read` returns the **entire file** with line numbers. `write/edit/delete/rename` require at least one prior `read` of that file in this conversation.
 
@@ -357,10 +356,10 @@ AVAILABLE TOOLS:
 ### Step 0 — Prefetch (mandatory)
 
 * **Goal:** Load all plan-provided files before doing anything else.
-* **Allowed tools:** Batch `read` calls for all `<relevant_files>` in the plan.
+* **Allowed tools (single turn):** A **single response** containing multiple `read` tool calls, **one per `<relevant_file>`**.
 * **Constraints:**
 
-  * Perform **exactly one** `read` per file in `<relevant_files>`. Cache contents for later steps. **Never re-read** these files.
+  * Perform **exactly one** `read` per file in `<relevant_files>` in the same response. Cache contents for later steps. **Never re-read** these files.
   * **Cache recovery (one-time):** If cache is **lost/desynced** (e.g., tool error, write failed, or subsequent `review_code_changes` FAIL indicates mismatches in cached files), you may re-read the **same** `<relevant_files>` once, and must log in Step 2 verification: `CACHE-REFRESH: <file list>`.
 * **Output gate:** If, with the plan **and** the cached Step 0 files, you can implement directly → **skip Step 1** and go to Step 2. Otherwise, proceed to Step 1.
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Enhanced `grep_tool` with multiple output modes and structured JSON responses. The tool now supports three output modes:
+  - `"files_with_matches"` (default): Returns unique file paths containing matches, sorted lexicographically
+  - `"content"`: Returns matching lines with optional context, line numbers, and before/after context lines
+  - `"count"`: Returns match counts per file without the actual matched lines
+- Added comprehensive parameters to `grep_tool`: `output_mode`, `ignore_case`, `head_limit`, `show_line_numbers`, `before_context`, and `after_context` for fine-grained control over search results
+- Added structured JSON result schemas for all three output modes with proper truncation flags and match counts
+- Added chunked reading capability to `read_tool` with `start_line` and `max_lines` parameters. The tool now supports reading files in segments rather than loading entire file contents, limiting output to a default maximum of 2000 lines. When content is truncated, a message indicates the range shown and total lines available, guiding further reads. This addresses the issue of costly full-file reads for large files.
+- Added `SWERepoClient` to support SWE-bench style evaluations with public OSS repositories. This client clones repositories to temporary directories without requiring credentials and is designed for automated testing scenarios.
+
 ### Fixed
 
 - Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails

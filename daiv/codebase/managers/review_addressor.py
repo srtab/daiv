@@ -14,7 +14,7 @@ from automation.agents.review_addressor.conf import settings as review_addressor
 from automation.agents.review_addressor.schemas import ReviewContext
 from codebase.base import Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType, SimpleDiscussion
 from codebase.clients.base import Emoji
-from codebase.utils import note_mentions_daiv, notes_to_messages, redact_diff_content
+from codebase.utils import get_repo_ref, note_mentions_daiv, notes_to_messages, redact_diff_content
 
 from .base import BaseManager
 
@@ -237,7 +237,7 @@ class ReviewAddressorManager(BaseManager):
             recursion_limit=review_addressor_settings.RECURSION_LIMIT,
             configurable={
                 "source_repo_id": self.ctx.repo_id,
-                "source_ref": self.ctx.repo.active_branch.name,
+                "source_ref": get_repo_ref(self.ctx.repo),
                 "bot_username": self.ctx.bot_username,
             },
         )
