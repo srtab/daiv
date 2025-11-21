@@ -1,5 +1,5 @@
 QUICK_ACTIONS_TEMPLATE = """### 🤖 {{ bot_name }} Quick-Actions
-Comment **one** of the commands below on this {{ scope.lower() }} to trigger the bot:
+Comment **one** of the commands below on this {{ scope }} to trigger the bot:
 
 {% for action in actions -%}
   {{ action }}
