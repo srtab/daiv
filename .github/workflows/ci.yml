@@ -17,7 +17,7 @@ jobs:
       - name: Install libomp-dev
         run: sudo apt-get install -y libomp-dev
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -45,7 +45,7 @@ jobs:
       - name: Install libomp-dev
         run: sudo apt-get install -y libomp-dev
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
