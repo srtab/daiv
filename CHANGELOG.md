@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
+
+### Changed
+
+- Changed default model for `PlanAndExecuteAgent` to `gpt-5.1` and `gpt-5.1-codex-mini` for planning fallback and code review respectively.
+- Improved `PlanAndExecuteAgent` planning output to be more structured and easier to understand.
+
 ### Fixed
 
 - Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails
 - Fixed inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
+- Fixed `PlanAndExecuteAgent` planning phase to avoid infinite investigation loops.
 
 ## [1.0.0] - 2025-11-17
 

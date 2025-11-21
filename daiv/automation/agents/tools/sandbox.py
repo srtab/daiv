@@ -106,6 +106,8 @@ Execute a list of Bash commands in a persistent shell session rooted at the repo
 INSPECT_BASH_TOOL_DESCRIPTION = f"""\
 Execute commands in an ephemeral investigation sandbox to gather information for your plan.
 
+For small, local edits that only touch a single known file or task, you usually do **not** need this tool; prefer `{READ_TOOL_NAME}`/`{GREP_TOOL_NAME}` and then produce a plan.
+
 ## Understanding This Tool
 
 **What it does:**

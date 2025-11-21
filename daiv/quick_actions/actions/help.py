@@ -55,4 +55,6 @@ class HelpQuickAction(QuickAction):
         actions_help = [action().help() for action in quick_action_registry.get_actions(scope=scope)]
         if not actions_help:
             return None
-        return jinja2_formatter(QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help)
+        return jinja2_formatter(
+            QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope.value.lower(), actions=actions_help
+        )
