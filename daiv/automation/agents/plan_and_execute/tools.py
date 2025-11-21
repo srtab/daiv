@@ -31,13 +31,14 @@ Use this tool to outline your investigation approach and track progress through 
 - Summarizing your final plan (use `{PlanOutput.__name__}` instead)
 - Concluding your investigation (call an output tool immediately)
 - Saying 'ready to create plan' or 'all clear' (call `{PlanOutput.__name__}` NOW)
-- When the task is simple/straightforward
+- When the task is simple/straightforward (e.g., the change is obvious from the codebase)
 
 **CRITICAL:** If your `plan` field contains phrases like:
 - 'Ready to plan'
 - 'Ready to create implementation plan'
 - 'All information is clear'
 - 'Now I'll create the plan'
+- 'The change is straightforward'
 
 Then you should call `{PlanOutput.__name__}`, `{ClarifyOutput.__name__}`, or `{CompleteOutput.__name__}` instead of this tool.
 

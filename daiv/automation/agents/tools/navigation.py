@@ -35,7 +35,7 @@ Find files by name using a glob pattern.
  - Supports glob patterns like "*.js" or "src/*.ts".
  - Returns matching file paths sorted by name.
  - Use this tool when you need to find files by name patterns.
- - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
+ - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
 
 Examples:
   Good examples:
@@ -62,7 +62,7 @@ Search for files whose *contents* match a regex pattern.
  - Filter files by pattern with the `include` parameter (eg. "*.js", "*.{{ts,tsx}}", etc.)
  - Returns file paths with at least one match sorted by name
  - Use this tool when you need to find files containing specific patterns
- - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful
+ - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful
  - Under the hood, this tool uses ripgrep
  - **Important:** The `path` parameter must be a directory relative path. If you want to search a single file, leave `path` as None and set `include` to the file path (e.g., "{CONFIGURATION_FILE_NAME}")
 
