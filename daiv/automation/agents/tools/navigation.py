@@ -6,8 +6,9 @@ import json
 import logging
 import subprocess  # noqa: S404
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ImageContentBlock
 
@@ -15,6 +16,9 @@ from automation.utils import register_file_read
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.repo_config import CONFIGURATION_FILE_NAME
 from core.utils import extract_valid_image_mimetype
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger("daiv.tools")
 
@@ -100,6 +104,19 @@ Reads the content of a file from the repository. You can access any file directl
  - When content is truncated, a message indicates the range shown and total lines available, guiding further reads (e.g., "[Showing lines 1-2000 of 5000 total lines. Use start_line parameter to read more.]").
 """  # noqa: E501
 
+FILE_NAVIGATION_SYSTEM_PROMPT = f"""\
+## File navigation tools
+
+You have access to a filesystem which you can interact with using the following tools.
+Use these tools to find the files and directories that are relevant to the task.
+
+All file paths are relative to the repository root.
+
+- {GLOB_TOOL_NAME}: Find files matching a glob pattern.
+- {GREP_TOOL_NAME}: Search for files whose contents match a regex pattern.
+- {LS_TOOL_NAME}: List files and directories in a directory.
+- {READ_TOOL_NAME}: Read a file's contents."""
+
 
 @tool(GLOB_TOOL_NAME, description=GLOB_TOOL_DESCRIPTION)
 def glob_tool(
@@ -113,7 +130,7 @@ def glob_tool(
     """
     Tool to find files by name using a glob pattern.
     """  # noqa: E501
-    logger.info("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or "repository root")
+    logger.info("[%s] Finding files matching '%s' in %s", glob_tool.name, pattern, path or ".")
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
     root = repo_working_dir if path is None else (repo_working_dir / path.strip()).resolve()
@@ -289,3 +306,34 @@ async def read_tool(
         )
 
     return to_return
+
+
+class FileNavigationMiddleware(AgentMiddleware):
+    """
+    Middleware for providing navigation tools to an agent.
+    """
+
+    name = "file_navigation_middleware"
+
+    def __init__(self) -> None:
+        """
+        Initialize the navigation middleware.
+        """
+        self.tools = [glob_tool, grep_tool, ls_tool, read_tool]
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """
+        Update the system prompt with the navigation system prompt.
+
+        Args:
+            request: The model request being processed.
+            handler: The handler function to call with the modified request.
+
+        Returns:
+            The model response from the handler.
+        """
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + FILE_NAVIGATION_SYSTEM_PROMPT)
+
+        return await handler(request)

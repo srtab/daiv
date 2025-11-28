@@ -22,21 +22,25 @@ if TYPE_CHECKING:
 CLAUDE_MAX_TOKENS = 4_096
 
 CLAUDE_THINKING_MODELS = (
-    "claude-sonnet-4.5",
-    "claude-opus-4.1",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "claude-haiku-4-5",
     "anthropic/claude-sonnet-4.5",
-    "anthropic/claude-opus-4.1",
+    "anthropic/claude-opus-4.5",
+    "anthropic/claude-haiku-4.5",
 )
 
 OPENAI_THINKING_MODELS = (
-    "o4",
-    "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
-    "openai/o4",
-    "openai/gpt-5",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
     "openai/gpt-5-mini",
     "openai/gpt-5-nano",
+    "openai/gpt-5.1",
+    "openai/gpt-5.1-codex",
+    "openai/gpt-5.1-codex-mini",
 )
 
 

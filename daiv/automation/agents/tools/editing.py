@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 
 from automation.agents.utils import find_original_snippet
@@ -12,6 +13,9 @@ from automation.utils import check_file_read, register_file_read
 from codebase.context import RuntimeCtx  # noqa: TC001
 
 from .navigation import READ_TOOL_NAME
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger("daiv.tools")
 
@@ -27,7 +31,7 @@ EDIT_TOOL_DESCRIPTION = f"""\
 Performs exact string replacements in files.
 
 **Usage rules:**
- - You must use your `{READ_TOOL_NAME}` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+ - You should use your `{READ_TOOL_NAME}` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
  - When editing text from `{READ_TOOL_NAME}` tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + 1 space. Everything after that space is the actual file content to match. Never include any part of the line number prefix in the `old_string` or `new_string`.
  - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
  - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
@@ -38,14 +42,14 @@ Writes a file to the repository.
 
 **Usage rules:**
  - This tool will overwrite the existing file if there is one at the provided path.
- - If this is an existing file, you MUST use the `{READ_TOOL_NAME}` tool first to read the file's contents. This tool will fail if you did not read the file first.
+ - If this is an existing file, you should use the `{READ_TOOL_NAME}` tool first to read the file's contents. This tool will fail if you did not read the file first.
 """  # noqa: E501
 
 DELETE_TOOL_DESCRIPTION = f"""\
 Deletes a file or directory from the repository.
 
 **Usage rules:**
- - For FILES: Deletes the specified file. You MUST read the file first using the `{READ_TOOL_NAME}` tool.
+ - For FILES: Deletes the specified file. You should read the file first using the `{READ_TOOL_NAME}` tool.
  - For DIRECTORIES: Recursively deletes the directory and ALL its contents. Use with EXTREME caution.
  - Before deleting a directory, you should use the `ls` or `glob` tool to examine its contents.
  - You must verify the path exists and understand what you're deleting before using this tool.
@@ -58,7 +62,21 @@ Renames a file in the repository.
 **Usage rules:**
  - This tool will rename the file if it exists.
  - If the file does not exist or the new path already exists, this tool will return an error.
- - You must use your `{READ_TOOL_NAME}` tool at least once in the conversation before renaming. This tool will error if you attempt to rename without reading the file.
+ - You should use your `{READ_TOOL_NAME}` tool at least once in the conversation before renaming. This tool will error if you attempt to rename without reading the file.
+"""  # noqa: E501
+
+
+EDITING_TOOL_SYSTEM_PROMPT = f"""\
+## File editing tools
+
+You have access to a set of tools to apply changes to the files in the repository.
+
+All file paths are relative to the repository root. You should use the `{READ_TOOL_NAME}` tool to read the file before you can edit it.
+
+- {EDIT_TOOL_NAME}: Perform exact string replacements in files.
+- {WRITE_TOOL_NAME}: Write a file.
+- {DELETE_TOOL_NAME}: Delete a file or directory.
+- {RENAME_TOOL_NAME}: Rename a file.
 """  # noqa: E501
 
 
@@ -239,3 +257,33 @@ async def rename_tool(
     resolved_file_path.rename(resolved_new_file_path)
 
     return f"success: Renamed file '{file_path}' to '{new_file_path}'"
+
+
+class FileEditingMiddleware(AgentMiddleware):
+    """
+    Middleware to add the file editing tools and system prompt to the agent.
+    """
+
+    name = "file_editing_middleware"
+
+    def __init__(self) -> None:
+        """
+        Initialize the middleware.
+        """
+        self.tools = [write_tool, edit_tool, delete_tool, rename_tool]
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """
+        Update the system prompt with the file editing system prompt.
+
+        Args:
+            request (ModelRequest): The request to the model.
+            handler (Callable[[ModelRequest], Awaitable[ModelResponse]]): The handler to call the model.
+
+        Returns:
+            ModelResponse: The response from the model.
+        """
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + EDITING_TOOL_SYSTEM_PROMPT)
+        return await handler(request)

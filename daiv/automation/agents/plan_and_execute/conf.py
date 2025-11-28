@@ -19,10 +19,11 @@ class PlanAndExecuteSettings(BaseSettings):
         description="Model for planning tasks, a multi-modal (image and text) model with capabilities to call tools.",
     )
     PLANNING_FALLBACK_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_CODEX, description="Fallback model for planning tasks if the primary model fails."
+        default=ModelName.GPT_5_1, description="Fallback model for planning tasks if the primary model fails."
     )
     PLANNING_THINKING_LEVEL: ThinkingLevel | None = Field(
-        default=None, description="Thinking level to be used for planning. Set as `None` to disable thinking."
+        default=ThinkingLevel.MEDIUM,
+        description="Thinking level to be used for planning. Set as `None` to disable thinking.",
     )
     EXECUTION_RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the execute agent.")
     EXECUTION_MODEL_NAME: ModelName | str = Field(
@@ -30,10 +31,10 @@ class PlanAndExecuteSettings(BaseSettings):
         description="Model to write code and run commands with capabilities to call tools.",
     )
     EXECUTION_FALLBACK_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_CODEX, description="Fallback model for execution tasks if the primary model fails."
+        default=ModelName.GPT_5_1, description="Fallback model for execution tasks if the primary model fails."
     )
     CODE_REVIEW_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_MINI, description="Model to review code changes against the plan tasks ."
+        default=ModelName.GPT_5_1_CODEX_MINI, description="Model to review code changes against the plan tasks ."
     )
     CODE_REVIEW_THINKING_LEVEL: ThinkingLevel | None = Field(
         default=ThinkingLevel.MEDIUM,

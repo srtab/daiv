@@ -4,14 +4,13 @@ from django.utils import timezone
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
-from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langgraph.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents import BaseAgent, ThinkingLevel
-from automation.agents.middleware import InjectImagesMiddleware
-from automation.agents.tools.toolkits import FileNavigationToolkit
+from automation.agents.middleware import AnthropicPromptCachingMiddleware, InjectImagesMiddleware
+from automation.agents.tools.navigation import FileNavigationMiddleware
 from codebase.context import RuntimeCtx
 
 from .conf import settings
@@ -50,11 +49,11 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         )
         return create_agent(
             model=model,
-            tools=FileNavigationToolkit.get_tools(),
             store=InMemoryStore(),
             context_schema=RuntimeCtx,
             middleware=[
                 codebase_chat_system_prompt,
+                FileNavigationMiddleware(),
                 InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
                 AnthropicPromptCachingMiddleware(),
             ],

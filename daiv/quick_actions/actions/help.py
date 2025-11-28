@@ -1,12 +1,11 @@
 from typing import TYPE_CHECKING
 
-from langchain_core.prompts.string import jinja2_formatter
+from django.template.loader import render_to_string
 
 from core.constants import BOT_NAME
 from quick_actions.base import QuickAction, Scope
 from quick_actions.decorator import quick_action
 from quick_actions.registry import quick_action_registry
-from quick_actions.templates import QUICK_ACTIONS_TEMPLATE
 
 if TYPE_CHECKING:
     from codebase.base import Discussion, Issue, MergeRequest
@@ -55,4 +54,7 @@ class HelpQuickAction(QuickAction):
         actions_help = [action().help() for action in quick_action_registry.get_actions(scope=scope)]
         if not actions_help:
             return None
-        return jinja2_formatter(QUICK_ACTIONS_TEMPLATE, bot_name=BOT_NAME, scope=scope, actions=actions_help)
+        return render_to_string(
+            "quick_actions/quick_actions_help.txt",
+            {"bot_name": BOT_NAME, "scope": scope.value.lower(), "actions": actions_help},
+        )

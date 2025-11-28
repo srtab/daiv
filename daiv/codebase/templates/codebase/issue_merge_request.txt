@@ -1,0 +1,19 @@
+{{ description }}
+
+Closes: {{ source_repo_id }}#{{ issue_id }}{% if is_gitlab %}+{% endif %}
+
+> ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
+
+### Summary of Changes
+{% for item in summary %}
+ - {{ item }}{% endfor %}
+
+---
+
+#### 💡 Instructions for the reviewer:
+ - 💬 {{ bot_name }} will address comments for you in the following ways:
+   - Open a discussion on the merge request overview and mention @{{ bot_username }};
+   - Leave comments on the files and mention @{{ bot_username }};
+   - Leave comments on specific lines of the file and mention @{{ bot_username }}.
+ - 📝 Edit the original issue ({{ source_repo_id }}#{{ issue_id }}) to get {{ bot_name }} to recreate the MR from scratch.
+

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import httpx
-from langchain.agents.middleware import AgentMiddleware, AgentState
+from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
@@ -25,6 +25,8 @@ from .editing import DELETE_TOOL_NAME, EDIT_TOOL_NAME, RENAME_TOOL_NAME, WRITE_T
 from .navigation import GLOB_TOOL_NAME, GREP_TOOL_NAME, LS_TOOL_NAME, READ_TOOL_NAME
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from langgraph.runtime import Runtime
 
 
@@ -104,53 +106,57 @@ Execute a list of Bash commands in a persistent shell session rooted at the repo
 """  # noqa: E501
 
 INSPECT_BASH_TOOL_DESCRIPTION = f"""\
-Execute commands in an ephemeral investigation sandbox to gather information for your plan.
+Execute a list of given commands in an EPHEMERAL investigation sandbox to gather information. The sandbox is READ-ONLY, so no changes persist to the actual repository.
 
-## Understanding This Tool
+The commands are RECONNAISSANCE, not DEPLOYMENT:
+- ✅ Run diagnostic commands to understand the current state
+- ✅ Observe what WOULD happen if changes were made
+- ✅ Collect this information to create plans
+- ❌ NEVER claim you've made changes to the repository
+- ❌ NEVER say modifications have been applied
 
-**What it does:**
-This tool runs commands in a disposable container where outputs are informational only. No changes persist to the actual repository - think of it as a "read-only" diagnostic environment.
+<example>
+User: "@daiv run lint-fix to fix linting errors"
+Assistant: *Calls `{INSPECT_BASH_TOOL_NAME}` to execute the lint-fix command...*
+Command output: "Fixed 2 errors"
+<commentary>
+The command output shows 2 errors CAN be fixed. Therefore, the assistant will need to include a fix command to the plan so that the plan execution will fix the errors.
+</commentary>
+</example>
 
-**Your goal:**
-Gather information to create an accurate plan. You're in the planning phase, not the execution phase.
+<example>
+User: "@daiv install new dependencies X"
+Assistant: *Calls `{INSPECT_BASH_TOOL_NAME}` to execute the install command...*
+Command output: "Installed 36 packages"
+<commentary>
+The command output shows 36 packages will need installation. Therefore, the assistant will need to include an install command to the plan so that the plan execution will install the dependencies.
+</commentary>
+</example>
 
-## Mental Model
+<example>
+User: "@daiv run tests"
+Assistant: *Calls `{INSPECT_BASH_TOOL_NAME}` to execute the tests command...*
+Command output: "Tests failed: 3"
+Assistant: *Investigate the failures to plan fixes...*
+<commentary>
+The command output shows 3 tests failed. Therefore, the assistant will need to investigate the failures to plan fixes so that the plan executor will fix the failures.
+The assistant will include the commands to execute the tests again to the plan executor to verify if the fixes worked.
+</commentary>
+</example>
 
-Commands run in a sandbox → Observe what exists/what would happen → Use findings to build your plan
+**Usage notes:**
+ - Commands are executed from repository root
+ - Returns combined stdout/stderr output with exit code for each command
+ - Execution will halt and return the output if the one of the commands fails with a non-zero exit code
+ - Output is informational only and will be truncated to {MAX_OUTPUT_LENGTH} lines
+ - Prefer using `--no-color`, `--json`, `--quiet` flags to reduce noise when available
+ - Prefer relative paths and avoid usage of `cd`
+ - **IMPORTANT: You MUST avoid using this tool for file reading (`cat`, `head`, `tail`), searching (`grep`, `find`), and listing (`ls`). Prefer using specialized tools instead:**
+   - File reading → use `{READ_TOOL_NAME}` tool
+   - File searching → use `{GREP_TOOL_NAME}` or `{GLOB_TOOL_NAME}` tools
+   - Directory listing → use `{LS_TOOL_NAME}` tool
 
-**Key insight:** When you see "Fixed 2 errors", translate this as "2 errors exist that need fixing" and add the fix to your plan.
-
-## Interpreting Outputs
-
-| Command Output | What It Means | Your Action |
-|----------------|---------------|-------------|
-| "Fixed X errors" | X errors exist that can be fixed | Add fix command to plan |
-| "Installed Y packages" | Y packages will need installation | Add install to plan |
-| "Tests passed" | Tests currently pass | No action needed |
-| "X errors found" | X errors exist | Investigate and plan fixes |
-
-## Best Use Cases
-
-**Use this tool for information gathering:**
- - Diagnostic commands (`ruff check`, `mypy`, `pytest --collect-only`)
- - Version checks (`tool --version`)
- - Dry runs (`npm run build --dry-run`)
- - Listing/inspection (`npm ls`, `pip list`)
-
-**Use specialized tools instead for:**
- - File reading → Use {READ_TOOL_NAME} tool for better formatting
- - File searching → Use {GREP_TOOL_NAME}/{GLOB_TOOL_NAME} tools for efficiency
- - Directory listing → Use {LS_TOOL_NAME} tool for structured output
-
-## Command Execution Details
-
- - Commands run from repository root
- - Output truncated to {MAX_OUTPUT_LENGTH} lines
- - Use `--no-color`, `--json`, `--quiet` flags to reduce noise when available
- - Execution stops on first non-zero exit code
- - Prefer absolute paths over `cd`
-
-## Examples:
+Examples:
   Good examples:
     - {INSPECT_BASH_TOOL_NAME}(commands=["pytest foo/bar/tests"])
     - {INSPECT_BASH_TOOL_NAME}(commands=["python path/to/script.py"])
@@ -170,10 +176,50 @@ FORMAT_CODE_TOOL_DESCRIPTION = f"""\
 Applies code formatting and linting fixes using the repository's configured formatter in `{CONFIGURATION_FILE_NAME}` configuration file.
 
 **When to use:**
-- **After making code changes** to ensure style compliance and minimize linting issues.
-- **You can call this tool automatically** once you've modified files via {EDIT_TOOL_NAME}/{WRITE_TOOL_NAME}/{DELETE_TOOL_NAME}/{RENAME_TOOL_NAME} tools.
-- **Tip:** The tool warns if no changes were made (use `force=True` to override).
-- **Returns:** Success message or error details for troubleshooting.
+- **After making code changes** to ensure style compliance and minimize linting issues
+- **You can call this tool** once you've modified code files (e.g., via {EDIT_TOOL_NAME}/{WRITE_TOOL_NAME}/{DELETE_TOOL_NAME}/{RENAME_TOOL_NAME} tools)
+- **When the plan includes code formatting and linting fixes** to ensure style compliance and minimize linting issues
+- **Tip:** The tool warns if no code changes were made to the repository (use `force=True` to override)
+- **Returns:** Success message or error details for troubleshooting
+"""  # noqa: E501
+
+SANBOX_SYSTEM_PROMPT = f"""\
+## Bash Tool
+
+You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session rooted at the repository's root.
+
+Use this tool to run commands, scripts, tests, builds, and other shell operations that are included in the plan to be executed.
+
+**Usage notes:**
+
+ - **No ad-hoc commands.** Only call `bash` tool for commands **explicitly present in `details`** (verbatim).
+ - **No environment probing.** Never run `pytest`, `py_compile`, `python -c`, `pip`, `find`, etc., unless the plan explicitly names them **verbatim**. If present, run **exactly** as written.
+"""  # noqa: E501
+
+SANDBOX_PLAN_SYSTEM_PROMPT = f"""\
+## Shell Commands Guidance
+
+Include standard, safe shell commands in your plan when they are explicitly mentioned by the user or clearly required for the task (e.g., "install X" → package manager command, "run tests" → test runner command). If a shell command could be destructive, flag it for confirmation in the plan.
+
+**Package Management**
+
+ - Using the project's native package manager for add/update/remove packages is the preferred approach; it will regenerate lockfiles automatically and keep the lockfiles up to date (never edit lockfiles by hand)
+ - Detect the package manager from lockfiles/manifests (e.g., package.json, Makefile, pyproject.toml, etc.)
+ - Skipping regression tests for basic package operations is fine unless the user asks otherwise
+
+## Bash Tool
+
+You have access to an `{INSPECT_BASH_TOOL_NAME}` tool for running shell commands in an ephemeral investigation sandbox to gather information for your plan.
+
+Use this tool to run commands, scripts, tests, builds, and other shell operations. The commands are run in a disposable container where outputs are informational only. **No changes persist to the actual repository** - think of it as a "read-only" diagnostic environment.
+
+**Remember:** `{INSPECT_BASH_TOOL_NAME}` tool is a TELESCOPE for observing the repository, not a WRENCH for fixing it. You gather intelligence to create plans, you don't execute changes.
+"""  # noqa: E501
+
+FORMAT_CODE_SYSTEM_PROMPT = f"""\
+## Format Code Tool
+
+You have access to a `{FORMAT_CODE_TOOL_NAME}` tool for applying code formatting and linting fixes to the repository to resolve style and linting issues. **Modifies files in-place.**
 """  # noqa: E501
 
 
@@ -341,16 +387,22 @@ class SandboxMiddleware(AgentMiddleware):
 
     state_schema = SandboxState
 
-    def __init__(self, *, read_only_bash: bool = False, include_format_code: bool = False):
+    def __init__(
+        self,
+        *,
+        read_only_bash: bool = False,
+        include_format_code: bool = False,
+        format_system_prompt: str = FORMAT_CODE_SYSTEM_PROMPT,
+    ):
         """
         Initialize the middleware.
         """
         assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
-        super().__init__()
-
         self.tools = []
         self.read_only_bash = read_only_bash
+        self.include_format_code = include_format_code
+        self.format_system_prompt = format_system_prompt
 
         if read_only_bash:
             self.tools.append(inspect_bash_tool)
@@ -396,3 +448,28 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, list] | None: The state updates with the closed sandbox session.
         """
         await DAIVSandboxClient().close_session(state["session_id"])
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """
+        Update the system prompt with the sandbox system prompts.
+
+        Args:
+            request: The model request being processed.
+            handler: The handler function to call with the modified request.
+
+        Returns:
+            The model response from the handler.
+        """
+        system_prompt = SANBOX_SYSTEM_PROMPT
+
+        if self.read_only_bash:
+            system_prompt = SANDBOX_PLAN_SYSTEM_PROMPT
+
+        if self.include_format_code:
+            system_prompt += "\n\n" + self.format_system_prompt
+
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
+
+        return await handler(request)

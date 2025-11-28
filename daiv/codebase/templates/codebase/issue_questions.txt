@@ -1,0 +1,13 @@
+### 🔍 Additional Details Required
+
+I need more information before I can create a clear implementation plan. Please help by answering the following questions directly within the issue's **title or description**:
+
+{{ questions }}
+
+---
+
+💡 **Next steps**
+
+1. **Edit the issue's title or description** and include your answers there.
+2. Once you've updated the details, I'll automatically attempt to draft a new implementation plan.
+

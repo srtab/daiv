@@ -9,18 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Enhanced `grep_tool` with multiple output modes and structured JSON responses. The tool now supports three output modes:
-  - `"files_with_matches"` (default): Returns unique file paths containing matches, sorted lexicographically
-  - `"content"`: Returns matching lines with optional context, line numbers, and before/after context lines
-  - `"count"`: Returns match counts per file without the actual matched lines
-- Added comprehensive parameters to `grep_tool`: `output_mode`, `ignore_case`, `head_limit`, `show_line_numbers`, `before_context`, and `after_context` for fine-grained control over search results
-- Added structured JSON result schemas for all three output modes with proper truncation flags and match counts
 - Added chunked reading capability to `read_tool` with `start_line` and `max_lines` parameters. The tool now supports reading files in segments rather than loading entire file contents, limiting output to a default maximum of 2000 lines. When content is truncated, a message indicates the range shown and total lines available, guiding further reads. This addresses the issue of costly full-file reads for large files.
 - Added `SWERepoClient` to support SWE-bench style evaluations with public OSS repositories. This client clones repositories to temporary directories without requiring credentials and is designed for automated testing scenarios.
+- Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
+- Added OpenRouter support to Anthropic caching middleware, reducing costs.
+- Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
+
+### Changed
+
+- Changed default model for `PlanAndExecuteAgent` to `gpt-5.1` and `gpt-5.1-codex-mini` for planning fallback and code review respectively.
+- Improved `PlanAndExecuteAgent` planning output to be more structured and easier to human understand.
+- Improved `PlanAndExecuteAgent` planning prompts with "Code minimalism" guidelines to prevent over-engineering and unnecessary changes.
+- Migrated all prompt templates from Jinja2 to Mustache format to prevent code injection attacks.
+- Replaced `plan_think_tool` with `TodoListMiddleware` to allow the agent to maintain a todo list of the tasks to be completed during the planning phase.
 
 ### Fixed
 
-- Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails
+- Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails.
 - Fixed inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
 
 ## [1.0.0] - 2025-11-17
