@@ -1,0 +1,11 @@
+### ⚠️ Unexpected Error
+
+Something went wrong while processing this issue.
+
+---
+
+💡 **Next Steps:**
+
+- 🔄 Comment **`{{ revise_plan_command }}`** to trigger a fresh planning run.
+- 📜 **Check the app logs** - open the {{ bot_name }} logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
+

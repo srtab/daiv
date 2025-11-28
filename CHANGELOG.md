@@ -10,17 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
+- Added OpenRouter support to Anthropic caching middleware, reducing costs.
+- Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
 
 ### Changed
 
 - Changed default model for `PlanAndExecuteAgent` to `gpt-5.1` and `gpt-5.1-codex-mini` for planning fallback and code review respectively.
-- Improved `PlanAndExecuteAgent` planning output to be more structured and easier to understand.
+- Improved `PlanAndExecuteAgent` planning output to be more structured and easier to human understand.
+- Improved `PlanAndExecuteAgent` planning prompts with "Code minimalism" guidelines to prevent over-engineering and unnecessary changes.
+- Migrated all prompt templates from Jinja2 to Mustache format to prevent code injection attacks.
+- Replaced `plan_think_tool` with `TodoListMiddleware` to allow the agent to maintain a todo list of the tasks to be completed during the planning phase.
 
 ### Fixed
 
-- Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails
+- Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails.
 - Fixed inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
-- Fixed `PlanAndExecuteAgent` planning phase to avoid infinite investigation loops.
 
 ## [1.0.0] - 2025-11-17
 

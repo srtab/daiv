@@ -4,10 +4,9 @@ from abc import ABC
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from langchain_core.prompts import jinja2_formatter
+from django.template.loader import render_to_string
 
 from codebase.clients import RepoClient
-from quick_actions.templates import INVALID_ARGS_QUICK_ACTION_TEMPLATE
 
 if TYPE_CHECKING:
     from codebase.base import Discussion, Issue, MergeRequest
@@ -121,12 +120,14 @@ class QuickAction(ABC):
             invalid_args: The invalid arguments.
             scope: The scope of the quick action.
         """
-        note_message = jinja2_formatter(
-            INVALID_ARGS_QUICK_ACTION_TEMPLATE,
-            bot_name=self.client.current_user.username,
-            command=self.command,
-            help=self.help(),
-            invalid_args=invalid_args,
+        note_message = render_to_string(
+            "quick_actions/invalid_args.txt",
+            {
+                "bot_name": self.client.current_user.username,
+                "command": self.command,
+                "help": self.help(),
+                "invalid_args": invalid_args,
+            },
         )
 
         if scope == Scope.MERGE_REQUEST:
