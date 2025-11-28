@@ -3,9 +3,9 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast, override
 
 from django.conf import settings as django_settings
+from django.template.loader import render_to_string
 
 from langchain_core.prompts import HumanMessagePromptTemplate
-from langchain_core.prompts.string import jinja2_formatter
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -21,16 +21,6 @@ from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
 
 from .base import BaseManager
-from .templates import (
-    ISSUE_MERGE_REQUEST_TEMPLATE,
-    ISSUE_NO_CHANGES_NEEDED_TEMPLATE,
-    ISSUE_PLANNING_TEMPLATE,
-    ISSUE_PROCESSED_TEMPLATE,
-    ISSUE_QUESTIONS_TEMPLATE,
-    ISSUE_REVIEW_PLAN_TEMPLATE,
-    ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
-    ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
-)
 
 if TYPE_CHECKING:
     from automation.agents.plan_and_execute.state import PlanAndExecuteState
@@ -280,15 +270,17 @@ class IssueAddressorManager(BaseManager):
             labels=[BOT_LABEL],
             title=changes_description.title,
             assignee_id=assignee_id,
-            description=jinja2_formatter(
-                ISSUE_MERGE_REQUEST_TEMPLATE,
-                description=changes_description.description,
-                summary=changes_description.summary,
-                source_repo_id=self.ctx.repo_id,
-                issue_id=self.issue.iid,
-                bot_name=BOT_NAME,
-                bot_username=self.ctx.bot_username,
-                is_gitlab=self.client.client_slug == ClientType.GITLAB,
+            description=render_to_string(
+                "codebase/issue_merge_request.txt",
+                {
+                    "description": changes_description.description,
+                    "summary": changes_description.summary,
+                    "source_repo_id": self.ctx.repo_id,
+                    "issue_id": self.issue.iid,
+                    "bot_name": BOT_NAME,
+                    "bot_username": self.ctx.bot_username,
+                    "is_gitlab": self.client.client_slug == ClientType.GITLAB,
+                },
             ),
         )
 
@@ -300,10 +292,9 @@ class IssueAddressorManager(BaseManager):
             self.client.create_issue_comment(
                 self.ctx.repo_id,
                 cast("int", self.issue.iid),
-                jinja2_formatter(
-                    ISSUE_PLANNING_TEMPLATE,
-                    assignee=self.issue.assignee.username if self.issue.assignee else None,
-                    bot_name=BOT_NAME,
+                render_to_string(
+                    "codebase/issue_planning.txt",
+                    {"assignee": self.issue.assignee.username if self.issue.assignee else None, "bot_name": BOT_NAME},
                 ),
             )
 
@@ -317,10 +308,9 @@ class IssueAddressorManager(BaseManager):
         from quick_actions.actions.plan import ApprovePlanQuickAction
 
         self._create_or_update_comment(
-            jinja2_formatter(
-                ISSUE_REVIEW_PLAN_TEMPLATE,
-                plan_tasks=plan_tasks,
-                approve_plan_command=ApprovePlanQuickAction().command_to_activate,
+            render_to_string(
+                "codebase/issue_review_plan.txt",
+                {"plan_tasks": plan_tasks, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
             )
         )
 
@@ -331,10 +321,9 @@ class IssueAddressorManager(BaseManager):
         from quick_actions.actions.plan import RevisePlanQuickAction
 
         self._create_or_update_comment(
-            jinja2_formatter(
-                ISSUE_UNABLE_PROCESS_ISSUE_TEMPLATE,
-                bot_name=BOT_NAME,
-                revise_plan_command=RevisePlanQuickAction().command_to_activate,
+            render_to_string(
+                "codebase/issue_unable_process_issue.txt",
+                {"bot_name": BOT_NAME, "revise_plan_command": RevisePlanQuickAction().command_to_activate},
             )
         )
 
@@ -345,10 +334,9 @@ class IssueAddressorManager(BaseManager):
         from quick_actions.actions.plan import ApprovePlanQuickAction
 
         self._create_or_update_comment(
-            jinja2_formatter(
-                ISSUE_UNABLE_EXECUTE_PLAN_TEMPLATE,
-                bot_name=BOT_NAME,
-                approve_plan_command=ApprovePlanQuickAction().command_to_activate,
+            render_to_string(
+                "codebase/issue_unable_execute_plan.txt",
+                {"bot_name": BOT_NAME, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
             )
         )
 
@@ -357,13 +345,15 @@ class IssueAddressorManager(BaseManager):
         Add a note to the issue to inform the user that the issue has been processed.
         """
         self._create_or_update_comment(
-            jinja2_formatter(
-                ISSUE_PROCESSED_TEMPLATE,
-                source_repo_id=self.ctx.repo_id,
-                merge_request_id=merge_request_id,
-                # GitHub already shows the merge request link right after the comment.
-                show_merge_request_link=self.client.client_slug == ClientType.GITLAB,
-                message=message,
+            render_to_string(
+                "codebase/issue_processed.txt",
+                {
+                    "source_repo_id": self.ctx.repo_id,
+                    "merge_request_id": merge_request_id,
+                    # GitHub already shows the merge request link right after the comment.
+                    "show_merge_request_link": self.client.client_slug == ClientType.GITLAB,
+                    "message": message,
+                },
             )
         )
 
@@ -371,14 +361,14 @@ class IssueAddressorManager(BaseManager):
         """
         Add a note to the issue to inform the user that the plan has questions.
         """
-        self._create_or_update_comment(jinja2_formatter(ISSUE_QUESTIONS_TEMPLATE, questions=plan_questions))
+        self._create_or_update_comment(render_to_string("codebase/issue_questions.txt", {"questions": plan_questions}))
 
     def _add_no_changes_needed_note(self, no_changes_needed: str):
         """
         Add a note to the issue to inform the user that the plan has no changes needed.
         """
         self._create_or_update_comment(
-            jinja2_formatter(ISSUE_NO_CHANGES_NEEDED_TEMPLATE, no_changes_needed=no_changes_needed)
+            render_to_string("codebase/issue_no_changes_needed.txt", {"no_changes_needed": no_changes_needed})
         )
 
     def _add_no_plan_to_execute_note(self, already_executed: bool = False):

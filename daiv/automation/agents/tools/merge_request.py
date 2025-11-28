@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
 from codebase.context import RuntimeCtx  # noqa: TC001
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger("daiv.tools")
 
@@ -38,6 +42,16 @@ Get logs from a specific pipeline job with pagination support (bottom-to-top).
 - Use `line_count` to specify the number of lines to read (default: {JOB_LOGS_DEFAULT_LINE_COUNT});
 - Use `offset_from_end` to paginate backwards through logs (0 = last lines, 100 = skip last 100 lines, etc.);
 - Logs are shown from bottom to top, as errors typically appear at the end.
+"""  # noqa: E501
+
+MERGE_REQUEST_TOOL_SYSTEM_PROMPT = """\
+## Merge request tools
+
+You have access to a merge request which you can interact with using the following tools.
+Use these tools to get the latest pipeline/workflow status and job logs for the merge request.
+
+- {PIPELINE_TOOL_NAME}: Get the latest pipeline/workflow status for a merge/pull request.
+- {JOB_LOGS_TOOL_NAME}: Get logs from a specific pipeline job with pagination support (bottom-to-top).
 """  # noqa: E501
 
 
@@ -200,3 +214,26 @@ def job_logs_tool(
         output_lines.append("Start of logs reached.")
 
     return "\n".join(output_lines)
+
+
+class MergeRequestMiddleware(AgentMiddleware):
+    """
+    Middleware to add the merge request tools to the agent.
+    """
+
+    name = "merge_request_middleware"
+
+    def __init__(self) -> None:
+        """
+        Initialize the middleware.
+        """
+        self.tools = [pipeline_tool, job_logs_tool]
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """
+        Update the system prompt with the merge request system prompt.
+        """
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + MERGE_REQUEST_TOOL_SYSTEM_PROMPT)
+        return await handler(request)

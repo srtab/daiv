@@ -1,0 +1,6 @@
+### 🤖 {{ bot_name }} Quick-Actions
+Comment **one** of the commands below on this {{ scope }} to trigger the bot:
+
+{% for action in actions %}{{ action }}
+{% endfor %}
+

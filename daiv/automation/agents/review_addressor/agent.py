@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
-from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -20,10 +19,12 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
 from automation.agents import BaseAgent
-from automation.agents.middleware import InjectImagesMiddleware
+from automation.agents.middleware import AnthropicPromptCachingMiddleware, InjectImagesMiddleware
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.tools.merge_request import MergeRequestMiddleware
+from automation.agents.tools.navigation import FileNavigationMiddleware
 from automation.agents.tools.sandbox import _run_bash_commands
-from automation.agents.tools.toolkits import FileNavigationToolkit, MergeRequestToolkit, WebSearchToolkit
+from automation.agents.tools.web_search import WebSearchMiddleware
 from automation.agents.utils import extract_text_content
 from codebase.context import RuntimeCtx
 from codebase.utils import GitManager
@@ -73,7 +74,6 @@ def respond_reviewer_system_prompt(request: ModelRequest) -> str:
         current_date_time=timezone.now().strftime("%d %B, %Y"),
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
-        tools_names=[tool.name for tool in request.tools],
         repository=request.runtime.context.repo_id,
         diff=request.state["diff"],
     ).content
@@ -85,20 +85,22 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     """
 
     async def compile(self) -> CompiledStateGraph:
-        tools = FileNavigationToolkit.get_tools() + WebSearchToolkit.get_tools() + MergeRequestToolkit.get_tools()
         model = BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE)
+        middlewares = [
+            respond_reviewer_system_prompt,
+            FileNavigationMiddleware(),
+            WebSearchMiddleware(),
+            MergeRequestMiddleware(),
+            InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+            AnthropicPromptCachingMiddleware(),
+        ]
         return create_agent(
             model=model,
             state_schema=ReplyAgentState,
             context_schema=RuntimeCtx,
-            tools=tools,
+            middleware=middlewares,
             store=self.store,
             checkpointer=self.checkpointer,
-            middleware=[
-                respond_reviewer_system_prompt,
-                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
-                AnthropicPromptCachingMiddleware(),
-            ],
             name="reply_reviewer_agent",
         )
 

@@ -1,0 +1,10 @@
+Hello {% if assignee %}@{{ assignee }} {% endif %}👋,
+
+I'm **{{ bot_name }}**, your assistant for refactoring the codebase. Here's the process:
+
+1. 🎯 **Planning:** I'll process this issue and create a detailed plan.
+2. ✍️ **Review:** Once ready, I'll share the planned tasks for your review. Feel free to refine the title or description of the issue and i will revise the plan.
+3. 🚀 **Execution:** After approval, I'll implement the shared plan and submit a merge request with the updates.
+
+> ⚠️ ***Note:*** This may **take some time**. I'll leave you a message once the plan is ready.
+

@@ -13,42 +13,9 @@ from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, redact_diff_content  # noqa: TC001
 
 from .conf import settings
-from .schemas import ClarifyOutput, CompleteOutput, FinishOutput, PlanOutput
+from .schemas import FinishOutput
 
 logger = logging.getLogger("daiv.tools")
-
-
-PLAN_THINK_TOOL_NAME = "think"
-PLAN_THINK_TOOL_DESCRIPTION = f"""\
-Use this tool to outline your investigation approach and track progress through complex tasks. This is a planning and progress-tracking tool ONLY - it does NOT fetch information or modify anything.
-
-**When to use:**
-- Planning which files/patterns to search for before investigating
-- Tracking progress on multi-step investigations
-- Updating your task list as you discover new requirements
-
-**When NOT to use:**
-- Summarizing your final plan (use `{PlanOutput.__name__}` instead)
-- Concluding your investigation (call an output tool immediately)
-- Saying 'ready to create plan' or 'all clear' (call `{PlanOutput.__name__}` NOW)
-- When the task is simple/straightforward (e.g., the change is obvious from the codebase)
-
-**CRITICAL:** If your `plan` field contains phrases like:
-- 'Ready to plan'
-- 'Ready to create implementation plan'
-- 'All information is clear'
-- 'Now I'll create the plan'
-- 'The change is straightforward'
-
-Then you should call `{PlanOutput.__name__}`, `{ClarifyOutput.__name__}`, or `{CompleteOutput.__name__}` instead of this tool.
-
-**Usage rules:**
-- Does NOT fetch new information - use investigation tools for that
-- Mark tasks as completed immediately when done, don't batch them
-- Update or remove tasks as you learn new information
-
-Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
-"""  # noqa: E501
 
 
 REVIEW_CODE_CHANGES_TOOL_NAME = "review_code_changes"
@@ -71,21 +38,6 @@ REVIEW_CODE_CHANGES_TOOL_DESCRIPTION = f"""\
 - After already calling `{FinishOutput.__name__}` — the session is over.
 - To verify individual file edits — this tool evaluates **all changes** against the **entire plan**.
 """  # noqa: E501
-
-
-@tool(PLAN_THINK_TOOL_NAME, description=PLAN_THINK_TOOL_DESCRIPTION)
-def plan_think_tool(
-    thought: Annotated[
-        str,
-        "Your investigation approach or progress update in markdown format. "
-        "Should contain tasks to complete, not final conclusions.",
-    ],
-) -> str:
-    """
-    Tool to help llm outline investigation approach and track progress through complex tasks.
-    """  # noqa: E501
-    logger.info("[%s] Thinking notes: %s", plan_think_tool.name, thought)
-    return "Your thought has been logged."
 
 
 @tool(REVIEW_CODE_CHANGES_TOOL_NAME, description=REVIEW_CODE_CHANGES_TOOL_DESCRIPTION)

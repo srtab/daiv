@@ -1,5 +1,3 @@
-"""LangChain v1 middlewares for agents."""
-
 from __future__ import annotations
 
 import base64
@@ -8,11 +6,16 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelRequest
+from langchain_anthropic.middleware.prompt_caching import (
+    AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
+)
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.messages.content import ImageContentBlock, create_image_block, create_text_block
+from langchain_openai.chat_models import ChatOpenAI
 from langgraph.types import Overwrite
 
+from automation.agents.base import ModelProvider
 from automation.agents.tools.navigation import READ_MAX_LINES
 from automation.agents.utils import extract_images_from_text
 from codebase.base import ClientType
@@ -21,6 +24,7 @@ from core.utils import extract_valid_image_mimetype, is_valid_url
 
 if TYPE_CHECKING:
     from langchain.agents.middleware.types import AgentState
+    from langchain_core.language_models import BaseChatModel
     from langgraph.runtime import Runtime
 
     from automation.agents.schemas import Image
@@ -235,3 +239,60 @@ class AgentsMDMiddleware(AgentMiddleware):
             if path.is_file() and path.name.endswith(".md"):
                 return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
         return None
+
+
+class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
+    """
+    Middleware to cache the prompt for the Anthropic model when using OpenRouter.
+
+    This middleware is a wrapper around the LangChain v1 AnthropicPromptCachingMiddleware to support OpenRouter models.
+
+    Example:
+        ```python
+        from langchain.agents import create_agent
+
+        agent = create_agent(
+            model="openai:gpt-4o",
+            middleware=[AnthropicPromptCachingMiddleware()],
+        )
+        ```
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize the middleware.
+        """
+        unsupported_model_behavior = kwargs.pop("unsupported_model_behavior", "ignore")
+        super().__init__(*args, unsupported_model_behavior=unsupported_model_behavior, **kwargs)
+
+    def _should_apply_caching(self, request: ModelRequest) -> bool:
+        """
+        Check if caching should be applied to the request.
+        """
+        if self.is_anthropic_model(request.model):
+            messages_count = len(request.messages) + 1 if request.system_prompt else len(request.messages)
+            return messages_count >= self.min_messages_to_cache
+        return super()._should_apply_caching(request)
+
+    def _apply_cache_control(self, request: ModelRequest) -> None:
+        """
+        Apply cache control to the request.
+
+        """
+        if self.is_anthropic_model(request.model):
+            for message in reversed(request.messages):
+                if message.content_blocks and "cache_control" in message.content_blocks[-1]:
+                    del message.content_blocks[-1]["cache_control"]
+
+            if isinstance(request.messages[-1].content, str):
+                request.messages[-1].content = [create_text_block(request.messages[-1].content)]
+
+            request.messages[-1].content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
+        else:
+            super()._apply_cache_control(request)
+
+    def is_anthropic_model(self, model: BaseChatModel) -> bool:
+        """
+        Check if the model is an OpenRouter Anthropic model.
+        """
+        return isinstance(model, ChatOpenAI) and model.model_name.startswith(ModelProvider.ANTHROPIC.value)

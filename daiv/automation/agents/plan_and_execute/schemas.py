@@ -65,7 +65,7 @@ class ChangeInstructions(BaseModel):
               - 'In the issue handler, post a new comment whose body is the trimmed command arguments, falling back to a simple placeholder if empty.'
 
             **Definition of Done**
-            A brief checklist of observable outcomes that confirm the change is implemented correctly (2–5 bullets).
+            A brief checklist of observable outcomes that confirm the change is implemented correctly (2-5 bullets).
             - Example bullets:
               - 'Using `@<bot> /echo Hello` on an issue creates a new comment with the text `Hello`.'
               - 'Using `/echo` on a merge request produces a comment with the provided text and Markdown rendered.'

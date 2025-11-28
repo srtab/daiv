@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.utils import timezone
@@ -14,7 +15,6 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
 )
 from langchain.agents.structured_output import ToolStrategy
-from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
@@ -22,34 +22,31 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.middleware import AgentsMDMiddleware, InjectImagesMiddleware
+from automation.agents.middleware import AgentsMDMiddleware, AnthropicPromptCachingMiddleware, InjectImagesMiddleware
+from automation.agents.tools.editing import FileEditingMiddleware
+from automation.agents.tools.merge_request import MergeRequestMiddleware
+from automation.agents.tools.navigation import FileNavigationMiddleware
 from automation.agents.tools.sandbox import (
     BASH_TOOL_NAME,
+    FORMAT_CODE_SYSTEM_PROMPT,
     FORMAT_CODE_TOOL_NAME,
-    INSPECT_BASH_TOOL_NAME,
     SandboxMiddleware,
 )
-from automation.agents.tools.toolkits import (
-    FileEditingToolkit,
-    FileNavigationToolkit,
-    MCPToolkit,
-    MergeRequestToolkit,
-    WebSearchToolkit,
-)
+from automation.agents.tools.toolkits import MCPToolkit
+from automation.agents.tools.web_search import WebSearchMiddleware
 from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
 
 from .conf import settings
-from .prompts import execute_plan_human, execute_plan_system, plan_system
+from .prompts import execute_plan_human, execute_plan_system, plan_system, prepare_execute_plan_context
 from .schemas import FinalizerOutput, FinishOutput
 from .state import ExecutorState, PlanAndExecuteState
-from .tools import plan_think_tool, review_code_changes_tool
+from .tools import review_code_changes_tool
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain.agents.middleware.types import ModelCallResult
-    from langchain_core.tools import BaseTool
     from langgraph.runtime import Runtime
 
 
@@ -67,7 +64,6 @@ class PlanMiddleware(AgentMiddleware):
         """
         Initialize the middleware.
         """
-        super().__init__()
         self.specialized_planner_prompt = specialized_planner_prompt
 
     async def awrap_model_call(
@@ -83,17 +79,18 @@ class PlanMiddleware(AgentMiddleware):
         Returns:
             ModelCallResult: The result of the model call.
         """
-        tools_names = [tool.name for tool in request.tools]
-        request.system_prompt = plan_system.format(
+        system_prompt = plan_system.format(
             current_date_time=timezone.now().strftime("%d %B, %Y"),
             repository=request.runtime.context.repo_id,
-            tools_names=tools_names,
             bot_name=BOT_NAME,
             bot_username=request.runtime.context.bot_username,
-            commands_enabled=INSPECT_BASH_TOOL_NAME in tools_names,
         ).content
+
         if self.specialized_planner_prompt:
-            request.system_prompt += "\n" + self.specialized_planner_prompt
+            system_prompt += "\n\n" + self.specialized_planner_prompt
+
+        request = request.override(system_prompt=system_prompt)
+
         return await handler(request)
 
 
@@ -103,6 +100,12 @@ class ExecutorMiddleware(AgentMiddleware):
     """
 
     name = "executor_middleware"
+
+    def __init__(self) -> None:
+        """
+        Initialize the middleware.
+        """
+        self.tools = [review_code_changes_tool]
 
     async def abefore_agent(self, state: ExecutorState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -116,7 +119,8 @@ class ExecutorMiddleware(AgentMiddleware):
             dict[str, Any] | None: The state updates with the formatted messages.
         """
         prompt = ChatPromptTemplate.from_messages([execute_plan_human])
-        return {"messages": await prompt.aformat_messages(**state)}
+        preprocessed_context = prepare_execute_plan_context(state["plan_tasks"], state["relevant_files"])
+        return {"messages": await prompt.aformat_messages(**preprocessed_context)}
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -196,42 +200,39 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-
-        all_tools: list[BaseTool] = (
-            (await MCPToolkit.get_tools())
-            + FileNavigationToolkit.get_tools()
-            + WebSearchToolkit.get_tools()
-            + [plan_think_tool]
-        )
-
-        if runtime.context.merge_request_id:
-            all_tools.extend(MergeRequestToolkit.get_tools())
-
-        conditional_middlewares: list[AgentMiddleware] = []
-        if runtime.context.config.sandbox.enabled:
-            conditional_middlewares.append(SandboxMiddleware(read_only_bash=True))
-
         model = BaseAgent.get_model(
             model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
         )
-        fallback_model = BaseAgent.get_model(
-            model=settings.PLANNING_FALLBACK_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL
-        )
+
+        middlewares: list[AgentMiddleware] = [
+            PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
+            FileNavigationMiddleware(),
+            WebSearchMiddleware(),
+            InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+            AgentsMDMiddleware(),
+            TodoListMiddleware(),
+            ModelFallbackMiddleware(
+                first_model=BaseAgent.get_model(
+                    model=settings.PLANNING_FALLBACK_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL
+                )
+            ),
+            AnthropicPromptCachingMiddleware(),
+        ]
+
+        if runtime.context.merge_request_id:
+            middlewares.append(MergeRequestMiddleware())
+
+        if runtime.context.config.sandbox.enabled:
+            middlewares.append(SandboxMiddleware(read_only_bash=True))
+
         planner_agent = create_agent(
             model=model,
-            tools=all_tools,
+            tools=await MCPToolkit.get_tools(),
             store=runtime.store,
             checkpointer=False,
             context_schema=RuntimeCtx,
             response_format=ToolStrategy(FinalizerOutput),
-            middleware=[
-                PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
-                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
-                AgentsMDMiddleware(),
-                *conditional_middlewares,
-                ModelFallbackMiddleware(first_model=fallback_model),
-                AnthropicPromptCachingMiddleware(),
-            ],
+            middleware=middlewares,
             name="planner_agent",
         )
 
@@ -292,13 +293,26 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["__end__"]]: The next step in the workflow.
         """
-        conditional_middlewares: list[AgentMiddleware] = []
+        middlewares: list[AgentMiddleware] = [
+            ExecutorMiddleware(),
+            FileNavigationMiddleware(),
+            FileEditingMiddleware(),
+            TodoListMiddleware(),
+            ModelFallbackMiddleware(first_model=BaseAgent.get_model(model=settings.EXECUTION_FALLBACK_MODEL_NAME)),
+            AnthropicPromptCachingMiddleware(),
+        ]
+
         if runtime.context.config.sandbox.enabled:
-            conditional_middlewares.append(
+            format_system_prompt = FORMAT_CODE_SYSTEM_PROMPT + dedent(
+                """\
+                **Formatting is non-blocking:** if cycles are exhausted after a prior PASS, proceed to Step 4 (non-abort) and report the formatting failure. Treat any `error:` as requiring a return to Step 2 (new cycle) to address the issues."""  # noqa: E501
+            )
+            middlewares.append(
                 SandboxMiddleware(
                     include_format_code=bool(
                         not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled
-                    )
+                    ),
+                    format_system_prompt=format_system_prompt,
                 )
             )
 
@@ -306,15 +320,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             model=BaseAgent.get_model(model=settings.EXECUTION_MODEL_NAME, max_tokens=8_192),
             state_schema=ExecutorState,
             context_schema=RuntimeCtx,
-            tools=(FileNavigationToolkit.get_tools() + FileEditingToolkit.get_tools() + [review_code_changes_tool]),
             store=runtime.store,
-            middleware=[
-                ExecutorMiddleware(),
-                *conditional_middlewares,
-                TodoListMiddleware(),
-                ModelFallbackMiddleware(first_model=BaseAgent.get_model(model=settings.EXECUTION_FALLBACK_MODEL_NAME)),
-                AnthropicPromptCachingMiddleware(),
-            ],
+            middleware=middlewares,
             response_format=ToolStrategy(FinishOutput),
             checkpointer=False,
             name="executor_agent",

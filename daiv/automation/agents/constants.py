@@ -10,18 +10,17 @@ class ModelName(StrEnum):
     """
 
     # Anthropic models
-    CLAUDE_OPUS_4_1 = "openrouter:anthropic/claude-opus-4.1"
+    CLAUDE_OPUS_4_5 = "openrouter:anthropic/claude-opus-4.5"
     CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
     CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
 
     # OpenAI models
-    O3 = "openrouter:openai/o3"
     GPT_4_1 = "openrouter:openai/gpt-4.1"
     GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
     GPT_4_1_NANO = "openrouter:openai/gpt-4.1-nano"
     GPT_5_1 = "openrouter:openai/gpt-5.1"
-    GPT_5_1_CODEX = "openrouter:openai/gpt-5-1-codex"
-    GPT_5_1_CODEX_MINI = "openrouter:openai/gpt-5-1-codex-mini"
+    GPT_5_1_CODEX = "openrouter:openai/gpt-5.1-codex"
+    GPT_5_1_CODEX_MINI = "openrouter:openai/gpt-5.1-codex-mini"
     GPT_5_MINI = "openrouter:openai/gpt-5-mini"
     GPT_5_NANO = "openrouter:openai/gpt-5-nano"
 
