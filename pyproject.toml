@@ -33,7 +33,7 @@ dependencies = [
   "langgraph-checkpoint-postgres==3.0.1",
   "langsmith[pytest]==0.4.43",
   "openevals==0.1.2",
-  "psycopg[pool]==3.2.12",
+  "psycopg[pool]==3.2.13",
   "pydantic==2.12.4",
   "pydantic-settings==2.12",
   "pygithub>=2.8.1",
