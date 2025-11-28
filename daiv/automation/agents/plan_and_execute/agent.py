@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.utils import timezone
@@ -25,7 +26,12 @@ from automation.agents.middleware import AgentsMDMiddleware, AnthropicPromptCach
 from automation.agents.tools.editing import FileEditingMiddleware
 from automation.agents.tools.merge_request import MergeRequestMiddleware
 from automation.agents.tools.navigation import FileNavigationMiddleware
-from automation.agents.tools.sandbox import BASH_TOOL_NAME, FORMAT_CODE_TOOL_NAME, SandboxMiddleware
+from automation.agents.tools.sandbox import (
+    BASH_TOOL_NAME,
+    FORMAT_CODE_SYSTEM_PROMPT,
+    FORMAT_CODE_TOOL_NAME,
+    SandboxMiddleware,
+)
 from automation.agents.tools.toolkits import MCPToolkit
 from automation.agents.tools.web_search import WebSearchMiddleware
 from codebase.context import RuntimeCtx
@@ -297,11 +303,16 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         ]
 
         if runtime.context.config.sandbox.enabled:
+            format_system_prompt = FORMAT_CODE_SYSTEM_PROMPT + dedent(
+                """\
+                **Formatting is non-blocking:** if cycles are exhausted after a prior PASS, proceed to Step 4 (non-abort) and report the formatting failure. Treat any `error:` as requiring a return to Step 2 (new cycle) to address the issues."""  # noqa: E501
+            )
             middlewares.append(
                 SandboxMiddleware(
                     include_format_code=bool(
                         not self.skip_format_code and runtime.context.config.sandbox.format_code_enabled
-                    )
+                    ),
+                    format_system_prompt=format_system_prompt,
                 )
             )
 

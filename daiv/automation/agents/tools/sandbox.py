@@ -219,7 +219,7 @@ Use this tool to run commands, scripts, tests, builds, and other shell operation
 FORMAT_CODE_SYSTEM_PROMPT = f"""\
 ## Format Code Tool
 
-You have access to a `{FORMAT_CODE_TOOL_NAME}` tool for applying code formatting and linting fixes to the repository to resolve style and linting issues.
+You have access to a `{FORMAT_CODE_TOOL_NAME}` tool for applying code formatting and linting fixes to the repository to resolve style and linting issues. **Modifies files in-place.**
 """  # noqa: E501
 
 
@@ -387,7 +387,13 @@ class SandboxMiddleware(AgentMiddleware):
 
     state_schema = SandboxState
 
-    def __init__(self, *, read_only_bash: bool = False, include_format_code: bool = False):
+    def __init__(
+        self,
+        *,
+        read_only_bash: bool = False,
+        include_format_code: bool = False,
+        format_system_prompt: str = FORMAT_CODE_SYSTEM_PROMPT,
+    ):
         """
         Initialize the middleware.
         """
@@ -396,6 +402,7 @@ class SandboxMiddleware(AgentMiddleware):
         self.tools = []
         self.read_only_bash = read_only_bash
         self.include_format_code = include_format_code
+        self.format_system_prompt = format_system_prompt
 
         if read_only_bash:
             self.tools.append(inspect_bash_tool)
@@ -461,7 +468,7 @@ class SandboxMiddleware(AgentMiddleware):
             system_prompt = SANDBOX_PLAN_SYSTEM_PROMPT
 
         if self.include_format_code:
-            system_prompt += "\n\n" + FORMAT_CODE_SYSTEM_PROMPT
+            system_prompt += "\n\n" + self.format_system_prompt
 
         request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
 

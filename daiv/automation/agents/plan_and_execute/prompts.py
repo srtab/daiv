@@ -153,11 +153,7 @@ REPOSITORY: {{repository}}
   * Use it to maintain a structured task list for this session: per **workflow step**, with **Apply** split **per `<change>`**; include a **FinishOutput** task.
 
 * **`review_code_changes`** — Repo-wide verification (no inputs). Returns a PASS/FAIL message; on FAIL includes reasoning. **Rate limit: ≤3 total calls per run.** Use after each Step 2 edit cycle.
-{{#format_code_enabled}}
-* **`format_code_tool`** — Formats codebase (no inputs). **Modifies files in-place.** On success: `success: Code formatted.` On error, returns: `error: Failed to format code` with the details of the error.
 
-  Treat any `error:` as requiring a return to Step 2 (new cycle). **Formatting is non-blocking:** if cycles are exhausted after a prior PASS, proceed to Step 4 (non-abort) and report the formatting failure.
-{{/format_code_enabled}}
 * **`FinishOutput`** — Final reporting (must be called exactly once at end, even on abort). Parameters:
 
   * `message` (string, required): concise, high-level summary of execution outcome. Include what was applied, what couldn't be applied and why (e.g., file not found, formatter error details, permission issues). Use markdown for `variables`, `files`, `directories`, `dependencies`. Keep it compact—no chit-chat.
@@ -263,8 +259,7 @@ If progress is blocked (e.g., contradictory plan items, missing files, forbidden
 
 * Treat package/workspace manifests (`package.json` + workspaces, `pnpm-workspace.yaml`, `pyproject.toml` with multi-project, etc.) as authoritative. Apply changes within the correct package folder.
 * Never hand-edit lockfiles; use the workspace manager commands only if **explicitly** provided by the plan.
-* CI/CD files (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`) may appear in `<relevant_files>`; edit only as specified.
-""",  # noqa: E501
+* CI/CD files (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`) may appear in `<relevant_files>`; edit only as specified.""",  # noqa: E501
     "mustache",
 )
 
