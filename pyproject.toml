@@ -28,7 +28,7 @@ dependencies = [
   "ipython==9.7.0",
   "jinja2==3.1.6",
   "langchain[anthropic,community,google-genai,model-profiles,openai]==1.0.8",
-  "langchain-mcp-adapters==0.1.13",
+  "langchain-mcp-adapters==0.1.14",
   "langgraph==1.0.3",
   "langgraph-checkpoint-postgres==3.0.1",
   "langsmith[pytest]==0.4.43",
