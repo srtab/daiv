@@ -158,6 +158,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         *,
         skip_approval: bool = False,
         skip_format_code: bool = False,
+        include_web_search: bool = True,
         specialized_planner_prompt: str | None = None,
         planning_model_names: list[ModelName | str] = (
             settings.PLANNING_MODEL_NAME,
@@ -175,18 +176,20 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Args:
             skip_approval (bool): Whether to skip the approval step.
             skip_format_code (bool): Whether to skip the format code step.
+            include_web_search (bool): Whether to include the web search tool.
             specialized_planner_prompt (str | None): The specialized planner prompt to use.
             planning_model_names (list[ModelName | str]): The names of the planning models to use.
             execution_model_names (list[ModelName | str]): The names of the execution models to use.
         """
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
+        self.include_web_search = include_web_search
         self.specialized_planner_prompt = specialized_planner_prompt
         self._planning_model = BaseAgent.get_model(
             model=planning_model_names[0], max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
         )
         self._planning_fallback_models = [
-            BaseAgent.get_model(model=model_name, thinking_level=settings.PLANNING_THINKING_LEVEL)
+            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL)
             for model_name in planning_model_names[1:]
         ]
         self._execution_model = BaseAgent.get_model(model=execution_model_names[0], max_tokens=8_192)
@@ -224,35 +227,33 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             Command[Literal["plan_approval", "__end__"]]: The next step in the workflow.
         """
-        model = BaseAgent.get_model(
-            model=settings.PLANNING_MODEL_NAME, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
-        )
 
         middlewares: list[AgentMiddleware] = [
             PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
             FileNavigationMiddleware(),
-            WebSearchMiddleware(),
-            InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
-            AgentsMDMiddleware(),
-            TodoListMiddleware(),
-            ModelFallbackMiddleware(
-                first_model=BaseAgent.get_model(
-                    model=settings.PLANNING_FALLBACK_MODEL_NAME, thinking_level=settings.PLANNING_THINKING_LEVEL
+            InjectImagesMiddleware(
+                image_inputs_supported=bool(
+                    self._planning_model.profile and self._planning_model.profile.get("image_inputs", True)
                 )
             ),
+            AgentsMDMiddleware(),
+            TodoListMiddleware(),
             AnthropicPromptCachingMiddleware(),
         ]
 
-        if self._planning_fallback_models:
-            middlewares.append(
-                ModelFallbackMiddleware(self._planning_fallback_models[0], *self._planning_fallback_models[1:])
-            )
+        if self.include_web_search:
+            middlewares.append(WebSearchMiddleware())
 
         if runtime.context.merge_request_id:
             middlewares.append(MergeRequestMiddleware())
 
         if runtime.context.config.sandbox.enabled:
             middlewares.append(SandboxMiddleware(read_only_bash=True))
+
+        if self._planning_fallback_models:
+            middlewares.append(
+                ModelFallbackMiddleware(self._planning_fallback_models[0], *self._planning_fallback_models[1:])
+            )
 
         planner_agent = create_agent(
             model=self._planning_model,

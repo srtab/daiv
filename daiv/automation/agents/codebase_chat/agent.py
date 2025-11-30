@@ -54,7 +54,9 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
             middleware=[
                 codebase_chat_system_prompt,
                 FileNavigationMiddleware(),
-                InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+                InjectImagesMiddleware(
+                    image_inputs_supported=bool(model.profile and model.profile.get("image_inputs", True))
+                ),
                 AnthropicPromptCachingMiddleware(),
             ],
             name=settings.NAME,

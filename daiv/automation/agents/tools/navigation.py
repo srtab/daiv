@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-READ_MAX_LINES = 2000
+READ_MAX_LINES = 500
 
 GLOB_TOOL_NAME = "glob"
 GREP_TOOL_NAME = "grep"

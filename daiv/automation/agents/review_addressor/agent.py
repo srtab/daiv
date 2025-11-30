@@ -91,7 +91,9 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             FileNavigationMiddleware(),
             WebSearchMiddleware(),
             MergeRequestMiddleware(),
-            InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+            InjectImagesMiddleware(
+                image_inputs_supported=bool(model.profile and model.profile.get("image_inputs", True))
+            ),
             AnthropicPromptCachingMiddleware(),
         ]
         return create_agent(

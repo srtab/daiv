@@ -11,7 +11,7 @@ class TestSWERepoClient:
     @pytest.fixture
     def swe_client(self):
         """Create a SWERepoClient instance."""
-        return SWERepoClient()
+        return SWERepoClient("github.com")
 
     def test_get_repository_success(self, swe_client):
         """Test successful repository creation."""

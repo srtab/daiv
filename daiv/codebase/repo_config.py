@@ -156,7 +156,7 @@ class RepositoryConfig(BaseModel):
         examples=["**/tests/**", "requirements.txt"],
     )
     omit_content_patterns: tuple[str, ...] = Field(
-        default=("*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg", "*.sql"),
+        default=("*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"),
         description=(
             "List of path patterns that DAIV can see they exist in the repository but not their content. "
             "This is useful to avoid indexing large files that are not relevant to the codebase or that are generated. "

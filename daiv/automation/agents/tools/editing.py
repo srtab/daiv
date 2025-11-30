@@ -91,7 +91,7 @@ async def edit_tool(
     """
     Tool to perform exact string replacements in files.
     """  # noqa: E501
-    logger.debug("[%s] Editing file '%s'", edit_tool.name, file_path)
+    logger.info("[%s] Editing file '%s'", edit_tool.name, file_path)
 
     resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
@@ -144,7 +144,7 @@ async def write_tool(
     """
     Tool to write content to a file.
     """  # noqa: E501
-    logger.debug("[%s] Writing to file '%s'", write_tool.name, file_path)
+    logger.info("[%s] Writing to file '%s'", write_tool.name, file_path)
 
     resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
     file_exists = resolved_file_path.exists()
@@ -183,7 +183,7 @@ async def delete_tool(
     """
     Tool to delete a file or directory from the repository.
     """  # noqa: E501
-    logger.debug("[%s] Deleting path '%s'", delete_tool.name, path)
+    logger.info("[%s] Deleting path '%s'", delete_tool.name, path)
 
     resolved_path = (Path(runtime.context.repo.working_dir) / path.strip()).resolve()
 
@@ -225,7 +225,7 @@ async def rename_tool(
     """
     Tool to rename a file in the repository.
     """  # noqa: E501
-    logger.debug("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
+    logger.info("[%s] Renaming file '%s' to '%s'", rename_tool.name, file_path, new_file_path)
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
     resolved_file_path = (repo_working_dir / file_path.strip()).resolve()

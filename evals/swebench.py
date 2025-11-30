@@ -33,8 +33,12 @@ async def main(
 
         plan_and_execute = await PlanAndExecuteAgent.get_runnable(
             store=store,
+            # No need to approve the plan
             skip_approval=True,
+            # Repositories won't have a format code configured
             skip_format_code=True,
+            # Avoid llm searching the web for information that can lead to the solution or to confusing information
+            include_web_search=False,
             planning_model_names=planning_model_names,
             execution_model_names=execution_model_names,
         )
@@ -44,16 +48,24 @@ async def main(
         ) as ctx:
             human_message = dedent(
                 """\
-                ## Problem Statement:
-                ```
+                You are given a problem statement and some hints extracted from the issue tracker to help you understand the problem that you are trying to solve.
+
+                ## Problem Statement
+                ```markdown
                 {problem_statement}
                 ```
 
-                ## Hints:
+                ## Hints
+
+                These hints are **contextual clues**, not authoritative decisions. They may come from:
+                - Issue reporters (who might misunderstand the intended behavior)
+                - Discussion threads (where conclusions may be incomplete)
+                - Maintainer comments (which carry more weight)
+
                 ```
                 {hints_text}
                 ```
-                """
+                """  # noqa: E501
             ).format(problem_statement=item["problem_statement"], hints_text=item["hints_text"])
 
             try:
@@ -81,8 +93,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path", type=str, default="SWE-bench/SWE-bench_Lite")
     parser.add_argument("--dataset-split", type=str, default="dev")
     parser.add_argument("--num-samples", type=int)
-    parser.add_argument("--planning-model-names", type=str, nargs="+", default=[ModelName.Z_AI_GLM_4_6])
-    parser.add_argument("--execution-model-names", type=str, nargs="+", default=[ModelName.QWEN_3_CODER_PLUS])
+    parser.add_argument("--planning-model-names", type=str, nargs="+", default=[ModelName.CLAUDE_SONNET_4_5])
+    parser.add_argument("--execution-model-names", type=str, nargs="+", default=[ModelName.CLAUDE_SONNET_4_5])
 
     args = parser.parse_args()
 
