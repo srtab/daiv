@@ -42,3 +42,6 @@ class ModelName(StrEnum):
 
     # MoonshotAI models
     MOONSHOTAI_KIMI_K2_THINKING = "openrouter:moonshotai/kimi-k2-thinking"
+
+    # Minimax models
+    MINIMAX_M2 = "openrouter:minimax/minimax-m2"

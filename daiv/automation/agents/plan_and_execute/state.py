@@ -24,6 +24,11 @@ class PlanAndExecuteState(MessagesState):
     The message to inform the user that the plan has no changes needed.
     """
 
+    execution_aborted: bool
+    """
+    Whether the execution of the plan was aborted.
+    """
+
 
 class ExecutorState(AgentState):
     """

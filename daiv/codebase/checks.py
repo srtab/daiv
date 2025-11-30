@@ -31,4 +31,6 @@ def check_api_keys(app_configs, **kwargs):
             )
         )
 
+    # SWE client doesn't require any API keys
+
     return errors

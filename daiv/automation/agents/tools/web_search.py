@@ -27,14 +27,16 @@ Usage:
   - Get latest library versions and installation guides
   - Find code examples and implementation patterns
 
+IMPORTANT: Account for "CURRENT DATE" in. For example, if says "CURRENT DATE: 2025-07-01", and the user wants the latest docs, do not use 2024 in the search query. Use 2025.
+
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
   - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`
-"""
+"""  # noqa: E501
 
 
-WEB_SEARCH_SYSTEM_PROMPT = """\
+WEB_SEARCH_SYSTEM_PROMPT = f"""\
 ## Web Search tool
 
 You have access to the `{WEB_SEARCH_NAME}` tool to search the web for programming documentation and solutions.

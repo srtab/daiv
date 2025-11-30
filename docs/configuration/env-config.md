@@ -123,10 +123,12 @@ Variables marked with:
 
 | Variable            | Description                              | Default   | Example   |
 |---------------------|------------------------------------------|:---------:|-----------|
-| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab` or `github`  |
+| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab`, `github`, or `swe`  |
 
 !!! note
-    Set `CODEBASE_CLIENT` to either `gitlab` or `github` depending on which platform you want to use. Only one platform can be active at a time.
+    Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.
+
+    The `swe` client type is designed for SWE-bench style evaluations and clones public OSS repositories to temporary directories without requiring credentials. It uses ephemeral temporary clones per run and does not cache repositories across runs. Repository identifiers should be in the format `owner/name` (e.g., `psf/requests`).
 
 ### GitLab Integration
 

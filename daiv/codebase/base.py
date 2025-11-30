@@ -11,6 +11,7 @@ from core.constants import BOT_LABEL
 class ClientType(StrEnum):
     GITLAB = "gitlab"
     GITHUB = "github"
+    SWE = "swe"
 
 
 class Repository(BaseModel):
