@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-READ_MAX_LINES = 500
+READ_MAX_LINES = 2000
+DEFAULT_READ_LIMIT = 500
 
 GLOB_TOOL_NAME = "glob"
 GREP_TOOL_NAME = "grep"
@@ -92,7 +93,7 @@ Lists files and directories in a given path. The path parameter must be a relati
 """  # noqa: E501
 
 
-READ_TOOL_DESCRIPTION = """\
+READ_TOOL_DESCRIPTION = f"""\
 Reads the content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 **Usage rules:**
@@ -100,8 +101,8 @@ Reads the content of a file from the repository. You can access any file directl
  - Results are returned with line numbers starting at 1 (e.g., "1: line1\\n2: line2\\n3: line3")
  - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
  - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
- - You can optionally provide the `start_line` and `max_lines` parameters, useful for reading long files, but it's recommended to read the whole file by not providing these parameters.
- - When content is truncated, a message indicates the range shown and total lines available, guiding further reads (e.g., "[Showing lines 1-2000 of 5000 total lines. Use start_line parameter to read more.]").
+ - You can optionally provide the `start_line` and `limit` parameters, useful for reading long files, but it's recommended to read the whole file by not providing these parameters. The default limit is {DEFAULT_READ_LIMIT} lines. You can increase the limit up to {READ_MAX_LINES} lines.
+ - When content is truncated, a message indicates the range shown and total lines available, guiding further reads (e.g., "[Showing lines 1-{DEFAULT_READ_LIMIT} of 5000 total lines. Use start_line parameter to read more.]").
 """  # noqa: E501
 
 FILE_NAVIGATION_SYSTEM_PROMPT = f"""\
@@ -242,16 +243,14 @@ async def read_tool(
     start_line: Annotated[
         int, "The line number to start reading from. Only provide if the file is too large to read at once"
     ] = 1,
-    max_lines: Annotated[
+    limit: Annotated[
         int, "The number of lines to read. Only provide if the file is too large to read at once."
-    ] = READ_MAX_LINES,
+    ] = DEFAULT_READ_LIMIT,
 ) -> str:
     """
     Tool to read the content of a file from the repository.
     """  # noqa: E501
-    logger.info(
-        "[%s] Reading file '%s' (start_line=%d, max_lines=%d)", read_tool.name, file_path, start_line, max_lines
-    )
+    logger.info("[%s] Reading file '%s' (start_line=%d, limit=%d)", read_tool.name, file_path, start_line, limit)
 
     resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
@@ -281,6 +280,9 @@ async def read_tool(
     if start_line < 1:
         return f"error: start_line must be >= 1, got {start_line}."
 
+    if limit > READ_MAX_LINES:
+        limit = READ_MAX_LINES
+
     lines = content.splitlines()
     total_lines = len(lines)
 
@@ -288,7 +290,7 @@ async def read_tool(
         return f"error: start_line ({start_line}) exceeds total lines ({total_lines}) in file '{file_path}'."
 
     start_idx = start_line - 1
-    end_idx = min(start_idx + max_lines, total_lines)
+    end_idx = min(start_idx + limit, total_lines)
     selected_lines = lines[start_idx:end_idx]
 
     # Format output with actual line numbers from the file
