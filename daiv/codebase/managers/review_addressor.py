@@ -263,6 +263,8 @@ class ReviewAddressorManager(BaseManager):
                 elif result.get("plan_and_execute") == "completed":
                     started_discussions.remove(discussion)
                     resolved_discussions.append(discussion)
+                elif result.get("plan_and_execute") == "aborted":
+                    started_discussions.remove(discussion)
 
                 if result.get("reply_reviewer") == "starting":
                     self.client.create_merge_request_note_emoji(

@@ -259,6 +259,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 # if not, we share the final message from the agent with the human
                 completed_data["reply"] = extract_text_content(result["messages"][-1].content)
 
+                if result.get("execution_aborted"):
+                    completed_data["plan_and_execute"] = "aborted"
+
             stream_writer(completed_data)
         return {}
 

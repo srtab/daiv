@@ -328,7 +328,6 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             FileNavigationMiddleware(),
             FileEditingMiddleware(),
             TodoListMiddleware(),
-            ModelFallbackMiddleware(first_model=BaseAgent.get_model(model=settings.EXECUTION_FALLBACK_MODEL_NAME)),
             AnthropicPromptCachingMiddleware(),
         ]
 
@@ -375,4 +374,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
 
         structured_response: FinishOutput = response["structured_response"]
 
-        return Command(goto=END, update={"messages": [AIMessage(content=structured_response.message)]})
+        return Command(
+            goto=END,
+            update={
+                "messages": [AIMessage(content=structured_response.message)],
+                "execution_aborted": structured_response.aborting,
+            },
+        )
