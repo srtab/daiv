@@ -193,7 +193,10 @@ class IssueAddressorManager(BaseManager):
                 self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
 
             if self.git_manager.is_dirty():
-                if merge_request_id := await self._commit_changes(thread_id=self.thread_id):
+                if result and result.get("execution_aborted"):
+                    self._add_execution_aborted_note(result["messages"][-1].content)
+
+                elif merge_request_id := await self._commit_changes(thread_id=self.thread_id):
                     self._add_issue_processed_note(
                         merge_request_id, result and extract_text_content(result["messages"][-1].content)
                     )
@@ -337,6 +340,19 @@ class IssueAddressorManager(BaseManager):
             render_to_string(
                 "codebase/issue_unable_execute_plan.txt",
                 {"bot_name": BOT_NAME, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
+            )
+        )
+
+    def _add_execution_aborted_note(self, message: str):
+        """
+        Add a note to the issue to inform the user that the plan execution was aborted.
+        """
+        from quick_actions.actions.plan import ApprovePlanQuickAction
+
+        self._create_or_update_comment(
+            render_to_string(
+                "codebase/issue_execution_aborted.txt",
+                {"message": message, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
             )
         )
 
