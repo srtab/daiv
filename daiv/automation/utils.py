@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from codebase.context import get_runtime_ctx
+from codebase.utils import get_repo_ref
 
 if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
@@ -35,7 +36,7 @@ async def register_file_read(store: BaseStore, file_path: str):
         file_path: The path to the file that was read.
     """
     ctx = get_runtime_ctx()
-    namespace = file_reads_namespace(ctx.repo_id, ctx.repo.active_branch.name)
+    namespace = file_reads_namespace(ctx.repo_id, get_repo_ref(ctx.repo))
 
     await store.aput(namespace=namespace, key=file_path, value={"data": True})
 
@@ -52,6 +53,6 @@ async def check_file_read(store: BaseStore, file_path: str) -> bool:
         True if the file has been read, False otherwise.
     """
     ctx = get_runtime_ctx()
-    namespace = file_reads_namespace(ctx.repo_id, ctx.repo.active_branch.name)
+    namespace = file_reads_namespace(ctx.repo_id, get_repo_ref(ctx.repo))
 
     return await store.aget(namespace=namespace, key=file_path) is not None

@@ -91,7 +91,9 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
             FileNavigationMiddleware(),
             WebSearchMiddleware(),
             MergeRequestMiddleware(),
-            InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True)),
+            InjectImagesMiddleware(
+                image_inputs_supported=bool(model.profile and model.profile.get("image_inputs", True))
+            ),
             AnthropicPromptCachingMiddleware(),
         ]
         return create_agent(
@@ -256,6 +258,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
                 # if a plan has been generated, means that the changes have been applied
                 # if not, we share the final message from the agent with the human
                 completed_data["reply"] = extract_text_content(result["messages"][-1].content)
+
+                if result.get("execution_aborted"):
+                    completed_data["plan_and_execute"] = "aborted"
 
             stream_writer(completed_data)
         return {}

@@ -6,7 +6,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from langchain.agents.middleware import AgentMiddleware, ModelRequest
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
 )
@@ -23,7 +23,9 @@ from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 if TYPE_CHECKING:
-    from langchain.agents.middleware.types import AgentState
+    from collections.abc import Awaitable, Callable
+
+    from langchain.agents.middleware.types import AgentState, ModelCallResult
     from langchain_core.language_models import BaseChatModel
     from langgraph.runtime import Runtime
 
@@ -269,17 +271,18 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         """
         Check if caching should be applied to the request.
         """
-        if self.is_anthropic_model(request.model):
+        if self._is_openrouter_anthropic_model(request.model):
             messages_count = len(request.messages) + 1 if request.system_prompt else len(request.messages)
             return messages_count >= self.min_messages_to_cache
         return super()._should_apply_caching(request)
 
-    def _apply_cache_control(self, request: ModelRequest) -> None:
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelCallResult:
         """
         Apply cache control to the request.
-
         """
-        if self.is_anthropic_model(request.model):
+        if self._is_openrouter_anthropic_model(request.model) and self._should_apply_caching(request):
             for message in reversed(request.messages):
                 if message.content_blocks and "cache_control" in message.content_blocks[-1]:
                     del message.content_blocks[-1]["cache_control"]
@@ -288,10 +291,10 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
                 request.messages[-1].content = [create_text_block(request.messages[-1].content)]
 
             request.messages[-1].content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
-        else:
-            super()._apply_cache_control(request)
+            return await handler(request)
+        return super().awrap_model_call(request, handler)
 
-    def is_anthropic_model(self, model: BaseChatModel) -> bool:
+    def _is_openrouter_anthropic_model(self, model: BaseChatModel) -> bool:
         """
         Check if the model is an OpenRouter Anthropic model.
         """

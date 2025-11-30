@@ -5,7 +5,7 @@ import functools
 import logging
 from enum import StrEnum
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from codebase.base import ClientType, Discussion, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.conf import settings
@@ -165,25 +165,30 @@ class RepoClient(abc.ABC):
 
     @staticmethod
     @functools.cache
-    def create_instance() -> RepoClient:
+    def create_instance(*, client_slug: ClientType = settings.CLIENT, **kwargs: Any) -> RepoClient:
         """
         Get the repository client based on the configuration.
+
+        Args:
+            client_slug: The client slug to use.
 
         Returns:
             The repository client instance.
         """
         from .github import GitHubClient
         from .gitlab import GitLabClient
+        from .swe import SWERepoClient
 
-        if settings.CLIENT == ClientType.GITLAB:
+        if client_slug == ClientType.GITLAB:
             assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
 
             return GitLabClient(
                 auth_token=settings.GITLAB_AUTH_TOKEN.get_secret_value(),
                 url=settings.GITLAB_URL and str(settings.GITLAB_URL) or None,
+                **kwargs,
             )
 
-        if settings.CLIENT == ClientType.GITHUB:
+        if client_slug == ClientType.GITHUB:
             assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
             assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
             assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
@@ -193,6 +198,10 @@ class RepoClient(abc.ABC):
                 app_id=settings.GITHUB_APP_ID,
                 installation_id=settings.GITHUB_INSTALLATION_ID,
                 url=settings.GITHUB_URL and str(settings.GITHUB_URL) or None,
+                **kwargs,
             )
+
+        if client_slug == ClientType.SWE:
+            return SWERepoClient(**kwargs)
 
         raise ValueError("Invalid repository client configuration")

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 READ_MAX_LINES = 2000
+DEFAULT_READ_LIMIT = 500
 
 GLOB_TOOL_NAME = "glob"
 GREP_TOOL_NAME = "grep"
@@ -37,7 +38,7 @@ Find files by name using a glob pattern.
 
 **Usage rules:**
  - Supports glob patterns like "*.js" or "src/*.ts".
- - Returns matching file paths sorted by name.
+ - Returns matching file paths sorted by name
  - Use this tool when you need to find files by name patterns.
  - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
 
@@ -92,14 +93,16 @@ Lists files and directories in a given path. The path parameter must be a relati
 """  # noqa: E501
 
 
-READ_TOOL_DESCRIPTION = """\
-Reads the full content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+READ_TOOL_DESCRIPTION = f"""\
+Reads the content of a file from the repository. You can access any file directly by using this tool. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 **Usage rules:**
  - The `file_path` must be a relative path to the repository root.
  - Results are returned with line numbers starting at 1 (e.g., "1: line1\\n2: line2\\n3: line3")
  - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
  - This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
+ - You can optionally provide the `start_line` and `limit` parameters, useful for reading long files, but it's recommended to read the whole file by not providing these parameters. The default limit is {DEFAULT_READ_LIMIT} lines. You can increase the limit up to {READ_MAX_LINES} lines.
+ - When content is truncated, a message indicates the range shown and total lines available, guiding further reads (e.g., "[Showing lines 1-{DEFAULT_READ_LIMIT} of 5000 total lines. Use start_line parameter to read more.]").
 """  # noqa: E501
 
 FILE_NAVIGATION_SYSTEM_PROMPT = f"""\
@@ -235,12 +238,19 @@ def ls_tool(path: Annotated[str, "The relative path to the repository root."], r
 
 @tool(READ_TOOL_NAME, description=READ_TOOL_DESCRIPTION)
 async def read_tool(
-    file_path: Annotated[str, "The relative path to the file to read."], runtime: ToolRuntime[RuntimeCtx]
+    file_path: Annotated[str, "The relative path to the file to read."],
+    runtime: ToolRuntime[RuntimeCtx],
+    start_line: Annotated[
+        int, "The line number to start reading from. Only provide if the file is too large to read at once"
+    ] = 1,
+    limit: Annotated[
+        int, "The number of lines to read. Only provide if the file is too large to read at once."
+    ] = DEFAULT_READ_LIMIT,
 ) -> str:
     """
-    Tool to read the full content of a file from the repository.
+    Tool to read the content of a file from the repository.
     """  # noqa: E501
-    logger.info("[%s] Reading file '%s'", read_tool.name, file_path)
+    logger.info("[%s] Reading file '%s' (start_line=%d, limit=%d)", read_tool.name, file_path, start_line, limit)
 
     resolved_file_path = (Path(runtime.context.repo.working_dir) / file_path.strip()).resolve()
 
@@ -264,11 +274,40 @@ async def read_tool(
     if not (content := resolved_file_path.read_text()):
         return f"warning: The file '{file_path}' exists but is empty."
 
-    # If the file is an image, return the image template.
     if mime_type := extract_valid_image_mimetype(content.encode()):
         return ImageContentBlock(type="image", base64=base64.b64encode(content.encode()).decode(), mime_type=mime_type)
 
-    return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(content.splitlines()))
+    if start_line < 1:
+        return f"error: start_line must be >= 1, got {start_line}."
+
+    if limit > READ_MAX_LINES:
+        limit = READ_MAX_LINES
+
+    lines = content.splitlines()
+    total_lines = len(lines)
+
+    if start_line > total_lines:
+        return f"error: start_line ({start_line}) exceeds total lines ({total_lines}) in file '{file_path}'."
+
+    start_idx = start_line - 1
+    end_idx = min(start_idx + limit, total_lines)
+    selected_lines = lines[start_idx:end_idx]
+
+    # Format output with actual line numbers from the file
+    result_lines = [f"{i}: {line}" for i, line in enumerate(selected_lines, start=start_line)]
+
+    is_truncated_at_start = start_line > 1
+    is_truncated_at_end = end_idx < total_lines
+
+    to_return = "\n".join(result_lines)
+
+    if is_truncated_at_start or is_truncated_at_end:
+        to_return += (
+            f"\n[Showing lines {start_line}-{end_idx} of {total_lines} total lines. "
+            "Use start_line parameter to read more.]"
+        )
+
+    return to_return
 
 
 class FileNavigationMiddleware(AgentMiddleware):
