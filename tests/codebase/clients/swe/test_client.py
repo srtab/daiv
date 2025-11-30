@@ -30,7 +30,7 @@ class TestSWERepoClient:
 
     def test_get_repository_custom_host(self):
         """Test repository creation with custom GitHub host."""
-        client = SWERepoClient(github_host="github.example.com")
+        client = SWERepoClient(repo_host="github.example.com")
         repo = client.get_repository("owner/repo")
 
         assert repo.clone_url == "https://github.example.com/owner/repo.git"
@@ -53,19 +53,18 @@ class TestSWERepoClient:
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
         repository = swe_client.get_repository("psf/requests")
-        repo_gen = swe_client.load_repo(repository, "abc123")
 
-        repo = next(repo_gen)
-
-        assert repo == mock_repo
-        mock_clone.assert_called_once_with("https://github.com/psf/requests.git", mock_tmpdir, depth=1)
-        mock_repo.git.checkout.assert_called_once_with("abc123")
+        with swe_client.load_repo(repository, "abc123") as repo:
+            assert repo == mock_repo
+            mock_clone.assert_called_once_with("https://github.com/psf/requests.git", mock_tmpdir)
+            mock_repo.git.checkout.assert_called_once_with("abc123")
 
     @patch("codebase.clients.swe.Repo.clone_from")
     @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
     def test_get_repository_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful file retrieval."""
         mock_repo = Mock()
+        mock_repo.working_dir = str(tmp_path)
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -76,7 +75,9 @@ class TestSWERepoClient:
         test_file = tmp_path / "test.py"
         test_file.write_text("print('hello')")
 
-        result = swe_client.get_repository_file("psf/requests", "test.py", "main")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.get_repository_file("psf/requests", "test.py", "main")
 
         assert result == "print('hello')"
 
@@ -85,13 +86,16 @@ class TestSWERepoClient:
     def test_get_repository_file_not_found(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file doesn't exist."""
         mock_repo = Mock()
+        mock_repo.working_dir = str(tmp_path)
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
         mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
-        result = swe_client.get_repository_file("psf/requests", "nonexistent.py", "main")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.get_repository_file("psf/requests", "nonexistent.py", "main")
 
         assert result is None
 
@@ -101,16 +105,21 @@ class TestSWERepoClient:
     def test_get_repository_file_binary(self, mock_read_text, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file is binary."""
         mock_repo = Mock()
+        mock_repo.working_dir = str(tmp_path)
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
         mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
-        # Mock read_text to raise UnicodeDecodeError
+        # Create a file and mock read_text to raise UnicodeDecodeError
+        test_file = tmp_path / "test.bin"
+        test_file.write_bytes(b"\x00\x01\x02")
         mock_read_text.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")
 
-        result = swe_client.get_repository_file("psf/requests", "test.bin", "main")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.get_repository_file("psf/requests", "test.bin", "main")
 
         assert result is None
 
@@ -119,6 +128,7 @@ class TestSWERepoClient:
     def test_get_project_uploaded_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful uploaded file retrieval."""
         mock_repo = Mock()
+        mock_repo.working_dir = str(tmp_path)
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -129,7 +139,9 @@ class TestSWERepoClient:
         test_file = tmp_path / "image.png"
         test_file.write_bytes(b"image content")
 
-        result = swe_client.get_project_uploaded_file("psf/requests", "image.png")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.get_project_uploaded_file("psf/requests", "image.png")
 
         assert result == b"image content"
 
@@ -139,13 +151,16 @@ class TestSWERepoClient:
         """Test branch existence check when branch exists."""
         mock_repo = Mock()
         mock_repo.git.fetch = Mock()
+        mock_repo.git.checkout = Mock()
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = "/tmp/test-repo"  # NOQA
         mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
-        result = swe_client.repository_branch_exists("psf/requests", "main")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.repository_branch_exists("psf/requests", "main")
 
         assert result is True
         mock_repo.git.fetch.assert_called_once_with("origin", "main")
@@ -156,13 +171,16 @@ class TestSWERepoClient:
         """Test branch existence check when branch doesn't exist."""
         mock_repo = Mock()
         mock_repo.git.fetch = Mock(side_effect=Exception("Branch not found"))
+        mock_repo.git.checkout = Mock()
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = "/tmp/test-repo"  # NOQA
         mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
-        result = swe_client.repository_branch_exists("psf/requests", "nonexistent")
+        repository = swe_client.get_repository("psf/requests")
+        with swe_client.load_repo(repository, "main"):
+            result = swe_client.repository_branch_exists("psf/requests", "nonexistent")
 
         assert result is False
 
