@@ -292,7 +292,7 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
 
             request.messages[-1].content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
             return await handler(request)
-        return super().awrap_model_call(request, handler)
+        return await super().awrap_model_call(request, handler)
 
     def _is_openrouter_anthropic_model(self, model: BaseChatModel) -> bool:
         """
