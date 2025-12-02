@@ -10,7 +10,7 @@ class PlanAndExecuteSettings(BaseSettings):
     Settings for the plan and execute agent.
     """
 
-    model_config = SettingsConfigDict(env_prefix="PLAN_AND_EXECUTE_")
+    model_config = SettingsConfigDict(env_prefix="PLAN_AND_EXECUTE_", env_parse_none_str="None")
 
     NAME: str = Field(default="PlanAndExecute", description="Name of the plan and execute agent.")
     PLANNING_RECURSION_LIMIT: int = Field(default=100, description="Recursion limit for the plan agent.")

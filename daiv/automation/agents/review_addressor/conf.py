@@ -5,7 +5,7 @@ from automation.agents.constants import ModelName
 
 
 class ReviewAddressorSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="REVIEW_ADDRESSOR_")
+    model_config = SettingsConfigDict(env_prefix="REVIEW_ADDRESSOR_", env_parse_none_str="None")
 
     NAME: str = Field(default="ReviewAddressor", description="Name of the review addressor agent shown on LangSmith.")
     REVIEW_COMMENT_MODEL_NAME: ModelName | str = Field(

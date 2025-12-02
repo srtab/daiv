@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class CodebaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_")
+    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_", env_parse_none_str="None")
 
     CLIENT: Literal["gitlab", "github", "swe"] = Field(
         default="gitlab", description="Client to use for codebase operations"
