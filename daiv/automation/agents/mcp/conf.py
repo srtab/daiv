@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class MCPSettings(BaseSettings):
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="MCP_")
+    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="MCP_", env_parse_none_str="None")
 
     PROXY_HOST: HttpUrl = Field(default=HttpUrl("http://mcp-proxy:9090"), description="The host of the MCP proxy")
     PROXY_ADDR: str = Field(default=":9090", description="The address the MCP proxy listens on.")

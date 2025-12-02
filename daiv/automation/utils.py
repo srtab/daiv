@@ -13,6 +13,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.utils")
 
 
+def _sanitize_namespace_label(label: str) -> str:
+    """
+    Sanitize a namespace label for use in LangGraph store.
+
+    LangGraph store namespace labels cannot contain periods ('.').
+    This function replaces periods with underscores.
+
+    Args:
+        label: The namespace label to sanitize.
+
+    Returns:
+        The sanitized namespace label.
+    """
+    return label.replace(".", "_")
+
+
 def file_reads_namespace(repo_id: str, ref: str) -> tuple[str, ...]:
     """
     Namespace to register file reads in the store.
@@ -24,7 +40,7 @@ def file_reads_namespace(repo_id: str, ref: str) -> tuple[str, ...]:
     Returns:
         The store namespace for the file reads.
     """
-    return (repo_id, ref, "file_reads")
+    return (_sanitize_namespace_label(repo_id), _sanitize_namespace_label(ref), "file_reads")
 
 
 async def register_file_read(store: BaseStore, file_path: str):
