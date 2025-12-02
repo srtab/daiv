@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AutomationSettings(BaseSettings):
-    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="AUTOMATION_")
+    model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="AUTOMATION_", env_parse_none_str="None")
 
     # OpenRouter settings
     OPENROUTER_API_KEY: SecretStr | None = Field(
