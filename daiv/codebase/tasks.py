@@ -21,7 +21,7 @@ async def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = Non
         ref (str): The reference.
         should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    async with set_runtime_ctx(repo_id, ref=ref) as runtime_ctx:
+    async with set_runtime_ctx(repo_id, ref=ref, scope="issue") as runtime_ctx:
         await IssueAddressorManager.plan_issue(
             issue_iid=issue_iid, runtime_ctx=runtime_ctx, should_reset_plan=should_reset_plan
         )
@@ -38,7 +38,7 @@ async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_requ
         merge_request_id (int): The merge request id.
         merge_request_source_branch (str): The merge request source branch.
     """
-    async with set_runtime_ctx(repo_id, ref=merge_request_source_branch) as runtime_ctx:
+    async with set_runtime_ctx(repo_id, ref=merge_request_source_branch, scope="merge_request") as runtime_ctx:
         await ReviewAddressorManager.process_review_comments(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx)
 
 
@@ -54,6 +54,6 @@ async def address_mr_comments_task(repo_id: str, merge_request_id: int, merge_re
         merge_request_source_branch (str): The merge request source branch.
     """
     async with set_runtime_ctx(
-        repo_id, ref=merge_request_source_branch, merge_request_id=merge_request_id
+        repo_id, ref=merge_request_source_branch, merge_request_id=merge_request_id, scope="merge_request"
     ) as runtime_ctx:
         await ReviewAddressorManager.process_comments(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx)

@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from automation.agents.tools.mcp.base import MCPServer
-from automation.agents.tools.mcp.schemas import CommonOptions, StdioMcpServer
+from automation.agents.mcp.base import MCPServer
+from automation.agents.mcp.schemas import CommonOptions, StdioMcpServer
 
 
 class ConcreteMCPServer(MCPServer):
@@ -54,7 +54,7 @@ class TestMCPServer:
 
         assert server.is_enabled() is False
 
-    @patch("automation.agents.tools.mcp.base.settings")
+    @patch("automation.agents.mcp.base.settings")
     def test_get_connection_returns_sse_connection(self, mock_settings):
         """Test that get_connection returns a properly configured SSEConnection."""
         mock_settings.PROXY_HOST.encoded_string.return_value = "http://test-host:9090"
@@ -66,7 +66,7 @@ class TestMCPServer:
         assert connection["transport"] == "sse"
         assert "concrete_server/sse" in connection["url"]
 
-    @patch("automation.agents.tools.mcp.base.settings")
+    @patch("automation.agents.mcp.base.settings")
     def test_get_connection_includes_auth_header_when_token_set(self, mock_settings):
         """Test that get_connection includes Authorization header when MCP_PROXY_AUTH_TOKEN is set."""
         mock_settings.PROXY_HOST.encoded_string.return_value = "http://test-host:9090"

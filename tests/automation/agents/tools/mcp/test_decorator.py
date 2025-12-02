@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-from automation.agents.tools.mcp.base import MCPServer
-from automation.agents.tools.mcp.decorator import mcp_server
-from automation.agents.tools.mcp.registry import MCPRegistry
-from automation.agents.tools.mcp.schemas import CommonOptions, StdioMcpServer
+from automation.agents.mcp.base import MCPServer
+from automation.agents.mcp.decorator import mcp_server
+from automation.agents.mcp.registry import MCPRegistry
+from automation.agents.mcp.schemas import CommonOptions, StdioMcpServer
 
 
 class TestMCPServer(MCPServer):
@@ -22,7 +22,7 @@ def test_mcp_server_decorator_registers_class():
     mock_registry = MagicMock(spec=MCPRegistry)
 
     # Patch the registry to use our mock
-    with patch("automation.agents.tools.mcp.decorator.mcp_registry", mock_registry):
+    with patch("automation.agents.mcp.decorator.mcp_registry", mock_registry):
         # Create a test MCP server class
         decorated_class = mcp_server(TestMCPServer)
         # The decorator should have registered the class
@@ -37,7 +37,7 @@ def test_mcp_server_decorator_returns_wrapper():
     mock_registry = MagicMock(spec=MCPRegistry)
 
     # Patch the registry to use our mock
-    with patch("automation.agents.tools.mcp.decorator.mcp_registry", mock_registry):
+    with patch("automation.agents.mcp.decorator.mcp_registry", mock_registry):
         # Apply the decorator
         decorated_class = mcp_server(TestMCPServer)
 

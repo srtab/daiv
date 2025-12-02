@@ -44,7 +44,12 @@ async def main(
         )
 
         async with set_runtime_ctx(
-            item["repo"], ref=item["base_commit"], offline=True, client_slug="swe", repo_host="github.com"
+            item["repo"],
+            ref=item["base_commit"],
+            offline=True,
+            client_slug="swe",
+            repo_host="github.com",
+            scope="issue",
         ) as ctx:
             human_message = dedent(
                 """\

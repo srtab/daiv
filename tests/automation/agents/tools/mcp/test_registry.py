@@ -1,8 +1,8 @@
 import pytest
 
-from automation.agents.tools.mcp.base import MCPServer
-from automation.agents.tools.mcp.registry import MCPRegistry
-from automation.agents.tools.mcp.schemas import CommonOptions, StdioMcpServer
+from automation.agents.mcp.base import MCPServer
+from automation.agents.mcp.registry import MCPRegistry
+from automation.agents.mcp.schemas import CommonOptions, StdioMcpServer
 
 
 class TestMCPServer(MCPServer):
@@ -181,6 +181,6 @@ class TestMCPRegistry:
 
 def test_mcp_registry_singleton():
     """Test that the mcp_registry module-level instance exists."""
-    from automation.agents.tools.mcp.registry import mcp_registry
+    from automation.agents.mcp.registry import mcp_registry
 
     assert isinstance(mcp_registry, MCPRegistry)

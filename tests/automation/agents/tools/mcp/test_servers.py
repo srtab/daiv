@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from automation.agents.tools.mcp.servers import FetchMCPServer, SentryMCPServer
+from automation.agents.mcp.servers import FetchMCPServer, SentryMCPServer
 
 
 class TestFetchMCPServer:
@@ -9,7 +9,7 @@ class TestFetchMCPServer:
         server = FetchMCPServer()
         assert server.name == "fetch"
 
-    @patch("automation.agents.tools.mcp.servers.settings")
+    @patch("automation.agents.mcp.servers.settings")
     def test_fetch_server_is_enabled_when_setting_true(self, mock_settings):
         """Test that FetchMCPServer is enabled when FETCH_ENABLED is True."""
         mock_settings.FETCH_ENABLED = True
@@ -17,7 +17,7 @@ class TestFetchMCPServer:
 
         assert server.is_enabled() is True
 
-    @patch("automation.agents.tools.mcp.servers.settings")
+    @patch("automation.agents.mcp.servers.settings")
     def test_fetch_server_is_disabled_when_setting_false(self, mock_settings):
         """Test that FetchMCPServer is disabled when FETCH_ENABLED is False."""
         mock_settings.FETCH_ENABLED = False
@@ -32,7 +32,7 @@ class TestSentryMCPServer:
         server = SentryMCPServer()
         assert server.name == "sentry"
 
-    @patch("automation.agents.tools.mcp.servers.settings")
+    @patch("automation.agents.mcp.servers.settings")
     def test_sentry_server_is_enabled_when_settings_true_and_token_present(self, mock_settings):
         """Test that SentryMCPServer is enabled when SENTRY_ENABLED is True and token is present."""
         from pydantic import SecretStr
@@ -43,7 +43,7 @@ class TestSentryMCPServer:
 
         assert server.is_enabled() is True
 
-    @patch("automation.agents.tools.mcp.servers.settings")
+    @patch("automation.agents.mcp.servers.settings")
     def test_sentry_server_is_disabled_when_setting_false(self, mock_settings):
         """Test that SentryMCPServer is disabled when SENTRY_ENABLED is False."""
         from pydantic import SecretStr
@@ -54,7 +54,7 @@ class TestSentryMCPServer:
 
         assert server.is_enabled() is False
 
-    @patch("automation.agents.tools.mcp.servers.settings")
+    @patch("automation.agents.mcp.servers.settings")
     def test_sentry_server_is_disabled_when_no_token(self, mock_settings):
         """Test that SentryMCPServer is disabled when no access token is provided."""
         mock_settings.SENTRY_ENABLED = True

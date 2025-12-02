@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from automation.agents.tools.mcp.schemas import McpConfiguration, McpProxyConfig, StdioMcpServer
+from automation.agents.mcp.schemas import McpConfiguration, McpProxyConfig, StdioMcpServer
 
 
 class TestMcpConfiguration:
@@ -31,8 +31,8 @@ class TestMcpConfiguration:
         with pytest.raises(ValidationError, match="Server names cannot be empty"):
             McpConfiguration(mcp_proxy=proxy_config, mcp_servers=servers)
 
-    @patch("automation.agents.tools.mcp.conf.settings")
-    @patch("automation.agents.tools.mcp.registry.mcp_registry")
+    @patch("automation.agents.mcp.conf.settings")
+    @patch("automation.agents.mcp.registry.mcp_registry")
     def test_mcp_configuration_populate_with_auth_token(self, mock_registry, mock_settings):
         """Test McpConfiguration.populate() with auth token."""
         # Mock settings
@@ -54,8 +54,8 @@ class TestMcpConfiguration:
         assert config.mcp_proxy.options.log_enabled is True
         assert "test_server" in config.mcp_servers
 
-    @patch("automation.agents.tools.mcp.conf.settings")
-    @patch("automation.agents.tools.mcp.registry.mcp_registry")
+    @patch("automation.agents.mcp.conf.settings")
+    @patch("automation.agents.mcp.registry.mcp_registry")
     def test_mcp_configuration_populate_without_auth_token(self, mock_registry, mock_settings):
         """Test McpConfiguration.populate() without auth token."""
         # Mock settings
