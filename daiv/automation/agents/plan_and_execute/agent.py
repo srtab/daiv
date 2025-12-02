@@ -14,7 +14,6 @@ from langchain.agents.middleware import (
     ModelResponse,
     TodoListMiddleware,
 )
-from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
@@ -261,7 +260,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store=runtime.store,
             checkpointer=False,
             context_schema=RuntimeCtx,
-            response_format=ToolStrategy(FinalizerOutput),
+            response_format=FinalizerOutput,
             middleware=middlewares,
             name="planner_agent",
         )
@@ -356,7 +355,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             context_schema=RuntimeCtx,
             store=runtime.store,
             middleware=middlewares,
-            response_format=ToolStrategy(FinishOutput),
+            response_format=FinishOutput,
             checkpointer=False,
             name="executor_agent",
         )
