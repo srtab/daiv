@@ -1,4 +1,4 @@
-### ✅ ***Process Completed***
+{% load l10n %}### ✅ ***Process Completed***
 
 {{ message }}
 
@@ -9,6 +9,6 @@
 - **Review Changes:** Please review the changes in the merge request.
 - **Follow Instructions:** Follow the instructions provided in the merge request description.
 {% if show_merge_request_link %}
-🔗 {{ source_repo_id }}!{{ merge_request_id }}+
+🔗 {{ source_repo_id }}!{{ merge_request_id|unlocalize }}+
 {% endif %}
 
