@@ -44,7 +44,7 @@ Get logs from a specific pipeline job with pagination support (bottom-to-top).
 - Logs are shown from bottom to top, as errors typically appear at the end.
 """  # noqa: E501
 
-MERGE_REQUEST_TOOL_SYSTEM_PROMPT = """\
+MERGE_REQUEST_TOOL_SYSTEM_PROMPT = f"""\
 ## Merge request tools
 
 You have access to a merge request which you can interact with using the following tools.

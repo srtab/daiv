@@ -96,12 +96,13 @@ def _is_safe_path(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _parse_skill_metadata(skill_md_path: Path) -> SkillMetadata | None:
+def _parse_skill_metadata(skill_md_path: Path, relative_to: Path | None = None) -> SkillMetadata | None:
     """
     Parse YAML frontmatter from a SKILL.md file.
 
     Args:
         skill_md_path: Path to the SKILL.md file.
+        relative_to: Path to resolve the skill path to. If None, the skill path is not resolved.
 
     Returns:
         SkillMetadata with name, description, path, and scope, or None if parsing fails.
@@ -136,6 +137,9 @@ def _parse_skill_metadata(skill_md_path: Path) -> SkillMetadata | None:
         if "name" not in metadata or "description" not in metadata:
             return None
 
+        if relative_to:
+            skill_md_path = skill_md_path.relative_to(relative_to)
+
         return SkillMetadata(
             name=metadata["name"], description=metadata["description"], path=skill_md_path, scope=metadata.get("scope")
         )
@@ -144,7 +148,7 @@ def _parse_skill_metadata(skill_md_path: Path) -> SkillMetadata | None:
         return None
 
 
-def list_skills(*, skills_dir: Path) -> list[SkillMetadata]:
+def list_skills(*, skills_dir: Path, relative_to: Path | None = None) -> list[SkillMetadata]:
     """
     List all skills from a skills directory.
 
@@ -152,14 +156,15 @@ def list_skills(*, skills_dir: Path) -> list[SkillMetadata]:
     skill metadata.
 
     Skills are organized as:
-    skills/
+    {PROJECT_ROOT}/.daiv/skills/
     ├── skill-name/
-    │   ├── SKILL.md        # Required: instructions with YAML frontmatter
-    │   ├── script.py       # Optional: supporting files
-    │   └── config.json     # Optional: supporting files
+    │   ├── SKILL.md        # Required: YAML frontmatter + instructions
+    │   ├── checklist.md    # Optional: supporting documentation
+    │   └── review.py       # Optional: helper Python script
 
     Args:
         skills_dir: Path to the skills directory.
+        relative_to: Path to resolve the skill paths to. If None, the skill paths are not resolved.
 
     Returns:
         List of skill metadata with name, description, path, and scope.
@@ -186,7 +191,7 @@ def list_skills(*, skills_dir: Path) -> list[SkillMetadata]:
         if not _is_safe_path(skill_md_path, resolved_base):
             continue
 
-        if metadata := _parse_skill_metadata(skill_md_path):
+        if metadata := _parse_skill_metadata(skill_md_path, relative_to=relative_to):
             skills.append(metadata)
 
     return skills
