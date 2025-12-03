@@ -141,7 +141,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         self._copy_builtin_skills_to_project()
 
-        return SkillsStateUpdate(skills_metadata=list_skills(skills_dir=self.skills_dir))
+        return SkillsStateUpdate(skills_metadata=list_skills(skills_dir=self.skills_dir, relative_to=self.repo_dir))
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

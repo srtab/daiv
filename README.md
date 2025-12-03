@@ -17,6 +17,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 - ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing).
 - ⚡ **Quick Actions**: Command-based interactions for common tasks on issues and merge requests, such as regenerating plan, approving plan, repairing pipeline, etc.
 - 🔧 **MCP Tools**: Supporting [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools to extend the capabilities of the agents.
+- 🎯 **Agent Skills**: Modular, reusable capabilities that give agents domain-specific expertise. Define custom workflows in your repository's `.daiv/skills/` directory, or use builtin skills like changelog maintenance and AGENTS.md generation.
 - 📦 **Sandbox**: Running commands in a secure sandbox to allow the agents to perform actions on the codebase, such as installing/updating dependencies, generating translations, etc. with your own docker image.
 - 📊 **Monitoring**: Monitoring the behavior of the agents to allow you to analyze the performance and identify potential issues.
 - 🤖 **Providers Support**: [OpenAI](https://openai.com/api/), [Anthropic](https://www.anthropic.com/api), [Gemini](https://ai.google.dev/gemini) and [OpenRouter](https://openrouter.ai/) are the supported LLM providers.
@@ -134,6 +135,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 - [x] 🐙 Add support to GitHub.
 - [x] 🤖 Add support to [AGENTS.md](https://agents.md/) format to guide agents.
+- [x] 🎯 Add support to Agent Skills.
 - [ ] 🌐 Add support to custom MCP servers.
 - [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.
 - [ ] 🔍 Add support to automated code review.

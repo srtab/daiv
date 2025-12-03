@@ -79,11 +79,12 @@ your-repository/
 
 ### Builtin Skills
 
-DAIV includes builtin Skills that are automatically loaded to the `.daiv/skills/` directory agent startup:
+DAIV includes builtin Skills that are automatically loaded to the `.daiv/skills/` directory at agent startup:
 
 | Skill | Description | Scope |
 |-------|-------------|-------|
 | `creating-agents-md-file` | Generates an AGENTS.md file reflecting repository structure and conventions | Issues |
+| `maintaining-changelog` | Updates or creates CHANGELOG.md files for pull request changes | Merge Requests |
 
 You can override builtin skills by creating a Skill with the same name in your project's `.daiv/skills/` directory.
 

@@ -227,9 +227,26 @@ Deictic terms like "this", "this line", "this block", "here", "above/below" refe
 
 ### Lightweight Examples (for validation)
 
-- **Rename within anchored hunk**: "Rename this to user_id" anchored on `+ const uid = …` → target the `+` line in that file; replace `uid` with `user_id`
-- **Add tests for all new functions**: hunk shows additions in `src/foo.ts` and `src/bar.ts` → propose targets in `tests/foo.spec.ts` and `tests/bar.spec.ts` (or create if absent), with focused test blocks naming the changed functions
-- **Update changelog**: hunk shows a new feature in `src/api/client.ts` → propose an entry under the next unreleased version in `CHANGELOG.md`
+<example>
+User: "Rename this to user_id"
+<commentary>
+The reviewer's comment is anchored on `+ const uid = …` → target the `+` line in that file; replace all occurrences of `uid` with `user_id` on that context.
+</commentary>
+</example>
+
+<example>
+User: "Add tests for all new functions"
+<commentary>
+The hunk shows additions in `src/foo.ts` and `src/bar.ts` → propose targets in `tests/foo.spec.ts` and `tests/bar.spec.ts` (or create if absent), with focused test blocks naming the changed functions.
+</commentary>
+</example>
+
+<example>
+User: "Update changelog"
+<commentary>
+The hunk shows a new feature in `src/api/client.ts` → propose an entry under the next unreleased version in `CHANGELOG.md`.
+</commentary>
+</example>
 """  # noqa: E501, S608
 
 review_human = HumanMessagePromptTemplate.from_template(
