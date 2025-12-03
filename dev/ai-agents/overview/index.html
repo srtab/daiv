@@ -18,7 +18,7 @@
         <link rel="prev" href="../../features/quick-actions/">
       
       
-        <link rel="next" href="../mcp-tools/">
+        <link rel="next" href="../skills/">
       
       
         
@@ -959,6 +959,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#agent-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🧠 Agent Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1107,6 +1118,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1328,6 +1367,17 @@
     <span class="md-ellipsis">
       
         🏗️ Sandbox Environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🧠 Agent Skills
       
     </span>
   </a>
@@ -1582,6 +1632,7 @@
 <li>Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)</li>
 <li>Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)</li>
 <li>Support to <code>AGENTS.md</code> file to understand the repository context and conventions</li>
+<li>Uses <a href="../skills/">Agent Skills</a> for specialized domain knowledge and workflows</li>
 </ul>
 <h3 id="code-review-addressor-agent">🔍 Code Review Addressor Agent</h3>
 <p><strong>Purpose</strong>: Responds to code review feedback by implementing requested changes or answering questions.</p>
@@ -1632,6 +1683,14 @@
 <li><strong>Code Formatting</strong>: Apply repository-specific formatting rules (e.g. ruff, black, isort, etc.)</li>
 <li><strong>Custom Commands</strong>: Execute repository-specific commands (e.g. install dependencies, etc.)</li>
 </ul>
+<h3 id="agent-skills">🧠 Agent Skills</h3>
+<p>Agents can leverage <a href="../skills/">Agent Skills</a> for specialized domain knowledge:</p>
+<ul>
+<li><strong>Progressive Disclosure</strong>: Skills metadata loads at startup, full instructions load on-demand</li>
+<li><strong>Custom Skills</strong>: Create repository-specific Skills in <code>.daiv/skills/</code></li>
+<li><strong>Builtin Skills</strong>: Pre-packaged Skills for common tasks (e.g. AGENTS.md generation)</li>
+<li><strong>Scoped Skills</strong>: Target Skills to specific contexts (issues or merge requests)</li>
+</ul>
 <hr />
 <h2 id="configuration-and-customization">Configuration and Customization</h2>
 <h3 id="repository-configuration">Repository Configuration</h3>
@@ -1674,6 +1733,7 @@
 <li>Improve issue descriptions with more context</li>
 <li>Update repository <code>AGENTS.md</code> file to provide more context about the repository</li>
 <li>Consider adjusting model selection</li>
+<li>Consider using <a href="../skills/">Agent Skills</a> to extend agent capabilities on specific tasks</li>
 </ul>
 <h3 id="getting-help">Getting Help</h3>
 <p><strong>Logs and Monitoring</strong>: Check application logs for detailed error information</p>
@@ -1684,6 +1744,7 @@
 <p>Now that you understand how DAIV's agents work:</p>
 <ul>
 <li><strong><a href="../../getting-started/configuration/">Configure your first repository</a></strong> - Set up DAIV integration</li>
+<li><strong><a href="../skills/">Create Agent Skills</a></strong> - Extend agents with specialized domain knowledge</li>
 <li><strong><a href="../mcp-tools/">Explore MCP tools</a></strong> - Understand how MCP tools can be used to extend agent capabilities</li>
 <li><strong><a href="../../configuration/yaml-config/">Customize behavior</a></strong> - Fine-tune agents for your workflow</li>
 <li><strong><a href="../../configuration/monitoring/">Monitor performance</a></strong> - Track agent effectiveness and usage</li>
@@ -1710,7 +1771,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 30, 2025 20:56:30 UTC">November 30, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 3, 2025 00:06:26 UTC">December 3, 2025</span>
   </span>
 
     
@@ -1720,7 +1781,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 30, 2025 20:56:30 UTC">November 30, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 3, 2025 00:06:26 UTC">December 3, 2025</span>
   </span>
 
     

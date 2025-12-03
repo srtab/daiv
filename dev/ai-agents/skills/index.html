@@ -1,0 +1,2214 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for DAIV">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/skills/">
+      
+      
+        <link rel="prev" href="../overview/">
+      
+      
+        <link rel="next" href="../mcp-tools/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Agent Skills - DAIV</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-skills-experimental" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent Skills
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/up-and-running/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Up and Running
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/yaml-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/env-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/issue-addressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue Addressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/review-addressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review Addressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/quick-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Agents
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI Agents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-use-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Use Skills
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-skills-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Skills Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Skills Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-levels-of-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three Levels of Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-discovery-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Discovery Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills-directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Directory Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills Directory Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#builtin-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builtin Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-custom-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating Custom Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating Custom Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skillmd-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SKILL.md Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scope-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skill-authoring-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Authoring Best Practices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skill Authoring Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#write-clear-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Clear Instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#include-trigger-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Include Trigger Conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provide-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provide Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bundle-supporting-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundle Supporting Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-review-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Review Skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation-generator-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation Generator Skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Considerations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skill-not-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Not Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-not-triggering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Not Triggering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-not-following-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Not Following Instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⏭️ Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-use-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Use Skills
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-skills-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Skills Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Skills Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-levels-of-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three Levels of Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-discovery-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Discovery Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills-directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Directory Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills Directory Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#builtin-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builtin Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-custom-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating Custom Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating Custom Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skillmd-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SKILL.md Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scope-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skill-authoring-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Authoring Best Practices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skill Authoring Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#write-clear-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Clear Instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#include-trigger-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Include Trigger Conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provide-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provide Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bundle-supporting-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundle Supporting Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-review-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Review Skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation-generator-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation Generator Skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Considerations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skill-not-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Not Loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skill-not-triggering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill Not Triggering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-not-following-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Not Following Instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⏭️ Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../overview/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    AI Agents
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/skills.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="agent-skills-experimental">🧠 Agent Skills (Experimental)</h1>
+<p>Agent Skills are modular capabilities that extend DAIV's agents with specialized knowledge, workflows, and domain expertise. Each Skill packages instructions, metadata, and optional resources that agents use automatically when relevant to a task.</p>
+<hr />
+<h2 id="why-use-skills">Why Use Skills</h2>
+<p>Skills provide domain-specific expertise that transforms DAIV's general-purpose agents into specialists. Unlike one-off prompts, Skills are reusable, filesystem-based resources that load on-demand across multiple agent interactions.</p>
+<p><strong>Key benefits</strong>:</p>
+<ul>
+<li><strong>Specialize agents</strong>: Tailor DAIV's capabilities for domain-specific tasks</li>
+<li><strong>Reduce repetition</strong>: Create once, use automatically in relevant contexts</li>
+<li><strong>Compose capabilities</strong>: Combine multiple Skills to build complex workflows</li>
+<li><strong>Progressive disclosure</strong>: Skills metadata loads at startup, full instructions load only when needed</li>
+</ul>
+<hr />
+<h2 id="how-skills-work">How Skills Work</h2>
+<p>DAIV implements Skills using a progressive disclosure pattern inspired by <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview">Anthropic's Agent Skills</a>:</p>
+<h3 id="three-levels-of-loading">Three Levels of Loading</h3>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>When Loaded</th>
+<th>Token Cost</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Metadata</strong></td>
+<td>Always (at startup)</td>
+<td>~100 tokens per Skill</td>
+<td><code>name</code> and <code>description</code> from YAML frontmatter</td>
+</tr>
+<tr>
+<td><strong>Instructions</strong></td>
+<td>When Skill is triggered</td>
+<td>Under 5k tokens</td>
+<td>Full SKILL.md content with workflows and guidance</td>
+</tr>
+<tr>
+<td><strong>Resources</strong></td>
+<td>As needed</td>
+<td>Variable</td>
+<td>Supporting files (scripts, configs, reference docs)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="skill-discovery-flow">Skill Discovery Flow</h3>
+<pre class="mermaid"><code>graph TD
+    A["🚀 Agent Starts"] --&gt; B["📂 Scan Skills Directory&lt;br/&gt;(.daiv/skills/)"]
+    B --&gt; C["📋 Parse YAML Frontmatter&lt;br/&gt;(name, description, scope)"]
+    C --&gt; D["💉 Inject Skills Metadata&lt;br/&gt;into System Prompt"]
+
+    D --&gt; E["👤 User Request"]
+    E --&gt; F["🔍 Agent Checks Skills&lt;br/&gt;Does request match a skill?"]
+
+    F --&gt;|Yes| G["📖 Read Full SKILL.md"]
+    G --&gt; H["⚡ Follow Skill Instructions"]
+    H --&gt; I["📁 Access Supporting Files&lt;br/&gt;(scripts, configs, etc.)"]
+
+    F --&gt;|No| J["🤖 Normal Agent Execution"]
+
+    style B fill:#e1f5fe
+    style D fill:#fff3e0
+    style G fill:#e8f5e8
+    style H fill:#e8f5e8</code></pre>
+<p>This architecture ensures minimal context usage—agents only know Skills exist until they're actually needed.</p>
+<hr />
+<h2 id="skills-directory-structure">Skills Directory Structure</h2>
+<p>Skills live in the <code>.daiv/skills/</code> directory at the root of your repository:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-0-10">10</a></span>
+<span class="normal"><a href="#__codelineno-0-11">11</a></span>
+<span class="normal"><a href="#__codelineno-0-12">12</a></span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span>
+<span class="normal"><a href="#__codelineno-0-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>├── .daiv/
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a>│   └── skills/
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       ├── code-review/
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a>│       │   ├── SKILL.md        # Required: YAML frontmatter + instructions
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>│       │   ├── checklist.md    # Optional: supporting documentation
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a>│       │   └── review.py       # Optional: helper script
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>│       ├── web-research/
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a>│       │   ├── SKILL.md
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a>│       │   └── search_helper.py
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a>│       └── creating-agents-md-file/    # Builtin skill (auto-copied)
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a>│           └── SKILL.md
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a>├── src/
+<a id="__codelineno-0-14" name="__codelineno-0-14"></a>└── README.md
+</code></pre></div></td></tr></table></div>
+<h3 id="builtin-skills">Builtin Skills</h3>
+<p>DAIV includes builtin Skills that are automatically loaded to the <code>.daiv/skills/</code> directory agent startup:</p>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>Description</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>creating-agents-md-file</code></td>
+<td>Generates an AGENTS.md file reflecting repository structure and conventions</td>
+<td>Issues</td>
+</tr>
+</tbody>
+</table>
+<p>You can override builtin skills by creating a Skill with the same name in your project's <code>.daiv/skills/</code> directory.</p>
+<hr />
+<h2 id="creating-custom-skills">Creating Custom Skills</h2>
+<h3 id="skillmd-structure">SKILL.md Structure</h3>
+<p>Every Skill requires a <code>SKILL.md</code> file with YAML frontmatter:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-1-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-1-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-1-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-1-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-1-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-1-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-1-10">10</a></span>
+<span class="normal"><a href="#__codelineno-1-11">11</a></span>
+<span class="normal"><a href="#__codelineno-1-12">12</a></span>
+<span class="normal"><a href="#__codelineno-1-13">13</a></span>
+<span class="normal"><a href="#__codelineno-1-14">14</a></span>
+<span class="normal"><a href="#__codelineno-1-15">15</a></span>
+<span class="normal"><a href="#__codelineno-1-16">16</a></span>
+<span class="normal"><a href="#__codelineno-1-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>---
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>name: your-skill-name
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a>description: Brief description of what this Skill does and when to use it
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="gu">scope: issue</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="gu">---</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="gh"># Your Skill Name</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a>
+<a id="__codelineno-1-9" name="__codelineno-1-9"></a><span class="gu">## When to Use</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10"></a><span class="k">-</span><span class="w"> </span>User asks about X
+<a id="__codelineno-1-11" name="__codelineno-1-11"></a><span class="k">-</span><span class="w"> </span>Task involves Y
+<a id="__codelineno-1-12" name="__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14"></a>[Step-by-step guidance for the agent]
+<a id="__codelineno-1-15" name="__codelineno-1-15"></a>
+<a id="__codelineno-1-16" name="__codelineno-1-16"></a><span class="gu">## Examples</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17"></a>[Concrete examples of using this Skill]
+</code></pre></div></td></tr></table></div>
+<h3 id="required-fields">Required Fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Unique identifier for the Skill</td>
+<td>Max 64 chars, lowercase letters, numbers, hyphens only</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>What the Skill does and when to use it</td>
+<td>Max 1024 chars, must be non-empty</td>
+</tr>
+</tbody>
+</table>
+<h3 id="optional-fields">Optional Fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scope</code></td>
+<td>When the Skill should be available</td>
+<td><code>issue</code>, <code>merge_request</code>, or omit for both</td>
+</tr>
+</tbody>
+</table>
+<h3 id="scope-configuration">Scope Configuration</h3>
+<p>The <code>scope</code> field controls when a Skill is available to the agent:</p>
+<ul>
+<li><strong><code>issue</code></strong>: Skill only loads when working on issues</li>
+<li><strong><code>merge_request</code></strong>: Skill only loads when working on merge/pull requests</li>
+<li><strong>Omitted</strong>: Skill loads for both issues and merge requests</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="nn">---</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipeline-debugging</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Diagnose and fix CI/CD pipeline failures</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="nt">scope</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">merge_request</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="nn">---</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="skill-authoring-best-practices">Skill Authoring Best Practices</h2>
+<div class="admonition info">
+<p class="admonition-title">Skill Authoring Guide</p>
+<p>For more detailed information on how to author Skills, see also Anthropic's <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices">Skill Authoring Guide</a>.</p>
+</div>
+<h3 id="write-clear-instructions">Write Clear Instructions</h3>
+<p><strong>Be specific and actionable</strong>: Tell the agent exactly what steps to follow.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span>
+<span class="normal"><a href="#__codelineno-3-4">4</a></span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span>
+<span class="normal"><a href="#__codelineno-3-6">6</a></span>
+<span class="normal"><a href="#__codelineno-3-7">7</a></span>
+<span class="normal"><a href="#__codelineno-3-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="k">1.</span> <span class="gs">**Analyze the request**</span>: Identify what the user wants to achieve
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="k">2.</span> <span class="gs">**Check prerequisites**</span>: Verify required files exist
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="k">3.</span> <span class="gs">**Execute workflow**</span>:
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Step A: Do this first
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Step B: Then do this
+<a id="__codelineno-3-8" name="__codelineno-3-8"></a><span class="k">4.</span> <span class="gs">**Validate results**</span>: Confirm the task completed successfully
+</code></pre></div></td></tr></table></div>
+<h3 id="include-trigger-conditions">Include Trigger Conditions</h3>
+<p>Help the agent recognize when to use the Skill:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nn">---</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipeline-debugging</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Diagnose and fix CI/CD pipeline failures when users mention &quot;pipeline debugging&quot; or &quot;CI/CD issues&quot;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="nn">---</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="provide-examples">Provide Examples</h3>
+<p>Concrete examples improve agent accuracy:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span>
+<span class="normal"><a href="#__codelineno-5-4">4</a></span>
+<span class="normal"><a href="#__codelineno-5-5">5</a></span>
+<span class="normal"><a href="#__codelineno-5-6">6</a></span>
+<span class="normal"><a href="#__codelineno-5-7">7</a></span>
+<span class="normal"><a href="#__codelineno-5-8">8</a></span>
+<span class="normal"><a href="#__codelineno-5-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="gu">## Examples</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="gu">### Example 1: Basic Research</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="gs">**User**</span>: &quot;Can you research the latest developments in quantum computing?&quot;
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="gs">**Workflow**</span>:
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="k">1.</span> Search for recent quantum computing news
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="k">2.</span> Organize findings by theme
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="k">3.</span> Synthesize into a summary
+</code></pre></div></td></tr></table></div>
+<h3 id="bundle-supporting-files">Bundle Supporting Files</h3>
+<p>Skills can include helper scripts, templates, and reference documents:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span>
+<span class="normal"><a href="#__codelineno-6-5">5</a></span>
+<span class="normal"><a href="#__codelineno-6-6">6</a></span>
+<span class="normal"><a href="#__codelineno-6-7">7</a></span>
+<span class="normal"><a href="#__codelineno-6-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>my-skill/
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>├── SKILL.md
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a>├── templates/
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a>│   └── report_template.md
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a>├── scripts/
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a>│   └── data_processor.py
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a>└── reference/
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a>    └── api_docs.md
+</code></pre></div></td></tr></table></div>
+<p>Reference these files in your SKILL.md:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="gu">## Resources</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="k">-</span><span class="w"> </span><span class="gs">**Report Template**</span>: See <span class="sb">`templates/report_template.md`</span> for output format
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="k">-</span><span class="w"> </span><span class="gs">**Data Processing**</span>: Use <span class="sb">`scripts/data_processor.py`</span> for data transformation
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="example-skills">Example Skills</h2>
+<h3 id="code-review-skill">Code Review Skill</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-8-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-8-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-8-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-8-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-8-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-8-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-8-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-8-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-8-10">10</a></span>
+<span class="normal"><a href="#__codelineno-8-11">11</a></span>
+<span class="normal"><a href="#__codelineno-8-12">12</a></span>
+<span class="normal"><a href="#__codelineno-8-13">13</a></span>
+<span class="normal"><a href="#__codelineno-8-14">14</a></span>
+<span class="normal"><a href="#__codelineno-8-15">15</a></span>
+<span class="normal"><a href="#__codelineno-8-16">16</a></span>
+<span class="normal"><a href="#__codelineno-8-17">17</a></span>
+<span class="normal"><a href="#__codelineno-8-18">18</a></span>
+<span class="normal"><a href="#__codelineno-8-19">19</a></span>
+<span class="normal"><a href="#__codelineno-8-20">20</a></span>
+<span class="normal"><a href="#__codelineno-8-21">21</a></span>
+<span class="normal"><a href="#__codelineno-8-22">22</a></span>
+<span class="normal"><a href="#__codelineno-8-23">23</a></span>
+<span class="normal"><a href="#__codelineno-8-24">24</a></span>
+<span class="normal"><a href="#__codelineno-8-25">25</a></span>
+<span class="normal"><a href="#__codelineno-8-26">26</a></span>
+<span class="normal"><a href="#__codelineno-8-27">27</a></span>
+<span class="normal"><a href="#__codelineno-8-28">28</a></span>
+<span class="normal"><a href="#__codelineno-8-29">29</a></span>
+<span class="normal"><a href="#__codelineno-8-30">30</a></span>
+<span class="normal"><a href="#__codelineno-8-31">31</a></span>
+<span class="normal"><a href="#__codelineno-8-32">32</a></span>
+<span class="normal"><a href="#__codelineno-8-33">33</a></span>
+<span class="normal"><a href="#__codelineno-8-34">34</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>---
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a>name: thorough-code-review
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a>description: Perform comprehensive code reviews focusing on security, performance, and maintainability when users request a code review
+<a id="__codelineno-8-4" name="__codelineno-8-4"></a><span class="gu">scope: merge_request</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="gu">---</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6"></a>
+<a id="__codelineno-8-7" name="__codelineno-8-7"></a><span class="gh"># Thorough Code Review</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8"></a>
+<a id="__codelineno-8-9" name="__codelineno-8-9"></a><span class="gu">## Review Checklist</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10"></a>
+<a id="__codelineno-8-11" name="__codelineno-8-11"></a><span class="gu">### Security</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12"></a><span class="k">- [ ]</span> Input validation on user data
+<a id="__codelineno-8-13" name="__codelineno-8-13"></a><span class="k">- [ ]</span> SQL injection prevention
+<a id="__codelineno-8-14" name="__codelineno-8-14"></a><span class="k">- [ ]</span> XSS protection
+<a id="__codelineno-8-15" name="__codelineno-8-15"></a><span class="k">- [ ]</span> Authentication/authorization checks
+<a id="__codelineno-8-16" name="__codelineno-8-16"></a>
+<a id="__codelineno-8-17" name="__codelineno-8-17"></a><span class="gu">### Performance</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18"></a><span class="k">- [ ]</span> Database query optimization
+<a id="__codelineno-8-19" name="__codelineno-8-19"></a><span class="k">- [ ]</span> Memory management
+<a id="__codelineno-8-20" name="__codelineno-8-20"></a><span class="k">- [ ]</span> Caching opportunities
+<a id="__codelineno-8-21" name="__codelineno-8-21"></a><span class="k">- [ ]</span> Algorithm complexity
+<a id="__codelineno-8-22" name="__codelineno-8-22"></a>
+<a id="__codelineno-8-23" name="__codelineno-8-23"></a><span class="gu">### Maintainability</span>
+<a id="__codelineno-8-24" name="__codelineno-8-24"></a><span class="k">- [ ]</span> Clear naming conventions
+<a id="__codelineno-8-25" name="__codelineno-8-25"></a><span class="k">- [ ]</span> Appropriate documentation
+<a id="__codelineno-8-26" name="__codelineno-8-26"></a><span class="k">- [ ]</span> Test coverage
+<a id="__codelineno-8-27" name="__codelineno-8-27"></a><span class="k">- [ ]</span> Error handling
+<a id="__codelineno-8-28" name="__codelineno-8-28"></a>
+<a id="__codelineno-8-29" name="__codelineno-8-29"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-8-30" name="__codelineno-8-30"></a>
+<a id="__codelineno-8-31" name="__codelineno-8-31"></a><span class="k">1.</span> <span class="gs">**Read the changes**</span>: Use the diff to understand what changed
+<a id="__codelineno-8-32" name="__codelineno-8-32"></a><span class="k">2.</span> <span class="gs">**Apply checklist**</span>: Go through each category systematically
+<a id="__codelineno-8-33" name="__codelineno-8-33"></a><span class="k">3.</span> <span class="gs">**Document findings**</span>: List issues with severity and suggestions
+<a id="__codelineno-8-34" name="__codelineno-8-34"></a><span class="k">4.</span> <span class="gs">**Provide summary**</span>: Overall assessment with key recommendations
+</code></pre></div></td></tr></table></div>
+<h3 id="documentation-generator-skill">Documentation Generator Skill</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-9-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-9-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-9-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-9-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-9-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-9-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-9-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-9-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-9-10">10</a></span>
+<span class="normal"><a href="#__codelineno-9-11">11</a></span>
+<span class="normal"><a href="#__codelineno-9-12">12</a></span>
+<span class="normal"><a href="#__codelineno-9-13">13</a></span>
+<span class="normal"><a href="#__codelineno-9-14">14</a></span>
+<span class="normal"><a href="#__codelineno-9-15">15</a></span>
+<span class="normal"><a href="#__codelineno-9-16">16</a></span>
+<span class="normal"><a href="#__codelineno-9-17">17</a></span>
+<span class="normal"><a href="#__codelineno-9-18">18</a></span>
+<span class="normal"><a href="#__codelineno-9-19">19</a></span>
+<span class="normal"><a href="#__codelineno-9-20">20</a></span>
+<span class="normal"><a href="#__codelineno-9-21">21</a></span>
+<span class="normal"><a href="#__codelineno-9-22">22</a></span>
+<span class="normal"><a href="#__codelineno-9-23">23</a></span>
+<span class="normal"><a href="#__codelineno-9-24">24</a></span>
+<span class="normal"><a href="#__codelineno-9-25">25</a></span>
+<span class="normal"><a href="#__codelineno-9-26">26</a></span>
+<span class="normal"><a href="#__codelineno-9-27">27</a></span>
+<span class="normal"><a href="#__codelineno-9-28">28</a></span>
+<span class="normal"><a href="#__codelineno-9-29">29</a></span>
+<span class="normal"><a href="#__codelineno-9-30">30</a></span>
+<span class="normal"><a href="#__codelineno-9-31">31</a></span>
+<span class="normal"><a href="#__codelineno-9-32">32</a></span>
+<span class="normal"><a href="#__codelineno-9-33">33</a></span>
+<span class="normal"><a href="#__codelineno-9-34">34</a></span>
+<span class="normal"><a href="#__codelineno-9-35">35</a></span>
+<span class="normal"><a href="#__codelineno-9-36">36</a></span>
+<span class="normal"><a href="#__codelineno-9-37">37</a></span>
+<span class="normal"><a href="#__codelineno-9-38">38</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>---
+<a id="__codelineno-9-2" name="__codelineno-9-2"></a>name: api-docs-generator
+<a id="__codelineno-9-3" name="__codelineno-9-3"></a><span class="gu">description: Generate API documentation from code annotations and function signatures when users ask to document an API</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="gu">---</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5"></a>
+<a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="gh"># API Documentation Generator</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7"></a>
+<a id="__codelineno-9-8" name="__codelineno-9-8"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9"></a>
+<a id="__codelineno-9-10" name="__codelineno-9-10"></a><span class="k">1.</span> <span class="gs">**Scan codebase**</span>: Find all public API endpoints/functions
+<a id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="k">2.</span> <span class="gs">**Extract metadata**</span>:
+<a id="__codelineno-9-12" name="__codelineno-9-12"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Function signatures
+<a id="__codelineno-9-13" name="__codelineno-9-13"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Parameter types and descriptions
+<a id="__codelineno-9-14" name="__codelineno-9-14"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Return values
+<a id="__codelineno-9-15" name="__codelineno-9-15"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Example usage from tests
+<a id="__codelineno-9-16" name="__codelineno-9-16"></a><span class="k">3.</span> <span class="gs">**Generate documentation**</span>: Use standard format (see template below)
+<a id="__codelineno-9-17" name="__codelineno-9-17"></a><span class="k">4.</span> <span class="gs">**Validate**</span>: Ensure all public APIs are documented
+<a id="__codelineno-9-18" name="__codelineno-9-18"></a>
+<a id="__codelineno-9-19" name="__codelineno-9-19"></a><span class="gu">## Template</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20"></a>
+<a id="__codelineno-9-21" name="__codelineno-9-21"></a>For each endpoint/function, generate:
+<a id="__codelineno-9-22" name="__codelineno-9-22"></a>
+<a id="__codelineno-9-23" name="__codelineno-9-23"></a><span class="sb">```markdown</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24"></a><span class="gu">### `function_name(param1, param2)`</span>
+<a id="__codelineno-9-25" name="__codelineno-9-25"></a>
+<a id="__codelineno-9-26" name="__codelineno-9-26"></a><span class="gs">**Description**</span>: Brief explanation
+<a id="__codelineno-9-27" name="__codelineno-9-27"></a>
+<a id="__codelineno-9-28" name="__codelineno-9-28"></a><span class="gs">**Parameters**</span>:
+<a id="__codelineno-9-29" name="__codelineno-9-29"></a><span class="k">-</span><span class="w"> </span><span class="sb">`param1`</span> (type): Description
+<a id="__codelineno-9-30" name="__codelineno-9-30"></a><span class="k">-</span><span class="w"> </span><span class="sb">`param2`</span> (type): Description
+<a id="__codelineno-9-31" name="__codelineno-9-31"></a>
+<a id="__codelineno-9-32" name="__codelineno-9-32"></a><span class="gs">**Returns**</span>: Description of return value
+<a id="__codelineno-9-33" name="__codelineno-9-33"></a>
+<a id="__codelineno-9-34" name="__codelineno-9-34"></a><span class="gs">**Example**</span>:
+<a id="__codelineno-9-35" name="__codelineno-9-35"></a>```python
+<a id="__codelineno-9-36" name="__codelineno-9-36"></a>result = function_name(&quot;value1&quot;, &quot;value2&quot;)
+<a id="__codelineno-9-37" name="__codelineno-9-37"></a><span class="sb">```</span>
+<a id="__codelineno-9-38" name="__codelineno-9-38"></a>```
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="security-considerations">Security Considerations</h2>
+<div class="admonition warning">
+<p class="admonition-title">Use Skills from Trusted Sources Only</p>
+<p>Skills provide agents with new capabilities through instructions and code. Only use Skills you created yourself or obtained from trusted sources.</p>
+</div>
+<p><strong>Key security considerations</strong>:</p>
+<ul>
+<li><strong>Audit thoroughly</strong>: Review all files in a Skill before using it</li>
+<li><strong>Check external references</strong>: Skills that fetch data from external URLs pose additional risk</li>
+<li><strong>Review script code</strong>: Any Python scripts or executables should be carefully examined</li>
+<li><strong>Limit scope</strong>: Use the <code>scope</code> field to restrict Skills to appropriate contexts</li>
+</ul>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="skill-not-loading">Skill Not Loading</h3>
+<p><strong>Check file location</strong>: Ensure the Skill is in <code>.daiv/skills/&lt;skill-name&gt;/SKILL.md</code></p>
+<p><strong>Verify YAML frontmatter</strong>: The frontmatter must be valid YAML between <code>---</code> delimiters:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
+<span class="normal"><a href="#__codelineno-10-2">2</a></span>
+<span class="normal"><a href="#__codelineno-10-3">3</a></span>
+<span class="normal"><a href="#__codelineno-10-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="nn">---</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-skill</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">My skill description</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="nn">---</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Check required fields</strong>: Both <code>name</code> and <code>description</code> are required.</p>
+<h3 id="skill-not-triggering">Skill Not Triggering</h3>
+<p><strong>Review description</strong>: The <code>description</code> field should clearly indicate when to use the Skill. Agents match user requests against this description.</p>
+<p><strong>Check scope</strong>: If you set a <code>scope</code>, the Skill only loads in that context (issue or merge_request).</p>
+<h3 id="agent-not-following-instructions">Agent Not Following Instructions</h3>
+<p><strong>Simplify instructions</strong>: Break complex workflows into clear, numbered steps.</p>
+<p><strong>Add examples</strong>: Concrete examples help agents understand expected behavior.</p>
+<p><strong>Test incrementally</strong>: Start with a minimal Skill and add complexity gradually.</p>
+<hr />
+<h2 id="next-steps">⏭️ Next Steps</h2>
+<p>Now that you understand Agent Skills:</p>
+<ul>
+<li><strong><a href="../mcp-tools/">Review MCP Tools</a></strong> - Understand how MCP tools extend agent capabilities</li>
+<li><strong><a href="../../configuration/yaml-config/">Configure DAIV</a></strong> - Customize DAIV for your workflow</li>
+<li><strong><a href="../overview/">Explore the Overview</a></strong> - Learn about all available agents</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 3, 2025 00:06:26 UTC">December 3, 2025</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 3, 2025 00:06:26 UTC">December 3, 2025</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+    
+  </body>
+</html>
