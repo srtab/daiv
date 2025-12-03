@@ -15,6 +15,7 @@ from langchain.agents.middleware import (
     ModelResponse,
     TodoListMiddleware,
 )
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, StateGraph
@@ -193,9 +194,12 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL)
             for model_name in planning_model_names[1:]
         ]
-        self._execution_model = BaseAgent.get_model(model=execution_model_names[0], max_tokens=8_192)
+        self._execution_model = BaseAgent.get_model(
+            model=execution_model_names[0], max_tokens=8_192, thinking_level=settings.EXECUTION_THINKING_LEVEL
+        )
         self._execution_fallback_models = [
-            BaseAgent.get_model(model=model_name, max_tokens=8_192) for model_name in execution_model_names[1:]
+            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=settings.EXECUTION_THINKING_LEVEL)
+            for model_name in execution_model_names[1:]
         ]
         super().__init__(**kwargs)
 
@@ -263,7 +267,10 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             store=runtime.store,
             checkpointer=False,
             context_schema=RuntimeCtx,
-            response_format=FinalizerOutput,
+            # Structured output can't be used here because Union types are not supported.
+            # As consequence, we're forced to use ToolStrategy to handle the union type, and Anthropic doesn't support
+            # reasoning with tool_choice="any" (which is the default for ToolStrategy).
+            response_format=ToolStrategy(FinalizerOutput),
             middleware=middlewares,
             name="planner_agent",
         )
