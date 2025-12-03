@@ -43,6 +43,7 @@ DAIV agents are built on a modular architecture that combines several key compon
 - Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)
 - Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)
 - Support to `AGENTS.md` file to understand the repository context and conventions
+- Uses [Agent Skills](skills.md) for specialized domain knowledge and workflows
 
 ### 🔍 Code Review Addressor Agent
 
@@ -105,6 +106,15 @@ Agents can execute commands in isolated sandbox environments using [daiv-sandbox
 
 - **Code Formatting**: Apply repository-specific formatting rules (e.g. ruff, black, isort, etc.)
 - **Custom Commands**: Execute repository-specific commands (e.g. install dependencies, etc.)
+
+### 🧠 Agent Skills
+
+Agents can leverage [Agent Skills](skills.md) for specialized domain knowledge:
+
+- **Progressive Disclosure**: Skills metadata loads at startup, full instructions load on-demand
+- **Custom Skills**: Create repository-specific Skills in `.daiv/skills/`
+- **Builtin Skills**: Pre-packaged Skills for common tasks (e.g. AGENTS.md generation)
+- **Scoped Skills**: Target Skills to specific contexts (issues or merge requests)
 
 ---
 
@@ -173,6 +183,7 @@ PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME=openrouter:openai/gpt-4.1
 - Improve issue descriptions with more context
 - Update repository `AGENTS.md` file to provide more context about the repository
 - Consider adjusting model selection
+- Consider using [Agent Skills](skills.md) to extend agent capabilities on specific tasks
 
 ### Getting Help
 
@@ -189,6 +200,7 @@ PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME=openrouter:openai/gpt-4.1
 Now that you understand how DAIV's agents work:
 
 - **[Configure your first repository](../getting-started/configuration.md)** - Set up DAIV integration
+- **[Create Agent Skills](skills.md)** - Extend agents with specialized domain knowledge
 - **[Explore MCP tools](mcp-tools.md)** - Understand how MCP tools can be used to extend agent capabilities
 - **[Customize behavior](../configuration/yaml-config.md)** - Fine-tune agents for your workflow
 - **[Monitor performance](../configuration/monitoring.md)** - Track agent effectiveness and usage

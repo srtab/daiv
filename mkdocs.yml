@@ -91,5 +91,6 @@ nav:
     - Quick Actions: features/quick-actions.md
   - AI Agents:
     - Overview: ai-agents/overview.md
+    - Agent Skills: ai-agents/skills.md
     - MCP Tools: ai-agents/mcp-tools.md
   - Community: community.md

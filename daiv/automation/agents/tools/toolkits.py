@@ -63,7 +63,7 @@ class MCPToolkit(BaseToolkit):
 
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
-        from .mcp.registry import mcp_registry
+        from automation.agents.mcp.registry import mcp_registry
 
         client = MultiServerMCPClient(mcp_registry.get_connections())
 

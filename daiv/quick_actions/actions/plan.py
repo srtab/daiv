@@ -27,7 +27,7 @@ class ApprovePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_runtime_ctx(repo_id) as runtime_ctx:
+        async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
             await IssueAddressorManager.approve_plan(issue_iid=issue.iid, runtime_ctx=runtime_ctx)
 
 
@@ -49,5 +49,5 @@ class RevisePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_runtime_ctx(repo_id) as runtime_ctx:
+        async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
             await IssueAddressorManager.plan_issue(issue_iid=issue.iid, runtime_ctx=runtime_ctx, should_reset_plan=True)

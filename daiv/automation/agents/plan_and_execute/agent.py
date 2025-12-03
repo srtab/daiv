@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -22,6 +23,7 @@ from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
 from automation.agents.middleware import AgentsMDMiddleware, AnthropicPromptCachingMiddleware, InjectImagesMiddleware
+from automation.agents.skills.middleware import SkillsMiddleware
 from automation.agents.tools.editing import FileEditingMiddleware
 from automation.agents.tools.merge_request import MergeRequestMiddleware
 from automation.agents.tools.navigation import FileNavigationMiddleware
@@ -236,6 +238,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
                 )
             ),
             AgentsMDMiddleware(),
+            SkillsMiddleware(repo_dir=Path(runtime.context.repo.working_dir), scope=runtime.context.scope),
             TodoListMiddleware(),
             AnthropicPromptCachingMiddleware(),
         ]
@@ -243,7 +246,7 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         if self.include_web_search:
             middlewares.append(WebSearchMiddleware())
 
-        if runtime.context.merge_request_id:
+        if runtime.context.scope == "merge_request":
             middlewares.append(MergeRequestMiddleware())
 
         if runtime.context.config.sandbox.enabled:

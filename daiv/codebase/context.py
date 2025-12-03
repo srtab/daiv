@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from git import Repo  # noqa: TC002
 
@@ -33,6 +33,9 @@ class RuntimeCtx:
     config: RepositoryConfig
     """The repository configuration"""
 
+    scope: Literal["issue", "merge_request"] | None = None
+    """The scope of the context. If None, not running in a specific scope."""
+
     merge_request_id: int | None = None
     """The merge request identifier if the context is set for a merge request"""
 
@@ -45,7 +48,13 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 
 @asynccontextmanager
 async def set_runtime_ctx(
-    repo_id: str, *, ref: str | None = None, merge_request_id: int | None = None, offline: bool = False, **kwargs: Any
+    repo_id: str,
+    *,
+    ref: str | None = None,
+    scope: Literal["issue", "merge_request"] | None = None,
+    merge_request_id: int | None = None,
+    offline: bool = False,
+    **kwargs: Any,
 ) -> Iterator[RuntimeCtx]:
     """
     Set the runtime context and load repository files to a temporary directory.
@@ -53,6 +62,7 @@ async def set_runtime_ctx(
     Args:
         repo_id: The repository identifier
         ref: The reference branch or tag. If None, the default branch will be used.
+        scope: The scope of the context. If None, not running in a specific scope.
         merge_request_id: The merge request identifier if the context is set for a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
         **kwargs: Additional keyword arguments to pass to the repository client.
@@ -74,6 +84,7 @@ async def set_runtime_ctx(
             repo_id=repo_id,
             repo=repo,
             config=config,
+            scope=scope,
             merge_request_id=merge_request_id,
             bot_username=repo_client.current_user.username,
         )

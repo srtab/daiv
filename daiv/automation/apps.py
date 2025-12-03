@@ -9,4 +9,4 @@ class AutomationConfig(AppConfig):
     verbose_name = _("Automation")
 
     def ready(self):
-        autodiscover_modules("agents.tools.mcp.servers")
+        autodiscover_modules("agents.mcp.servers")

@@ -4,7 +4,7 @@ import pytest
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey
-from automation.agents.tools.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
+from automation.agents.mcp.schemas import CommonOptions, McpConfiguration, McpProxyConfig, StdioMcpServer
 from daiv.api import api
 
 
@@ -41,7 +41,7 @@ async def test_get_mcp_proxy_config_with_valid_api_key(django_user_model, mock_m
     user = await django_user_model.objects.acreate(username="testuser_valid_key", email="test@example.com")
     api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
-    with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
+    with patch("automation.agents.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
         client = TestAsyncClient(api)
@@ -63,7 +63,7 @@ async def test_get_mcp_proxy_config_returns_valid_json(django_user_model, mock_m
     user = await django_user_model.objects.acreate(username="testuser_valid_json", email="test@example.com")
     api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
-    with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
+    with patch("automation.agents.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
         client = TestAsyncClient(api)
@@ -94,7 +94,7 @@ async def test_get_mcp_proxy_config_uses_aliases(django_user_model, mock_mcp_con
     user = await django_user_model.objects.acreate(username="testuser_aliases", email="test@example.com")
     api_key_instance = await APIKey.objects.create_key(name="test-key", user=user)
 
-    with patch("automation.agents.tools.mcp.schemas.McpConfiguration.populate") as mock_populate:
+    with patch("automation.agents.mcp.schemas.McpConfiguration.populate") as mock_populate:
         mock_populate.return_value = mock_mcp_configuration
 
         client = TestAsyncClient(api)
