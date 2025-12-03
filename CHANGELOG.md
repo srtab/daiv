@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
 - Added OpenRouter support to Anthropic caching middleware, reducing costs.
 - Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
+- Added `EXECUTION_THINKING_LEVEL` configuration to `PlanAndExecuteAgent` to allow users to enable thinking for execution tasks.
 
 ### Changed
 
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails.
 - Fixed inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
 - Fixed `InvalidNamespaceError` when branch names contain periods (e.g., `fix/python-version-3.11`) by sanitizing namespace labels for LangGraph store.
+- Fixed `PlanAndExecuteAgent` to use `ToolStrategy` for execution tasks instead of `AutoStrategy` to handle union types.
 
 ## [1.0.0] - 2025-11-17
 

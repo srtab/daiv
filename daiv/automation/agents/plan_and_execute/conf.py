@@ -33,6 +33,9 @@ class PlanAndExecuteSettings(BaseSettings):
     EXECUTION_FALLBACK_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_5_1, description="Fallback model for execution tasks if the primary model fails."
     )
+    EXECUTION_THINKING_LEVEL: ThinkingLevel | None = Field(
+        default=None, description="Thinking level to be used for execution tasks. Set as `None` to disable thinking."
+    )
     CODE_REVIEW_MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_5_1_CODEX_MINI, description="Model to review code changes against the plan tasks ."
     )
