@@ -3,7 +3,7 @@
 from .celeryapp import app as celery_app
 from .celeryapp import async_task
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 USER_AGENT = f"python-daiv-agent/{__version__}"
 
 __all__ = ("celery_app", "async_task", "USER_AGENT")
