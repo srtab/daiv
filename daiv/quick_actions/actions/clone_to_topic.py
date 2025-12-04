@@ -16,7 +16,7 @@ class CloneToTopicQuickAction(QuickAction):
     Command to clone an issue to all repositories matching specified topics.
     """
 
-    description: str = "Clone this issue to all repositories matching the specified topics (GitLab) or tags (GitHub)."
+    description: str = "Clone this issue to all repositories matching the specified topics."
 
     def validate_arguments(self, args: str) -> bool:
         """

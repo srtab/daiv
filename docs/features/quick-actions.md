@@ -125,11 +125,11 @@ graph TD
 
 **Command**: `/clone-to-topic <topics>`
 
-**Purpose**: Clone the current issue to all repositories matching the specified topics (GitLab) or tags (GitHub).
+**Purpose**: Clone the current issue to all repositories matching the specified topics.
 
 **Scopes**: Issues only
 
-**Arguments**: Comma-separated list of topics/tags to match repositories against.
+**Arguments**: Comma-separated list of topics to match repositories against.
 
 **Usage**: Leave a comment specifying the topics, and DAIV will create a copy of the issue in every matching repository (excluding the current one).
 
@@ -142,7 +142,7 @@ graph TD
 
 **Behavior**:
 
-- Searches for repositories that have **all** the specified topics/tags
+- Searches for repositories that have **all** the specified topics
 - Excludes the current repository from the target list
 - Copies the issue title, description, and labels to each target repository
 - Reports how many issues were successfully created and lists them
@@ -183,8 +183,8 @@ graph TD
 
 **Clone to topic action issues**:
 
-- Ensure you provide at least one topic/tag
-- Check that target repositories have the specified topics/tags configured
+- Ensure you provide at least one topic
+- Check that target repositories have the specified topics configured
 - Verify DAIV has access to the target repositories
 - Confirm the current repository is not the only one matching the topics
 
@@ -215,7 +215,7 @@ Comment one of the commands below on this issue to trigger the bot:
 - `@daiv /help` - Shows the help message with the available quick actions.
 - `@daiv /approve-plan` - Run or launch the current plan.
 - `@daiv /revise-plan` - Discard current plan and create a new one from scratch.
-- `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics (GitLab) or tags (GitHub).
+- `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics.
 ```
 
 ---
