@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "1.0.0"
+version = "1.1.0"
 description = "Async SWE agents seamlessly integrated on your git platform to automate code issues implementation, reviews, and pipeline repairs."
 readme = "README.md"
 license = { file = "LICENSE" }
