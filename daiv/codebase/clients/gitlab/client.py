@@ -374,6 +374,7 @@ class GitLabClient(RepoClient):
             id=issue.id,
             iid=issue.iid,
             title=issue.title,
+            original_title=issue.title,
             description=issue.description,
             state=issue.state,
             notes=self._get_issue_notes(repo_id, issue_id),
@@ -387,6 +388,27 @@ class GitLabClient(RepoClient):
                 id=issue.author.get("id"), username=issue.author.get("username"), name=issue.author.get("name")
             ),
         )
+
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """
+        Create an issue in a repository.
+        API documentation: https://docs.gitlab.com/ee/api/issues.html#new-issue
+
+        Args:
+            repo_id: The repository ID.
+            title: The issue title.
+            description: The issue description.
+            labels: Optional list of labels to apply to the issue.
+
+        Returns:
+            The created issue IID.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue_data = {"title": title, "description": description}
+        if labels:
+            issue_data["labels"] = ",".join(labels)
+        issue = project.issues.create(issue_data)
+        return issue.iid
 
     def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """

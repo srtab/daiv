@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added OpenRouter support to Anthropic caching middleware, reducing costs.
 - Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
 - Added `EXECUTION_THINKING_LEVEL` configuration to `PlanAndExecuteAgent` to allow users to enable thinking for execution tasks.
+- Added `/clone-to-topic` quick action to clone issues to all repositories matching specified topics (GitLab) or tags (GitHub), enabling bulk distribution of issues across multiple repositories. Cloned issues include the original title, description, labels, and a reference link to the source issue.
 
 ### Changed
 

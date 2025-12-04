@@ -256,6 +256,10 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issues")
 
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue creation")
+
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
     ) -> str | None:

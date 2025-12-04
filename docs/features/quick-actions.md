@@ -44,10 +44,12 @@ graph TD
     J --> K["📖 Help Action<br/>(show available commands)"]
     J --> L["📋 Plan Action<br/>(regenerate/approve plan)"]
     J --> M["🔧 Pipeline Action<br/>(repair failed jobs)"]
+    J --> R["📤 Clone to Topic<br/>(clone issue to repos)"]
 
     K --> N["💬 Posts Help Message"]
     L --> O["🔄 Triggers Plan Workflow"]
     M --> P["🚦 Triggers Pipeline Repair"]
+    R --> S["📋 Creates Issues in<br/>Matching Repositories"]
 
     H --> Q["💬 Posts Error Message<br/>(suggests valid actions)"]
 
@@ -119,6 +121,34 @@ graph TD
 
 ---
 
+### 📤 Clone to Topic Action
+
+**Command**: `/clone-to-topic <topics>`
+
+**Purpose**: Clone the current issue to all repositories matching the specified topics (GitLab) or tags (GitHub).
+
+**Scopes**: Issues only
+
+**Arguments**: Comma-separated list of topics/tags to match repositories against.
+
+**Usage**: Leave a comment specifying the topics, and DAIV will create a copy of the issue in every matching repository (excluding the current one).
+
+**Example**:
+```
+@daiv /clone-to-topic backend, microservices
+```
+
+**Response**: DAIV replies with a summary of the cloned issues, including links to each new issue created.
+
+**Behavior**:
+
+- Searches for repositories that have **all** the specified topics/tags
+- Excludes the current repository from the target list
+- Copies the issue title, description, and labels to each target repository
+- Reports how many issues were successfully created and lists them
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
@@ -151,6 +181,13 @@ graph TD
 - Ensure you're commenting on an issue (not merge/pull request)
 - Check if there's an existing plan to execute or revise
 
+**Clone to topic action issues**:
+
+- Ensure you provide at least one topic/tag
+- Check that target repositories have the specified topics/tags configured
+- Verify DAIV has access to the target repositories
+- Confirm the current repository is not the only one matching the topics
+
 ### Debug Information
 
 Quick Actions log detailed information for troubleshooting:
@@ -178,6 +215,23 @@ Comment one of the commands below on this issue to trigger the bot:
 - `@daiv /help` - Shows the help message with the available quick actions.
 - `@daiv /approve-plan` - Run or launch the current plan.
 - `@daiv /revise-plan` - Discard current plan and create a new one from scratch.
+- `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics (GitLab) or tags (GitHub).
+```
+
+---
+
+### Cloning an Issue to Multiple Repositories
+
+```
+@daiv /clone-to-topic backend, api
+```
+
+**Response**:
+```
+Cloned issue to `3` repositories:
+- org/service-users#42
+- org/service-orders#18
+- org/service-payments#27
 ```
 
 ---
