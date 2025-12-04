@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Agent Skills system implementing Anthropic's progressive disclosure pattern.
 - Added `creating-agents-md-file` skill to help generate `AGENTS.md` files for repositories, following the [AGENTS.md](https://agents.md/) format.
 - Added `maintaining-changelog` skill to help maintain changelog files for pull requests, following existing format conventions or creating new files using Keep a Changelog format.
+- Added `creating-daiv-yml-config` skill to help create `.daiv.yml` configuration files with sandbox settings (base_image and format_code commands) based on repository content.
 - Added chunked reading capability to `read_tool` with `start_line` and `max_lines` parameters. The tool now supports reading files in segments rather than loading entire file contents, limiting output to a default maximum of 2000 lines. When content is truncated, a message indicates the range shown and total lines available, guiding further reads. This addresses the issue of costly full-file reads for large files.
 - Added `SWERepoClient` to support SWE-bench style evaluations with public OSS repositories. This client clones repositories to temporary directories without requiring credentials and is designed for automated testing scenarios.
 - Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
