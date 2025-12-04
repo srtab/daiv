@@ -174,6 +174,7 @@ class Issue(BaseModel):
     id: int | None = None
     iid: int | None = None
     title: str
+    original_title: str | None = None
     description: str | None = None
     state: str | None = None
     assignee: User | None = None

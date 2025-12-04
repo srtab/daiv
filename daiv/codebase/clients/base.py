@@ -97,6 +97,22 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """
+        Create an issue in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            title: The issue title.
+            description: The issue description.
+            labels: Optional list of labels to apply to the issue.
+
+        Returns:
+            The created issue IID (GitLab) or number (GitHub).
+        """
+        pass
+
+    @abc.abstractmethod
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
     ) -> str | None:

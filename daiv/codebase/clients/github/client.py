@@ -185,6 +185,7 @@ class GitHubClient(RepoClient):
             id=issue.id,
             iid=issue.number,
             title=issue.title,
+            original_title=issue.title,
             description=issue.body,
             state=issue.state,
             assignee=User(id=issue.assignee.id, username=issue.assignee.login, name=issue.assignee.name)
@@ -194,6 +195,23 @@ class GitHubClient(RepoClient):
             notes=self._serialize_comments(issue.get_comments()),
             labels=[label.name for label in issue.labels],
         )
+
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """
+        Create an issue in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            title: The issue title.
+            description: The issue description.
+            labels: Optional list of labels to apply to the issue.
+
+        Returns:
+            The created issue number.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        issue = repo.create_issue(title=title, body=description, labels=labels or [])
+        return issue.number
 
     def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """

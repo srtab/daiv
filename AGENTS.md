@@ -27,7 +27,7 @@ uv sync --only-group=docs  # install only the docs dependencies
 uv lock  # update the lock file
 ```
 
-Avoid editing `pyproject.toml` directly to manage dependencies. Always use the native `uv` commands (`uv add <package>`, `uv remove <package>`, `uv lock`, etc.) to add, remove, or update dependencies, and to update the lock file.
+Avoid editing `pyproject.toml` directly to manage dependencies. Use the native `uv` commands (`uv add <package>`, `uv remove <package>`, `uv lock`, etc.) to add, remove, or update dependencies, and to update the lock file.
 
 ## Testing
 
@@ -56,15 +56,15 @@ make lint-typing  # type check the code
 
 ## Documentation
 
-The tool used to build the documentation is `mkdocs`. All the documentation is located in the `docs/` directory. Add/Update documentation to cover new added feature or changes.
+The tool used to build the documentation is `mkdocs`. All the documentation is located in the `docs/` directory. Add/Update documentation to cover new added features or changes.
 
 ## Changelog
 
-All the changes are documented in the `CHANGELOG.md` file. Always describe the changes in the changelog when making changes to the codebase and follow the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+All the changes should be documented in the `CHANGELOG.md` file. Describe the changes in the changelog when making changes to the codebase and follow the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
 
 ## Translations
 
-To generate the translations, use the `make makemessages` command. Always compile the translations after changing `*.po` files, use the `make compilemessages` command. All the translations are located in a `locale/` directory, with a subdirectory for each language.
+To generate the translations, use the `make makemessages` command. Compile the translations after changing `*.po` files, use the `make compilemessages` command. All the translations are located in a `locale/` directory, with a subdirectory for each language.
 
 ```bash
 make makemessages  # generate the translations
