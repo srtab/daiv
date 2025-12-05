@@ -558,7 +558,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.1.14" },
     { name = "langgraph", specifier = "==1.0.4" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.53" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.55" },
     { name = "openevals", specifier = "==0.1.2" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.12.5" },
@@ -1603,7 +1603,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.4.53"
+version = "0.4.55"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1615,9 +1615,9 @@ dependencies = [
     { name = "uuid-utils" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/1c/8c4fbb995d176594d79e7347ca5e3cf1a839d300bee2b6b38861fbf57809/langsmith-0.4.53.tar.gz", hash = "sha256:362255850ac80abf6edc9e9b3455c42aa248e12686a24c637d4c56fc41139ffe", size = 990765, upload-time = "2025-12-03T01:00:43.505Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/2b/471669b0d5f62528d2fc41232a36640b55aeceff9c8aeea63bcafb7e1f20/langsmith-0.4.55.tar.gz", hash = "sha256:fb944ea491d7c9cb87e2126c8e2040688f117d4b96a882bf7795cdc6c8cb13a0", size = 991704, upload-time = "2025-12-05T03:52:22.828Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/48/37cc533e2d16e4ec1d01f30b41933c9319af18389ea0f6866835ace7d331/langsmith-0.4.53-py3-none-any.whl", hash = "sha256:62e0b69d0f3b25afbd63dc5743a3bcec52993fe6c4e43e5b9e5311606aa04e9e", size = 411526, upload-time = "2025-12-03T01:00:42.053Z" },
+    { url = "https://files.pythonhosted.org/packages/21/2b/a33febc8aed5ee0744f7d939cbe417ca3de00638ffb5327e8bcaebbabb22/langsmith-0.4.55-py3-none-any.whl", hash = "sha256:d15d8425056117ae1adb245ca68c22f128e1b1b3fa95b2ff5caf65e2ce255a02", size = 411798, upload-time = "2025-12-05T03:52:21.094Z" },
 ]
 
 [package.optional-dependencies]
