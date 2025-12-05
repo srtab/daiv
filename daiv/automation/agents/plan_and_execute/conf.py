@@ -43,6 +43,33 @@ class PlanAndExecuteSettings(BaseSettings):
         default=ThinkingLevel.MEDIUM,
         description="Thinking level to be used for code review. Set as `None` to disable thinking.",
     )
+    MAX_PLANNING_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.CLAUDE_OPUS_4_5,
+        description=(
+            "Model for planning tasks when daiv-max label is present, a multi-modal (image and text) model with "
+            "capabilities to call tools."
+        ),
+    )
+    MAX_EXECUTION_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.CLAUDE_OPUS_4_5,
+        description=(
+            "Model for execution tasks when daiv-max label is present, a multi-modal (image and text) model with "
+            "capabilities to call tools."
+        ),
+    )
+    MAX_PLANNING_THINKING_LEVEL: ThinkingLevel | None = Field(
+        default=ThinkingLevel.HIGH,
+        description=(
+            "Thinking level to be used for planning when daiv-max label is present. Set as `None` to disable thinking."
+        ),
+    )
+    MAX_EXECUTION_THINKING_LEVEL: ThinkingLevel | None = Field(
+        default=ThinkingLevel.HIGH,
+        description=(
+            "Thinking level to be used for execution tasks when daiv-max label is present. "
+            "Set as `None` to disable thinking."
+        ),
+    )
 
 
 settings = PlanAndExecuteSettings()

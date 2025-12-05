@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from langchain.agents.middleware.types import ModelCallResult
     from langgraph.runtime import Runtime
 
+    from automation.agents.base import ThinkingLevel
     from automation.agents.constants import ModelName
 
 
@@ -170,6 +171,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             settings.EXECUTION_MODEL_NAME,
             settings.EXECUTION_FALLBACK_MODEL_NAME,
         ),
+        planning_thinking_level: ThinkingLevel | None = settings.PLANNING_THINKING_LEVEL,
+        execution_thinking_level: ThinkingLevel | None = settings.EXECUTION_THINKING_LEVEL,
         **kwargs,
     ):
         """
@@ -182,23 +185,25 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
             specialized_planner_prompt (str | None): The specialized planner prompt to use.
             planning_model_names (list[ModelName | str]): The names of the planning models to use.
             execution_model_names (list[ModelName | str]): The names of the execution models to use.
+            planning_thinking_level (ThinkingLevel | None): The thinking level for planning tasks.
+            execution_thinking_level (ThinkingLevel | None): The thinking level for execution tasks.
         """
         self.skip_approval = skip_approval
         self.skip_format_code = skip_format_code
         self.include_web_search = include_web_search
         self.specialized_planner_prompt = specialized_planner_prompt
         self._planning_model = BaseAgent.get_model(
-            model=planning_model_names[0], max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL
+            model=planning_model_names[0], max_tokens=8_192, thinking_level=planning_thinking_level
         )
         self._planning_fallback_models = [
-            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=settings.PLANNING_THINKING_LEVEL)
+            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=planning_thinking_level)
             for model_name in planning_model_names[1:]
         ]
         self._execution_model = BaseAgent.get_model(
-            model=execution_model_names[0], max_tokens=8_192, thinking_level=settings.EXECUTION_THINKING_LEVEL
+            model=execution_model_names[0], max_tokens=8_192, thinking_level=execution_thinking_level
         )
         self._execution_fallback_models = [
-            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=settings.EXECUTION_THINKING_LEVEL)
+            BaseAgent.get_model(model=model_name, max_tokens=8_192, thinking_level=execution_thinking_level)
             for model_name in execution_model_names[1:]
         ]
         super().__init__(**kwargs)
