@@ -10,13 +10,13 @@ from automation.agents.constants import ModelName
 correctness_evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=BaseAgent.get_model(model=ModelName.GPT_5_MINI, thinking_level=ThinkingLevel.MEDIUM),
+    judge=BaseAgent.get_model(model=ModelName.GPT_5_1_CODEX_MINI, thinking_level=ThinkingLevel.MEDIUM),
 )
 
 rag_helpfulness_evaluator = create_llm_as_judge(
     prompt=RAG_HELPFULNESS_PROMPT,
     feedback_key="helpfulness",
-    judge=BaseAgent.get_model(model=ModelName.GPT_5_MINI, thinking_level=ThinkingLevel.MEDIUM),
+    judge=BaseAgent.get_model(model=ModelName.GPT_5_1_CODEX_MINI, thinking_level=ThinkingLevel.MEDIUM),
 )
 
 

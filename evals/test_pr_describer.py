@@ -10,7 +10,7 @@ from automation.agents.pr_describer import PullRequestDescriberAgent
 evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=BaseAgent.get_model(model=ModelName.GPT_5_MINI, thinking_level=ThinkingLevel.MEDIUM),
+    judge=BaseAgent.get_model(model=ModelName.GPT_5_1_CODEX_MINI, thinking_level=ThinkingLevel.MEDIUM),
 )
 
 file_changes = []  # TODO: Add file changes
