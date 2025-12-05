@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with CLAUDE_OPUS_4_5 model and HIGH thinking level for both planning and execution
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
-- Added `has_auto_label()` and `has_max_label()` helper methods to the `Issue` model for case-insensitive label checking
 
 ### Changed
 
