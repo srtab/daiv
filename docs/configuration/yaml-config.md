@@ -73,6 +73,20 @@ Configure the following feature sections in your `.daiv.yml` YAML configuration 
 |-----------|--------|---------|---------------------------------------------|
 | `enabled` | `bool` | `true`  | Enable the [issue addressor feature](../features/issue-addressor.md). |
 
+**Enable automated issue resolution with plan approval:**
+
+```yaml
+# Minimal configuration for automated issue resolution
+issue_addressing:
+  enabled: true
+
+quick_actions:
+  enabled: true  # Required for /approve-plan command
+```
+
+!!! note
+    Plan approval is handled via the `/approve-plan` quick action. See [Quick Actions](../features/quick-actions.md) for details.
+
 ### Code Review
 | Option    | Type   | Default | Description                                 |
 |-----------|--------|---------|---------------------------------------------|

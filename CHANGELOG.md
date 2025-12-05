@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
+- Added comparison table to Quick Actions documentation clarifying the difference between slash commands and direct mentions.
+- Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
+
 ## [1.1.0] - 2025-12-04
 
 ### Added

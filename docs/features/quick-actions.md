@@ -4,6 +4,19 @@ Quick Actions provide command-based interactions with DAIV directly from issues 
 
 ---
 
+## Quick Actions vs. Direct Mentions
+
+DAIV responds to two types of interactions:
+
+| Interaction Type | Format | Use Case |
+|------------------|--------|----------|
+| **Quick Actions** | `@daiv /command` | Execute specific commands (approve plans, get help, clone issues) |
+| **Direct Mentions** | `@daiv <request>` | Address code review comments, ask questions, request code changes |
+
+**To address code review comments**, use a direct mention without a slash command. See [Review Addressor](review-addressor.md) for details and examples.
+
+---
+
 ## Overview
 
 Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge/pull request comments.

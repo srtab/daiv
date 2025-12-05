@@ -121,6 +121,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         if model_provider == ModelProvider.ANTHROPIC:
             assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
 
+            _kwargs["betas"] = ["structured-outputs-2025-11-13"]
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
@@ -176,6 +177,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
             _kwargs["api_key"] = settings.GOOGLE_API_KEY.get_secret_value()
+            _kwargs["include_thoughts"] = True
 
         return _kwargs
 
