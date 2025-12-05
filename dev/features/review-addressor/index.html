@@ -716,10 +716,99 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#triggering-runs" class="md-nav__link">
+  <a href="#how-to-address-code-review-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Triggering runs
+        How to Address Code Review Comments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How to Address Code Review Comments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-comment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to Comment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-code-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a Code Change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-a-question-about-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask a Question About the Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-specific-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Specific Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
       
     </span>
   </a>
@@ -990,10 +1079,99 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#triggering-runs" class="md-nav__link">
+  <a href="#how-to-address-code-review-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Triggering runs
+        How to Address Code Review Comments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How to Address Code Review Comments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-comment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to Comment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-code-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a Code Change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-a-question-about-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask a Question About the Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-specific-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Specific Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
       
     </span>
   </a>
@@ -1103,10 +1281,51 @@
 
 <h1 id="review-addressor">🤖 Review Addressor</h1>
 <p>Review Addressor is a feature that allows DAIV to address code review comments by applying the changes suggested by the reviewer or answering questions about the codebase.</p>
-<h2 id="triggering-runs">Triggering runs</h2>
-<p>DAIV monitor merge/pull requests for comments that mention DAIV using webhooks. This streamlines the process of addressing code review comments and requires no manual intervention to start a run.</p>
-<p>Just leave a comment on the merge/pull request and reference DAIV (e.g. <code>@daiv use Redis instead of in-memory storage</code>) in the comment to trigger the agent to address the comment.</p>
-<p>You can leave comments in the <em>diff</em> of the merge/pull request or <em>directly</em> on the merge/pull request.</p>
+<hr />
+<h2 id="how-to-address-code-review-comments">How to Address Code Review Comments</h2>
+<p><strong>To instruct DAIV to address a code review comment, mention DAIV directly in your comment using <code>@&lt;daiv-username&gt; &lt;your request&gt;</code>.</strong></p>
+<p>No slash command is required. Simply tag DAIV and describe what you want done.</p>
+<h3 id="command-format">Command Format</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv &lt;your request&gt;
+</code></pre></div></td></tr></table></div>
+<p>Replace <code>daiv</code> with your DAIV bot's username if it differs.</p>
+<h3 id="where-to-comment">Where to Comment</h3>
+<p>You can leave comments in two places:</p>
+<ul>
+<li><strong>In the diff</strong> (inline comments): Comment directly on specific lines of code in the merge/pull request diff</li>
+<li><strong>On the merge/pull request</strong>: Comment in the general discussion area</li>
+</ul>
+<hr />
+<h2 id="examples">Examples</h2>
+<h3 id="request-a-code-change">Request a Code Change</h3>
+<p>When you want DAIV to modify code based on your review feedback:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv use Redis instead of in-memory storage
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv rename this variable to `user_count` for clarity
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv add error handling for the case when the API returns null
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv move this logic to a separate helper function
+</code></pre></div></td></tr></table></div>
+<h3 id="ask-a-question-about-the-code">Ask a Question About the Code</h3>
+<p>When you want to understand the code better before making a decision:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv why is this import inside the method instead of at the top of the file?
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv what is the purpose of this function?
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv is this the most performant way to do this?
+</code></pre></div></td></tr></table></div>
+<h3 id="request-specific-fixes">Request Specific Fixes</h3>
+<p>When you spot issues during code review:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv this will cause a null pointer exception, please add a null check
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv the indentation is inconsistent here, please fix it
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>@daiv this SQL query is vulnerable to injection, please use parameterized queries
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="how-it-works">How It Works</h2>
+<p>DAIV monitors merge/pull requests for comments that mention DAIV using webhooks. This streamlines the process of addressing code review comments and requires no manual intervention to start a run.</p>
 <h2 id="workflow">Workflow</h2>
 <h4 id="code-review-response-workflow">💬 Code Review Response Workflow</h4>
 <pre class="mermaid"><code>graph TD
@@ -1156,7 +1375,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 4, 2025 22:50:02 UTC">December 4, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 5, 2025 23:12:10 UTC">December 5, 2025</span>
   </span>
 
     
@@ -1166,7 +1385,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 4, 2025 22:50:02 UTC">December 4, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 5, 2025 23:12:10 UTC">December 5, 2025</span>
   </span>
 
     
