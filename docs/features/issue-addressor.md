@@ -28,11 +28,41 @@ DAIV monitor issues for changes in the issue title, description, labels and stat
 
 **With Label**
 
-You can trigger issue addressing by adding the `daiv` label to the issue.
+You can trigger issue addressing by adding any of the following labels to the issue:
+- `daiv` - Standard DAIV issue addressing
+- `daiv-auto` - Automatically approve and execute plans (see [Agent Configuration Labels](#agent-configuration-labels))
+- `daiv-max` - Use high-performance mode (see [Agent Configuration Labels](#agent-configuration-labels))
 
-**With Title**
+Labels are case-insensitive, so `DAIV`, `Daiv`, or `daiv` will all work.
 
-You can trigger issue addressing by starting the issue title with `DAIV:` (e.g. 'DAIV: Add a new feature'). The prefix is case-insensitive, so you can use it as `daiv:` or `DAIV:`.
+## Agent Configuration Labels
+
+You can configure the plan and execute agent behavior by adding specific labels to your issue:
+
+### `daiv-auto` Label
+
+Automatically approve the plan and proceed with implementation without requiring manual approval. This is useful for trusted scenarios where you want DAIV to execute plans immediately after generation.
+
+**Example:**
+- Add the `daiv-auto` label to an issue
+- DAIV will generate a plan and automatically execute it without waiting for `/approve-plan` command
+
+### `daiv-max` Label
+
+Enable high-performance mode with:
+- **Model**: Uses `CLAUDE_OPUS_4_5` (more intelligent model) instead of the default `CLAUDE_SONNET_4_5`
+- **Thinking Level**: Sets both planning and execution thinking levels to `HIGH` for deeper reasoning
+
+This is useful for complex issues that require more sophisticated analysis and execution.
+
+**Example:**
+- Add the `daiv-max` label to an issue
+- DAIV will use the more powerful model and higher thinking levels for both planning and execution
+
+### Combining Labels
+
+You can combine labels to get both behaviors:
+- `daiv-auto` + `daiv-max`: Automatically approve plans using high-performance mode
 
 ## Resetting the plan
 
@@ -76,7 +106,7 @@ After a first plan is executed on an issue, executing a second plan will overrid
 
 ```mermaid
 graph TD
-    A["👤 Developer"] --> B["📝 Creates Issue<br/>(title starts with 'DAIV:')"]
+    A["👤 Developer"] --> B["📝 Creates Issue<br/>(with 'daiv' label)"]
     B --> C["🔔 Webhook Triggered"]
     C --> D["🤖 Issue Addressor Agent"]
     D --> E["📋 Analyzes Issue<br/>(title, description, images)"]

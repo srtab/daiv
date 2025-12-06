@@ -374,7 +374,6 @@ class GitLabClient(RepoClient):
             id=issue.id,
             iid=issue.iid,
             title=issue.title,
-            original_title=issue.title,
             description=issue.description,
             state=issue.state,
             notes=self._get_issue_notes(repo_id, issue_id),

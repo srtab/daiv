@@ -12,6 +12,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
 from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content
@@ -85,6 +86,9 @@ class IssueAddressorManager(BaseManager):
 
         try:
             await manager._plan_issue(should_reset_plan)
+
+            if manager.issue.has_auto_label():
+                await cls.approve_plan(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
         except Exception as e:
             logger.exception("Error planning issue %d: %s", issue_iid, e)
             manager._add_unable_to_process_issue_note()
@@ -118,7 +122,10 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=self.store)
+            agent_kwargs = self._get_agent_kwargs()
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
+                checkpointer=checkpointer, store=self.store, **agent_kwargs
+            )
             current_state = None
 
             if should_reset_plan:
@@ -170,7 +177,10 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(checkpointer=checkpointer, store=self.store)
+            agent_kwargs = self._get_agent_kwargs()
+            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
+                checkpointer=checkpointer, store=self.store, **agent_kwargs
+            )
 
             current_state = await plan_and_execute.aget_state(self._config)
             result = None
@@ -216,6 +226,32 @@ class IssueAddressorManager(BaseManager):
             metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
             configurable={"thread_id": self.thread_id},
         )
+
+    def _get_agent_kwargs(self) -> dict:
+        """
+        Get agent configuration based on issue labels.
+
+        Returns:
+            dict: Configuration kwargs for PlanAndExecuteAgent.
+        """
+        kwargs: dict = {}
+
+        # Check for daiv-max label: use high-performance mode
+        if self.issue.has_max_label():
+            kwargs["planning_model_names"] = [
+                plan_and_execute_settings.MAX_PLANNING_MODEL_NAME,
+                plan_and_execute_settings.PLANNING_MODEL_NAME,
+                plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
+            ]
+            kwargs["execution_model_names"] = [
+                plan_and_execute_settings.MAX_EXECUTION_MODEL_NAME,
+                plan_and_execute_settings.EXECUTION_MODEL_NAME,
+                plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
+            ]
+            kwargs["planning_thinking_level"] = plan_and_execute_settings.MAX_PLANNING_THINKING_LEVEL
+            kwargs["execution_thinking_level"] = plan_and_execute_settings.MAX_EXECUTION_THINKING_LEVEL
+
+        return kwargs
 
     @override
     async def _commit_changes(self, *, thread_id: str | None = None, skip_ci: bool = False) -> int | str | None:
