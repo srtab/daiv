@@ -710,6 +710,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-configuration-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Configuration Labels
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent Configuration Labels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daiv-auto-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        daiv-auto Label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#daiv-max-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        daiv-max Label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#combining-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combining Labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resetting-the-plan" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1067,6 +1117,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-configuration-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Configuration Labels
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent Configuration Labels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daiv-auto-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        daiv-auto Label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#daiv-max-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        daiv-max Label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#combining-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combining Labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resetting-the-plan" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1252,9 +1352,29 @@
 <h2 id="triggering-runs">Triggering runs</h2>
 <p>DAIV monitor issues for changes in the issue title, description, labels and state using webhooks. This streamlines the process of issuing a code change and requires no manual intervention to start a run.</p>
 <p><strong>With Label</strong></p>
-<p>You can trigger issue addressing by adding the <code>daiv</code> label to the issue.</p>
-<p><strong>With Title</strong></p>
-<p>You can trigger issue addressing by starting the issue title with <code>DAIV:</code> (e.g. 'DAIV: Add a new feature'). The prefix is case-insensitive, so you can use it as <code>daiv:</code> or <code>DAIV:</code>.</p>
+<p>You can trigger issue addressing by adding any of the following labels to the issue:
+- <code>daiv</code> - Standard DAIV issue addressing
+- <code>daiv-auto</code> - Automatically approve and execute plans (see <a href="#agent-configuration-labels">Agent Configuration Labels</a>)
+- <code>daiv-max</code> - Use high-performance mode (see <a href="#agent-configuration-labels">Agent Configuration Labels</a>)</p>
+<p>Labels are case-insensitive, so <code>DAIV</code>, <code>Daiv</code>, or <code>daiv</code> will all work.</p>
+<h2 id="agent-configuration-labels">Agent Configuration Labels</h2>
+<p>You can configure the plan and execute agent behavior by adding specific labels to your issue:</p>
+<h3 id="daiv-auto-label"><code>daiv-auto</code> Label</h3>
+<p>Automatically approve the plan and proceed with implementation without requiring manual approval. This is useful for trusted scenarios where you want DAIV to execute plans immediately after generation.</p>
+<p><strong>Example:</strong>
+- Add the <code>daiv-auto</code> label to an issue
+- DAIV will generate a plan and automatically execute it without waiting for <code>/approve-plan</code> command</p>
+<h3 id="daiv-max-label"><code>daiv-max</code> Label</h3>
+<p>Enable high-performance mode with:
+- <strong>Model</strong>: Uses <code>CLAUDE_OPUS_4_5</code> (more intelligent model) instead of the default <code>CLAUDE_SONNET_4_5</code>
+- <strong>Thinking Level</strong>: Sets both planning and execution thinking levels to <code>HIGH</code> for deeper reasoning</p>
+<p>This is useful for complex issues that require more sophisticated analysis and execution.</p>
+<p><strong>Example:</strong>
+- Add the <code>daiv-max</code> label to an issue
+- DAIV will use the more powerful model and higher thinking levels for both planning and execution</p>
+<h3 id="combining-labels">Combining Labels</h3>
+<p>You can combine labels to get both behaviors:
+- <code>daiv-auto</code> + <code>daiv-max</code>: Automatically approve plans using high-performance mode</p>
 <h2 id="resetting-the-plan">Resetting the plan</h2>
 <p>You can reset the plan by:</p>
 <ol>
@@ -1284,7 +1404,7 @@
 <p>After a first plan is executed on an issue, executing a second plan will override the previous merge/pull request.</p>
 <h2 id="workflow">Workflow</h2>
 <pre class="mermaid"><code>graph TD
-    A["👤 Developer"] --&gt; B["📝 Creates Issue&lt;br/&gt;(title starts with 'DAIV:')"]
+    A["👤 Developer"] --&gt; B["📝 Creates Issue&lt;br/&gt;(with 'daiv' label)"]
     B --&gt; C["🔔 Webhook Triggered"]
     C --&gt; D["🤖 Issue Addressor Agent"]
     D --&gt; E["📋 Analyzes Issue&lt;br/&gt;(title, description, images)"]
@@ -1330,7 +1450,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 5, 2025 23:12:10 UTC">December 5, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 6, 2025 11:41:51 UTC">December 6, 2025</span>
   </span>
 
     
@@ -1340,7 +1460,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 5, 2025 23:12:10 UTC">December 5, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 6, 2025 11:41:51 UTC">December 6, 2025</span>
   </span>
 
     
