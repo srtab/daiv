@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic.fields import Field
 
-from core.constants import BOT_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 
 class User(BaseModel):
@@ -41,11 +41,10 @@ class Issue(BaseModel):
 
     def is_daiv(self) -> bool:
         """
-        Check if the issue is a DAIV issue.
+        Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
         """
-        return any(label["name"].lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(
-            BOT_LABEL
-        )
+        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
+        return any(label["name"].lower() in daiv_labels for label in self.labels)
 
     def is_pull_request(self) -> bool:
         """

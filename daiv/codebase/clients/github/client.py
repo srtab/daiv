@@ -185,7 +185,6 @@ class GitHubClient(RepoClient):
             id=issue.id,
             iid=issue.number,
             title=issue.title,
-            original_title=issue.title,
             description=issue.body,
             state=issue.state,
             assignee=User(id=issue.assignee.id, username=issue.assignee.login, name=issue.assignee.name)

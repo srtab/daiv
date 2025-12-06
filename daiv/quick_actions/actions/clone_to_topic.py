@@ -60,10 +60,7 @@ class CloneToTopicQuickAction(QuickAction):
         for target_repo in target_repos:
             with suppress(Exception):
                 cloned_issue_iid = self.client.create_issue(
-                    repo_id=target_repo.slug,
-                    title=issue.original_title,
-                    description=issue.description,
-                    labels=issue.labels,
+                    repo_id=target_repo.slug, title=issue.title, description=issue.description, labels=issue.labels
                 )
 
                 cloned_issues.append(f"{target_repo.slug}#{cloned_issue_iid}")

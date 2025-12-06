@@ -28,11 +28,12 @@ DAIV monitor issues for changes in the issue title, description, labels and stat
 
 **With Label**
 
-You can trigger issue addressing by adding the `daiv` label to the issue.
+You can trigger issue addressing by adding any of the following labels to the issue:
+- `daiv` - Standard DAIV issue addressing
+- `daiv-auto` - Automatically approve and execute plans (see [Agent Configuration Labels](#agent-configuration-labels))
+- `daiv-max` - Use high-performance mode (see [Agent Configuration Labels](#agent-configuration-labels))
 
-**With Title**
-
-You can trigger issue addressing by starting the issue title with `DAIV:` (e.g. 'DAIV: Add a new feature'). The prefix is case-insensitive, so you can use it as `daiv:` or `DAIV:`.
+Labels are case-insensitive, so `DAIV`, `Daiv`, or `daiv` will all work.
 
 ## Agent Configuration Labels
 
@@ -105,7 +106,7 @@ After a first plan is executed on an issue, executing a second plan will overrid
 
 ```mermaid
 graph TD
-    A["👤 Developer"] --> B["📝 Creates Issue<br/>(title starts with 'DAIV:')"]
+    A["👤 Developer"] --> B["📝 Creates Issue<br/>(with 'daiv' label)"]
     B --> C["🔔 Webhook Triggered"]
     C --> D["🤖 Issue Addressor Agent"]
     D --> E["📋 Analyzes Issue<br/>(title, description, images)"]

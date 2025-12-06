@@ -3,9 +3,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_MAX_LABEL
 
 
 class ClientType(StrEnum):
@@ -61,9 +61,6 @@ class MergeRequest(BaseModel):
     description: str
     labels: list[str] = Field(default_factory=list)
     sha: str | None = None
-
-    def is_daiv(self) -> bool:
-        return any(label.lower() == BOT_LABEL for label in self.labels) or self.title.lower().startswith(BOT_LABEL)
 
 
 class MergeRequestDiff(BaseModel):
@@ -174,7 +171,6 @@ class Issue(BaseModel):
     id: int | None = None
     iid: int | None = None
     title: str
-    original_title: str | None = None
     description: str | None = None
     state: str | None = None
     assignee: User | None = None
@@ -182,20 +178,6 @@ class Issue(BaseModel):
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    @field_validator("title", mode="after")
-    @classmethod
-    def clean_title(cls, value: str) -> str:
-        """
-        Clean the title of the issue by removing the bot label and the colon if it exists.
-
-        This will avoid issues with agents as they will think the bot label is part of the context for the task.
-        """
-        if value.lower().startswith(f"{BOT_LABEL}:"):
-            return value[len(BOT_LABEL) + 1 :].strip()
-        elif value.lower().startswith(BOT_LABEL):
-            return value[len(BOT_LABEL) :].strip()
-        return value
 
     def has_auto_label(self) -> bool:
         """
