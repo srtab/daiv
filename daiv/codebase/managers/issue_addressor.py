@@ -349,7 +349,11 @@ class IssueAddressorManager(BaseManager):
         self._create_or_update_comment(
             render_to_string(
                 "codebase/issue_review_plan.txt",
-                {"plan_tasks": plan_tasks, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
+                {
+                    "plan_tasks": plan_tasks,
+                    "approve_plan_command": ApprovePlanQuickAction().command_to_activate,
+                    "auto_approved": self.issue.has_auto_label(),
+                },
             )
         )
 
