@@ -11,8 +11,8 @@ from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
-from automation.agents.plan_and_execute import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
+from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.utils import get_plan_and_execute_agent_kwargs
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content
@@ -122,7 +122,9 @@ class IssueAddressorManager(BaseManager):
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            agent_kwargs = self._get_agent_kwargs()
+            agent_kwargs = get_plan_and_execute_agent_kwargs(
+                models_config=self.ctx.config.models, use_max=self.issue.has_max_label()
+            )
             plan_and_execute = await PlanAndExecuteAgent.get_runnable(
                 checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
@@ -177,7 +179,9 @@ class IssueAddressorManager(BaseManager):
         Approve the plan for the given issue.
         """
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            agent_kwargs = self._get_agent_kwargs()
+            agent_kwargs = get_plan_and_execute_agent_kwargs(
+                models_config=self.ctx.config.models, use_max=self.issue.has_max_label()
+            )
             plan_and_execute = await PlanAndExecuteAgent.get_runnable(
                 checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
@@ -227,32 +231,6 @@ class IssueAddressorManager(BaseManager):
             configurable={"thread_id": self.thread_id},
         )
 
-    def _get_agent_kwargs(self) -> dict:
-        """
-        Get agent configuration based on issue labels.
-
-        Returns:
-            dict: Configuration kwargs for PlanAndExecuteAgent.
-        """
-        kwargs: dict = {}
-
-        # Check for daiv-max label: use high-performance mode
-        if self.issue.has_max_label():
-            kwargs["planning_model_names"] = [
-                plan_and_execute_settings.MAX_PLANNING_MODEL_NAME,
-                plan_and_execute_settings.PLANNING_MODEL_NAME,
-                plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
-            ]
-            kwargs["execution_model_names"] = [
-                plan_and_execute_settings.MAX_EXECUTION_MODEL_NAME,
-                plan_and_execute_settings.EXECUTION_MODEL_NAME,
-                plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
-            ]
-            kwargs["planning_thinking_level"] = plan_and_execute_settings.MAX_PLANNING_THINKING_LEVEL
-            kwargs["execution_thinking_level"] = plan_and_execute_settings.MAX_EXECUTION_THINKING_LEVEL
-
-        return kwargs
-
     @override
     async def _commit_changes(self, *, thread_id: str | None = None, skip_ci: bool = False) -> int | str | None:
         """
@@ -262,7 +240,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent.get_runnable()
+        pr_describer = await PullRequestDescriberAgent.get_runnable(model=self.ctx.config.models.pr_describer.model)
         changes_description = await pr_describer.ainvoke(
             {
                 "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),

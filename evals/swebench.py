@@ -10,7 +10,7 @@ from datasets import load_dataset
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents.constants import ModelName
-from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
 from codebase.context import set_runtime_ctx
 from codebase.utils import GitManager
 

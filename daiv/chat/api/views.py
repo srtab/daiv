@@ -60,7 +60,11 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         )
     try:
         async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
-            codebase_chat = await CodebaseChatAgent.get_runnable()
+            # Get model config from repository config if available
+            model_config = runtime_ctx.config.models.codebase_chat
+            codebase_chat = await CodebaseChatAgent.get_runnable(
+                model=model_config.model, temperature=model_config.temperature
+            )
             result = await codebase_chat.ainvoke(input_data, config=config, context=runtime_ctx)
 
         return ChatCompletionResponse(

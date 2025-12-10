@@ -2,9 +2,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from automation.agents.base import ThinkingLevel
 from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
 from codebase.base import Issue, User
 from codebase.managers.issue_addressor import IssueAddressorManager
+from codebase.repo_config import Models, PlanAndExecuteModelConfig
 
 
 @pytest.fixture
@@ -107,3 +109,72 @@ class TestIssueAddressorManagerGetAgentKwargs:
 
         assert "planning_model_names" in kwargs
         assert kwargs["planning_thinking_level"] == plan_and_execute_settings.MAX_PLANNING_THINKING_LEVEL
+
+    def test_get_agent_kwargs_with_yaml_model_config(self, mock_runtime_ctx, mock_repo_client):
+        """Test that _get_agent_kwargs uses YAML model config when available."""
+        issue = Issue(id=1, iid=1, title="Test Issue", author=User(id=2, username="user", name="User"), labels=["bug"])
+        mock_repo_client.get_issue.return_value = issue
+
+        # Set up YAML model config
+        model_config = PlanAndExecuteModelConfig(
+            planning_model="openrouter:anthropic/claude-haiku-4.5",
+            planning_fallback_model="openrouter:openai/gpt-4.1-mini",
+            planning_thinking_level="low",
+            execution_model="openrouter:anthropic/claude-haiku-4.5",
+            execution_fallback_model="openrouter:openai/gpt-4.1-mini",
+            execution_thinking_level=None,
+        )
+        mock_runtime_ctx.config.models = Models(plan_and_execute=model_config)
+
+        manager = IssueAddressorManager(issue_iid=1, runtime_ctx=mock_runtime_ctx)
+        kwargs = manager._get_agent_kwargs()
+
+        assert kwargs["planning_model_names"] == [
+            "openrouter:anthropic/claude-haiku-4.5",
+            "openrouter:openai/gpt-4.1-mini",
+        ]
+        assert kwargs["execution_model_names"] == [
+            "openrouter:anthropic/claude-haiku-4.5",
+            "openrouter:openai/gpt-4.1-mini",
+        ]
+        assert kwargs["planning_thinking_level"] == ThinkingLevel.LOW
+        assert kwargs["execution_thinking_level"] is None
+
+    def test_get_agent_kwargs_yaml_config_overrides_env_vars(self, mock_runtime_ctx, mock_repo_client):
+        """Test that YAML config overrides environment variables but not issue labels."""
+        issue = Issue(
+            id=1, iid=1, title="Test Issue", author=User(id=2, username="user", name="User"), labels=["daiv-max"]
+        )
+        mock_repo_client.get_issue.return_value = issue
+
+        # Set up YAML model config
+        model_config = PlanAndExecuteModelConfig(
+            planning_model="openrouter:anthropic/claude-haiku-4.5", planning_thinking_level="low"
+        )
+        mock_runtime_ctx.config.models = Models(plan_and_execute=model_config)
+
+        manager = IssueAddressorManager(issue_iid=1, runtime_ctx=mock_runtime_ctx)
+        kwargs = manager._get_agent_kwargs()
+
+        # Issue label (daiv-max) should override YAML config
+        assert kwargs["planning_model_names"][0] == plan_and_execute_settings.MAX_PLANNING_MODEL_NAME
+        assert kwargs["planning_thinking_level"] == plan_and_execute_settings.MAX_PLANNING_THINKING_LEVEL
+
+    def test_get_agent_kwargs_partial_yaml_config(self, mock_runtime_ctx, mock_repo_client):
+        """Test that partial YAML config merges with environment defaults."""
+        issue = Issue(id=1, iid=1, title="Test Issue", author=User(id=2, username="user", name="User"), labels=["bug"])
+        mock_repo_client.get_issue.return_value = issue
+
+        # Set up partial YAML model config (only planning_model)
+        model_config = PlanAndExecuteModelConfig(planning_model="openrouter:anthropic/claude-haiku-4.5")
+        mock_runtime_ctx.config.models = Models(plan_and_execute=model_config)
+
+        manager = IssueAddressorManager(issue_iid=1, runtime_ctx=mock_runtime_ctx)
+        kwargs = manager._get_agent_kwargs()
+
+        # planning_model should come from YAML
+        assert kwargs["planning_model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
+        # planning_fallback_model should come from env vars
+        assert kwargs["planning_model_names"][1] == plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME
+        # execution_model should come from env vars
+        assert kwargs["execution_model_names"][0] == plan_and_execute_settings.EXECUTION_MODEL_NAME

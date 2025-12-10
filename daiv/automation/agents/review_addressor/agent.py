@@ -20,7 +20,8 @@ from langgraph.types import Send
 
 from automation.agents import BaseAgent
 from automation.agents.middleware import AnthropicPromptCachingMiddleware, InjectImagesMiddleware
-from automation.agents.plan_and_execute import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
+from automation.agents.plan_and_execute.utils import get_plan_and_execute_agent_kwargs
 from automation.agents.tools.merge_request import MergeRequestMiddleware
 from automation.agents.tools.navigation import FileNavigationMiddleware
 from automation.agents.tools.sandbox import _run_bash_commands
@@ -40,7 +41,9 @@ from .state import OverallState, ReplyAgentState, ReplyReviewerState, ReviewInSt
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
+    from automation.agents.constants import ModelName
     from codebase.managers.review_addressor import ReviewContext
+    from codebase.repo_config import Models
 
 logger = logging.getLogger("daiv.agents")
 
@@ -50,12 +53,14 @@ class ReviewCommentEvaluator(BaseAgent[Runnable[ReviewCommentInput, ReviewCommen
     Agent to evaluate if a review comment is a request for changes to the codebase.
     """
 
+    def __init__(self, *, review_comment_model: ModelName | str, **kwargs):
+        self.review_comment_model = review_comment_model
+        super().__init__(**kwargs)
+
     async def compile(self) -> Runnable:
         return (
             ChatPromptTemplate.from_messages([review_comment_system, MessagesPlaceholder("messages")])
-            | BaseAgent.get_model(model=settings.REVIEW_COMMENT_MODEL_NAME).with_structured_output(
-                ReviewCommentEvaluation
-            )
+            | BaseAgent.get_model(model=self.review_comment_model).with_structured_output(ReviewCommentEvaluation)
         ).with_config({"run_name": "review_comment_evaluator"})
 
 
@@ -84,8 +89,13 @@ class ReplyReviewerAgent(BaseAgent[CompiledStateGraph]):
     Agent to reply to reviewer's comments or questions.
     """
 
+    def __init__(self, *, reply_model: ModelName | str, reply_temperature: float, **kwargs):
+        self.reply_model = reply_model
+        self.reply_temperature = reply_temperature
+        super().__init__(**kwargs)
+
     async def compile(self) -> CompiledStateGraph:
-        model = BaseAgent.get_model(model=settings.REPLY_MODEL_NAME, temperature=settings.REPLY_TEMPERATURE)
+        model = BaseAgent.get_model(model=self.reply_model, temperature=self.reply_temperature)
         middlewares = [
             respond_reviewer_system_prompt,
             FileNavigationMiddleware(),
@@ -112,8 +122,16 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
     Agent to address reviews by providing feedback and asking questions.
     """
 
-    def __init__(self, *, skip_format_code: bool = False, **kwargs):
+    def __init__(self, *, skip_format_code: bool = False, models_config: Models, **kwargs):
+        """
+        Initialize the agent.
+
+        Args:
+            skip_format_code (bool): Whether to skip the format code step.
+            models_config (Models): The models configuration.
+        """
         self.skip_format_code = skip_format_code
+        self.models_config = models_config
         super().__init__(**kwargs)
 
     async def compile(self) -> CompiledStateGraph:
@@ -178,7 +196,9 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             dict: The result of the evaluate review comments.
         """
-        review_comment_evaluator = await ReviewCommentEvaluator.get_runnable()
+        review_comment_evaluator = await ReviewCommentEvaluator.get_runnable(
+            review_comment_model=self.models_config.review_addressor.review_comment_model
+        )
         response = await review_comment_evaluator.ainvoke({"messages": state["review_context"].notes})
 
         if response.request_for_changes:
@@ -287,17 +307,19 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
 
         Args:
             review_context (ReviewContext): The review context.
-            store (BaseStore): The store to persist file changes.
+            runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
             dict: Result containing the plan questions.
         """
+        agent_kwargs = get_plan_and_execute_agent_kwargs(models_config=self.models_config)
         plan_and_execute_agent = await PlanAndExecuteAgent.get_runnable(
             store=runtime.store,
             skip_approval=True,
             skip_format_code=True,  # we will apply format code after all reviews are addressed
             specialized_planner_prompt=review_plan_system,
             checkpointer=False,
+            **agent_kwargs,
         )
 
         review_human_messages = await review_human.aformat_messages(
@@ -323,7 +345,12 @@ class ReviewAddressorAgent(BaseAgent[CompiledStateGraph]):
         stream_writer({"reply_reviewer": "starting", "review_context": state["review_context"]})
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            reply_reviewer_agent = await ReplyReviewerAgent.get_runnable(store=runtime.store, checkpointer=checkpointer)
+            reply_reviewer_agent = await ReplyReviewerAgent.get_runnable(
+                store=runtime.store,
+                checkpointer=checkpointer,
+                reply_model=self.models_config.review_addressor.reply_model,
+                reply_temperature=self.models_config.review_addressor.reply_temperature,
+            )
             result = await reply_reviewer_agent.ainvoke(
                 {"messages": state["review_context"].notes, "diff": state["review_context"].diff},
                 context=runtime.context,

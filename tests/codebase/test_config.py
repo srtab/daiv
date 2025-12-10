@@ -151,3 +151,59 @@ class RepositoryConfigTest:
         combined_patterns = config.combined_exclude_patterns
         assert "**/custom_pattern/**" in combined_patterns
         assert "**/.git/**" in combined_patterns
+
+    @patch("codebase.repo_config.cache")
+    def test_get_config_with_models_section(self, mock_cache, mock_repo_client):
+        """Test that models configuration is parsed correctly from YAML."""
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
+        models:
+          plan_and_execute:
+            planning_model: "openrouter:anthropic/claude-haiku-4.5"
+            planning_thinking_level: "low"
+            execution_model: "openrouter:anthropic/claude-haiku-4.5"
+            code_review_model: "openrouter:openai/gpt-4.1-mini"
+          review_addressor:
+            review_comment_model: "openrouter:openai/gpt-4.1-mini"
+            reply_model: "openrouter:anthropic/claude-haiku-4.5"
+            reply_temperature: 0.3
+          codebase_chat:
+            model: "openrouter:anthropic/claude-haiku-4.5"
+            temperature: 0.2
+          pr_describer:
+            model: "openrouter:openai/gpt-4.1-mini"
+        """
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert config.models.plan_and_execute.planning_model == "openrouter:anthropic/claude-haiku-4.5"
+        assert config.models.plan_and_execute.planning_thinking_level == "low"
+        assert config.models.plan_and_execute.execution_model == "openrouter:anthropic/claude-haiku-4.5"
+        assert config.models.plan_and_execute.code_review_model == "openrouter:openai/gpt-4.1-mini"
+        assert config.models.review_addressor.review_comment_model == "openrouter:openai/gpt-4.1-mini"
+        assert config.models.review_addressor.reply_model == "openrouter:anthropic/claude-haiku-4.5"
+        assert config.models.review_addressor.reply_temperature == 0.3
+        assert config.models.codebase_chat.model == "openrouter:anthropic/claude-haiku-4.5"
+        assert config.models.codebase_chat.temperature == 0.2
+        assert config.models.pr_describer.model == "openrouter:openai/gpt-4.1-mini"
+
+    @patch("codebase.repo_config.cache")
+    def test_get_config_with_partial_models_section(self, mock_cache, mock_repo_client):
+        """Test that partial models configuration works correctly."""
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
+        models:
+          plan_and_execute:
+            planning_model: "openrouter:anthropic/claude-haiku-4.5"
+        """
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert config.models.plan_and_execute.planning_model == "openrouter:anthropic/claude-haiku-4.5"
+        # Other fields should be None (defaults)
+        assert config.models.plan_and_execute.execution_model is None
+        assert config.models.review_addressor.review_comment_model is None

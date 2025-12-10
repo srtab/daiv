@@ -242,15 +242,17 @@ class ReviewAddressorManager(BaseManager):
             },
         )
 
-        reviewer_addressor = await ReviewAddressorAgent.get_runnable(
-            store=self.store, skip_format_code=not self.ctx.config.sandbox.format_code_enabled
+        review_addressor = await ReviewAddressorAgent.get_runnable(
+            store=self.store,
+            skip_format_code=not self.ctx.config.sandbox.format_code_enabled,
+            models_config=self.ctx.config.models,
         )
 
         started_discussions: list[SimpleDiscussion] = []
         resolved_discussions: list[SimpleDiscussion] = []
 
         try:
-            async for result in reviewer_addressor.astream(
+            async for result in review_addressor.astream(
                 {"to_review": review_contexts}, config, stream_mode="custom", context=self.ctx
             ):
                 discussion = result["review_context"].discussion

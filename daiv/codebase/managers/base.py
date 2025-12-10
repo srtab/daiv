@@ -62,7 +62,9 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent.get_runnable()
+        # Get model config from repository config if available
+        model_config = self.ctx.config.models.pr_describer
+        pr_describer = await PullRequestDescriberAgent.get_runnable(model=model_config.model)
         changes_description = await pr_describer.ainvoke(
             {
                 "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
