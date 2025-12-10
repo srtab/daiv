@@ -558,7 +558,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.1.14" },
     { name = "langgraph", specifier = "==1.0.4" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.1" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.55" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.4.58" },
     { name = "openevals", specifier = "==0.1.2" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.3.2" },
     { name = "pydantic", specifier = "==2.12.5" },
@@ -1603,7 +1603,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.4.55"
+version = "0.4.58"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1615,9 +1615,9 @@ dependencies = [
     { name = "uuid-utils" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/2b/471669b0d5f62528d2fc41232a36640b55aeceff9c8aeea63bcafb7e1f20/langsmith-0.4.55.tar.gz", hash = "sha256:fb944ea491d7c9cb87e2126c8e2040688f117d4b96a882bf7795cdc6c8cb13a0", size = 991704, upload-time = "2025-12-05T03:52:22.828Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/c1/a2f04ccbd5ef44b9bd41fb0174fff539b4d41f273ad3649cd656e87b44b2/langsmith-0.4.58.tar.gz", hash = "sha256:ec72e2fcfbbf90b827212c75acac8fc58bb921726f4326633bd774b50133eea3", size = 992362, upload-time = "2025-12-10T00:59:52.7Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/2b/a33febc8aed5ee0744f7d939cbe417ca3de00638ffb5327e8bcaebbabb22/langsmith-0.4.55-py3-none-any.whl", hash = "sha256:d15d8425056117ae1adb245ca68c22f128e1b1b3fa95b2ff5caf65e2ce255a02", size = 411798, upload-time = "2025-12-05T03:52:21.094Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/69/1a48e6b6c4d1e244a272b36e029fd27a70d37c8f4f002367c3d78f6c8e1d/langsmith-0.4.58-py3-none-any.whl", hash = "sha256:f6999b2f7956f030c32a80c1d631b49677f35648560207a09973c8d5ab74279d", size = 412937, upload-time = "2025-12-10T00:59:50.827Z" },
 ]
 
 [package.optional-dependencies]
