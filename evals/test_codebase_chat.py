@@ -4,7 +4,7 @@ from openevals.llm import create_llm_as_judge
 from openevals.prompts import CORRECTNESS_PROMPT, RAG_HELPFULNESS_PROMPT
 
 from automation.agents.base import BaseAgent, ThinkingLevel
-from automation.agents.codebase_chat import CodebaseChatAgent
+from automation.agents.codebase_chat.agent import CodebaseChatAgent
 from automation.agents.constants import ModelName
 
 correctness_evaluator = create_llm_as_judge(

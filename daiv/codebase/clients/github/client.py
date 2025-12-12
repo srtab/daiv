@@ -219,7 +219,7 @@ class GitHubClient(RepoClient):
         if not (emoji_reaction := EMOJI_MAP.get(emoji)):
             raise ValueError(f"Unsupported emoji: {emoji}")
 
-        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(note_id).create_reaction(
+        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(int(note_id)).create_reaction(
             emoji_reaction
         )
 
@@ -374,9 +374,9 @@ class GitHubClient(RepoClient):
 
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
         try:
-            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
+            pr.get_review_comment(int(note_id)).create_reaction(emoji_reaction)
         except UnknownObjectException:
-            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
+            pr.get_issue_comment(int(note_id)).create_reaction(emoji_reaction)
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
@@ -457,9 +457,9 @@ class GitHubClient(RepoClient):
 
         comment = None
         try:
-            comment = pr.get_issue_comment(comment_id)
+            comment = pr.get_issue_comment(int(comment_id))
         except UnknownObjectException:
-            comment = pr.get_review_comment(comment_id)
+            comment = pr.get_review_comment(int(comment_id))
 
         if comment is None:
             return Discussion(id=comment_id, notes=[])

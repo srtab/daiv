@@ -10,6 +10,13 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from yaml.parser import ParserError
 
+from automation.agents.base import ThinkingLevel  # noqa: TC001
+from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
+from automation.agents.constants import ModelName  # noqa: TC001
+from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
+from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.agents.review_addressor.conf import settings as review_addressor_settings
+
 if TYPE_CHECKING:
     from codebase.base import Repository
 
@@ -100,6 +107,138 @@ class Sandbox(BaseModel):
         return self.enabled and self.format_code is not None
 
 
+class PlanAndExecuteModelConfig(BaseModel):
+    """
+    Model configuration for the plan and execute agent.
+    """
+
+    planning_model: ModelName | str = Field(
+        default=plan_and_execute_settings.PLANNING_MODEL_NAME,
+        description=(
+            "Model name for planning tasks. Overrides PLAN_AND_EXECUTE_PLANNING_MODEL_NAME environment variable."
+        ),
+    )
+    planning_fallback_model: ModelName | str = Field(
+        default=plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
+        description=(
+            "Fallback model name for planning tasks. "
+            "Overrides PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME environment variable."
+        ),
+    )
+    planning_thinking_level: ThinkingLevel | None = Field(
+        default=plan_and_execute_settings.PLANNING_THINKING_LEVEL,
+        description=(
+            "Thinking level for planning tasks. "
+            "Overrides PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL environment variable."
+        ),
+    )
+    execution_model: ModelName | str = Field(
+        default=plan_and_execute_settings.EXECUTION_MODEL_NAME,
+        description=(
+            "Model name for execution tasks. Overrides PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME environment variable."
+        ),
+    )
+    execution_fallback_model: ModelName | str = Field(
+        default=plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
+        description=(
+            "Fallback model name for execution tasks. "
+            "Overrides PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME environment variable."
+        ),
+    )
+    execution_thinking_level: ThinkingLevel | None = Field(
+        default=plan_and_execute_settings.EXECUTION_THINKING_LEVEL,
+        description=(
+            "Thinking level for execution tasks. "
+            "Overrides PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL environment variable."
+        ),
+    )
+    code_review_model: ModelName | str = Field(
+        default=plan_and_execute_settings.CODE_REVIEW_MODEL_NAME,
+        description=(
+            "Model name for code review tasks. Overrides PLAN_AND_EXECUTE_CODE_REVIEW_MODEL_NAME environment variable."
+        ),
+    )
+    code_review_thinking_level: ThinkingLevel | None = Field(
+        default=plan_and_execute_settings.CODE_REVIEW_THINKING_LEVEL,
+        description=(
+            "Thinking level for code review tasks. "
+            "Overrides PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL environment variable."
+        ),
+    )
+
+
+class ReviewAddressorModelConfig(BaseModel):
+    """
+    Model configuration for the review addressor agent.
+    """
+
+    review_comment_model: ModelName | str = Field(
+        default=review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,
+        description=(
+            "Model name for routing review comments. "
+            "Overrides REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME environment variable."
+        ),
+    )
+    reply_model: ModelName | str = Field(
+        default=review_addressor_settings.REPLY_MODEL_NAME,
+        description=(
+            "Model name for replying to review comments. "
+            "Overrides REVIEW_ADDRESSOR_REPLY_MODEL_NAME environment variable."
+        ),
+    )
+    reply_temperature: float = Field(
+        default=review_addressor_settings.REPLY_TEMPERATURE,
+        description=(
+            "Temperature for the reply model. Overrides REVIEW_ADDRESSOR_REPLY_TEMPERATURE environment variable."
+        ),
+    )
+
+
+class CodebaseChatModelConfig(BaseModel):
+    """
+    Model configuration for the codebase chat agent.
+    """
+
+    model: ModelName | str = Field(
+        default=codebase_chat_settings.MODEL_NAME,
+        description="Model name for codebase chat. Overrides CODEBASE_CHAT_MODEL_NAME environment variable.",
+    )
+    temperature: float = Field(
+        default=codebase_chat_settings.TEMPERATURE,
+        description="Temperature for codebase chat. Overrides CODEBASE_CHAT_TEMPERATURE environment variable.",
+    )
+
+
+class PRDescriberModelConfig(BaseModel):
+    """
+    Model configuration for the PR describer agent.
+    """
+
+    model: ModelName | str = Field(
+        default=pr_describer_settings.MODEL_NAME,
+        description="Model name for PR description. Overrides PR_DESCRIBER_MODEL_NAME environment variable.",
+    )
+
+
+class Models(BaseModel):
+    """
+    Model configuration for all agents.
+    """
+
+    plan_and_execute: PlanAndExecuteModelConfig = Field(
+        default_factory=PlanAndExecuteModelConfig, description="Configuration for the plan and execute agent."
+    )
+    review_addressor: ReviewAddressorModelConfig = Field(
+        default_factory=ReviewAddressorModelConfig, description="Configuration for the review addressor agent."
+    )
+    codebase_chat: CodebaseChatModelConfig = Field(
+        default_factory=CodebaseChatModelConfig, description="Configuration for the codebase chat agent."
+    )
+    pr_describer: PRDescriberModelConfig = Field(
+        default_factory=PRDescriberModelConfig, description="Configuration for the PR describer agent."
+    )
+
+
 class RepositoryConfig(BaseModel):
     """
     Configuration for a repository.
@@ -176,6 +315,7 @@ class RepositoryConfig(BaseModel):
     sandbox: Sandbox = Field(
         default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
     )
+    models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     @staticmethod
     def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:

@@ -12,7 +12,6 @@ from automation.agents.plan_and_execute.prompts import review_code_changes_promp
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, redact_diff_content  # noqa: TC001
 
-from .conf import settings
 from .schemas import FinishOutput
 
 logger = logging.getLogger("daiv.tools")
@@ -54,10 +53,11 @@ async def review_code_changes_tool(
     if not git_manager.is_dirty():
         return "No changes have been made yet to review."
 
+    model_config = runtime.context.config.models.plan_and_execute
     evaluator = create_async_llm_as_judge(
         prompt=review_code_changes_prompt,
         judge=BaseAgent.get_model(
-            model=settings.CODE_REVIEW_MODEL_NAME, thinking_level=settings.CODE_REVIEW_THINKING_LEVEL
+            model=model_config.code_review_model, thinking_level=model_config.code_review_thinking_level
         ),
     )
     inputs = [task.model_dump(mode="json") for task in runtime.state["plan_tasks"]]

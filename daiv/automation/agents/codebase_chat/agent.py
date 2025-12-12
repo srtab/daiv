@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.utils import timezone
 
 from langchain.agents import create_agent
@@ -15,6 +17,9 @@ from codebase.context import RuntimeCtx
 
 from .conf import settings
 from .prompts import codebase_chat_system
+
+if TYPE_CHECKING:
+    from automation.agents.constants import ModelName
 
 
 @dynamic_prompt
@@ -37,6 +42,11 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
     Use `set_runtime_ctx` to set the runtime context before using this agent.
     """
 
+    def __init__(self, *, model: ModelName | str, temperature: float, **kwargs):
+        self.model = model
+        self.temperature = temperature
+        super().__init__(**kwargs)
+
     async def compile(self) -> CompiledStateGraph:
         """
         Compile the graph for the agent.
@@ -44,9 +54,7 @@ class CodebaseChatAgent(BaseAgent[CompiledStateGraph]):
         Returns:
             CompiledStateGraph: The compiled graph.
         """
-        model = BaseAgent.get_model(
-            model=settings.MODEL_NAME, temperature=settings.TEMPERATURE, thinking_level=ThinkingLevel.LOW
-        )
+        model = BaseAgent.get_model(model=self.model, temperature=self.temperature, thinking_level=ThinkingLevel.LOW)
         return create_agent(
             model=model,
             store=InMemoryStore(),
