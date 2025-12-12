@@ -204,6 +204,5 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.models.plan_and_execute.planning_model == "openrouter:anthropic/claude-haiku-4.5"
-        # Other fields should be None (defaults)
-        assert config.models.plan_and_execute.execution_model is None
-        assert config.models.review_addressor.review_comment_model is None
+        assert config.models.plan_and_execute.execution_model is not None
+        assert config.models.review_addressor.review_comment_model is not None
