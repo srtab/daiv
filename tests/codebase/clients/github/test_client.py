@@ -1,7 +1,11 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from github import UnknownObjectException
+from github.IssueComment import IssueComment
+from github.PullRequestComment import PullRequestComment
 
+from codebase.clients.base import Emoji
 from codebase.clients.github import GitHubClient
 
 
@@ -59,3 +63,119 @@ class TestGitHubClient:
         # Verify the Authorization header format
         call_args = mock_download.call_args
         assert call_args[1]["headers"]["Authorization"] == "Bearer test-token-123"
+
+    def test_create_issue_note_emoji_converts_note_id_to_int(self, github_client):
+        """Test that create_issue_note_emoji converts string note_id to int."""
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_comment = Mock()
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_comment.return_value = mock_comment
+
+        # Pass note_id as a string
+        github_client.create_issue_note_emoji("owner/repo", 123, Emoji.THUMBSUP, "3645723306")
+
+        # Verify that get_comment was called with an integer
+        mock_issue.get_comment.assert_called_once_with(3645723306)
+        mock_comment.create_reaction.assert_called_once_with("+1")
+
+    def test_create_merge_request_note_emoji_review_comment(self, github_client):
+        """Test that create_merge_request_note_emoji converts string note_id to int for review comments."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_comment = Mock()
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_pull.return_value = mock_pr
+        mock_pr.get_review_comment.return_value = mock_comment
+
+        # Pass note_id as a string
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, "3645723306")
+
+        # Verify that get_review_comment was called with an integer
+        mock_pr.get_review_comment.assert_called_once_with(3645723306)
+        mock_comment.create_reaction.assert_called_once_with("+1")
+
+    def test_create_merge_request_note_emoji_issue_comment_fallback(self, github_client):
+        """Test that create_merge_request_note_emoji falls back to issue comment when review comment not found."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_comment = Mock()
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_pull.return_value = mock_pr
+        # Simulate review comment not found
+        mock_pr.get_review_comment.side_effect = UnknownObjectException(404, {}, {})
+        mock_pr.get_issue_comment.return_value = mock_comment
+
+        # Pass note_id as a string
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, "3645723306")
+
+        # Verify that both methods were called with an integer
+        mock_pr.get_review_comment.assert_called_once_with(3645723306)
+        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
+        mock_comment.create_reaction.assert_called_once_with("+1")
+
+    def test_get_merge_request_comment_converts_comment_id_to_int_issue_comment(self, github_client):
+        """Test that get_merge_request_comment converts string comment_id to int for issue comments."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_user = Mock()
+        mock_user.id = 1
+        mock_user.login = "testuser"
+        mock_user.name = "Test User"
+
+        mock_comment = Mock(spec=IssueComment)
+        mock_comment.id = 3645723306
+        mock_comment.body = "Test comment"
+        mock_comment.user = mock_user
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_pull.return_value = mock_pr
+        mock_pr.get_issue_comment.return_value = mock_comment
+
+        # Pass comment_id as a string
+        result = github_client.get_merge_request_comment("owner/repo", 712, "3645723306")
+
+        # Verify that get_issue_comment was called with an integer
+        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
+        assert result.id == "3645723306"
+        assert len(result.notes) == 1
+
+    def test_get_merge_request_comment_converts_comment_id_to_int_review_comment(self, github_client):
+        """Test that get_merge_request_comment converts string comment_id to int for review comments."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_user = Mock()
+        mock_user.id = 1
+        mock_user.login = "testuser"
+        mock_user.name = "Test User"
+
+        mock_comment = Mock(spec=PullRequestComment)
+        mock_comment.id = 3645723306
+        mock_comment.body = "Test review comment"
+        mock_comment.user = mock_user
+        mock_comment.path = "test.py"
+        mock_comment.commit_id = "abc123"
+        mock_comment.line = 10
+        mock_comment.start_line = None
+        mock_comment.side = "RIGHT"
+        mock_comment.start_side = None
+        mock_comment.subject_type = "line"
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_pull.return_value = mock_pr
+        # Simulate issue comment not found
+        mock_pr.get_issue_comment.side_effect = UnknownObjectException(404, {}, {})
+        mock_pr.get_review_comment.return_value = mock_comment
+
+        # Pass comment_id as a string
+        result = github_client.get_merge_request_comment("owner/repo", 712, "3645723306")
+
+        # Verify that both methods were called with an integer
+        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
+        mock_pr.get_review_comment.assert_called_once_with(3645723306)
+        assert result.id == "3645723306"
+        assert len(result.notes) == 1

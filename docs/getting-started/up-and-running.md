@@ -298,6 +298,7 @@ x-app-defaults: &x_app_default
   image: ghcr.io/srtab/daiv:latest
   restart: unless-stopped
   environment:
+    DJANGO_SETTINGS_MODULE: daiv.settings.production
     DJANGO_SECRET_KEY: secret-key (1)
     DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
     DJANGO_REDIS_URL: redis://redis:6379/0
@@ -321,7 +322,7 @@ x-app-defaults: &x_app_default
     # MCP Proxy settings
     MCP_PROXY_AUTH_TOKEN: mcp-proxy-auth-token (13)
   volumes:
-    - mcp-proxy-volume:/home/app/data/mcp-proxy
+    - mcp-proxy-volume:/home/daiv/data/mcp-proxy
 
 services:
   db:
@@ -340,8 +341,6 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 5
-    ports:
-      - "5432:5432"
 
   redis:
     image: redis:latest
@@ -354,13 +353,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "6379:6379"
 
   app:
     <<: *x_app_default
     container_name: daiv-app
-    command: sh /home/app/docker/start-app
     ports:
       - "8000:8000"
     depends_on:
@@ -376,10 +372,11 @@ services:
   worker:
     <<: *x_app_default
     container_name: daiv-worker
-    command: sh /home/app/docker/start-worker
-    environment:
-      C_FORCE_ROOT: true
+    command: sh /home/daiv/start-worker
     ports: []
+    healthcheck:
+      test: celery -A daiv inspect ping
+      interval: 10s
     depends_on:
       app:
         condition: service_healthy
@@ -389,11 +386,12 @@ services:
     image: ghcr.io/srtab/daiv-sandbox:latest
     restart: unless-stopped
     container_name: daiv-sandbox
+    group_add:
+      - 987 (14)
     environment:
       DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (11)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - $HOME/.docker/config.json:/home/app/.docker/config.json
 
   mcp-proxy:
     image: ghcr.io/tbxark/mcp-proxy:v0.39.1
@@ -431,6 +429,7 @@ volumes:
 11.  **Use the same API key** as defined in annotation 9
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 13.  **Generate a random API key** for MCP Proxy service authentication
+14.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 
 ### Step 2: Run the compose file
 
@@ -516,7 +515,7 @@ server {
 
 server {
     listen 80 default_server;
-    listen [::]:80 default_server;
+    listen [::]:80;
 
     return 301 https://$host$request_uri;
 }

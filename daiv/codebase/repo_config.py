@@ -10,14 +10,14 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from yaml.parser import ParserError
 
+from automation.agents.base import ThinkingLevel  # noqa: TC001
 from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
+from automation.agents.constants import ModelName  # noqa: TC001
 from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.review_addressor.conf import settings as review_addressor_settings
 
 if TYPE_CHECKING:
-    from automation.agents.base import ThinkingLevel
-    from automation.agents.constants import ModelName
     from codebase.base import Repository
 
 CONFIGURATION_FILE_NAME = ".daiv.yml"
