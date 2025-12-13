@@ -29,9 +29,8 @@ chat_router = Router(auth=AuthBearer(), tags=["chat"])
 models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
-@chat_router.api_operation(
-    methods=["POST", "OPTIONS"],
-    path="/completions",
+@chat_router.post(
+    "/completions",
     response=ChatCompletionResponse | dict,
     openapi_extra={
         "parameters": [
