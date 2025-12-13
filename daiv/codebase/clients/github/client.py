@@ -239,7 +239,7 @@ class GitHubClient(RepoClient):
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
         # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=comment_id, notes=self._serialize_comments(issue.get_comments()))
+        return Discussion(id=str(comment_id), notes=self._serialize_comments(issue.get_comments()))
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
