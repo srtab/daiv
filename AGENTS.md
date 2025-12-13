@@ -1,4 +1,4 @@
-# DAIV - Agent instructions
+# Project Overview
 
 The system is built on Django with Celery for async task processing, LangChain/LangGraph for LLM integration, and includes `daiv-sandbox` for sandboxed commands execution.
 
