@@ -16,8 +16,7 @@ from langchain_openai.chat_models import ChatOpenAI
 from langgraph.types import Overwrite
 
 from automation.agents.base import ModelProvider
-from automation.agents.tools.navigation import READ_MAX_LINES
-from automation.agents.utils import extract_images_from_text
+from automation.agents.utils import extract_images_from_text, get_context_file_content
 from codebase.base import ClientType
 from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
@@ -197,11 +196,11 @@ class AgentsMDMiddleware(AgentMiddleware):
         Returns:
             dict[str, Any] | None: The state updates with the agents instructions from the AGENTS.md file.
         """
-        agents_md_content = self._get_agents_md_content(
+        context_file_content = get_context_file_content(
             Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name
         )
 
-        if not agents_md_content:
+        if not context_file_content:
             return None
 
         prepend_messages = [
@@ -213,34 +212,14 @@ class AgentsMDMiddleware(AgentMiddleware):
                     Here are instructions extracted from the AGENTS.md file for you to follow. If they are contradictory with your own instructions (system prompt), follow your own.
 
                     ~~~markdown
-                    {agents_md_content}
+                    {context_file_content}
                     ~~~
                     """  # noqa: E501
-                ).format(agents_md_content=agents_md_content)
+                ).format(context_file_content=context_file_content)
             )
         ]
 
         return {"messages": Overwrite(prepend_messages + state["messages"])}
-
-    def _get_agents_md_content(self, repo_dir: Path, context_file_name: str | None) -> str | None:
-        """
-        Get the agent instructions from the AGENTS.md file case insensitive.
-        If multiple files are found, return the first one.
-        If the file is too long, return the first `max_lines` lines.
-
-        Args:
-            context_file_name (str | None): The name of the context file.
-
-        Returns:
-            str | None: The agents instructions from the AGENTS.md file.
-        """
-        if not context_file_name:
-            return None
-
-        for path in repo_dir.glob(context_file_name, case_sensitive=False):
-            if path.is_file() and path.name.endswith(".md"):
-                return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
-        return None
 
 
 class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):

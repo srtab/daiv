@@ -16,10 +16,10 @@ class ModelName(StrEnum):
 
     # OpenAI models
     GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
-    GPT_5_1 = "openrouter:openai/gpt-5.1"
-    GPT_5_1_CODEX_MAX = "openrouter:openai/gpt-5.1-codex-max"
-    GPT_5_1_CODEX = "openrouter:openai/gpt-5.1-codex"
+    GPT_5_2 = "openrouter:openai/gpt-5.2"
     GPT_5_1_CODEX_MINI = "openrouter:openai/gpt-5.1-codex-mini"
+    GPT_5_1_CODEX = "openrouter:openai/gpt-5.1-codex"
+    GPT_5_1_CODEX_MAX = "openrouter:openai/gpt-5.1-codex-max"
 
     # DeepSeek models
     DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus:exacto"

@@ -1,0 +1,24 @@
+diff --git a/src/utils/parseNumber.ts b/src/utils/parseNumber.ts
+index 4444444..5555555 100644
+--- a/src/utils/parseNumber.ts
++++ b/src/utils/parseNumber.ts
+@@ -1,5 +1,14 @@
+-export function parseNumber(value: string): number {
+-  return Number(value);
++export function parseNumber(value: string): number | null {
++  const trimmed = value.trim();
++  if (trimmed.length === 0) return null;
++  const num = Number(trimmed);
++  if (Number.isNaN(num)) return null;
++  return num;
+ }
+diff --git a/src/features/cart/quantity.ts b/src/features/cart/quantity.ts
+index 6666666..7777777 100644
+--- a/src/features/cart/quantity.ts
++++ b/src/features/cart/quantity.ts
+@@ -8,7 +8,8 @@ import { parseNumber } from "../../utils/parseNumber";
+ export function parseQuantity(raw: string): number {
+-  return parseNumber(raw);
++  const parsed = parseNumber(raw);
++  return parsed ?? 0;
+ }

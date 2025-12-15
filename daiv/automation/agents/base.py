@@ -173,6 +173,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
                 _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
+                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"

@@ -291,7 +291,6 @@ class IssueAddressorManager(BaseManager):
                 "codebase/issue_merge_request.txt",
                 {
                     "description": changes_description.description,
-                    "summary": changes_description.summary,
                     "source_repo_id": self.ctx.repo_id,
                     "issue_id": self.issue.iid,
                     "bot_name": BOT_NAME,
