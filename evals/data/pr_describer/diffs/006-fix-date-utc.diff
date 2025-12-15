@@ -1,0 +1,62 @@
+diff --git a/src/utils/date.ts b/src/utils/date.ts
+index 12ab34c..56de78f 100644
+--- a/src/utils/date.ts
++++ b/src/utils/date.ts
+@@ -1,10 +1,26 @@
+-export function toUtcIso(input: string): string | null {
+-  const d = new Date(input);
+-  if (Number.isNaN(d.getTime())) return null;
+-  return d.toISOString();
+-}
++export function toUtcIso(input: string): string | null {
++  const trimmed = input.trim();
++  if (trimmed.length === 0) return null;
++
++  // If no timezone is present, treat the timestamp as UTC.
++  // Examples that already include a timezone:
++  // - 2025-01-01T00:00:00Z
++  // - 2025-01-01T00:00:00+01:00
++  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmed);
++  const normalized = hasTimezone ? trimmed : `${trimmed}Z`;
++
++  const d = new Date(normalized);
++  if (Number.isNaN(d.getTime())) return null;
++  return d.toISOString();
++}
+diff --git a/src/utils/date.test.ts b/src/utils/date.test.ts
+index 9aa0bcd..d10f3e2 100644
+--- a/src/utils/date.test.ts
++++ b/src/utils/date.test.ts
+@@ -1,14 +1,32 @@
+ import { toUtcIso } from "./date";
+
+ describe("toUtcIso", () => {
+   it("returns null for invalid input", () => {
+     expect(toUtcIso("nope")).toBeNull();
+   });
+
++  it("returns null for empty/whitespace input", () => {
++    expect(toUtcIso("")).toBeNull();
++    expect(toUtcIso("   ")).toBeNull();
++  });
++
+   it("converts Z timestamps to ISO", () => {
+     expect(toUtcIso("2025-01-01T00:00:00Z")).toBe("2025-01-01T00:00:00.000Z");
+   });
+
++  it("treats timezone-less timestamps as UTC", () => {
++    expect(toUtcIso("2025-01-01T00:00:00")).toBe("2025-01-01T00:00:00.000Z");
++  });
++
++  it("trims input before parsing", () => {
++    expect(toUtcIso(" 2025-01-01T00:00:00 ")).toBe("2025-01-01T00:00:00.000Z");
++  });
++
++  it("respects explicit numeric offsets", () => {
++    expect(toUtcIso("2025-01-01T01:00:00+01:00")).toBe("2025-01-01T00:00:00.000Z");
++  });
++
+   it("returns null for date-only strings", () => {
+     expect(toUtcIso("2025-01-01")).toBeNull();
+   });
+ });

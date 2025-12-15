@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from automation.agents.schemas import Image
+from automation.agents.tools.navigation import READ_MAX_LINES
 
 
 def extract_images_from_text(text: str) -> list[Image]:
@@ -226,3 +227,25 @@ def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
         text2 = re.sub(r"\s+", "", text2)
 
     return difflib.SequenceMatcher(None, text1, text2).ratio()
+
+
+def get_context_file_content(repo_dir: Path, context_file_name: str | None) -> str | None:
+    """
+    Get the content of the context file case insensitive.
+    If multiple files are found, return the first one.
+    If the file is too long, return the first `max_lines` lines.
+
+    Args:
+        repo_dir (Path): The directory of the repository.
+        context_file_name (str | None): The name of the context file.
+
+    Returns:
+        str | None: The content of the context file.
+    """
+    if not context_file_name:
+        return None
+
+    for path in repo_dir.glob(context_file_name, case_sensitive=False):
+        if path.is_file() and path.name.endswith(".md"):
+            return "\n".join(path.read_text().splitlines()[:READ_MAX_LINES])
+    return None

@@ -1,12 +1,10 @@
 {% load l10n %}{{ description }}
 
+---
+
 Closes: {{ source_repo_id }}#{{ issue_id|unlocalize }}{% if is_gitlab %}+{% endif %}
 
 > ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
-
-### Summary of Changes
-{% for item in summary %}
- - {{ item }}{% endfor %}
 
 ---
 

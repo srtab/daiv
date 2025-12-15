@@ -239,11 +239,18 @@ All the default models where chosen to be the most effective models. You can cha
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `PLAN_AND_EXECUTE_PLANNING_RECURSION_LIMIT` | Recursion limit for planning steps each. | `100` |
 | `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
-| `PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME` | Fallback model for planning tasks. | `openrouter:openai/gpt-5-codex` |
+| `PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME` | Fallback model for planning tasks. | `openrouter:openai/gpt-5.2` |
 | `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
 | `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
-| `PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME`| Fallback model for executing tasks. | `openrouter:openai/gpt-5-codex` |
+| `PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME`| Fallback model for executing tasks. | `openrouter:openai/gpt-5.2` |
+| `PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL` | Thinking level for execution tasks. | `None` (disabled) |
 | `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `100` |
+| `PLAN_AND_EXECUTE_CODE_REVIEW_MODEL_NAME` | Model for code review tasks. | `openrouter:openai/gpt-5.1-codex-mini` |
+| `PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL` | Thinking level for code review tasks. | `medium` |
+| `PLAN_AND_EXECUTE_MAX_PLANNING_MODEL_NAME` | Model for planning tasks when `daiv-max` label is present. | `openrouter:anthropic/claude-opus-4.5` |
+| `PLAN_AND_EXECUTE_MAX_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks when `daiv-max` label is present. | `high` |
+| `PLAN_AND_EXECUTE_MAX_EXECUTION_MODEL_NAME` | Model for execution tasks when `daiv-max` label is present. | `openrouter:anthropic/claude-opus-4.5` |
+| `PLAN_AND_EXECUTE_MAX_EXECUTION_THINKING_LEVEL` | Thinking level for execution tasks when `daiv-max` label is present. | `high` |
 
 ### Review Addressor
 
@@ -264,6 +271,6 @@ All the default models where chosen to be the most effective models. You can cha
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|--------------------|
-| `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:openai/gpt-5-mini` |
+| `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:anthropic/claude-haiku-4.5` |
 | `CODEBASE_CHAT_TEMPERATURE` | Temperature for codebase chat. | `0.2` |
 | `CODEBASE_CHAT_RECURSION_LIMIT` | Recursion limit for the codebase chat agent. | `50` |

@@ -1,0 +1,24 @@
+diff --git a/src/api/app.py b/src/api/app.py
+index 1111111..2222222 100644
+--- a/src/api/app.py
++++ b/src/api/app.py
+@@ -1,6 +1,8 @@
+ from fastapi import FastAPI
++from .routes import router
+
+ app = FastAPI()
+
++app.include_router(router)
+diff --git a/src/api/routes.py b/src/api/routes.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/api/routes.py
+@@ -0,0 +1,9 @@
++from fastapi import APIRouter
++
++router = APIRouter()
++
++@router.get("/health")
++def health():
++    return {"status": "ok"}

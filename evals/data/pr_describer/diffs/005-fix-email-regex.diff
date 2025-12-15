@@ -1,0 +1,12 @@
+diff --git a/src/validators/user.ts b/src/validators/user.ts
+index ccccccc..ddddddd 100644
+--- a/src/validators/user.ts
++++ b/src/validators/user.ts
+@@ -1,6 +1,6 @@
+ const EMAIL_REGEX =
+-  /^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
++  /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+
+ export function isValidEmail(email: string): boolean {
+   return EMAIL_REGEX.test(email);
+ }

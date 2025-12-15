@@ -70,3 +70,28 @@ To generate the translations, use the `make makemessages` command. Compile the t
 make makemessages  # generate the translations
 make compilemessages  # compile the translations
 ```
+
+## Repository Conventions
+
+### Branch Naming
+
+Use the following prefixes for branch names:
+- `feat/` - for new features
+- `fix/` - for bug fixes
+- `chore/` - for maintenance tasks
+
+Format: `<prefix>/<short-kebab-summary>`
+
+Example: `feat/add-user-auth`, `fix/resolve-memory-leak`, `chore/update-dependencies`
+
+### Commit Messages
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+- Format: `<type>: <short summary>`
+- Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `style`, `perf`, `ci`, `build`
+- Summary should be lowercase, no period at the end, max 72 characters
+
+Examples:
+- `feat: add user authentication`
+- `fix: resolve memory leak in worker process`
+- `docs: update installation instructions`

@@ -53,7 +53,7 @@ async def main(
         ) as ctx:
             human_message = dedent(
                 """\
-                You are given a problem statement and some hints extracted from the issue tracker to help you understand the problem that you are trying to solve.
+                You are given a problem statement and some hints extracted from the issue tracker to help you understand it and solve it.
 
                 ## Problem Statement
                 ```markdown

@@ -1,12 +1,6 @@
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from codebase.repo_config import (
-    BRANCH_NAME_CONVENTION_MAX_LENGTH,
-    CONFIGURATION_CACHE_KEY_PREFIX,
-    CONFIGURATION_CACHE_TIMEOUT,
-    PullRequest,
-    RepositoryConfig,
-)
+from codebase.repo_config import CONFIGURATION_CACHE_KEY_PREFIX, CONFIGURATION_CACHE_TIMEOUT, RepositoryConfig
 
 
 class RepositoryConfigTest:
@@ -18,7 +12,6 @@ class RepositoryConfigTest:
             "code_review": {"enabled": True},
             "issue_addressing": {"enabled": True},
             "quick_actions": {"enabled": True},
-            "pull_request": {"branch_name_convention": "always start with 'daiv/' followed by a short description."},
             "extend_exclude_patterns": ["tests/"],
         }
         mock_cache.get.return_value = cached_config
@@ -29,9 +22,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert (
-            config.pull_request.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        )
         assert config.extend_exclude_patterns == ["tests/"]
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
@@ -48,8 +38,6 @@ class RepositoryConfigTest:
           enabled: true
         quick_actions:
           enabled: true
-        pull_request:
-          branch_name_convention: always start with 'daiv/' followed by a short description.
         extend_exclude_patterns:
           - tests/
         """
@@ -60,9 +48,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert (
-            config.pull_request.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        )
         assert config.extend_exclude_patterns == ["tests/"]
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
@@ -81,9 +66,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert (
-            config.pull_request.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        )
         assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
@@ -108,9 +90,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert (
-            config.pull_request.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        )
         assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
@@ -131,26 +110,10 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert (
-            config.pull_request.branch_name_convention == "always start with 'daiv/' followed by a short description."
-        )
         assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
-
-    def test_pull_request_truncate_if_too_long(self):
-        long_branch_name = "b" * (BRANCH_NAME_CONVENTION_MAX_LENGTH + 10)
-        truncated_branch_name = PullRequest.truncate_if_too_long(
-            long_branch_name, info=Mock(field_name="branch_name_convention")
-        )
-        assert len(truncated_branch_name) == BRANCH_NAME_CONVENTION_MAX_LENGTH
-
-    def test_combined_exclude_patterns(self):
-        config = RepositoryConfig(extend_exclude_patterns=["**/custom_pattern/**"])
-        combined_patterns = config.combined_exclude_patterns
-        assert "**/custom_pattern/**" in combined_patterns
-        assert "**/.git/**" in combined_patterns
 
     @patch("codebase.repo_config.cache")
     def test_get_config_with_models_section(self, mock_cache, mock_repo_client):

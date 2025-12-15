@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
@@ -5,6 +6,7 @@ from langgraph.store.memory import InMemoryStore
 
 from automation.agents.pr_describer.agent import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.agents.utils import get_context_file_content
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
 
@@ -62,13 +64,13 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        # Get model config from repository config if available
-        model_config = self.ctx.config.models.pr_describer
-        pr_describer = await PullRequestDescriberAgent.get_runnable(model=model_config.model)
+        pr_describer = await PullRequestDescriberAgent.get_runnable(model=self.ctx.config.models.pr_describer.model)
         changes_description = await pr_describer.ainvoke(
             {
-                "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
-                "branch_name_convention": self.ctx.config.pull_request.branch_name_convention,
+                "diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
+                "context_file_content": get_context_file_content(
+                    Path(self.ctx.repo.working_dir), self.ctx.config.context_file_name
+                ),
             },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}

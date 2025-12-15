@@ -37,10 +37,6 @@ code_review:
 quick_actions:
   enabled: true
 
-# Pull request
-pull_request:
-  branch_name_convention: "always start with 'daiv/' followed by a short description."
-
 # Sandbox
 sandbox:
   base_image: "python:3.12-alpine"
@@ -52,10 +48,10 @@ sandbox:
 models:
   plan_and_execute:
     planning_model: "openrouter:anthropic/claude-sonnet-4.5"
-    planning_fallback_model: "openrouter:openai/gpt-5.1"
+    planning_fallback_model: "openrouter:openai/gpt-5.2"
     planning_thinking_level: "medium"
     execution_model: "openrouter:anthropic/claude-sonnet-4.5"
-    execution_fallback_model: "openrouter:openai/gpt-5.1"
+    execution_fallback_model: "openrouter:openai/gpt-5.2"
     execution_thinking_level: null
     code_review_model: "openrouter:openai/gpt-5.1-codex-mini"
 ```
@@ -111,6 +107,34 @@ quick_actions:
 !!! tip
     Disable features you do not need to reduce noise and speed up processing.
 
+## Branch Naming and Commit Message Conventions
+
+DAIV automatically generates branch names and commit messages for pull requests based on repository conventions. You can define these conventions in your `AGENTS.md` context file.
+
+**Example AGENTS.md conventions:**
+
+```markdown
+# Repo conventions
+
+## Branch naming
+Use: pr/<issue-id>-<kebab-summary>
+- <issue-id> must be lowercase (e.g., abc-123)
+
+## Commit messages
+Use: (<ISSUE-ID>) <type>: <summary>
+- <ISSUE-ID> must preserve original casing from the ticket (e.g., ABC-123)
+- <type> ∈ feat|fix|chore|docs|refactor|test
+```
+
+If no conventions are defined in AGENTS.md, DAIV uses sensible defaults:
+- **Branch naming**: `<type>/<short-kebab-summary>` where type ∈ {feat, fix, chore, docs, refactor, test}
+- **Commit messages**: Conventional Commits style `<type>: <short summary>`
+
+!!! tip
+    - The PR describer agent reads your `AGENTS.md` file to understand your repository's conventions
+    - If multiple conventions exist, the agent chooses the one that best matches the change type
+    - Keep conventions clear and simple to ensure consistent results
+
 ## Control File Access
 
 Control which files DAIV can see and read.
@@ -128,17 +152,6 @@ Control which files DAIV can see and read.
     - Exclude sensitive files and build artifacts.
     - Prefer using `extend_exclude_patterns` to add more patterns.
     - Use `omit_content_patterns` for large files that shouldn't be read but need to be seen.
-
-## Configure Pull Request Settings
-
-Control how DAIV creates pull requests and branches.
-
-| Option                   | Type    | Default                                                    | Description                                          |
-|--------------------------|---------|-----------------------------------------------------------|------------------------------------------------------|
-| `branch_name_convention` | `str`   | `"always start with 'daiv/' followed by a short description."` | Naming convention for generating pull request branches. Max 100 chars. |
-
-!!! tip
-    Use clear and simple branch-naming conventions to maintain consistency across your repository.
 
 ## Set Up Sandbox
 
@@ -245,6 +258,16 @@ Configure models for the codebase chat agent.
 
 Configure models for the PR describer agent.
 
-| Option  | Type          | Default | Description                                                                 |
-|---------|---------------|---------|-----------------------------------------------------------------------------|
-| `model` | `str \| null` | `null`  | Model name for PR description. Overrides `PR_DESCRIBER_MODEL_NAME` environment variable. |
+| Option            | Type                                                      | Default | Description                                                                 |
+|-------------------|-----------------------------------------------------------|---------|-----------------------------------------------------------------------------|
+| `model`           | `str \| null`                                             | `null`  | Model name for PR description. Overrides `PR_DESCRIBER_MODEL_NAME` environment variable. |
+
+**Example configuration:**
+```yaml
+models:
+  pr_describer:
+    model: "openrouter:openai/gpt-4.1-mini"
+```
+
+!!! note
+    The PR describer agent automatically reads your `AGENTS.md` context file to understand branch naming and commit message conventions. See [Branch Naming and Commit Message Conventions](#branch-naming-and-commit-message-conventions) for details.

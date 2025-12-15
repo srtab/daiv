@@ -19,7 +19,7 @@ class PlanAndExecuteSettings(BaseSettings):
         description="Model for planning tasks, a multi-modal (image and text) model with capabilities to call tools.",
     )
     PLANNING_FALLBACK_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_1, description="Fallback model for planning tasks if the primary model fails."
+        default=ModelName.GPT_5_2, description="Fallback model for planning tasks if the primary model fails."
     )
     PLANNING_THINKING_LEVEL: ThinkingLevel | None = Field(
         default=ThinkingLevel.MEDIUM,
@@ -31,7 +31,7 @@ class PlanAndExecuteSettings(BaseSettings):
         description="Model to write code and run commands with capabilities to call tools.",
     )
     EXECUTION_FALLBACK_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.GPT_5_1, description="Fallback model for execution tasks if the primary model fails."
+        default=ModelName.GPT_5_2, description="Fallback model for execution tasks if the primary model fails."
     )
     EXECUTION_THINKING_LEVEL: ThinkingLevel | None = Field(
         default=None, description="Thinking level to be used for execution tasks. Set as `None` to disable thinking."

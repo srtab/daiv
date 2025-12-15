@@ -10,7 +10,7 @@ from langchain_core.runnables import Runnable
 from automation.agents import BaseAgent
 
 from .conf import settings
-from .prompts import system
+from .prompts import human, system
 from .schemas import PullRequestDescriberInput, PullRequestMetadata
 
 if TYPE_CHECKING:
@@ -27,8 +27,8 @@ class PullRequestDescriberAgent(BaseAgent[Runnable[PullRequestDescriberInput, Pu
         super().__init__(**kwargs)
 
     async def compile(self) -> Runnable:
-        prompt = ChatPromptTemplate.from_messages([system]).partial(
-            branch_name_convention=None, extra_context="", current_date_time=timezone.now().strftime("%d %B, %Y")
+        prompt = ChatPromptTemplate.from_messages([system, human]).partial(
+            current_date_time=timezone.now().strftime("%d %B, %Y"), context_file_content="", extra_context=""
         )
         return (
             prompt | BaseAgent.get_model(model=self.model).with_structured_output(PullRequestMetadata)

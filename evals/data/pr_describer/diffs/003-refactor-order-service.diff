@@ -1,0 +1,17 @@
+diff --git a/src/services/order_service.py b/src/services/order_service.py
+index 8888888..9999999 100644
+--- a/src/services/order_service.py
++++ b/src/services/order_service.py
+@@ -1,18 +1,26 @@
+ def create_order(total_cents: int, currency: str) -> dict:
+-    currency = currency.strip().upper()
+-    if currency not in ("EUR", "USD"):
+-        raise ValueError("unsupported currency")
++    currency = _normalize_currency(currency)
+     return {"total_cents": total_cents, "currency": currency}
+
++def _normalize_currency(currency: str) -> str:
++    normalized = currency.strip().upper()
++    if normalized not in ("EUR", "USD"):
++        raise ValueError("unsupported currency")
++    return normalized

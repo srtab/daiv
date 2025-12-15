@@ -1,0 +1,24 @@
+diff --git a/README.md b/README.md
+index aaaaaaa..bbbbbbb 100644
+--- a/README.md
++++ b/README.md
+@@ -1,10 +1,18 @@
+ # Project
+
+ ## Development
+
+-1. Install dependencies
+-2. Run the app
++1. Install dependencies:
++   - npm install
++2. Run the app locally:
++   - npm run dev
++
++## Linting
++
++- npm run lint
+
+ ## Notes
+
+-See CONTRIBUTING for guidelines.
++See CONTRIBUTING for guidelines.
