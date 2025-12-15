@@ -1,6 +1,3 @@
-pull_request:
-  branch_name_convention: "Use 'feat/', 'fix/', or 'chore/' prefixes."
-
 sandbox:
   # Use the base image with uv installed
   base_image: "ghcr.io/astral-sh/uv:python3.14-bookworm"

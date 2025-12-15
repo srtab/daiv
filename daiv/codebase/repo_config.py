@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.core.cache import cache
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
 from automation.agents.base import ThinkingLevel  # noqa: TC001
@@ -52,28 +52,6 @@ class QuickActions(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable quick actions features.")
-
-
-class PullRequest(BaseModel):
-    """
-    Pull request configuration.
-    """
-
-    branch_name_convention: str = Field(
-        default="always start with 'daiv/' followed by a short description.",
-        description="The convention to use when creating branch names.",
-        examples=["Use 'feat/', 'fix/', or 'chore/' prefixes."],
-        max_length=BRANCH_NAME_CONVENTION_MAX_LENGTH,
-    )
-
-    @field_validator("branch_name_convention", mode="before")
-    @classmethod
-    def truncate_if_too_long(cls, value: str, info):
-        max_length = BRANCH_NAME_CONVENTION_MAX_LENGTH
-
-        if isinstance(value, str) and len(value) > max_length:
-            return value[:max_length]
-        return value
 
 
 class Sandbox(BaseModel):
@@ -311,7 +289,6 @@ class RepositoryConfig(BaseModel):
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )
-    pull_request: PullRequest = Field(default_factory=PullRequest, description="Configure pull request features.")
     sandbox: Sandbox = Field(
         default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
     )

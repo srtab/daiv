@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast, override
 
@@ -15,7 +16,7 @@ from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
 from automation.agents.plan_and_execute.utils import get_plan_and_execute_agent_kwargs
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from automation.agents.utils import extract_text_content
+from automation.agents.utils import extract_text_content, get_context_file_content
 from codebase.base import ClientType, Issue
 from codebase.utils import redact_diff_content
 from core.constants import BOT_LABEL, BOT_NAME
@@ -243,7 +244,10 @@ class IssueAddressorManager(BaseManager):
         pr_describer = await PullRequestDescriberAgent.get_runnable(model=self.ctx.config.models.pr_describer.model)
         changes_description = await pr_describer.ainvoke(
             {
-                "changes": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
+                "diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
+                "context_file_content": get_context_file_content(
+                    Path(self.ctx.repo.working_dir), self.ctx.config.context_file_name
+                ),
                 "extra_context": dedent(
                     """\
                     This changes were made to address the following issue:
@@ -252,7 +256,6 @@ class IssueAddressorManager(BaseManager):
                     Issue description: {description}
                     """
                 ).format(title=self.issue.title, description=self.issue.description),
-                "branch_name_convention": self.ctx.config.pull_request.branch_name_convention,
             },
             config=RunnableConfig(
                 tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}

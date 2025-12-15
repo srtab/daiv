@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
 - Added support for `gpt-5.2` model from OpenAI
-- Added `thinking_level` parameter support to `PullRequestDescriberAgent` for configurable reasoning depth
 
 ### Changed
 
@@ -24,13 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
 - Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
   - Enhanced system prompt with explicit rules about factuality and convention handling
-  - Added human prompt template that accepts diff, context file content, and extra context
   - Improved guidance for branch naming and commit messages based on repository conventions
-  - Added support for AGENTS.md context integration during PR metadata generation
-- Simplified `PullRequestMetadata` schema by removing field-level descriptions and constraints, relying on prompt instructions instead
+  - Added support for `AGENTS.md` context integration during PR metadata generation
 - Updated default fallback models from `gpt-5.1` to `gpt-5.2` for both planning and execution in `PlanAndExecuteAgent`
 - Refactored `get_context_file_content` logic from `AgentsMDMiddleware` to standalone utility function in `automation.agents.utils`
 - Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
+
+### Removed
+
+- Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 
 ## [1.1.0] - 2025-12-04
 
