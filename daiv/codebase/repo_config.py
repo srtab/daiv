@@ -24,8 +24,6 @@ CONFIGURATION_FILE_NAME = ".daiv.yml"
 CONFIGURATION_CACHE_KEY_PREFIX = "repo_config:"
 CONFIGURATION_CACHE_TIMEOUT = 60 * 60 * 1  # 1 hour
 
-BRANCH_NAME_CONVENTION_MAX_LENGTH = 100
-
 
 logger = logging.getLogger("daiv.core")
 
