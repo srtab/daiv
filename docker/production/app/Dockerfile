@@ -1,7 +1,7 @@
 #########################################################################################################
 # Python compile image
 #########################################################################################################
-FROM python:3.14.0-slim-bookworm AS app-compiler
+FROM python:3.14.2-slim-bookworm AS app-compiler
 
 ENV PYTHONUNBUFFERED=1
 
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #########################################################################################################
 # Python build image
 #########################################################################################################
-FROM python:3.14.0-slim-bookworm AS python-builder
+FROM python:3.14.2-slim-bookworm AS python-builder
 
 LABEL maintainer="srtabs@gmail.com"
 
