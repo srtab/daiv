@@ -23,6 +23,7 @@ You MUST follow these rules:
 
 human = HumanMessagePromptTemplate.from_template(
     """Generate PR metadata from the repo instructions and code changes.
+
 {{#context_file_content}}
 AGENTS.md:
 ~~~markdown
@@ -53,8 +54,9 @@ Field rules:
 - title: short PR title (max ~70 chars), based strictly on the diff.
 - description: Markdown with:
   1) a brief overview paragraph (1-3 sentences)
-  2) a "**Key Changes:**" section with 2-8 bullet points
-  Only include claims supported by the diff. If something is unknown, say "Not shown in diff."
+  2) a "**Key Changes:**" section with 2-6 bullet points
+  Focus only on describing the actual code changes visible in the diff.
+  Do NOT include meta-commentary about the issue, prompt, or source of information.
 - commit_message:
   - If AGENTS.md defines a format, follow it.
   - Otherwise use: "<type>: <summary>" (Conventional Commits), single line.

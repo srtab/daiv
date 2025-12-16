@@ -18,8 +18,8 @@ classifiers = [
 dependencies = [
   "celery[redis]==5.6.0",
   "ddgs==9.9.3",
-  "django==5.2.9",
-  "django-extensions==4.1",
+  "django==6.0.0",
+  "django-extensions==4.1.0",
   "django-ninja==1.5.1",
   "django-split-settings==1.3.2",
   "get-docker-secret==2.0.0",
@@ -27,11 +27,11 @@ dependencies = [
   "httpx==0.28.1",
   "ipython==9.8.0",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai]==1.1.3",
+  "langchain[anthropic,community,google-genai,openai]==1.2.0",
   "langchain-mcp-adapters==0.2.1",
-  "langgraph==1.0.4",
+  "langgraph==1.0.5",
   "langgraph-checkpoint-postgres==3.0.2",
-  "langsmith[pytest]==0.4.58",
+  "langsmith[pytest]==0.4.59",
   "openevals==0.1.2",
   "psycopg[pool]==3.3.2",
   "pydantic==2.12.5",
@@ -41,7 +41,7 @@ dependencies = [
   "python-gitlab==7.0.0",
   "pyyaml==6.0.3",
   "redis==5.2.1",
-  "sentry-sdk==2.47.0",
+  "sentry-sdk==2.48.0",
   "unidiff==0.7.5",
   "uvicorn[standard]==0.38.0",
 ]
@@ -55,7 +55,7 @@ urls.source = "https://github.com/srtab/daiv"
 dev = [
   "coverage==7.13.0",
   "datasets==4.4.1",
-  "mypy==1.19.0",
+  "mypy==1.19.1",
   "pre-commit==4.5.0",
   "pyopenssl==25.3.0",
   "pyproject-fmt==2.11.1",
@@ -75,7 +75,7 @@ docs = [
   "mike==2.1.3",
   "mkdocs==1.6.1",
   "mkdocs-git-revision-date-localized-plugin==1.5.0",
-  "mkdocs-material==9.7",
+  "mkdocs-material==9.7.0",
 ]
 
 [tool.uv]
