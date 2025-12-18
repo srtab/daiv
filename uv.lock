@@ -559,7 +559,7 @@ requires-dist = [
     { name = "langgraph", specifier = "==1.0.5" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.2" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.4.59" },
-    { name = "openevals", specifier = "==0.1.2" },
+    { name = "openevals", specifier = "==0.1.3" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.3.2" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "pydantic-settings", specifier = "==2.12.0" },
@@ -2015,7 +2015,7 @@ wheels = [
 
 [[package]]
 name = "openevals"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain" },
@@ -2023,9 +2023,9 @@ dependencies = [
     { name = "langsmith" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/5a/86c7e7ed141197641d8e73933afe05397783dc94333b0b8841b62883c7a3/openevals-0.1.2.tar.gz", hash = "sha256:792810252975853ec189c85ed1ab8df949c920da217f2e1e075e51b2d15ff53d", size = 97343, upload-time = "2025-10-31T22:19:28.787Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/37/31e23ef661fa4c3c6a3c979afd884b30205512b4dde680b36d5909550500/openevals-0.1.3.tar.gz", hash = "sha256:9b00df1a7738464676aa887d4d950b77d3ef7024f6e8a54be3a83c82f485ea65", size = 100828, upload-time = "2025-12-18T04:09:03.034Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/40/7b171a5f77c5f3bc2378257a67785b2cd3da144f247e24b376d757f4698e/openevals-0.1.2-py3-none-any.whl", hash = "sha256:cbbd21bb9e1017ede6608cdd9cb5d9b65a6002e4aac3a228fbc18f97d6e5f52c", size = 64511, upload-time = "2025-10-31T22:19:27.461Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/68/162b0d273ffef5b0ad557ebccb790725bf94d78969702324dd5726828cf0/openevals-0.1.3-py3-none-any.whl", hash = "sha256:aed448df0cfdded732e24cda026eda065435a71ffb8c406a3ce73e590156d9f9", size = 67802, upload-time = "2025-12-18T04:09:01.59Z" },
 ]
 
 [[package]]
