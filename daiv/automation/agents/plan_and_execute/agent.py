@@ -23,7 +23,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
 from automation.agents import BaseAgent
-from automation.agents.middleware import AgentsMDMiddleware, AnthropicPromptCachingMiddleware, InjectImagesMiddleware
+from automation.agents.middleware import (
+    AnthropicPromptCachingMiddleware,
+    InjectImagesMiddleware,
+    LongTermMemoryMiddleware,
+)
 from automation.agents.skills.middleware import SkillsMiddleware
 from automation.agents.tools.editing import FileEditingMiddleware
 from automation.agents.tools.merge_request import MergeRequestMiddleware
@@ -241,12 +245,8 @@ class PlanAndExecuteAgent(BaseAgent[CompiledStateGraph]):
         middlewares: list[AgentMiddleware] = [
             PlanMiddleware(specialized_planner_prompt=self.specialized_planner_prompt),
             FileNavigationMiddleware(),
-            InjectImagesMiddleware(
-                image_inputs_supported=bool(
-                    self._planning_model.profile and self._planning_model.profile.get("image_inputs", True)
-                )
-            ),
-            AgentsMDMiddleware(),
+            InjectImagesMiddleware(),
+            LongTermMemoryMiddleware(),
             SkillsMiddleware(repo_dir=Path(runtime.context.repo.working_dir), scope=runtime.context.scope),
             TodoListMiddleware(),
             AnthropicPromptCachingMiddleware(),

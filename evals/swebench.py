@@ -10,6 +10,7 @@ from datasets import load_dataset
 from langgraph.store.memory import InMemoryStore
 
 from automation.agents.constants import ModelName
+from automation.agents.deepagent.graph import create_daiv_agent
 from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
 from codebase.context import set_runtime_ctx
 from codebase.utils import GitManager
@@ -31,7 +32,7 @@ async def main(
     for item in dataset:
         store = InMemoryStore()
 
-        plan_and_execute = await PlanAndExecuteAgent.get_runnable(
+        await PlanAndExecuteAgent.get_runnable(
             store=store,
             # No need to approve the plan
             skip_approval=True,
@@ -51,6 +52,7 @@ async def main(
             repo_host="github.com",
             scope="issue",
         ) as ctx:
+            daiv_agent = await create_daiv_agent(model_names=planning_model_names, runtime=ctx, store=store)
             human_message = dedent(
                 """\
                 You are given a problem statement and some hints extracted from the issue tracker to help you understand it and solve it.
@@ -74,7 +76,7 @@ async def main(
             ).format(problem_statement=item["problem_statement"], hints_text=item["hints_text"])
 
             try:
-                await plan_and_execute.ainvoke({"messages": [human_message]}, context=ctx)
+                await daiv_agent.ainvoke({"messages": [human_message]}, context=ctx)
             except Exception as e:
                 print(f"Error invoking plan and execute for item {item['instance_id']}: {e}")  # noqa: T201
                 continue

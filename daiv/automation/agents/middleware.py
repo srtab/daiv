@@ -2,18 +2,17 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentState
 from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
 )
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.messages.content import ImageContentBlock, create_image_block, create_text_block
 from langchain_openai.chat_models import ChatOpenAI
-from langgraph.types import Overwrite
 
 from automation.agents.base import ModelProvider
 from automation.agents.utils import extract_images_from_text, get_context_file_content
@@ -24,7 +23,7 @@ from core.utils import extract_valid_image_mimetype, is_valid_url
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from langchain.agents.middleware.types import AgentState, ModelCallResult
+    from langchain.agents.middleware.types import ModelCallResult
     from langchain_core.language_models import BaseChatModel
     from langgraph.runtime import Runtime
 
@@ -60,19 +59,10 @@ class InjectImagesMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model=model,
-            middleware=[InjectImagesMiddleware(image_inputs_supported=model.profile.get("image_inputs", True))],
+            middleware=[InjectImagesMiddleware()],
         )
         ```
     """
-
-    name = "inject_images_middleware"
-
-    def __init__(self, *, image_inputs_supported: bool = True):
-        """
-        Initialize the middleware.
-        """
-        super().__init__()
-        self.image_inputs_supported = image_inputs_supported
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """
@@ -85,7 +75,7 @@ class InjectImagesMiddleware(AgentMiddleware):
         Returns:
             dict[str, list] | None: State updates with new messages, or None if no images found.
         """
-        if not state["messages"] or not self.image_inputs_supported:
+        if not state["messages"]:
             return None
 
         latest_message = state["messages"][-1]
@@ -167,9 +157,31 @@ class InjectImagesMiddleware(AgentMiddleware):
         return content_blocks
 
 
-class AgentsMDMiddleware(AgentMiddleware):
+LONG_TERM_MEMORY_SYSTEM_PROMPT = """\
+## Long-term Memory
+
+The project root contains a file called AGENTS.md that works as your long-term memory and persists across sessions. It serves multiple purposes:
+
+  1. Storing frequently used bash commands (build, test, lint, etc.) so you can use them without searching each time
+  2. Recording the project's code style preferences (naming conventions, preferred libraries, etc.)
+  3. Maintaining useful information about the codebase structure and organization
+
+<memory>
+{memory}
+</memory>"""  # noqa: E501
+
+
+class LongTermMemoryState(AgentState):
     """
-    Middleware to inject the agents instructions from the AGENTS.md file into the agent state.
+    Schema for the long-term memory state.
+    """
+
+    memory: str
+
+
+class LongTermMemoryMiddleware(AgentMiddleware):
+    """
+    Middleware to inject the long-term memory from the AGENTS.md file into the agent state.
 
     Example:
         ```python
@@ -177,24 +189,24 @@ class AgentsMDMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[AgentsMDMiddleware()],
+            middleware=[LongTermMemoryMiddleware()],
             context_schema=RuntimeCtx,
         )
         ```
     """
 
-    name = "agents_md_middleware"
+    state_schema = LongTermMemoryState
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        Before the agent starts, inject the agents instructions from the AGENTS.md file into the agent state.
+        Before the agent starts, inject the long-term memory from the AGENTS.md file into the agent state.
 
         Args:
             state (AgentState): The state of the agent.
             runtime (Runtime[RuntimeCtx]): The runtime context containing the repository id.
 
         Returns:
-            dict[str, Any] | None: The state updates with the agents instructions from the AGENTS.md file.
+            dict[str, Any] | None: The state updates with the long-term memory from the AGENTS.md file.
         """
         context_file_content = get_context_file_content(
             Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name
@@ -203,23 +215,26 @@ class AgentsMDMiddleware(AgentMiddleware):
         if not context_file_content:
             return None
 
-        prepend_messages = [
-            HumanMessage(
-                content=dedent(
-                    """
-                    # AGENTS.md
+        return {"memory": context_file_content}
 
-                    Here are instructions extracted from the AGENTS.md file for you to follow. If they are contradictory with your own instructions (system prompt), follow your own.
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """
+        Update the system prompt with the long-term memory system prompt.
 
-                    ~~~markdown
-                    {context_file_content}
-                    ~~~
-                    """  # noqa: E501
-                ).format(context_file_content=context_file_content)
-            )
-        ]
+        Args:
+            request: The model request being processed.
+            handler: The handler function to call with the modified request.
 
-        return {"messages": Overwrite(prepend_messages + state["messages"])}
+        Returns:
+            The model response from the handler.
+        """
+        if memory := request.state.get("memory"):
+            system_prompt = LONG_TERM_MEMORY_SYSTEM_PROMPT.format(memory=memory)
+            request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
+
+        return await handler(request)
 
 
 class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):

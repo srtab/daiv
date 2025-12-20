@@ -38,71 +38,62 @@ FORMAT_CODE_TOOL_NAME = "format_code"
 
 
 BASH_TOOL_DESCRIPTION = f"""\
-Execute a list of Bash commands in a persistent shell session rooted at the repository's root. Use this tool to apply the changes required by an execution plan (formatters, codegen, package manager ops). All writes must remain inside the repository.
+Executes a given command in the sandbox environment with proper handling and security measures.
 
-## Purpose
+Before executing the command, please follow these steps:
 
- - Execute project-native CLIs that perform writes (e.g., formatters with --fix, code generators, package manager install/update/remove).
- - Do not use it for file I/O tasks that the companion tools handle directly.
+1. Directory Verification:
+   - If the command will create new directories or files, first use the `ls` tool to verify the parent directory exists and is the correct location
+   - For example, before running "mkdir foo/bar", first use `ls` to check that "foo" exists and is the intended parent directory
 
-## Session & Execution
+2. Command Execution:
+   - Always quote file paths that contain spaces with double quotes (e.g., `cd "path with spaces/file.txt"`)
+   - Examples of proper quoting:
+     - `cd "/Users/name/My Documents"` (correct)
+     - `cd /Users/name/My Documents` (incorrect - will fail)
+     - `python "/path/with spaces/script.py"` (correct)
+     - `python /path/with spaces/script.py` (incorrect - will fail)
+   - After ensuring proper quoting, execute the command
+   - Capture the output of the command
 
- - Persistent shell session across tool calls; commands run in order; pipelines/compound commands allowed.
- - Start in repo root. Prefer absolute paths. Avoid `cd` unless the plan explicitly requires it.
+Usage notes:
+  - The command parameter is required
+  - Commands run in an isolated sandbox environment and are executed in the repository root
+  - Returns combined stdout/stderr output with exit code
+  - If the output is very large, it may be truncated
+  - VERY IMPORTANT: You MUST avoid using search commands like find and grep. Instead use the grep, glob tools to search. You MUST avoid read tools like cat, head, tail, and use read_file to read files.
+  - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings)
+    - Use '&&' when commands depend on each other (e.g., "mkdir dir && cd dir")
+    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
+  - The sandbox working directory is always repository root. NEVER use cd commands. All file paths should be relative to the root directory.
 
-## Output Contract
-
- - Success path: each command returns `exit_code` and raw output (stdout+stderr merged), truncated to {MAX_OUTPUT_LENGTH} lines.
- - Stop on first non-zero exit: execution halts; ONLY the failed command's `exit_code` and raw output are returned.
-
-## Write Scope & Boundaries
-
+**Write scope & boundaries:**
  - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
  - **No Git commands** (no add/commit/checkout/rebase/push).
  - Default to **non-interactive**: add flags/env to avoid prompts (`-y/--yes`, `CI=1`, `--no-progress`, etc.).
- - Avoid high-impact/system-level actions:
+ - Avoid high-impact/system-level actions.
  - No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
  - No Docker builds/pushes or container/image manipulation.
  - No unscoped destructive ops (e.g., `rm -rf` outside targeted paths).
  - No DB schema changes/migrations/seeds.
  - No editing secrets/credentials (e.g., `.env`) or CI settings.
 
-## Preferred Companion Tools (use instead of shell equivalents)
-
- - Reads/search/listing: {GLOB_TOOL_NAME} (discovery), {GREP_TOOL_NAME} (content search), {LS_TOOL_NAME} (directory metadata), {READ_TOOL_NAME} (file contents).
- - Writes/FS changes: {WRITE_TOOL_NAME} (create file), {EDIT_TOOL_NAME} (replace old content with new), {DELETE_TOOL_NAME} (remove file), {RENAME_TOOL_NAME} (rename file).
- - Therefore, **avoid** shell substitutes like `touch`, `echo > file`, `sed -i`, `rm`, `mv`, `cp` when the companion tools can perform the same operation.
- - Fall back to Bash only when the companion tools cannot achieve the goal or when invoking project-native CLIs that must perform writes.
-
-## When to Use
-
- - Apply formatter fixes (`eslint --fix`, `ruff --fix`, `black -w`);
- - Run code generators/scaffolding;
- - Manage dependencies via the project's package manager.
-
-## When Not to Use
-
- - Any file creation/edit/rename/delete that the {WRITE_TOOL_NAME}/{EDIT_TOOL_NAME}/{RENAME_TOOL_NAME}/{DELETE_TOOL_NAME} tools can do.
- - Raw reads/search/listing that {GLOB_TOOL_NAME}/{GREP_TOOL_NAME}/{LS_TOOL_NAME}/{READ_TOOL_NAME} can handle.
- - Any operation outside the repository root or involving Git/system-level changes.
-
-## Examples
-
+**Examples:**
   Good examples:
-    - {BASH_TOOL_NAME}(commands=["pytest /foo/bar/tests"])
-    - {BASH_TOOL_NAME}(commands=["python /path/to/script.py"])
-    - {BASH_TOOL_NAME}(commands=["npm install", "npm test"])
-    - {BASH_TOOL_NAME}(commands=["uv lock"])
+    - {BASH_TOOL_NAME}(command="pytest foo/bar/tests")
+    - {BASH_TOOL_NAME}(command="python path/to/script.py")
+    - {BASH_TOOL_NAME}(command="npm install && npm test")
+    - {BASH_TOOL_NAME}(command="uv lock")
 
   Bad examples (avoid these):
-    - {BASH_TOOL_NAME}(commands=["cd /foo/bar", "pytest tests"])  # Use absolute path instead
-    - {BASH_TOOL_NAME}(commands=["cat file.txt | head -10"])  # Use {READ_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["find . -name '*.py'"])  # Use {GLOB_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["grep -r 'pattern' ."])  # Use {GREP_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["rm -rf /foo/bar"])  # Use {DELETE_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["sed -i 's/old/new/g' file.txt"])  # Use {EDIT_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["mv file.txt file2.txt"])  # Use {RENAME_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(commands=["echo 'Hello, world!' > file.txt"])  # Use {WRITE_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Avoid using `cd` to change the working directory
+    - {BASH_TOOL_NAME}(command="cat file.txt | head -10")  # Use {READ_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use {GLOB_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use {GREP_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="rm -rf /foo/bar")  # Use {DELETE_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="sed -i 's/old/new/g' file.txt")  # Use {EDIT_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="mv file.txt file2.txt")  # Use {RENAME_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="echo 'Hello, world!' > file.txt")  # Use {WRITE_TOOL_NAME} tool instead
 """  # noqa: E501
 
 INSPECT_BASH_TOOL_DESCRIPTION = f"""\
@@ -184,17 +175,20 @@ Applies code formatting and linting fixes using the repository's configured form
 """  # noqa: E501
 
 SANBOX_SYSTEM_PROMPT = f"""\
-## Bash Tool
+## Bash tool `{BASH_TOOL_NAME}`
 
-You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session rooted at the repository's root.
+You have access to an `{BASH_TOOL_NAME}` tool for running shell commands in a sandboxed environment.
+Use this tool to run commands, scripts, tests, builds, and other shell operations.
 
-Use this tool to run commands, scripts, tests, builds, and other shell operations that are included in the plan to be executed.
+**CRITICAL: The sandbox always starts in the repository root directory. DO NOT use `cd` commands. All paths in your commands should be relative paths, or you can rely on the fact that you're already in the root directory.**
 
-**Usage notes:**
+Examples of correct usage:
+- ✅ `make test` (already in the repository root dir)
+- ✅ `python scripts/test.py` (relative path)
+- ❌ `cd / && make test` (WRONG - don't use cd)
+- ❌ `cd /daiv && python script.py` (WRONG - use relative paths instead)
 
- - **No ad-hoc commands.** Only call `bash` tool for commands **explicitly present in `details`** (verbatim).
- - **No environment probing.** Never run `pytest`, `py_compile`, `python -c`, `pip`, `find`, etc., unless the plan explicitly names them **verbatim**. If present, run **exactly** as written.
-"""  # noqa: E501
+- `{BASH_TOOL_NAME}`: run a shell command in the sandbox (returns output and exit code)"""  # noqa: E501
 
 SANDBOX_PLAN_SYSTEM_PROMPT = f"""\
 ## Shell Commands Guidance
@@ -224,20 +218,18 @@ You have access to a `{FORMAT_CODE_TOOL_NAME}` tool for applying code formatting
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
-async def bash_tool(
-    commands: Annotated[list[str], "The list of commands to execute."], runtime: ToolRuntime[RuntimeCtx]
-) -> str:
+async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Tool to run a list of Bash commands in a persistent shell session rooted at the repository's root.
     """  # noqa: E501
-    logger.info("[%s] Running bash commands: %s", bash_tool.name, commands)
+    logger.info("[%s] Running bash command: %s", bash_tool.name, command)
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
-    response = await _run_bash_commands(commands, repo_working_dir, runtime.state["session_id"])
+    response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
 
     if response is None:
         return (
-            "error: Failed to run commands. Verify that the commands are valid. "
+            "error: Failed to run command. Verify that the command is valid. "
             "If the commands are valid, maybe the bash tool is not working properly."
         )
 
@@ -382,8 +374,6 @@ class SandboxMiddleware(AgentMiddleware):
         )
         ```
     """
-
-    name = "sandbox_middleware"
 
     state_schema = SandboxState
 

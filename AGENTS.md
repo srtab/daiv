@@ -33,25 +33,21 @@ Avoid editing `pyproject.toml` directly to manage dependencies. Use the native `
 
 The recommended way to write tests is to use `pytest` with `pytest-asyncio` for async tests. All the tests are located in the `tests/` directory. Add/update unit tests to ensure the changes are working as expected.
 
-To run the unit tests, use the `make test` command.
+To run the unit tests:
+```bash
+make test  # run all the unit tests
+
+uv run pytest tests/automation/test_utils.py  # run a specific test
+```
 
 ## Linting
 
 The tool used to lint and format the code is `ruff`. All the linting and formating rules are defined in the `pyproject.toml` file.
 
-To lint and format the code, use:
+To lint and format the code:
 
 ```bash
-make lint  # lint check and format check
-make lint-fix  # fix linting and formatting issues
-```
-
-The tool used to type check the code is `mypy`. All the type checking rules are defined in the `pyproject.toml` file.
-
-To type check the code, use:
-
-```bash
-make lint-typing  # type check the code
+make lint-fix  # lint check and format the code. Try to automatically fix the linting and formatting issues found in the code.
 ```
 
 ## Documentation
@@ -60,7 +56,7 @@ The tool used to build the documentation is `mkdocs`. All the documentation is l
 
 ## Changelog
 
-All the changes should be documented in the `CHANGELOG.md` file. Describe the changes in the changelog when making changes to the codebase and follow the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+All the changes made to the codebase should be documented in the `CHANGELOG.md` file by following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
 
 ## Translations
 

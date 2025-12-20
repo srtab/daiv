@@ -9,7 +9,9 @@ from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator
+
+    pass
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ async def set_runtime_ctx(
     merge_request_id: int | None = None,
     offline: bool = False,
     **kwargs: Any,
-) -> Iterator[RuntimeCtx]:
+) -> AsyncIterator[RuntimeCtx]:
     """
     Set the runtime context and load repository files to a temporary directory.
 

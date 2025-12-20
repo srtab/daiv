@@ -24,8 +24,6 @@ from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langgraph.runtime import Runtime  # noqa: TC002
 
-from automation.agents.tools.navigation import READ_TOOL_NAME
-
 from .load import BUILTIN_SKILLS_DIR, SkillMetadata, list_skills
 
 if TYPE_CHECKING:
@@ -48,23 +46,23 @@ class SkillsStateUpdate(TypedDict):
 
 
 # Skills System Documentation
-SKILLS_SYSTEM_PROMPT = f"""\
+SKILLS_SYSTEM_PROMPT = """\
 ## Skills System
 
 You have access to a skills library that provides specialized capabilities and domain knowledge.
 
 **Skills:**
 
-{{skills_list}}
+{skills_list}
 
 **How to Use Skills (Progressive Disclosure):**
 
 Skills follow a **progressive disclosure** pattern - you know they exist (name + description above), but you only read the full instructions when needed:
 
 1. **Recognize when a skill applies**: Check if the user's task matches any skill's description
-2. **Read the skill's full instructions**: The skill list above shows the exact path to use with `{READ_TOOL_NAME}` tool
+2. **Read the skill's full instructions**: The skill list above shows the exact path to use with `read_file` tool
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
-4. **Access supporting files**: Skills may include Python scripts, configs, or reference docs - use relative paths for skills
+4. **Access supporting files**: Skills may include Python scripts, configs, or reference docs - use absolute paths for skills
 
 **When to Use Skills:**
 - When the user's request matches a skill's domain (e.g., "research X" → web-research skill)
@@ -76,7 +74,7 @@ Skills follow a **progressive disclosure** pattern - you know they exist (name +
 - The skill list above shows the full path for each skill's SKILL.md file
 
 **Executing Skill Scripts:**
-Skills may contain Python scripts or other executable files. Always use relative paths for skills.
+Skills may contain Python scripts or other executable files. Always use absolute paths for skills.
 
 **Example Workflow:**
 <example>
@@ -85,11 +83,10 @@ User: "Can you research the latest developments in quantum computing?"
 1. Check available skills above → See "web-research" skill with its full path
 2. Read the skill using the path shown in the list
 3. Follow the skill's research workflow (search → organize → synthesize)
-4. Use any helper scripts with relative paths for skills
+4. Use any helper scripts with absolute paths for skills
 </example>
 
-Remember: Skills are tools to make you more capable and consistent. When in doubt, check if a skill exists for the task!
-"""  # noqa: E501
+Remember: Skills are tools to make you more capable and consistent. When in doubt, check if a skill exists for the task."""  # noqa: E501
 
 
 class SkillsMiddleware(AgentMiddleware):
@@ -141,7 +138,9 @@ class SkillsMiddleware(AgentMiddleware):
 
         self._copy_builtin_skills_to_project()
 
-        return SkillsStateUpdate(skills_metadata=list_skills(skills_dir=self.skills_dir, relative_to=self.repo_dir))
+        return SkillsStateUpdate(
+            skills_metadata=list_skills(skills_dir=self.skills_dir, cwd=self.repo_dir, virtual_mode=True)
+        )
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -180,7 +179,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         for skill in skills:
             lines.append(f"- **{skill.name}**: {skill.description}")
-            lines.append(f"  → Read `{skill.path.as_posix()}` for full instructions")
+            lines.append(f"  → Read `{skill.path}` for full instructions")
 
         lines.append("")
 

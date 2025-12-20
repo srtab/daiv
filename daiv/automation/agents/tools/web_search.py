@@ -32,14 +32,13 @@ IMPORTANT: Account for "CURRENT DATE" in. For example, if says "CURRENT DATE: 20
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
-  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`
-"""  # noqa: E501
+  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`"""  # noqa: E501
 
 
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
-## Web Search tool
+## Web Search tool `{WEB_SEARCH_NAME}`
 
-You have access to the `{WEB_SEARCH_NAME}` tool to search the web for programming documentation and solutions.
+You have access to a `{WEB_SEARCH_NAME}` tool to search the web for programming documentation and solutions.
 
 Use this tool to search the web for information that is not available in the repository."""
 
@@ -131,8 +130,6 @@ class WebSearchMiddleware(AgentMiddleware):
     """
     Middleware to add the web search tool to the agent.
     """
-
-    name = "web_search_middleware"
 
     def __init__(self) -> None:
         """

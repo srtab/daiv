@@ -48,8 +48,8 @@ class SkillMetadata:
     description: str
     """Description of what the skill does."""
 
-    path: Path
-    """Path to the SKILL.md file."""
+    path: str
+    """Path to the SKILL.md file as a string."""
 
     scope: Literal["issue", "merge_request"] | None = None
     """Scope of the skill. If None, the skill is applicable to both issues and merge requests."""
@@ -96,13 +96,17 @@ def _is_safe_path(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _parse_skill_metadata(skill_md_path: Path, relative_to: Path | None = None) -> SkillMetadata | None:
+def _parse_skill_metadata(
+    skill_md_path: Path, *, cwd: Path | None = None, virtual_mode: bool = False
+) -> SkillMetadata | None:
     """
     Parse YAML frontmatter from a SKILL.md file.
 
     Args:
         skill_md_path: Path to the SKILL.md file.
-        relative_to: Path to resolve the skill path to. If None, the skill path is not resolved.
+        cwd: Path to the current working directory. If None, the current working directory is not used.
+        virtual_mode: Whether to use virtual mode. If True, the skill path is resolved to a virtual path.
+            If False, the skill path is resolved to an absolute path.
 
     Returns:
         SkillMetadata with name, description, path, and scope, or None if parsing fails.
@@ -137,8 +141,8 @@ def _parse_skill_metadata(skill_md_path: Path, relative_to: Path | None = None) 
         if "name" not in metadata or "description" not in metadata:
             return None
 
-        if relative_to:
-            skill_md_path = skill_md_path.relative_to(relative_to)
+        if virtual_mode and cwd:
+            skill_md_path = "/" + str(skill_md_path.relative_to(cwd))
 
         return SkillMetadata(
             name=metadata["name"], description=metadata["description"], path=skill_md_path, scope=metadata.get("scope")
@@ -148,7 +152,7 @@ def _parse_skill_metadata(skill_md_path: Path, relative_to: Path | None = None) 
         return None
 
 
-def list_skills(*, skills_dir: Path, relative_to: Path | None = None) -> list[SkillMetadata]:
+def list_skills(*, skills_dir: Path, cwd: Path | None = None, virtual_mode: bool = False) -> list[SkillMetadata]:
     """
     List all skills from a skills directory.
 
@@ -164,8 +168,9 @@ def list_skills(*, skills_dir: Path, relative_to: Path | None = None) -> list[Sk
 
     Args:
         skills_dir: Path to the skills directory.
-        relative_to: Path to resolve the skill paths to. If None, the skill paths are not resolved.
-
+        cwd: Path to the current working directory. If None, the current working directory is not used.
+        virtual_mode: Whether to use virtual mode. If True, the skill path is resolved to a virtual path.
+            If False, the skill path is resolved to an absolute path.
     Returns:
         List of skill metadata with name, description, path, and scope.
     """
@@ -191,7 +196,7 @@ def list_skills(*, skills_dir: Path, relative_to: Path | None = None) -> list[Sk
         if not _is_safe_path(skill_md_path, resolved_base):
             continue
 
-        if metadata := _parse_skill_metadata(skill_md_path, relative_to=relative_to):
+        if metadata := _parse_skill_metadata(skill_md_path, cwd=cwd, virtual_mode=virtual_mode):
             skills.append(metadata)
 
     return skills

@@ -29,9 +29,7 @@ Get the latest pipeline/workflow status for a merge/pull request.
 - Jobs are separated into failed_jobs, success_jobs, and other_jobs;
 - For failed pipelines/workflows, includes detailed information about failed jobs with failure reasons;
 - Use this tool to understand if a pipeline/workflow failed and which jobs failed;
-- After getting failed job IDs, use the `{JOB_LOGS_TOOL_NAME}` tool to inspect specific job logs;
-
-"""  # noqa: E501
+- After getting failed job IDs, use the `{JOB_LOGS_TOOL_NAME}` tool to inspect specific job logs."""  # noqa: E501
 
 JOB_LOGS_TOOL_DESCRIPTION = f"""\
 Get logs from a specific pipeline job with pagination support (bottom-to-top).
@@ -41,18 +39,15 @@ Get logs from a specific pipeline job with pagination support (bottom-to-top).
 - For failed jobs, only the output of the failing command is shown (useful for debugging);
 - Use `line_count` to specify the number of lines to read (default: {JOB_LOGS_DEFAULT_LINE_COUNT});
 - Use `offset_from_end` to paginate backwards through logs (0 = last lines, 100 = skip last 100 lines, etc.);
-- Logs are shown from bottom to top, as errors typically appear at the end.
-"""  # noqa: E501
+- Logs are shown from bottom to top, as errors typically appear at the end."""  # noqa: E501
 
 MERGE_REQUEST_TOOL_SYSTEM_PROMPT = f"""\
-## Merge request tools
+## Merge request tools `{PIPELINE_TOOL_NAME}`, `{JOB_LOGS_TOOL_NAME}`
 
-You have access to a merge request which you can interact with using the following tools.
-Use these tools to get the latest pipeline/workflow status and job logs for the merge request.
+You have access to two tools to interact with a merge request.
 
-- {PIPELINE_TOOL_NAME}: Get the latest pipeline/workflow status for a merge/pull request.
-- {JOB_LOGS_TOOL_NAME}: Get logs from a specific pipeline job with pagination support (bottom-to-top).
-"""  # noqa: E501
+- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
+- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
 
 
 @tool(PIPELINE_TOOL_NAME, description=PIPELINE_TOOL_DESCRIPTION)

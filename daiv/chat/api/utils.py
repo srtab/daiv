@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from automation.agents.codebase_chat.agent import CodebaseChatAgent
+from automation.agents.deepagent.graph import create_daiv_agent
 from chat.api.schemas import ChatCompletionChunk
 from codebase.context import set_runtime_ctx
 
@@ -60,11 +60,9 @@ async def generate_stream(
         try:
             # Get model config from repository config if available
             model_config = runtime_ctx.config.models.codebase_chat
-            codebase_chat = await CodebaseChatAgent.get_runnable(
-                model=model_config.model, temperature=model_config.temperature
-            )
+            daiv_agent = await create_daiv_agent(runtime=runtime_ctx, model_names=[model_config.model])
 
-            async for event_data in codebase_chat.astream_events(input_data, config=config, context=runtime_ctx):
+            async for event_data in daiv_agent.astream_events(input_data, config=config, context=runtime_ctx):
                 if (
                     event_data["event"] == "on_chat_model_stream"
                     and event_data["metadata"]["langgraph_node"] == "model"
