@@ -21,9 +21,6 @@ from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import MAX_OUTPUT_LENGTH, RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
-from .editing import DELETE_TOOL_NAME, EDIT_TOOL_NAME, RENAME_TOOL_NAME, WRITE_TOOL_NAME
-from .navigation import GLOB_TOOL_NAME, GREP_TOOL_NAME, LS_TOOL_NAME, READ_TOOL_NAME
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -39,6 +36,8 @@ FORMAT_CODE_TOOL_NAME = "format_code"
 
 BASH_TOOL_DESCRIPTION = f"""\
 Executes a given command in the sandbox environment with proper handling and security measures.
+
+IMPORTANT: This tool is for terminal operations like running scripts, tests, builds, and other shell operations. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
 
 Before executing the command, please follow these steps:
 
@@ -69,7 +68,7 @@ Usage notes:
 
 **Write scope & boundaries:**
  - Writes must stay strictly within the repository root; do not touch parent dirs, `$HOME`, or follow symlinks that exit the repo.
- - **No Git commands** (no add/commit/checkout/rebase/push).
+ - **No Git available. You cannot commit, checkout, rebase, push, etc.**.
  - Default to **non-interactive**: add flags/env to avoid prompts (`-y/--yes`, `CI=1`, `--no-progress`, etc.).
  - Avoid high-impact/system-level actions.
  - No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
@@ -87,13 +86,13 @@ Usage notes:
 
   Bad examples (avoid these):
     - {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Avoid using `cd` to change the working directory
-    - {BASH_TOOL_NAME}(command="cat file.txt | head -10")  # Use {READ_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use {GLOB_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use {GREP_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="rm -rf /foo/bar")  # Use {DELETE_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="sed -i 's/old/new/g' file.txt")  # Use {EDIT_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="mv file.txt file2.txt")  # Use {RENAME_TOOL_NAME} tool instead
-    - {BASH_TOOL_NAME}(command="echo 'Hello, world!' > file.txt")  # Use {WRITE_TOOL_NAME} tool instead
+    - {BASH_TOOL_NAME}(command="cat file.txt | head -10")  # Use read_file tool instead
+    - {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use glob tool instead
+    - {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use grep tool instead
+    - {BASH_TOOL_NAME}(command="rm -rf /foo/bar")  # Use delete tool instead
+    - {BASH_TOOL_NAME}(command="sed -i 's/old/new/g' file.txt")  # Use edit_file tool instead
+    - {BASH_TOOL_NAME}(command="mv file.txt file2.txt")  # Use rename tool instead
+    - {BASH_TOOL_NAME}(command="echo 'Hello, world!' > file.txt")  # Use write_file tool instead
 """  # noqa: E501
 
 INSPECT_BASH_TOOL_DESCRIPTION = f"""\
@@ -143,9 +142,9 @@ The assistant will include the commands to execute the tests again to the plan e
  - Prefer using `--no-color`, `--json`, `--quiet` flags to reduce noise when available
  - Prefer relative paths and avoid usage of `cd`
  - **IMPORTANT: You MUST avoid using this tool for file reading (`cat`, `head`, `tail`), searching (`grep`, `find`), and listing (`ls`). Prefer using specialized tools instead:**
-   - File reading → use `{READ_TOOL_NAME}` tool
-   - File searching → use `{GREP_TOOL_NAME}` or `{GLOB_TOOL_NAME}` tools
-   - Directory listing → use `{LS_TOOL_NAME}` tool
+   - File reading → use `read_file` tool
+   - File searching → use `grep` or `glob` tools
+   - Directory listing → use `ls` tool
 
 Examples:
   Good examples:
@@ -157,10 +156,10 @@ Examples:
 
   Bad examples (avoid these):
     - {INSPECT_BASH_TOOL_NAME}(commands=["cd foo/bar", "pytest tests"])  # Use relative path instead
-    - {INSPECT_BASH_TOOL_NAME}(commands=["cat file.txt"])  # Use {READ_TOOL_NAME} tool instead
-    - {INSPECT_BASH_TOOL_NAME}(commands=["find . -name '*.py'"])  # Use {GLOB_TOOL_NAME} tool instead
-    - {INSPECT_BASH_TOOL_NAME}(commands=["grep -r 'pattern' ."])  # Use {GREP_TOOL_NAME} tool instead
-    - {INSPECT_BASH_TOOL_NAME}(commands=["ls -la foo/bar"])  # Use {LS_TOOL_NAME} tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["cat file.txt"])  # Use read_file tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["find . -name '*.py'"])  # Use glob tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["grep -r 'pattern' ."])  # Use grep tool instead
+    - {INSPECT_BASH_TOOL_NAME}(commands=["ls -la foo/bar"])  # Use ls tool instead
 """  # noqa: E501
 
 FORMAT_CODE_TOOL_DESCRIPTION = f"""\
@@ -168,7 +167,7 @@ Applies code formatting and linting fixes using the repository's configured form
 
 **When to use:**
 - **After making code changes** to ensure style compliance and minimize linting issues
-- **You can call this tool** once you've modified code files (e.g., via {EDIT_TOOL_NAME}/{WRITE_TOOL_NAME}/{DELETE_TOOL_NAME}/{RENAME_TOOL_NAME} tools)
+- **You can call this tool** once you've modified code files (e.g., via edit_file, write_file, delete, rename tools)
 - **When the plan includes code formatting and linting fixes** to ensure style compliance and minimize linting issues
 - **Tip:** The tool warns if no code changes were made to the repository (use `force=True` to override)
 - **Returns:** Success message or error details for troubleshooting
@@ -380,16 +379,25 @@ class SandboxMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
+        close_session: bool = True,
         read_only_bash: bool = False,
         include_format_code: bool = False,
         format_system_prompt: str = FORMAT_CODE_SYSTEM_PROMPT,
     ):
         """
         Initialize the middleware.
+
+        Args:
+            close_session: Whether to close the session after the agent finishes the execution loop.
+                Useful when using the sandbox in subagents to avoid closing the session in the parent agent.
+            read_only_bash: Whether to use the read-only bash tool.
+            include_format_code: Whether to include the format code tool.
+            format_system_prompt: The system prompt to use for the format code tool.
         """
         assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
         self.tools = []
+        self.close_session = close_session
         self.read_only_bash = read_only_bash
         self.include_format_code = include_format_code
         self.format_system_prompt = format_system_prompt
@@ -413,6 +421,9 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             dict[str, list] | None: The state updates with the sandbox session.
         """
+        if "session_id" in state and state["session_id"] is not None:
+            return None
+
         session_id = await DAIVSandboxClient().start_session(
             StartSessionRequest(
                 base_image=runtime.context.config.sandbox.base_image,
@@ -437,7 +448,9 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             dict[str, list] | None: The state updates with the closed sandbox session.
         """
-        await DAIVSandboxClient().close_session(state["session_id"])
+        if self.close_session and "session_id" in state and state["session_id"] is not None:
+            await DAIVSandboxClient().close_session(state["session_id"])
+            return {"session_id": None}
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

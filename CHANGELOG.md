@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `delete` and `rename` filesystem tools to deep agent, enabling file and directory deletion (with recursive support) and renaming operations. These tools are capability-gated and only available when using `DAIVFilesystemBackend` or `DAIVStateBackend`, preserving virtual mode path safety and traversal protection.
+- Added `ToolCallLoggingMiddleware` to log all tool calls (start/end, duration, errors, and output previews) across agents using the existing `daiv.tools` logging format.
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution

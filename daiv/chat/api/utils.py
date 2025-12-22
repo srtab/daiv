@@ -45,9 +45,10 @@ async def generate_stream(
     Generate a stream of chat completion events.
 
     Args:
-        codebase_chat: The codebase chat agent.
         input_data: The input data.
         model_id: The model ID.
+        repo_id: The repository ID.
+        ref: The reference.
         config: The config.
 
     Returns:
@@ -58,15 +59,10 @@ async def generate_stream(
 
     async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
         try:
-            # Get model config from repository config if available
-            model_config = runtime_ctx.config.models.codebase_chat
-            daiv_agent = await create_daiv_agent(runtime=runtime_ctx, model_names=[model_config.model])
+            daiv_agent = await create_daiv_agent(runtime=runtime_ctx)
 
-            async for event_data in daiv_agent.astream_events(input_data, config=config, context=runtime_ctx):
-                if (
-                    event_data["event"] == "on_chat_model_stream"
-                    and event_data["metadata"]["langgraph_node"] == "model"
-                ):
+            async for message_chunk, _metadata in daiv_agent.astream(input_data, config=config, context=runtime_ctx):
+                if message_chunk and message_chunk.content:
                     chat_chunk = ChatCompletionChunk(
                         id=chunk_uuid,
                         created=created,
@@ -75,7 +71,7 @@ async def generate_stream(
                             {
                                 "index": 0,
                                 "finish_reason": None,
-                                "delta": {"content": extract_text_from_event_data(event_data), "role": "assistant"},
+                                "delta": {"content": message_chunk.content, "role": "assistant"},
                             }
                         ],
                     )

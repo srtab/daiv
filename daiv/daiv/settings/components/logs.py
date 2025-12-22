@@ -1,7 +1,7 @@
 from decouple import Choices, config
 
 LOGGING_LEVEL = config(
-    "DJANGO_LOGGING_LEVEL", default="INFO", cast=Choices(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    "DJANGO_LOGGING_LEVEL", default="WARNING", cast=Choices(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 )
 
 LOGGING: dict = {

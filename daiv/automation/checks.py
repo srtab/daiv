@@ -1,22 +1,14 @@
 from django.core.checks import Error, register
 
 from .agents.base import BaseAgent, ModelProvider
-from .agents.codebase_chat.conf import settings as codebase_chat_settings
-from .agents.plan_and_execute.conf import settings as plan_and_execute_settings
+from .agents.deepagent.conf import settings as deepagent_settings
 from .agents.pr_describer.conf import settings as pr_describer_settings
-from .agents.review_addressor.conf import settings as review_addressor_settings
 from .conf import settings
 
 declared_model_names = {
-    codebase_chat_settings.MODEL_NAME,
-    plan_and_execute_settings.EXECUTION_MODEL_NAME,
-    plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
-    plan_and_execute_settings.PLANNING_MODEL_NAME,
-    plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
-    plan_and_execute_settings.CODE_REVIEW_MODEL_NAME,
+    deepagent_settings.MODEL_NAME,
+    deepagent_settings.FALLBACK_MODEL_NAME,
     pr_describer_settings.MODEL_NAME,
-    review_addressor_settings.REPLY_MODEL_NAME,
-    review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,
 }
 
 

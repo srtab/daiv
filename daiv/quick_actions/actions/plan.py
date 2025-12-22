@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING
 
-from codebase.context import set_runtime_ctx
-from codebase.managers.issue_addressor import IssueAddressorManager
 from quick_actions.base import QuickAction, Scope
 from quick_actions.decorator import quick_action
 
@@ -27,8 +25,8 @@ class ApprovePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
-            await IssueAddressorManager.approve_plan(issue_iid=issue.iid, runtime_ctx=runtime_ctx)
+        # async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
+        #     await IssueAddressorManager.approve_plan(issue_iid=issue.iid, runtime_ctx=runtime_ctx) # noqa: E501 ERA001
 
 
 @quick_action(command="revise-plan", scopes=[Scope.ISSUE])
@@ -49,5 +47,5 @@ class RevisePlanQuickAction(QuickAction):
             issue: The issue where the action was triggered (if applicable).
             args: Additional parameters from the command.
         """
-        async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
-            await IssueAddressorManager.plan_issue(issue_iid=issue.iid, runtime_ctx=runtime_ctx, should_reset_plan=True)
+        # async with set_runtime_ctx(repo_id, scope="issue") as runtime_ctx:
+        #     await IssueAddressorManager.plan_issue(issue_iid=issue.iid, runtime_ctx=runtime_ctx, should_reset_plan=True) # noqa: E501 ERA001

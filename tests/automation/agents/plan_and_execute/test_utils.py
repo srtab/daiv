@@ -1,7 +1,7 @@
 from automation.agents.base import ThinkingLevel
 from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
 from automation.agents.plan_and_execute.utils import get_plan_and_execute_agent_kwargs
-from codebase.repo_config import Models, PlanAndExecuteModelConfig
+from codebase.repo_config import DAIVModelConfig, Models
 
 
 class TestGetPlanAndExecuteAgentKwargs:
@@ -52,7 +52,7 @@ class TestGetPlanAndExecuteAgentKwargs:
     def test_get_agent_kwargs_with_yaml_model_config(self):
         """Test that get_plan_and_execute_agent_kwargs uses YAML model config when available."""
         # Set up YAML model config
-        model_config = PlanAndExecuteModelConfig(
+        model_config = DAIVModelConfig(
             planning_model="openrouter:anthropic/claude-haiku-4.5",
             planning_fallback_model="openrouter:openai/gpt-4.1-mini",
             planning_thinking_level="low",
@@ -77,7 +77,7 @@ class TestGetPlanAndExecuteAgentKwargs:
     def test_get_agent_kwargs_use_max_overrides_yaml_config(self):
         """Test that use_max=True overrides YAML config."""
         # Set up YAML model config
-        model_config = PlanAndExecuteModelConfig(
+        model_config = DAIVModelConfig(
             planning_model="openrouter:anthropic/claude-haiku-4.5", planning_thinking_level="low"
         )
         models_config = Models(plan_and_execute=model_config)
@@ -90,7 +90,7 @@ class TestGetPlanAndExecuteAgentKwargs:
     def test_get_agent_kwargs_partial_yaml_config(self):
         """Test that partial YAML config merges with environment defaults."""
         # Set up partial YAML model config (only planning_model)
-        model_config = PlanAndExecuteModelConfig(planning_model="openrouter:anthropic/claude-haiku-4.5")
+        model_config = DAIVModelConfig(planning_model="openrouter:anthropic/claude-haiku-4.5")
         models_config = Models(plan_and_execute=model_config)
         kwargs = get_plan_and_execute_agent_kwargs(models_config=models_config, use_max=False)
 

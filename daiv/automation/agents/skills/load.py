@@ -33,6 +33,8 @@ from daiv.settings.components import PROJECT_DIR
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from deepagents.backends.protocol import BACKEND_TYPES
+
 
 MAX_SKILL_FILE_SIZE = 1 * 1024 * 1024
 BUILTIN_SKILLS_DIR = PROJECT_DIR / "automation" / "agents" / "skills" / "builtin"
@@ -96,32 +98,23 @@ def _is_safe_path(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _parse_skill_metadata(
-    skill_md_path: Path, *, cwd: Path | None = None, virtual_mode: bool = False
-) -> SkillMetadata | None:
+def _parse_skill_metadata(skill_md_path: str, *, backend: BACKEND_TYPES) -> SkillMetadata | None:
     """
     Parse YAML frontmatter from a SKILL.md file.
 
     Args:
         skill_md_path: Path to the SKILL.md file.
-        cwd: Path to the current working directory. If None, the current working directory is not used.
-        virtual_mode: Whether to use virtual mode. If True, the skill path is resolved to a virtual path.
-            If False, the skill path is resolved to an absolute path.
+        backend: The backend to use for reading the skills.
 
     Returns:
         SkillMetadata with name, description, path, and scope, or None if parsing fails.
     """
     try:
-        # Security: Check file size to prevent DoS attacks
-        file_size = skill_md_path.stat().st_size
-        if file_size > MAX_SKILL_FILE_SIZE:
-            # Silently skip files that are too large
-            return None
-
-        content = skill_md_path.read_text(encoding="utf-8")
+        content = backend.read(skill_md_path)
 
         # Match YAML frontmatter between --- delimiters
-        frontmatter_pattern = r"^---\s*\n(.*?)\n---\s*\n"
+        # Pattern handles optional line numbers at the start (e.g., "1 ---", "  2 name: value")
+        frontmatter_pattern = r"^(?:\s*\d+\s+)?---\s*\n(.*?)\n(?:\s*\d+\s+)?---\s*\n"
         match = re.match(frontmatter_pattern, content, re.DOTALL)
 
         if not match:
@@ -132,17 +125,16 @@ def _parse_skill_metadata(
         # Parse key-value pairs from YAML (simple parsing, no nested structures)
         metadata: dict[str, str] = {}
         for line in frontmatter.split("\n"):
+            # Strip line numbers at the start (e.g., "2 name: value" -> "name: value")
+            line_stripped = re.sub(r"^\s*\d+\s+", "", line.strip())
             # Match "key: value" pattern
-            kv_match = re.match(r"^(\w+):\s*(.+)$", line.strip())
+            kv_match = re.match(r"^(\w+):\s*(.+)$", line_stripped)
             if kv_match:
                 key, value = kv_match.groups()
                 metadata[key] = value.strip()
 
         if "name" not in metadata or "description" not in metadata:
             return None
-
-        if virtual_mode and cwd:
-            skill_md_path = "/" + str(skill_md_path.relative_to(cwd))
 
         return SkillMetadata(
             name=metadata["name"], description=metadata["description"], path=skill_md_path, scope=metadata.get("scope")
@@ -152,7 +144,7 @@ def _parse_skill_metadata(
         return None
 
 
-def list_skills(*, skills_dir: Path, cwd: Path | None = None, virtual_mode: bool = False) -> list[SkillMetadata]:
+def list_skills(*, project_skills_dir: str, builtin_skills_dir: str, backend: BACKEND_TYPES) -> list[SkillMetadata]:
     """
     List all skills from a skills directory.
 
@@ -160,43 +152,34 @@ def list_skills(*, skills_dir: Path, cwd: Path | None = None, virtual_mode: bool
     skill metadata.
 
     Skills are organized as:
-    {PROJECT_ROOT}/.daiv/skills/
+    - Builtin skills (outside of repository): /skills/
+    - Project skills (in repository): .daiv/skills/
     ├── skill-name/
     │   ├── SKILL.md        # Required: YAML frontmatter + instructions
     │   ├── checklist.md    # Optional: supporting documentation
     │   └── review.py       # Optional: helper Python script
 
     Args:
-        skills_dir: Path to the skills directory.
-        cwd: Path to the current working directory. If None, the current working directory is not used.
-        virtual_mode: Whether to use virtual mode. If True, the skill path is resolved to a virtual path.
-            If False, the skill path is resolved to an absolute path.
+        project_skills_dir: Path to the project skills directory.
+        builtin_skills_dir: Path to the builtin skills directory.
+        backend: The backend to use for reading the skills.
     Returns:
         List of skill metadata with name, description, path, and scope.
     """
-    # Resolve base directory to canonical path for security checks
-    try:
-        resolved_base = skills_dir.resolve()
-    except OSError, RuntimeError:
-        return []
-
     skills: list[SkillMetadata] = []
 
-    for skill_dir in skills_dir.iterdir():
-        if not _is_safe_path(skill_dir, resolved_base):
-            continue
+    for base_skills_dir in [project_skills_dir, builtin_skills_dir]:
+        for skill_dir in backend.ls_info(base_skills_dir):
+            if not skill_dir["is_dir"]:
+                continue
 
-        if not skill_dir.is_dir():
-            continue
-
-        skill_md_path = skill_dir / "SKILL.md"
-        if not skill_md_path.exists():
-            continue
-
-        if not _is_safe_path(skill_md_path, resolved_base):
-            continue
-
-        if metadata := _parse_skill_metadata(skill_md_path, cwd=cwd, virtual_mode=virtual_mode):
-            skills.append(metadata)
+            for file in backend.ls_info(skill_dir["path"]):
+                if (
+                    not file["is_dir"]
+                    and file["path"].endswith("/SKILL.md")
+                    and file["size"] < MAX_SKILL_FILE_SIZE
+                    and (metadata := _parse_skill_metadata(file["path"], backend=backend))
+                ):
+                    skills.append(metadata)
 
     return skills

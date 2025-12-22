@@ -7,10 +7,8 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
-from automation.agents.codebase_chat.agent import CodebaseChatAgent
-from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
+from automation.agents.deepagent.graph import create_daiv_agent
 from automation.agents.utils import extract_text_content
-from codebase.conf import settings
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
 
@@ -49,8 +47,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
 
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
     config = RunnableConfig(
-        tags=[codebase_chat_settings.NAME, str(settings.CLIENT)],
-        metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref},
+        metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref}
     )
 
     if payload.stream:
@@ -60,12 +57,8 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         )
     try:
         async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
-            # Get model config from repository config if available
-            model_config = runtime_ctx.config.models.codebase_chat
-            codebase_chat = await CodebaseChatAgent.get_runnable(
-                model=model_config.model, temperature=model_config.temperature
-            )
-            result = await codebase_chat.ainvoke(input_data, config=config, context=runtime_ctx)
+            daiv_agent = await create_daiv_agent(runtime=runtime_ctx)
+            result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
 
         return ChatCompletionResponse(
             id=str(uuid.uuid4()),

@@ -18,7 +18,7 @@ Example structure:
 │   └── checklist.md
 """
 
-import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
@@ -28,7 +28,11 @@ from .load import BUILTIN_SKILLS_DIR, SkillMetadata, list_skills
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from pathlib import Path
+
+    from deepagents.backends.protocol import BACKEND_TYPES
+
+
+BUILTIN_SKILLS_DEST_DIR = "/skills/"
 
 
 class SkillsState(AgentState):
@@ -106,18 +110,18 @@ class SkillsMiddleware(AgentMiddleware):
 
     state_schema = SkillsState
 
-    def __init__(self, *, repo_dir: Path, scope: Literal["issue", "merge_request"] | None = None) -> None:
+    def __init__(self, *, backend: BACKEND_TYPES, scope: Literal["issue", "merge_request"] | None = None):
         """
         Initialize the skills middleware.
 
         Args:
-            repo_dir: Path to the repository directory.
             scope: Scope of the skills to load. If None, all skills will be loaded.
+            backend: The backend to use for reading the skills.
         """
-        self.repo_dir = repo_dir.resolve()
-        self.skills_dir = repo_dir / ".daiv/skills"
         self.scope = scope
-        self.system_prompt_template = SKILLS_SYSTEM_PROMPT
+        self.backend = backend
+        self.project_skills_dir = ".daiv/skills/"
+        self.builtin_skills_dir = "/skills/"
 
     def before_agent(self, state: SkillsState, runtime: Runtime) -> SkillsStateUpdate | None:
         """
@@ -133,13 +137,21 @@ class SkillsMiddleware(AgentMiddleware):
         Returns:
             Updated state with skills_metadata populated.
         """
-        if not self.skills_dir.exists():
-            self.skills_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_builtin_skills_to_directory()
 
-        self._copy_builtin_skills_to_project()
-
+        print(  # noqa: T201
+            list_skills(
+                project_skills_dir=self.project_skills_dir,
+                builtin_skills_dir=self.builtin_skills_dir,
+                backend=self.backend,
+            )
+        )
         return SkillsStateUpdate(
-            skills_metadata=list_skills(skills_dir=self.skills_dir, cwd=self.repo_dir, virtual_mode=True)
+            skills_metadata=list_skills(
+                project_skills_dir=self.project_skills_dir,
+                builtin_skills_dir=self.builtin_skills_dir,
+                backend=self.backend,
+            )
         )
 
     async def awrap_model_call(
@@ -165,7 +177,7 @@ class SkillsMiddleware(AgentMiddleware):
         if not skills_metadata:
             return await handler(request)
 
-        skills_section = self.system_prompt_template.format(skills_list=self._format_skills_list(skills_metadata))
+        skills_section = SKILLS_SYSTEM_PROMPT.format(skills_list=self._format_skills_list(skills_metadata))
 
         system_prompt = request.system_prompt + "\n\n" + skills_section if request.system_prompt else skills_section
 
@@ -185,22 +197,13 @@ class SkillsMiddleware(AgentMiddleware):
 
         return "\n".join(lines)
 
-    def _copy_builtin_skills_to_project(self) -> None:
+    def _copy_builtin_skills_to_directory(self) -> None:
         """
-        Copy builtin skills to the project skills directory if they don't exist.
-
-        This is done to allow the agent to find builtin skills as if they were project skills, even if the
-        project skills directory is not set up. The copied skills folder will include a .gitignore
-        file to prevent them from being committed to the repository.
+        Copy builtin skills to the /skills/ directory..
         """
         for builtin_skill_dir in BUILTIN_SKILLS_DIR.iterdir():
-            builtin_skill_path = self.skills_dir / builtin_skill_dir.name
-            if not builtin_skill_path.exists():
-                shutil.copytree(builtin_skill_dir, builtin_skill_path)
-                self._create_gitignore_file(builtin_skill_path)
-
-    def _create_gitignore_file(self, skill_path: Path) -> None:
-        """
-        Create a gitignore file in the builtin skills directory to prevent from being committed.
-        """
-        (skill_path / ".gitignore").write_text("*")
+            for root, _dirs, files in builtin_skill_dir.walk():
+                for file in files:
+                    source_path = Path(root) / Path(file)
+                    dest_path = Path(self.builtin_skills_dir) / source_path.relative_to(BUILTIN_SKILLS_DIR)
+                    self.backend.write(str(dest_path), source_path.read_text())
