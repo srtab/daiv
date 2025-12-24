@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+from deepagents.backends.composite import CompositeBackend as BaseCompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend as BaseFilesystemBackend
 from deepagents.backends.state import StateBackend as BaseStateBackend
 
@@ -254,3 +256,152 @@ class StateBackend(BaseStateBackend):
         import asyncio
 
         return await asyncio.to_thread(self.rename, old_path, new_path)
+
+
+class CompositeBackend(BaseCompositeBackend):
+    """Extended CompositeBackend with delete and rename operations.
+
+    Routes delete and rename operations to the appropriate backend based on path prefix,
+    following the same routing logic as other operations like read, write, and edit.
+    """
+
+    def delete(self, path: str, *, recursive: bool = False) -> DeleteResult:
+        """Delete a file or directory, routing to appropriate backend.
+
+        Args:
+            path: Absolute path to delete.
+            recursive: If True, allows deleting directories recursively.
+                      If False, attempting to delete a directory will error.
+
+        Returns:
+            DeleteResult with error on failure, path on success.
+            files_update is merged with default backend state if applicable.
+
+        Examples:
+            >>> backend.delete("/file.txt")
+            >>> backend.delete("/skills/memory.txt")  # Routes to StateBackend
+            >>> backend.delete("/dir", recursive=True)
+        """
+        backend, stripped_key = self._get_backend_and_key(path)
+        res = backend.delete(stripped_key, recursive=recursive)
+
+        # Restore the original path in the result
+        if res.path is not None:
+            res.path = path
+
+        # If this is a state-backed update and default has state, merge so listings reflect changes
+        if res.files_update:
+            with suppress(Exception):
+                runtime = getattr(self.default, "runtime", None)
+                if runtime is not None:
+                    state = runtime.state
+                    files = state.get("files", {})
+                    files.update(res.files_update)
+                    state["files"] = files
+
+        return res
+
+    async def adelete(self, path: str, *, recursive: bool = False) -> DeleteResult:
+        """Async version of delete."""
+        backend, stripped_key = self._get_backend_and_key(path)
+        res = await backend.adelete(stripped_key, recursive=recursive)
+
+        # Restore the original path in the result
+        if res.path is not None:
+            res.path = path
+
+        # If this is a state-backed update and default has state, merge so listings reflect changes
+        if res.files_update:
+            with suppress(Exception):
+                runtime = getattr(self.default, "runtime", None)
+                if runtime is not None:
+                    state = runtime.state
+                    files = state.get("files", {})
+                    files.update(res.files_update)
+                    state["files"] = files
+
+        return res
+
+    def rename(self, old_path: str, new_path: str) -> RenameResult:
+        """Rename a file or directory, routing to appropriate backend.
+
+        Args:
+            old_path: Absolute path of file/directory to rename.
+            new_path: Absolute path for the new name.
+
+        Returns:
+            RenameResult with error on failure, both paths on success.
+            files_update is merged with default backend state if applicable.
+
+        Behavior:
+            - Errors if old_path doesn't exist
+            - Errors if new_path already exists (no overwrite)
+            - Both paths must route to the same backend (no cross-backend moves)
+
+        Examples:
+            >>> backend.rename("/old.txt", "/new.txt")
+            >>> backend.rename("/skills/old.txt", "/skills/new.txt")  # Routes to StateBackend
+        """
+        # Determine backends for both paths
+        old_backend, stripped_old_path = self._get_backend_and_key(old_path)
+        new_backend, stripped_new_path = self._get_backend_and_key(new_path)
+
+        # Ensure both paths route to the same backend
+        if old_backend is not new_backend:
+            return RenameResult(
+                error=f"Error: Cannot rename across different backends. "
+                f"'{old_path}' and '{new_path}' map to different storage backends."
+            )
+
+        res = old_backend.rename(stripped_old_path, stripped_new_path)
+
+        # Restore the original paths in the result
+        if res.old_path is not None:
+            res.old_path = old_path
+        if res.new_path is not None:
+            res.new_path = new_path
+
+        # If this is a state-backed update and default has state, merge so listings reflect changes
+        if res.files_update:
+            with suppress(Exception):
+                runtime = getattr(self.default, "runtime", None)
+                if runtime is not None:
+                    state = runtime.state
+                    files = state.get("files", {})
+                    files.update(res.files_update)
+                    state["files"] = files
+
+        return res
+
+    async def arename(self, old_path: str, new_path: str) -> RenameResult:
+        """Async version of rename."""
+        # Determine backends for both paths
+        old_backend, stripped_old_path = self._get_backend_and_key(old_path)
+        new_backend, stripped_new_path = self._get_backend_and_key(new_path)
+
+        # Ensure both paths route to the same backend
+        if old_backend is not new_backend:
+            return RenameResult(
+                error=f"Error: Cannot rename across different backends. "
+                f"'{old_path}' and '{new_path}' map to different storage backends."
+            )
+
+        res = await old_backend.arename(stripped_old_path, stripped_new_path)
+
+        # Restore the original paths in the result
+        if res.old_path is not None:
+            res.old_path = old_path
+        if res.new_path is not None:
+            res.new_path = new_path
+
+        # If this is a state-backed update and default has state, merge so listings reflect changes
+        if res.files_update:
+            with suppress(Exception):
+                runtime = getattr(self.default, "runtime", None)
+                if runtime is not None:
+                    state = runtime.state
+                    files = state.get("files", {})
+                    files.update(res.files_update)
+                    state["files"] = files
+
+        return res

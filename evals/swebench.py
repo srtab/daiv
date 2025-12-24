@@ -52,7 +52,7 @@ async def main(
             repo_host="github.com",
             scope="issue",
         ) as ctx:
-            daiv_agent = await create_daiv_agent(model_names=planning_model_names, runtime=ctx, store=store)
+            daiv_agent = await create_daiv_agent(model_names=planning_model_names, ctx=ctx, store=store)
             human_message = dedent(
                 """\
                 You are given a problem statement and some hints extracted from the issue tracker to help you understand it and solve it.

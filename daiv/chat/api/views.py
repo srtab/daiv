@@ -57,7 +57,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
         )
     try:
         async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
-            daiv_agent = await create_daiv_agent(runtime=runtime_ctx)
+            daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
             result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
 
         return ChatCompletionResponse(

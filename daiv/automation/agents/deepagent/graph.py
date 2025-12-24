@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from django.conf import django
 from django.utils import timezone
 
-from deepagents.backends import CompositeBackend
 from deepagents.graph import BASE_AGENT_PROMPT, SubAgent
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import (
@@ -28,7 +27,7 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agents.base import BaseAgent, ThinkingLevel
 from automation.agents.constants import ModelName
-from automation.agents.deepagent.backends import FilesystemBackend, StateBackend
+from automation.agents.deepagent.backends import CompositeBackend, FilesystemBackend, StateBackend
 from automation.agents.deepagent.conf import settings
 from automation.agents.deepagent.middlewares import FilesystemMiddleware
 from automation.agents.deepagent.prompts import (
@@ -50,6 +49,7 @@ from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
+    from langchain.tools import ToolRuntime
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
@@ -141,7 +141,7 @@ async def create_daiv_agent(
     model_names: list[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
-    runtime: RuntimeCtx,
+    ctx: RuntimeCtx,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
@@ -153,12 +153,11 @@ async def create_daiv_agent(
     Args:
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
-        runtime: The runtime context.
+        ctx: The runtime context.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
         cache: Whether to enable cache for the agent.
-        name: The name of the agent.
 
     Returns:
         The DAIV agent.
@@ -179,12 +178,13 @@ async def create_daiv_agent(
         if "image_inputs" in model.profile and model.profile["image_inputs"] is True:
             supported_image_inputs = True
 
-    backend = CompositeBackend(
-        default=FilesystemBackend(root_dir=runtime.repo.working_dir, virtual_mode=True),
-        routes={"/memories/": StateBackend(runtime=runtime)},
-    )
+    def backend(runtime: ToolRuntime):
+        return CompositeBackend(
+            default=FilesystemBackend(root_dir=ctx.repo.working_dir, virtual_mode=True),
+            routes={"/skills/": StateBackend(runtime=runtime)},
+        )
 
-    subagents = [create_general_purpose_subagent(runtime), create_explore_subagent(runtime)]
+    subagents = [create_general_purpose_subagent(ctx), create_explore_subagent(ctx)]
     subagent_middlewares = [
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
         FilesystemMiddleware(backend=backend),
@@ -196,8 +196,8 @@ async def create_daiv_agent(
         PatchToolCallsMiddleware(),
     ]
 
-    if runtime.scope == "merge_request":
-        subagents.append(create_pipeline_debugger_subagent(runtime))
+    if ctx.scope == "merge_request":
+        subagents.append(create_pipeline_debugger_subagent(ctx))
 
     if fallback_models:
         subagent_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
@@ -207,7 +207,7 @@ async def create_daiv_agent(
         WebSearchMiddleware(),
         FilesystemMiddleware(backend=backend),
         LongTermMemoryMiddleware(backend=backend),
-        SkillsMiddleware(scope=runtime.scope, backend=backend),
+        SkillsMiddleware(scope=ctx.scope, backend=backend),
         SubAgentMiddleware(default_model=model, default_middleware=subagent_middlewares, subagents=subagents),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
@@ -221,7 +221,7 @@ async def create_daiv_agent(
     if supported_image_inputs:
         deepagent_middleware.append(InjectImagesMiddleware())
 
-    if runtime.config.sandbox.enabled:
+    if ctx.config.sandbox.enabled:
         deepagent_middleware.append(SandboxMiddleware())
 
     if fallback_models:
@@ -253,7 +253,7 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", ref="main") as ctx:
         agent = await create_daiv_agent(
-            runtime=ctx, model_names=[ModelName.GPT_5_2], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx, model_names=[ModelName.GPT_5_2], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()

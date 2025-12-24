@@ -166,7 +166,7 @@ def list_skills(*, project_skills_dir: str, builtin_skills_dir: str, backend: BA
     Returns:
         List of skill metadata with name, description, path, and scope.
     """
-    skills: list[SkillMetadata] = []
+    skills: dict[str, SkillMetadata] = {}
 
     for base_skills_dir in [project_skills_dir, builtin_skills_dir]:
         for skill_dir in backend.ls_info(base_skills_dir):
@@ -179,7 +179,7 @@ def list_skills(*, project_skills_dir: str, builtin_skills_dir: str, backend: BA
                     and file["path"].endswith("/SKILL.md")
                     and file["size"] < MAX_SKILL_FILE_SIZE
                     and (metadata := _parse_skill_metadata(file["path"], backend=backend))
+                    and metadata.name not in skills
                 ):
-                    skills.append(metadata)
-
-    return skills
+                    skills[metadata.name] = metadata
+    return list(skills.values())

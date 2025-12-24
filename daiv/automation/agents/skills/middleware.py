@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.tools import ToolRuntime
 from langgraph.runtime import Runtime  # noqa: TC002
 
 from .load import BUILTIN_SKILLS_DIR, SkillMetadata, list_skills
@@ -103,7 +104,7 @@ class SkillsMiddleware(AgentMiddleware):
     - Agent reads full SKILL.md content when a skill is relevant (progressive disclosure)
 
     Supports both builtin and project-level skills:
-    - Builtin skills: daiv/automation/agents/skills/builtin/
+    - Builtin skills: /skills/
     - Project skills: {PROJECT_ROOT}/.daiv/skills/
     - Project skills override builtin skills with the same name
     """
@@ -137,20 +138,24 @@ class SkillsMiddleware(AgentMiddleware):
         Returns:
             Updated state with skills_metadata populated.
         """
-        self._copy_builtin_skills_to_directory()
-
-        print(  # noqa: T201
-            list_skills(
-                project_skills_dir=self.project_skills_dir,
-                builtin_skills_dir=self.builtin_skills_dir,
-                backend=self.backend,
+        # Need to manually create the runtime object since the ToolRuntime object is not available in the
+        # before_agent method.
+        backend = self.backend(
+            runtime=ToolRuntime(
+                state=state,
+                context=runtime.context,
+                config={},
+                stream_writer=runtime.stream_writer,
+                tool_call_id=None,
+                store=runtime.store,
             )
         )
+
+        self._copy_builtin_skills_to_directory(backend=backend)
+
         return SkillsStateUpdate(
             skills_metadata=list_skills(
-                project_skills_dir=self.project_skills_dir,
-                builtin_skills_dir=self.builtin_skills_dir,
-                backend=self.backend,
+                project_skills_dir=self.project_skills_dir, builtin_skills_dir=self.builtin_skills_dir, backend=backend
             )
         )
 
@@ -197,7 +202,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         return "\n".join(lines)
 
-    def _copy_builtin_skills_to_directory(self) -> None:
+    def _copy_builtin_skills_to_directory(self, backend: BACKEND_TYPES) -> None:
         """
         Copy builtin skills to the /skills/ directory..
         """
@@ -206,4 +211,4 @@ class SkillsMiddleware(AgentMiddleware):
                 for file in files:
                     source_path = Path(root) / Path(file)
                     dest_path = Path(self.builtin_skills_dir) / source_path.relative_to(BUILTIN_SKILLS_DIR)
-                    self.backend.write(str(dest_path), source_path.read_text())
+                    backend.write(str(dest_path), source_path.read_text())

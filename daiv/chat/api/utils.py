@@ -59,7 +59,7 @@ async def generate_stream(
 
     async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
         try:
-            daiv_agent = await create_daiv_agent(runtime=runtime_ctx)
+            daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
 
             async for message_chunk, _metadata in daiv_agent.astream(input_data, config=config, context=runtime_ctx):
                 if message_chunk and message_chunk.content:

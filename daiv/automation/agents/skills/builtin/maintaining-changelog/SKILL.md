@@ -1,5 +1,5 @@
 ---
-name: maintaining-changelog
+name: changelog-updater
 description: Updates or creates CHANGELOG.md files for pull request changes. Use when users request changelog updates, or when adding entries for new features, fixes, or breaking changes.
 scope: merge_request
 ---
@@ -72,16 +72,7 @@ If an entry for the current PR already exists in the unreleased section:
 
 ## Change type determination
 
-Analyze PR diff and commits to categorize:
-
-- **Added**: New features, capabilities, dependencies
-- **Changed**: Modifications to existing functionality
-- **Deprecated**: Features marked for removal
-- **Removed**: Deleted features or breaking changes
-- **Fixed**: Bug fixes, corrections
-- **Security**: Security-related fixes or improvements
-
-Use categories that match the existing changelog format.
+Analyze PR diff and commits to categorize. Use categories that match the existing changelog format.
 
 ## Entry writing guidelines
 

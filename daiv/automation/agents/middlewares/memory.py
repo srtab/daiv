@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import AgentState
+from langchain.tools import ToolRuntime
 
 from automation.agents.utils import get_context_file_content
 
@@ -78,7 +79,20 @@ class LongTermMemoryMiddleware(AgentMiddleware):
             dict[str, Any] | None: The state updates with the long-term memory from the AGENTS.md file.
         """
         context_file_content = get_context_file_content(
-            Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name, backend=self.backend
+            Path(runtime.context.repo.working_dir),
+            runtime.context.config.context_file_name,
+            backend=self.backend(
+                # Need to manually create the runtime object since the ToolRuntime object is not available in the
+                # before_agent method.
+                runtime=ToolRuntime(
+                    state=state,
+                    context=runtime.context,
+                    config={},
+                    stream_writer=runtime.stream_writer,
+                    tool_call_id=None,
+                    store=runtime.store,
+                )
+            ),
         )
 
         if not context_file_content:
