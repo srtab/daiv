@@ -98,20 +98,18 @@ def _is_safe_path(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _parse_skill_metadata(skill_md_path: str, *, backend: BACKEND_TYPES) -> SkillMetadata | None:
+def _parse_skill_metadata(skill_md_path: str, content: str) -> SkillMetadata | None:
     """
-    Parse YAML frontmatter from a SKILL.md file.
+    Parse YAML frontmatter from a SKILL.md file content.
 
     Args:
-        skill_md_path: Path to the SKILL.md file.
-        backend: The backend to use for reading the skills.
+        skill_md_path: The path to the SKILL.md file.
+        content: The content of the SKILL.md file.
 
     Returns:
         SkillMetadata with name, description, path, and scope, or None if parsing fails.
     """
     try:
-        content = backend.read(skill_md_path)
-
         # Match YAML frontmatter between --- delimiters
         # Pattern handles optional line numbers at the start (e.g., "1 ---", "  2 name: value")
         frontmatter_pattern = r"^(?:\s*\d+\s+)?---\s*\n(.*?)\n(?:\s*\d+\s+)?---\s*\n"
@@ -144,7 +142,9 @@ def _parse_skill_metadata(skill_md_path: str, *, backend: BACKEND_TYPES) -> Skil
         return None
 
 
-def list_skills(*, project_skills_dir: str, builtin_skills_dir: str, backend: BACKEND_TYPES) -> list[SkillMetadata]:
+def list_skills(
+    *, builtin_skills: list[tuple[str, str]], project_skills_dir: str, backend: BACKEND_TYPES
+) -> list[SkillMetadata]:
     """
     List all skills from a skills directory.
 
@@ -168,18 +168,22 @@ def list_skills(*, project_skills_dir: str, builtin_skills_dir: str, backend: BA
     """
     skills: dict[str, SkillMetadata] = {}
 
-    for base_skills_dir in [project_skills_dir, builtin_skills_dir]:
-        for skill_dir in backend.ls_info(base_skills_dir):
-            if not skill_dir["is_dir"]:
-                continue
+    for skill_dir in backend.ls_info(project_skills_dir):
+        if not skill_dir["is_dir"]:
+            continue
 
-            for file in backend.ls_info(skill_dir["path"]):
-                if (
-                    not file["is_dir"]
-                    and file["path"].endswith("/SKILL.md")
-                    and file["size"] < MAX_SKILL_FILE_SIZE
-                    and (metadata := _parse_skill_metadata(file["path"], backend=backend))
-                    and metadata.name not in skills
-                ):
-                    skills[metadata.name] = metadata
+        for file in backend.ls_info(skill_dir["path"]):
+            if (
+                not file["is_dir"]
+                and file["path"].endswith("/SKILL.md")
+                and file["size"] < MAX_SKILL_FILE_SIZE
+                and (content := backend.read(file["path"]))
+                and (metadata := _parse_skill_metadata(file["path"], content=content))
+            ):
+                skills[metadata.name] = metadata
+
+    for path, content in builtin_skills:
+        if (metadata := _parse_skill_metadata(path, content=content)) and metadata.name not in skills:
+            skills[metadata.name] = metadata
+
     return list(skills.values())

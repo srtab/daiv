@@ -21,7 +21,9 @@ Example structure:
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from deepagents.backends.utils import file_data_to_string
+from deepagents.middleware.filesystem import FileData, FilesystemState
+from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime
 from langgraph.runtime import Runtime  # noqa: TC002
 
@@ -36,7 +38,7 @@ if TYPE_CHECKING:
 BUILTIN_SKILLS_DEST_DIR = "/skills/"
 
 
-class SkillsState(AgentState):
+class SkillsState(FilesystemState):
     """State for the skills middleware."""
 
     skills_metadata: NotRequired[list[SkillMetadata]]
@@ -45,6 +47,9 @@ class SkillsState(AgentState):
 
 class SkillsStateUpdate(TypedDict):
     """State update for the skills middleware."""
+
+    files: dict[str, FileData]
+    """Files in the filesystem."""
 
     skills_metadata: list[SkillMetadata]
     """List of loaded skill metadata (name, description, path)."""
@@ -121,7 +126,7 @@ class SkillsMiddleware(AgentMiddleware):
         """
         self.scope = scope
         self.backend = backend
-        self.project_skills_dir = ".daiv/skills/"
+        self.project_skills_dir = "/.daiv/skills/"
         self.builtin_skills_dir = "/skills/"
 
     def before_agent(self, state: SkillsState, runtime: Runtime) -> SkillsStateUpdate | None:
@@ -138,6 +143,9 @@ class SkillsMiddleware(AgentMiddleware):
         Returns:
             Updated state with skills_metadata populated.
         """
+        if state.get("skills_metadata"):
+            return None
+
         # Need to manually create the runtime object since the ToolRuntime object is not available in the
         # before_agent method.
         backend = self.backend(
@@ -151,12 +159,19 @@ class SkillsMiddleware(AgentMiddleware):
             )
         )
 
-        self._copy_builtin_skills_to_directory(backend=backend)
+        files_to_update = self._copy_builtin_skills_to_backend(backend=backend)
 
         return SkillsStateUpdate(
+            # Need to update the files in the state to reflect the builtin skills being copied to the backend.
+            files=files_to_update,
             skills_metadata=list_skills(
-                project_skills_dir=self.project_skills_dir, builtin_skills_dir=self.builtin_skills_dir, backend=backend
-            )
+                builtin_skills=[
+                    (f"{self.builtin_skills_dir.rstrip('/')}{path}", file_data_to_string(file_data))
+                    for path, file_data in files_to_update.items()
+                ],
+                project_skills_dir=self.project_skills_dir,
+                backend=backend,
+            ),
         )
 
     async def awrap_model_call(
@@ -198,17 +213,25 @@ class SkillsMiddleware(AgentMiddleware):
             lines.append(f"- **{skill.name}**: {skill.description}")
             lines.append(f"  → Read `{skill.path}` for full instructions")
 
-        lines.append("")
-
         return "\n".join(lines)
 
-    def _copy_builtin_skills_to_directory(self, backend: BACKEND_TYPES) -> None:
+    def _copy_builtin_skills_to_backend(self, backend: BACKEND_TYPES) -> dict[str, FileData]:
         """
-        Copy builtin skills to the /skills/ directory..
+        Copy builtin skills to the /skills/ directory.
+
+        Args:
+            backend: The backend to use for copying the builtin skills.
+
+        Returns:
+            A dictionary of the files that were copied to the backend.
         """
+        files_to_update = {}
         for builtin_skill_dir in BUILTIN_SKILLS_DIR.iterdir():
             for root, _dirs, files in builtin_skill_dir.walk():
                 for file in files:
                     source_path = Path(root) / Path(file)
                     dest_path = Path(self.builtin_skills_dir) / source_path.relative_to(BUILTIN_SKILLS_DIR)
-                    backend.write(str(dest_path), source_path.read_text())
+                    write_result = backend.write(str(dest_path), source_path.read_text())
+                    if write_result.files_update is not None:
+                        files_to_update.update(write_result.files_update)
+        return files_to_update

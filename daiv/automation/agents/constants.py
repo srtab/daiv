@@ -23,9 +23,10 @@ class ModelName(StrEnum):
 
     # DeepSeek models
     DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus:exacto"
+    DEEPSEEK_CHAT_V3_2_SPECIAL = "openrouter:deepseek/deepseek-v3.2-special"
 
     # z-ai models
-    Z_AI_GLM_4_6 = "openrouter:z-ai/glm-4.6:exacto"
+    Z_AI_GLM_4_7 = "openrouter:z-ai/glm-4.7"
 
     # Qwen models
     QWEN_3_MAX = "openrouter:qwen/qwen3-max"
@@ -35,4 +36,7 @@ class ModelName(StrEnum):
     MOONSHOTAI_KIMI_K2_THINKING = "openrouter:moonshotai/kimi-k2-thinking"
 
     # Minimax models
-    MINIMAX_M2 = "openrouter:minimax/minimax-m2"
+    MINIMAX_M2_1 = "openrouter:minimax/minimax-m2.1"
+
+    # Mistral models
+    MISTRAL_DEVSTRAL_2512 = "openrouter:mistralai/devstral-2512:free"
