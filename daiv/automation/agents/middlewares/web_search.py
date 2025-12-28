@@ -19,28 +19,46 @@ logger = logging.getLogger("daiv.tools")
 WEB_SEARCH_NAME = "web_search"
 
 WEB_SEARCH_TOOL_DESCRIPTION = f"""\
-Search the web for programming documentation and solutions.
+Search the web for up-to-date information and recent data, beyond your knowledge cutoff.
 
-Usage:
+Usage examples:
   - Find programming language documentation and tutorials
   - Search for error solutions and debugging help
   - Get latest library versions and installation guides
   - Find code examples and implementation patterns
 
-IMPORTANT: Account for "CURRENT DATE" in. For example, if says "CURRENT DATE: 2025-07-01", and the user wants the latest docs, do not use 2024 in the search query. Use 2025.
-
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
-  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`"""  # noqa: E501
+  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version 2025")`
+"""
 
 
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
 ## Web Search tool `{WEB_SEARCH_NAME}`
 
-You have access to a `{WEB_SEARCH_NAME}` tool to search the web for programming documentation and solutions.
+You have access to a `{WEB_SEARCH_NAME}` tool to allow you to search the web and use the results to inform your responses.
 
-Use this tool to search the web for information that is not available in the repository."""
+Use this tool to:
+ - Access up-to-date information for current events and recent data
+ - Access information beyond your knowledge cutoff
+
+IMPORTANT - Use the correct year in search queries:
+  - You MUST use this year when searching for recent information, documentation, or current events.
+  - Example: If today is 2025-07-15 and the user asks for "latest React docs", search for "React documentation 2025", NOT "React documentation 2024".
+
+CRITICAL REQUIREMENT - You MUST follow this when using web search:
+  - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response
+  - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)
+  - This is MANDATORY - never skip including sources in your response
+  - Example format:
+
+    [Your answer here]
+
+    Sources:
+    - [Source Title 1](https://example.com/1)
+    - [Source Title 2](https://example.com/2)
+"""  # noqa: E501
 
 
 async def _get_web_search_results(query: str) -> list[dict[str, str]]:

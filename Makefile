@@ -45,5 +45,21 @@ compilemessages:
 evals:
 	LANGSMITH_TEST_SUITE="DAIV: PR Describer" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_pr_describer -n 2
 
+swebench:
+	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --model-names "openrouter:anthropic/claude-sonnet-4.5" --output-path /tmp/predictions.json
+
+swebench-evaluate: swebench-clean
+	mkdir -p /tmp/swebench
+	git clone https://github.com/SWE-bench/SWE-bench /tmp/swebench
+	cd /tmp/swebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
+		--dataset_name SWE-bench/SWE-bench_Lite \
+		--split dev \
+		--max_workers 4 \
+		--predictions_path /tmp/predictions.json \
+		--run_id 1
+
+swebench-clean:
+	rm -rf /tmp/swebench
+
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/

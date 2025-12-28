@@ -23,7 +23,6 @@ class ModelName(StrEnum):
 
     # DeepSeek models
     DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus:exacto"
-    DEEPSEEK_CHAT_V3_2_SPECIAL = "openrouter:deepseek/deepseek-v3.2-special"
 
     # z-ai models
     Z_AI_GLM_4_7 = "openrouter:z-ai/glm-4.7"
