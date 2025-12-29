@@ -30,8 +30,7 @@ Usage examples:
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
-  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version 2025")`
-"""
+  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version 2025")`"""
 
 
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
@@ -57,8 +56,7 @@ CRITICAL REQUIREMENT - You MUST follow this when using web search:
 
     Sources:
     - [Source Title 1](https://example.com/1)
-    - [Source Title 2](https://example.com/2)
-"""  # noqa: E501
+    - [Source Title 2](https://example.com/2)"""  # noqa: E501
 
 
 async def _get_web_search_results(query: str) -> list[dict[str, str]]:

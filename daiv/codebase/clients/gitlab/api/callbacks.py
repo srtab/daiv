@@ -51,22 +51,8 @@ class IssueCallback(BaseCallback):
 
     async def process_callback(self):
         await sync_to_async(
-            address_issue_task.si(
-                repo_id=self.project.path_with_namespace,
-                issue_iid=self.object_attributes.iid,
-                should_reset_plan=self.should_reset_plan(),
-            ).delay
+            address_issue_task.si(repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid).delay
         )()
-
-    def should_reset_plan(self) -> bool:
-        """
-        Check if the plan should be reset.
-        """
-        return bool(
-            self.object_attributes.action == IssueAction.UPDATE
-            and self.changes
-            and any(field_name in self.changes for field_name in ["title", "description"])
-        )
 
 
 class NoteCallback(BaseCallback):

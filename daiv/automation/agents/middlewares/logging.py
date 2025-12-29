@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -18,19 +16,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 
+DEFAULT_MAX_VALUE_CHARS = 100
+
+
 class ToolCallLoggingMiddleware(AgentMiddleware):
     """
-    Middleware to log all tool calls (start/end, duration, and errors).
+    Middleware to log all tool calls.
     """
 
-    def __init__(self, *, max_value_chars: int = 0) -> None:
+    def __init__(self, *, max_value_chars: int = DEFAULT_MAX_VALUE_CHARS) -> None:
+        """
+        Initialize the middleware.
+
+        Args:
+            max_value_chars: The maximum number of characters to log for each value.
+        """
         self.max_value_chars = max_value_chars
 
     async def awrap_tool_call(
         self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
     ) -> ToolMessage | Command:
         """
-        Wrap the tool call and log the start and end of the tool call.
+        Wrap the tool call and log the tool call.
 
         Args:
             request: The tool call request.
@@ -43,47 +50,43 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         tool_call_id = self._tool_call_id(request)
         tool_args = request.tool_call.get("args") if isinstance(request.tool_call, dict) else None
 
-        start = time.perf_counter()
-        logger.info("[%s] Tool call started (id=%s, args=%s)", tool_name, tool_call_id, self._preview(tool_args))
+        logger.info("[%s] Tool call (id=%s, %s)", tool_name, tool_call_id, self._format_args(tool_args))
 
-        try:
-            result = await handler(request)
-        except Exception:
-            elapsed_ms = int((time.perf_counter() - start) * 1000)
-            logger.exception("[%s] Tool call failed (id=%s, duration_ms=%d)", tool_name, tool_call_id, elapsed_ms)
-            raise
+        return await handler(request)
 
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+    def _format_args(self, value: Any) -> str:
+        """
+        Format the arguments for logging.
 
-        if hasattr(result, "content"):
-            # ToolMessage
-            status = getattr(result, "status", None)
-            logger.info(
-                "[%s] Tool call finished (id=%s, status=%s, duration_ms=%d)",
-                tool_name,
-                tool_call_id,
-                status,
-                elapsed_ms,
-            )
-        else:
-            # Command (state update / jump)
-            goto = getattr(result, "goto", None)
-            logger.info(
-                "[%s] Tool call finished (id=%s, duration_ms=%d, goto=%s)", tool_name, tool_call_id, elapsed_ms, goto
-            )
+        Args:
+            value: The value to format.
 
-        return result
-
-    def _preview(self, value: Any) -> str:
-        try:
-            rendered = json.dumps(value, ensure_ascii=False, default=str)
-        except Exception:
-            rendered = repr(value)
-        if len(rendered) <= self.max_value_chars:
-            return rendered
-        return rendered[: self.max_value_chars] + "...(truncated)"
+        Returns:
+            The formatted value.
+        """
+        if isinstance(value, dict):
+            items = []
+            for k, v in value.items():
+                if isinstance(v, str):
+                    if len(v) <= self.max_value_chars:
+                        items.append(f"{k}={v}")
+                    else:
+                        items.append(f"{k}={v[: self.max_value_chars]}...(truncated)")
+                else:
+                    items.append(f"{k}={repr(v)}")
+            return ", ".join(items)
+        return ""
 
     def _tool_name(self, request: ToolCallRequest) -> str:
+        """
+        Get the name of the tool.
+
+        Args:
+            request: The tool call request.
+
+        Returns:
+            The name of the tool.
+        """
         if isinstance(request.tool_call, dict) and request.tool_call.get("name"):
             return str(request.tool_call["name"])
         if request.tool is not None and getattr(request.tool, "name", None):
@@ -91,6 +94,15 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         return "<unknown-tool>"
 
     def _tool_call_id(self, request: ToolCallRequest) -> str | None:
+        """
+        Get the ID of the tool call.
+
+        Args:
+            request: The tool call request.
+
+        Returns:
+            The ID of the tool call.
+        """
         if isinstance(request.tool_call, dict):
             tool_call_id = request.tool_call.get("id")
             return str(tool_call_id) if tool_call_id is not None else None

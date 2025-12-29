@@ -1,6 +1,6 @@
 ---
 name: changelog-updater
-description: Updates or creates CHANGELOG.md files for pull request changes. Use when users request changelog updates, or when adding entries for new features, fixes, or breaking changes.
+description: Updates CHANGELOG.md file with changes. Use when users request changelog updates, or when adding entries for new features, fixes, or breaking changes.
 scope: merge_request
 ---
 # Maintaining changelogs
@@ -32,34 +32,6 @@ When CHANGELOG.md exists, analyze:
 5. **Date format**: ISO, relative dates, or none
 
 Preserve all detected conventions when adding entries.
-
-## Creating a new changelog
-
-If no CHANGELOG.md exists, create one using Keep a Changelog format:
-
-````markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-### Added
-- [Your new entry here]
-
-### Changed
-
-### Deprecated
-
-### Removed
-
-### Fixed
-
-### Security
-````
 
 ## Handling existing entries
 

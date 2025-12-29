@@ -61,11 +61,11 @@ SKILLS_SYSTEM_PROMPT = """\
 
 You have access to a skills library that provides specialized capabilities and domain knowledge.
 
-**Skills:**
+### Skills
 
 {skills_list}
 
-**How to Use Skills (Progressive Disclosure):**
+### How to Use Skills (Progressive Disclosure)
 
 Skills follow a **progressive disclosure** pattern - you know they exist (name + description above), but you only read the full instructions when needed:
 
@@ -74,19 +74,23 @@ Skills follow a **progressive disclosure** pattern - you know they exist (name +
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
 4. **Access supporting files**: Skills may include Python scripts, configs, or reference docs - use absolute paths for skills
 
-**When to Use Skills:**
+### When to Use Skills
 - When the user's request matches a skill's domain (e.g., "research X" → web-research skill)
 - When you need specialized knowledge or structured workflows
 - When a skill provides proven patterns for complex tasks
 
-**Skills are Self-Documenting:**
+### Skills are Self-Documenting
 - Each SKILL.md tells you exactly what the skill does and how to use it
 - The skill list above shows the full path for each skill's SKILL.md file
 
-**Executing Skill Scripts:**
+### Executing Skill Scripts
 Skills may contain Python scripts or other executable files. Always use absolute paths for skills.
 
-**Example Workflow:**
+### Skills location
+ - Builtin skills are located in the `/skills/` directory. These are skills that are built into DAIV and are available to all projects. They are automatically loaded at startup and **are not part of the repository**.
+ - Project skills are located in the `.daiv/skills/` directory. These are skills that are specific to the project and **are part of the repository**.
+
+### Example Workflow
 <example>
 User: "Can you research the latest developments in quantum computing?"
 
@@ -95,6 +99,12 @@ User: "Can you research the latest developments in quantum computing?"
 3. Follow the skill's research workflow (search → organize → synthesize)
 4. Use any helper scripts with absolute paths for skills
 </example>
+
+---
+
+**Important:**
+ - When a skill is relevant, you must invoke the `read_file` tool IMMEDIATELY as your first action
+ - Only use skills listed above
 
 Remember: Skills are tools to make you more capable and consistent. When in doubt, check if a skill exists for the task."""  # noqa: E501
 

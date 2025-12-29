@@ -1,5 +1,7 @@
 import logging
 
+from codebase.context import set_runtime_ctx
+from codebase.managers.issue_addressor import IssueAddressorManager
 from core.utils import locked_task
 from daiv import async_task
 
@@ -8,7 +10,7 @@ logger = logging.getLogger("daiv.tasks")
 
 @async_task()
 @locked_task(key="{repo_id}:{issue_iid}")
-async def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None, should_reset_plan: bool = False):
+async def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
@@ -16,12 +18,9 @@ async def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = Non
         repo_id (str): The repository id.
         issue_iid (int): The issue id.
         ref (str): The reference.
-        should_reset_plan (bool): Whether to reset the plan before creating the merge request.
     """
-    # async with set_runtime_ctx(repo_id, ref=ref, scope="issue") as runtime_ctx: # noqa: E501 ERA001
-    #     await IssueAddressorManager.plan_issue(
-    #         issue_iid=issue_iid, runtime_ctx=runtime_ctx, should_reset_plan=should_reset_plan # noqa: E501 ERA001
-    #     ) # noqa: E501 ERA001
+    async with set_runtime_ctx(repo_id, ref=ref, scope="issue") as runtime_ctx:
+        await IssueAddressorManager.address_issue(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
 
 
 @async_task()

@@ -4,13 +4,10 @@ from typing import TYPE_CHECKING
 from django.conf import django
 from django.utils import timezone
 
-from deepagents.graph import BASE_AGENT_PROMPT, SubAgent
+from deepagents.backends.state import StateBackend
+from deepagents.graph import BASE_AGENT_PROMPT
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.subagents import (
-    DEFAULT_GENERAL_PURPOSE_DESCRIPTION,
-    DEFAULT_SUBAGENT_PROMPT,
-    SubAgentMiddleware,
-)
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     ModelFallbackMiddleware,
@@ -27,24 +24,23 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agents.base import BaseAgent, ThinkingLevel
 from automation.agents.constants import ModelName
-from automation.agents.deepagent.backends import CompositeBackend, FilesystemBackend, StateBackend
+from automation.agents.deepagent.backends import CompositeBackend, FilesystemBackend
 from automation.agents.deepagent.conf import settings
 from automation.agents.deepagent.middlewares import FilesystemMiddleware
-from automation.agents.deepagent.prompts import (
-    WRITE_TODOS_SYSTEM_PROMPT,
-    daiv_system_prompt,
-    explore_system_prompt,
-    pipeline_debugger_system_prompt,
+from automation.agents.deepagent.prompts import WRITE_TODOS_SYSTEM_PROMPT, daiv_system_prompt
+from automation.agents.deepagent.subagents import (
+    create_explore_subagent,
+    create_general_purpose_subagent,
+    create_pipeline_debugger_subagent,
 )
 from automation.agents.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agents.middlewares.memory import LongTermMemoryMiddleware
-from automation.agents.middlewares.merge_request import job_logs_tool, pipeline_tool
 from automation.agents.middlewares.multimodal import InjectImagesMiddleware
 from automation.agents.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agents.middlewares.sandbox import SandboxMiddleware
-from automation.agents.middlewares.toolkits import MCPToolkit
 from automation.agents.middlewares.web_search import WebSearchMiddleware
 from automation.agents.skills.middleware import SkillsMiddleware
+from automation.agents.toolkits import MCPToolkit
 from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
@@ -56,10 +52,6 @@ if TYPE_CHECKING:
 
 DEFAULT_SUMMARIZATION_TRIGGER = ("tokens", 170000)
 DEFAULT_SUMMARIZATION_KEEP = ("messages", 6)
-
-EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
-
-PIPELINE_DEBUGGER_SUBAGENT_DESCRIPTION = """Specialized agent for investigating the latest CI pipeline/workflow for a merge/pull request. Use this when you need to investigate a pipeline failure and produce a concise RCA, or when the user explicitly requests pipeline investigation, debugging, or status checking."""  # noqa: E501
 
 
 @dynamic_prompt
@@ -82,58 +74,6 @@ def dinamic_daiv_system_prompt(request: ModelRequest) -> str:
             bot_username=request.runtime.context.bot_username,
             repository=request.runtime.context.repo_id,
         )
-    )
-
-
-def create_general_purpose_subagent(runtime: RuntimeCtx) -> SubAgent:
-    """
-    Create the general purpose subagent for the DAIV agent.
-    """
-    middleware = [WebSearchMiddleware()]
-
-    if runtime.config.sandbox.enabled:
-        middleware.append(SandboxMiddleware(close_session=False))
-
-    return SubAgent(
-        name="general-purpose",
-        description=DEFAULT_GENERAL_PURPOSE_DESCRIPTION,
-        system_prompt=DEFAULT_SUBAGENT_PROMPT,
-        middleware=middleware,
-    )
-
-
-def create_explore_subagent(runtime: RuntimeCtx) -> SubAgent:
-    """
-    Create the explore subagent.
-    """
-    middleware = []
-
-    if runtime.config.sandbox.enabled:
-        middleware.append(SandboxMiddleware(close_session=False))
-
-    return SubAgent(
-        name="explore",
-        description=EXPLORE_SUBAGENT_DESCRIPTION,
-        system_prompt=explore_system_prompt,
-        middleware=middleware,
-    )
-
-
-def create_pipeline_debugger_subagent(runtime: RuntimeCtx) -> SubAgent:
-    """
-    Create the pipeline debugger subagent.
-    """
-    middleware = []
-
-    if runtime.config.sandbox.enabled:
-        middleware.append(SandboxMiddleware(close_session=False))
-
-    return SubAgent(
-        name="pipeline-debugger",
-        description=PIPELINE_DEBUGGER_SUBAGENT_DESCRIPTION,
-        system_prompt=pipeline_debugger_system_prompt,
-        tools=[pipeline_tool, job_logs_tool],
-        middleware=middleware,
     )
 
 

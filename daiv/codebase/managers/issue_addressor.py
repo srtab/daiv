@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from textwrap import dedent
-from typing import TYPE_CHECKING, Literal, cast, override
+from typing import TYPE_CHECKING, cast, override
 
 from django.conf import settings as django_settings
 from django.template.loader import render_to_string
@@ -10,10 +10,9 @@ from langchain_core.prompts import HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.types import Command
 
-from automation.agents.plan_and_execute.agent import PlanAndExecuteAgent
-from automation.agents.plan_and_execute.utils import get_plan_and_execute_agent_kwargs
+from automation.agents.deepagent.graph import create_daiv_agent
+from automation.agents.deepagent.utils import get_daiv_agent_kwargs
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content, get_context_file_content
@@ -25,7 +24,6 @@ from core.utils import generate_uuid
 from .base import BaseManager
 
 if TYPE_CHECKING:
-    from automation.agents.plan_and_execute.state import PlanAndExecuteState
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.managers")
@@ -74,152 +72,58 @@ class IssueAddressorManager(BaseManager):
         self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue_iid}")
 
     @classmethod
-    async def plan_issue(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx, should_reset_plan: bool = False):
+    async def address_issue(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx):
         """
-        Plan the issue.
+        Address the issue.
 
         Args:
             issue_iid (int): The issue ID.
             runtime_ctx (RuntimeCtx): The runtime context.
-            should_reset_plan (bool): Whether to reset the plan.
         """
         manager = cls(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
 
         try:
-            await manager._plan_issue(should_reset_plan)
-
-            if manager.issue.has_auto_label():
-                await cls.approve_plan(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
+            await manager._address_issue()
         except Exception as e:
-            logger.exception("Error planning issue %d: %s", issue_iid, e)
-            manager._add_unable_to_process_issue_note()
+            logger.exception("Error addressing issue %d: %s", issue_iid, e)
+            manager._add_unable_to_address_issue_note()
 
-    @classmethod
-    async def approve_plan(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx):
-        """
-        Approve the plan for the given issue.
-
-        Args:
-            issue_iid: The issue ID.
-            runtime_ctx: The runtime context.
-        """
-        manager = cls(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
-
-        try:
-            await manager._approve_plan()
-        except Exception:
-            logger.exception("Error approving plan for issue %d", issue_iid)
-            manager._add_unable_to_execute_plan_note()
-
-    async def _plan_issue(self, should_reset_plan: bool):
+    async def _address_issue(self):
         """
         Process the issue by addressing it with the appropriate actions.
-
-        Args:
-            should_reset_plan: Whether to reset the plan.
         """
-        self._add_welcome_note()
 
         config = self._config
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            agent_kwargs = get_plan_and_execute_agent_kwargs(
-                models_config=self.ctx.config.models, use_max=self.issue.has_max_label()
+            daiv_agent_kwargs = get_daiv_agent_kwargs(
+                model_config=self.ctx.config.models.daiv, use_max=self.issue.has_max_label()
             )
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
-                checkpointer=checkpointer, store=self.store, **agent_kwargs
+            daiv_agent = await create_daiv_agent(
+                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **daiv_agent_kwargs
             )
-            current_state = None
 
-            if should_reset_plan:
-                await checkpointer.adelete_thread(self.thread_id)
-            else:
-                current_state = await plan_and_execute.aget_state(config)
+            current_state = await daiv_agent.aget_state(config)
+            if current_state is None or not current_state.created_at:
+                self._add_welcome_note()
 
-            # If the plan needs to be reseted, or the agent has not been run yet, run it
-            if should_reset_plan or (
-                current_state is None or (not current_state.next and current_state.created_at is None)
+            human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
+                issue_title=self.issue.title, issue_description=self.issue.description
+            )
+            result = await daiv_agent.ainvoke(
+                {"messages": [human_message]},
+                merge_configs(config, RunnableConfig(tags=[daiv_agent.name])),
+                context=self.ctx,
+            )
+
+            self._create_or_update_comment(extract_text_content(result["messages"][-1].content))
+
+            if self.git_manager.is_dirty() and (
+                merge_request_id := await self._commit_changes(thread_id=self.thread_id)
             ):
-                self._add_workflow_step_note("plan")
-
-                human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
-                    issue_title=self.issue.title, issue_description=self.issue.description
+                self._add_issue_addressed_note(
+                    merge_request_id, result and extract_text_content(result["messages"][-1].content)
                 )
-                result = await plan_and_execute.ainvoke(
-                    {"messages": [human_message]},
-                    merge_configs(config, RunnableConfig(tags=[plan_and_execute.name], metadata={"phase": "plan"})),
-                    context=self.ctx,
-                )
-
-                self._handle_initial_result(result)
-
-    def _handle_initial_result(self, state: PlanAndExecuteState):
-        """
-        Handle the initial result of the plan and execute agent.
-
-        Args:
-            state (PlanAndExecuteState): The state of the agent.
-        """
-        # We share the plan with the human to review and approve
-        if plan_tasks := state.get("plan_tasks"):
-            self._add_review_plan_note(plan_tasks)
-        # We share the plan questions with the human to answer
-        elif plan_questions := state.get("plan_questions"):
-            self._add_plan_questions_note(plan_questions)
-        # We share the no changes needed message with the human
-        elif no_changes_needed := state.get("no_changes_needed"):
-            self._add_no_changes_needed_note(no_changes_needed)
-        # We share the final message from the agent with the human
-        elif messages := state.get("messages"):
-            self._create_or_update_comment(extract_text_content(messages[-1].content))
-        else:
-            raise ValueError(f"Unexpected state returned: {state}")
-
-    async def _approve_plan(self):
-        """
-        Approve the plan for the given issue.
-        """
-        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            agent_kwargs = get_plan_and_execute_agent_kwargs(
-                models_config=self.ctx.config.models, use_max=self.issue.has_max_label()
-            )
-            plan_and_execute = await PlanAndExecuteAgent.get_runnable(
-                checkpointer=checkpointer, store=self.store, **agent_kwargs
-            )
-
-            current_state = await plan_and_execute.aget_state(self._config)
-            result = None
-
-            if (
-                "plan_approval" in current_state.next
-                and current_state.interrupts
-                or "execute_plan" in current_state.next
-            ):
-                self._add_workflow_step_note("execute_plan")
-
-                result = await plan_and_execute.ainvoke(
-                    Command(resume="Plan approved"),
-                    merge_configs(
-                        self._config, RunnableConfig(tags=[plan_and_execute.name], metadata={"phase": "execute_plan"})
-                    ),
-                    context=self.ctx,
-                )
-            else:
-                self._add_no_plan_to_execute_note(bool(not current_state.next and current_state.created_at is not None))
-
-            if self.git_manager.is_dirty():
-                if result and result.get("execution_aborted"):
-                    self._add_execution_aborted_note(result["messages"][-1].content)
-
-                elif merge_request_id := await self._commit_changes(thread_id=self.thread_id):
-                    self._add_issue_processed_note(
-                        merge_request_id, result and extract_text_content(result["messages"][-1].content)
-                    )
-            else:
-                after_run_state = await plan_and_execute.aget_state(self._config)
-
-                if no_changes_needed := after_run_state.values.get("no_changes_needed"):
-                    self._add_no_changes_needed_note(no_changes_needed)
 
     @property
     def _config(self):
@@ -317,72 +221,22 @@ class IssueAddressorManager(BaseManager):
                 ),
             )
 
-    def _add_review_plan_note(self, plan_tasks: list[dict]):
+    def _add_unable_to_address_issue_note(self):
         """
-        Add a note to the issue to inform the user that the plan has been reviewed and is ready for approval.
-
-        Args:
-            plan_tasks: The plan tasks.
+        Add a note to the issue to inform the user that the issue could not be addressed.
         """
-        from quick_actions.actions.plan import ApprovePlanQuickAction
 
         self._create_or_update_comment(
-            render_to_string(
-                "codebase/issue_review_plan.txt",
-                {
-                    "plan_tasks": plan_tasks,
-                    "approve_plan_command": ApprovePlanQuickAction().command_to_activate,
-                    "auto_approved": self.issue.has_auto_label(),
-                },
-            )
+            render_to_string("codebase/issue_unable_address_issue.txt", {"bot_name": BOT_NAME})
         )
 
-    def _add_unable_to_process_issue_note(self):
+    def _add_issue_addressed_note(self, merge_request_id: int, message: str):
         """
-        Add a note to the issue to inform the user that the issue could not be processed.
-        """
-        from quick_actions.actions.plan import RevisePlanQuickAction
-
-        self._create_or_update_comment(
-            render_to_string(
-                "codebase/issue_unable_process_issue.txt",
-                {"bot_name": BOT_NAME, "revise_plan_command": RevisePlanQuickAction().command_to_activate},
-            )
-        )
-
-    def _add_unable_to_execute_plan_note(self):
-        """
-        Add a note to the issue to inform the user that the plan could not be executed.
-        """
-        from quick_actions.actions.plan import ApprovePlanQuickAction
-
-        self._create_or_update_comment(
-            render_to_string(
-                "codebase/issue_unable_execute_plan.txt",
-                {"bot_name": BOT_NAME, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
-            )
-        )
-
-    def _add_execution_aborted_note(self, message: str):
-        """
-        Add a note to the issue to inform the user that the plan execution was aborted.
-        """
-        from quick_actions.actions.plan import ApprovePlanQuickAction
-
-        self._create_or_update_comment(
-            render_to_string(
-                "codebase/issue_execution_aborted.txt",
-                {"message": message, "approve_plan_command": ApprovePlanQuickAction().command_to_activate},
-            )
-        )
-
-    def _add_issue_processed_note(self, merge_request_id: int, message: str):
-        """
-        Add a note to the issue to inform the user that the issue has been processed.
+        Add a note to the issue to inform the user that the issue has been addressed.
         """
         self._create_or_update_comment(
             render_to_string(
-                "codebase/issue_processed.txt",
+                "codebase/issue_addressed.txt",
                 {
                     "source_repo_id": self.ctx.repo_id,
                     "merge_request_id": merge_request_id,
@@ -392,42 +246,6 @@ class IssueAddressorManager(BaseManager):
                 },
             )
         )
-
-    def _add_plan_questions_note(self, plan_questions: list[str]):
-        """
-        Add a note to the issue to inform the user that the plan has questions.
-        """
-        self._create_or_update_comment(render_to_string("codebase/issue_questions.txt", {"questions": plan_questions}))
-
-    def _add_no_changes_needed_note(self, no_changes_needed: str):
-        """
-        Add a note to the issue to inform the user that the plan has no changes needed.
-        """
-        self._create_or_update_comment(
-            render_to_string("codebase/issue_no_changes_needed.txt", {"no_changes_needed": no_changes_needed})
-        )
-
-    def _add_no_plan_to_execute_note(self, already_executed: bool = False):
-        """
-        Add a note to the issue to inform the user that the plan could not be executed.
-        """
-        self._create_or_update_comment(
-            "ℹ️ The plan has already been executed." if already_executed else "ℹ️ No pending plan to be executed."
-        )
-
-    def _add_workflow_step_note(self, step_name: Literal["plan", "execute_plan"]):
-        """
-        Add a note to the discussion that the workflow step is in progress.
-
-        Args:
-            step_name: The name of the step
-        """
-        if step_name == "plan":
-            note_message = "🛠️ Analyzing the issue and drafting a detailed plan to address it — *in progress* ..."
-        elif step_name == "execute_plan":
-            note_message = "🚀 Executing the plan to address the issue — *in progress* ..."
-
-        self._create_or_update_comment(note_message)
 
     def _create_or_update_comment(self, note_message: str):
         """
