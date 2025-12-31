@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.messages.content import ImageContentBlock, create_image_block, create_text_block
 
 from automation.agents.utils import extract_images_from_text
-from codebase.base import ClientType
+from codebase.base import GitPlatform
 from codebase.clients.base import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
@@ -19,6 +19,53 @@ if TYPE_CHECKING:
 
     from automation.agents.schemas import Image
     from codebase.context import RuntimeCtx
+
+
+async def images_to_content_blocks(repo_id: str, images: list[Image]) -> list[ImageContentBlock]:
+    """
+    Convert a list of images to a list of image content blocks.
+
+    Args:
+        repo_id (str): The repository id.
+        images (list[Image]): The list of images.
+
+    Returns:
+        list[ImageContentBlock]: The list of image content blocks.
+    """
+    repo_client = RepoClient.create_instance()
+    content_blocks = []
+
+    for image in images:
+        parsed_url = urlparse(image.url)
+
+        # Handle GitLab relative upload paths and GitHub user-attachments URLs
+        if (
+            repo_client.git_platform == GitPlatform.GITLAB
+            and not parsed_url.netloc
+            and not parsed_url.scheme
+            and parsed_url.path.startswith(("/uploads/", "uploads/"))
+        ) or (
+            repo_client.git_platform == GitPlatform.GITHUB
+            and parsed_url.netloc
+            and parsed_url.scheme
+            and (
+                parsed_url.hostname
+                and (parsed_url.hostname.lower() == "github.com" or parsed_url.hostname.lower().endswith(".github.com"))
+            )
+            and "/user-attachments/" in parsed_url.path
+        ):
+            if (image_content := await repo_client.get_project_uploaded_file(repo_id, image.url)) and (
+                mime_type := extract_valid_image_mimetype(image_content)
+            ):
+                content_blocks.append(
+                    create_image_block(base64=base64.b64encode(image_content).decode(), mime_type=mime_type)
+                )
+
+        # Handle generic valid URLs (external images)
+        elif is_valid_url(image.url):
+            content_blocks.append(create_image_block(url=image.url))
+
+    return content_blocks
 
 
 class InjectImagesMiddleware(AgentMiddleware):
@@ -84,7 +131,7 @@ class InjectImagesMiddleware(AgentMiddleware):
             return None
 
         # Convert images to proper content blocks
-        extracted_images = await self._images_to_content_blocks(runtime.context.repo_id, extracted_images_data)
+        extracted_images = await images_to_content_blocks(runtime.context.repo_id, extracted_images_data)
 
         if not extracted_images:
             return None
@@ -96,52 +143,3 @@ class InjectImagesMiddleware(AgentMiddleware):
                 HumanMessage(content_blocks=[create_text_block(text=latest_message.content)] + extracted_images),
             ]
         }
-
-    async def _images_to_content_blocks(self, repo_id: str, images: list[Image]) -> list[ImageContentBlock]:
-        """
-        Convert a list of images to a list of image content blocks.
-
-        Args:
-            repo_id (str): The repository id.
-            images (list[Image]): The list of images.
-
-        Returns:
-            list[ImageContentBlock]: The list of image content blocks.
-        """
-        repo_client = RepoClient.create_instance()
-        content_blocks = []
-
-        for image in images:
-            parsed_url = urlparse(image.url)
-
-            # Handle GitLab relative upload paths and GitHub user-attachments URLs
-            if (
-                repo_client.client_slug == ClientType.GITLAB
-                and not parsed_url.netloc
-                and not parsed_url.scheme
-                and parsed_url.path.startswith(("/uploads/", "uploads/"))
-            ) or (
-                repo_client.client_slug == ClientType.GITHUB
-                and parsed_url.netloc
-                and parsed_url.scheme
-                and (
-                    parsed_url.hostname
-                    and (
-                        parsed_url.hostname.lower() == "github.com"
-                        or parsed_url.hostname.lower().endswith(".github.com")
-                    )
-                )
-                and "/user-attachments/" in parsed_url.path
-            ):
-                if (image_content := await repo_client.get_project_uploaded_file(repo_id, image.url)) and (
-                    mime_type := extract_valid_image_mimetype(image_content)
-                ):
-                    content_blocks.append(
-                        create_image_block(base64=base64.b64encode(image_content).decode(), mime_type=mime_type)
-                    )
-
-            # Handle generic valid URLs (external images)
-            elif is_valid_url(image.url):
-                content_blocks.append(create_image_block(url=image.url))
-
-        return content_blocks

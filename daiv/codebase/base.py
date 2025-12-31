@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from core.constants import BOT_AUTO_LABEL, BOT_MAX_LABEL
 
 
-class ClientType(StrEnum):
+class GitPlatform(StrEnum):
     GITLAB = "gitlab"
     GITHUB = "github"
     SWE = "swe"
@@ -20,7 +20,7 @@ class Repository(BaseModel):
     name: str
     clone_url: str
     default_branch: str
-    client: ClientType
+    git_platform: GitPlatform
     topics: list[str] = Field(default_factory=list)
 
 

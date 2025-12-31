@@ -25,7 +25,8 @@ from deepagents.backends.utils import file_data_to_string
 from deepagents.middleware.filesystem import FileData, FilesystemState
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime
-from langgraph.runtime import Runtime  # noqa: TC002
+
+from codebase.context import RuntimeCtx  # noqa: TC002
 
 from .load import BUILTIN_SKILLS_DIR, SkillMetadata, list_skills
 
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from deepagents.backends.protocol import BACKEND_TYPES
+    from langgraph.runtime import Runtime
 
 
 BUILTIN_SKILLS_DEST_DIR = "/skills/"
@@ -159,7 +161,7 @@ class SkillsMiddleware(AgentMiddleware):
         # Need to manually create the runtime object since the ToolRuntime object is not available in the
         # before_agent method.
         backend = self.backend(
-            runtime=ToolRuntime(
+            runtime=ToolRuntime[RuntimeCtx, SkillsState](
                 state=state,
                 context=runtime.context,
                 config={},

@@ -16,8 +16,8 @@ from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
 from codebase.base import (
-    ClientType,
     Discussion,
+    GitPlatform,
     Issue,
     Job,
     MergeRequest,
@@ -54,7 +54,7 @@ class GitHubClient(RepoClient):
 
     client: Github
     client_installation: Installation.Installation
-    client_slug = ClientType.GITHUB
+    git_platform = GitPlatform.GITHUB
 
     def __init__(self, private_key: str, app_id: int, installation_id: int, url: str | None = None):
         if url is None:
@@ -83,7 +83,7 @@ class GitHubClient(RepoClient):
             name=repo.name,
             clone_url=repo.clone_url,
             default_branch=repo.default_branch,
-            client=self.client_slug,
+            git_platform=self.git_platform,
             topics=repo.topics,
         )
 
@@ -107,7 +107,7 @@ class GitHubClient(RepoClient):
                 slug=repo.full_name,
                 name=repo.name,
                 default_branch=repo.default_branch,
-                client=self.client_slug,
+                git_platform=self.git_platform,
                 topics=repo.topics,
             )
             for repo in self.client_installation.get_repos()

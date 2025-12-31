@@ -8,14 +8,13 @@ from langchain.agents.middleware.types import AgentState
 from langchain.tools import ToolRuntime
 
 from automation.agents.utils import get_context_file_content
+from codebase.context import RuntimeCtx
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from deepagents.backends.protocol import BACKEND_TYPES
     from langgraph.runtime import Runtime
-
-    from codebase.context import RuntimeCtx
 
 
 LONG_TERM_MEMORY_SYSTEM_PROMPT = """\
@@ -84,7 +83,7 @@ class LongTermMemoryMiddleware(AgentMiddleware):
             backend=self.backend(
                 # Need to manually create the runtime object since the ToolRuntime object is not available in the
                 # before_agent method.
-                runtime=ToolRuntime(
+                runtime=ToolRuntime[RuntimeCtx, AgentState](
                     state=state,
                     context=runtime.context,
                     config={},

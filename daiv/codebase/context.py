@@ -5,13 +5,12 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from git import Repo  # noqa: TC002
 
+from codebase.base import GitPlatform  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    pass
 
 
 @dataclass(frozen=True)
@@ -26,6 +25,9 @@ class RuntimeCtx:
     The context is reset at the end of the request lifecycle or celery task.
     """
 
+    git_platform: GitPlatform
+    """The Git platform"""
+
     repo_id: str
     """The repository identifier"""
 
@@ -37,9 +39,6 @@ class RuntimeCtx:
 
     scope: Literal["issue", "merge_request"] | None = None
     """The scope of the context. If None, not running in a specific scope."""
-
-    merge_request_id: int | None = None
-    """The merge request identifier if the context is set for a merge request"""
 
     bot_username: str | None = None
     """The bot username defined on the repository client"""
@@ -54,7 +53,6 @@ async def set_runtime_ctx(
     *,
     ref: str | None = None,
     scope: Literal["issue", "merge_request"] | None = None,
-    merge_request_id: int | None = None,
     offline: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
@@ -65,7 +63,6 @@ async def set_runtime_ctx(
         repo_id: The repository identifier
         ref: The reference branch or tag. If None, the default branch will be used.
         scope: The scope of the context. If None, not running in a specific scope.
-        merge_request_id: The merge request identifier if the context is set for a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
@@ -83,11 +80,11 @@ async def set_runtime_ctx(
 
     with repo_client.load_repo(repository, sha=ref) as repo:
         ctx = RuntimeCtx(
+            git_platform=repo_client.git_platform,
             repo_id=repo_id,
             repo=repo,
             config=config,
             scope=scope,
-            merge_request_id=merge_request_id,
             bot_username=repo_client.current_user.username,
         )
         token = runtime_ctx.set(ctx)

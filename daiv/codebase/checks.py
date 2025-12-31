@@ -1,6 +1,6 @@
 from django.core.checks import Error, register
 
-from codebase.base import ClientType
+from codebase.base import GitPlatform
 
 from .conf import settings
 
@@ -12,7 +12,7 @@ def check_api_keys(app_configs, **kwargs):
     """
     errors = []
 
-    if settings.CLIENT == ClientType.GITLAB and not settings.GITLAB_AUTH_TOKEN:
+    if settings.CLIENT == GitPlatform.GITLAB and not settings.GITLAB_AUTH_TOKEN:
         errors.append(
             Error(
                 f"No API key found for {settings.CLIENT}. "
@@ -20,7 +20,7 @@ def check_api_keys(app_configs, **kwargs):
             )
         )
 
-    elif settings.CLIENT == ClientType.GITHUB and (
+    elif settings.CLIENT == GitPlatform.GITHUB and (
         not settings.GITHUB_PRIVATE_KEY or not settings.GITHUB_APP_ID or not settings.GITHUB_INSTALLATION_ID
     ):
         errors.append(

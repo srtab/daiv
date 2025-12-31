@@ -232,7 +232,7 @@ class ReviewAddressorManager(BaseManager):
             review_contexts: The list of review contexts to address.
         """
         config = RunnableConfig(
-            tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
+            tags=[review_addressor_settings.NAME, str(self.client.git_platform)],
             metadata={"merge_request_id": self.merge_request_id},
             recursion_limit=review_addressor_settings.RECURSION_LIMIT,
             configurable={

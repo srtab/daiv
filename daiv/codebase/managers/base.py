@@ -73,7 +73,7 @@ class BaseManager:
                 ),
             },
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+                tags=[pr_describer_settings.NAME, str(self.client.git_platform)], configurable={"thread_id": thread_id}
             ),
         )
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from git import Repo
 
-from codebase.base import ClientType, Discussion, Issue, Job, MergeRequest, Pipeline, Repository, User
+from codebase.base import Discussion, GitPlatform, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ class SWERepoClient(RepoClient):
     """
 
     client: None = None  # No API client needed
-    client_slug = ClientType.SWE
+    git_platform = GitPlatform.SWE
 
     def __init__(self, repo_host: str):
         """
@@ -64,7 +64,7 @@ class SWERepoClient(RepoClient):
             name=name,
             clone_url=clone_url,
             default_branch="main",  # Default assumption, can be overridden
-            client=self.client_slug,
+            git_platform=self.git_platform,
             topics=[],
         )
 

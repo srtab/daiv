@@ -2,9 +2,9 @@ import base64
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
-from automation.agents.middleware import InjectImagesMiddleware
+from automation.agents.middlewares.multimodal import InjectImagesMiddleware
 from automation.agents.schemas import Image
-from codebase.base import ClientType
+from codebase.base import GitPlatform
 
 
 class TestInjectImagesMiddleware:
@@ -44,7 +44,7 @@ class TestInjectImagesMiddleware:
     @patch("automation.agents.middleware.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
     async def test_from_images_github_user_attachments(self, mock_repo_client):
         """Test that GitHub user-attachments URLs are downloaded with authentication."""
-        mock_repo_client.client_slug = ClientType.GITHUB
+        mock_repo_client.client_slug = GitPlatform.GITHUB
         mock_repo_client.get_project_uploaded_file = AsyncMock(return_value=b"github image content")
 
         images = [
@@ -69,7 +69,7 @@ class TestInjectImagesMiddleware:
 
     async def test_from_images_github_user_attachments_download_fails(self, mock_repo_client):
         """Test that failed GitHub downloads don't add to result."""
-        mock_repo_client.client_slug = ClientType.GITHUB
+        mock_repo_client.client_slug = GitPlatform.GITHUB
         mock_repo_client.get_project_uploaded_file = AsyncMock(return_value=None)
 
         images = [
@@ -85,7 +85,7 @@ class TestInjectImagesMiddleware:
 
     async def test_from_images_github_external_url_not_user_attachments(self, mock_repo_client):
         """Test that non-user-attachments GitHub URLs are treated as regular URLs."""
-        mock_repo_client.client_slug = ClientType.GITHUB
+        mock_repo_client.client_slug = GitPlatform.GITHUB
 
         with patch("automation.agents.middleware.is_valid_url", return_value=True):
             images = [Image(url="https://github.com/user/repo/raw/main/image.png", filename="image.png")]

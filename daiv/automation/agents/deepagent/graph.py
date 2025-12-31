@@ -28,11 +28,8 @@ from automation.agents.deepagent.backends import CompositeBackend, FilesystemBac
 from automation.agents.deepagent.conf import settings
 from automation.agents.deepagent.middlewares import FilesystemMiddleware
 from automation.agents.deepagent.prompts import WRITE_TODOS_SYSTEM_PROMPT, daiv_system_prompt
-from automation.agents.deepagent.subagents import (
-    create_explore_subagent,
-    create_general_purpose_subagent,
-    create_pipeline_debugger_subagent,
-)
+from automation.agents.deepagent.subagents import create_explore_subagent, create_general_purpose_subagent
+from automation.agents.middlewares.git_platform import GitPlatformMiddleware
 from automation.agents.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agents.middlewares.memory import LongTermMemoryMiddleware
 from automation.agents.middlewares.multimodal import InjectImagesMiddleware
@@ -73,6 +70,7 @@ def dinamic_daiv_system_prompt(request: ModelRequest) -> str:
             bot_name=BOT_NAME,
             bot_username=request.runtime.context.bot_username,
             repository=request.runtime.context.repo_id,
+            git_platform=request.runtime.context.git_platform.value,
         )
     )
 
@@ -82,6 +80,8 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
     ctx: RuntimeCtx,
+    issue_id: int | None = None,
+    merge_request_id: int | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
@@ -118,7 +118,7 @@ async def create_daiv_agent(
         if "image_inputs" in model.profile and model.profile["image_inputs"] is True:
             supported_image_inputs = True
 
-    def backend(runtime: ToolRuntime):
+    def backend(runtime: ToolRuntime[RuntimeCtx]):
         return CompositeBackend(
             default=FilesystemBackend(root_dir=ctx.repo.working_dir, virtual_mode=True),
             routes={"/skills/": StateBackend(runtime=runtime)},
@@ -136,9 +136,6 @@ async def create_daiv_agent(
         PatchToolCallsMiddleware(),
     ]
 
-    if ctx.scope == "merge_request":
-        subagents.append(create_pipeline_debugger_subagent(ctx))
-
     if fallback_models:
         subagent_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
@@ -146,6 +143,7 @@ async def create_daiv_agent(
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
         WebSearchMiddleware(),
         FilesystemMiddleware(backend=backend),
+        GitPlatformMiddleware(scope=ctx.scope, issue_id=issue_id, merge_request_id=merge_request_id),
         LongTermMemoryMiddleware(backend=backend),
         SkillsMiddleware(scope=ctx.scope, backend=backend),
         SubAgentMiddleware(default_model=model, default_middleware=subagent_middlewares, subagents=subagents),

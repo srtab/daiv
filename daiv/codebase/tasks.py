@@ -10,17 +10,20 @@ logger = logging.getLogger("daiv.tasks")
 
 @async_task()
 @locked_task(key="{repo_id}:{issue_iid}")
-async def address_issue_task(repo_id: str, issue_iid: int, ref: str | None = None):
+async def address_issue_task(repo_id: str, issue_iid: int, mention_comment_id: str, ref: str | None = None):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
     Args:
         repo_id (str): The repository id.
         issue_iid (int): The issue id.
-        ref (str): The reference.
+        mention_comment_id (str): The mention comment id.
+        ref (str | None): The reference.
     """
     async with set_runtime_ctx(repo_id, ref=ref, scope="issue") as runtime_ctx:
-        await IssueAddressorManager.address_issue(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
+        await IssueAddressorManager.address_issue(
+            issue_iid=issue_iid, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
+        )
 
 
 @async_task()

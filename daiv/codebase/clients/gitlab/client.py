@@ -11,8 +11,8 @@ from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 
 from codebase.base import (
-    ClientType,
     Discussion,
+    GitPlatform,
     Issue,
     Job,
     MergeRequest,
@@ -46,7 +46,7 @@ class GitLabClient(RepoClient):
     """
 
     client: Gitlab
-    client_slug = ClientType.GITLAB
+    git_platform = GitPlatform.GITLAB
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(
@@ -79,7 +79,7 @@ class GitLabClient(RepoClient):
             name=project.name,
             clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
             default_branch=project.default_branch,
-            client=self.client_slug,
+            git_platform=self.git_platform,
             topics=project.topics,
         )
 
@@ -106,7 +106,7 @@ class GitLabClient(RepoClient):
                 name=project.name,
                 clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
                 default_branch=project.default_branch,
-                client=self.client_slug,
+                git_platform=self.git_platform,
                 topics=project.topics,
             )
             for project in self.client.projects.list(

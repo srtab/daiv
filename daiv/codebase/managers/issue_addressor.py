@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast, override
 from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
-from langchain_core.prompts import HumanMessagePromptTemplate
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -16,7 +16,7 @@ from automation.agents.deepagent.utils import get_daiv_agent_kwargs
 from automation.agents.pr_describer import PullRequestDescriberAgent
 from automation.agents.pr_describer.conf import settings as pr_describer_settings
 from automation.agents.utils import extract_text_content, get_context_file_content
-from codebase.base import ClientType, Issue
+from codebase.base import GitPlatform, Issue
 from codebase.utils import redact_diff_content
 from core.constants import BOT_LABEL, BOT_NAME
 from core.utils import generate_uuid
@@ -27,15 +27,6 @@ if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.managers")
-
-
-ISSUE_ADDRESSING_TEMPLATE = HumanMessagePromptTemplate.from_template(
-    """\
-# TASK: {issue_title}
-
-{issue_description}
-"""
-)  # noqa: E501
 
 
 class IssueAddressorError(Exception):
@@ -66,21 +57,23 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, *, issue_iid: int, runtime_ctx: RuntimeCtx):
+    def __init__(self, *, issue_iid: int, mention_comment_id: str, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue: Issue = self.client.get_issue(self.ctx.repo_id, issue_iid)
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue_iid}")
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue_iid}:1")
+        self.mention_comment_id = mention_comment_id
 
     @classmethod
-    async def address_issue(cls, *, issue_iid: int, runtime_ctx: RuntimeCtx):
+    async def address_issue(cls, *, issue_iid: int, mention_comment_id: str, runtime_ctx: RuntimeCtx):
         """
         Address the issue.
 
         Args:
             issue_iid (int): The issue ID.
+            mention_comment_id (str): The mention comment id.
             runtime_ctx (RuntimeCtx): The runtime context.
         """
-        manager = cls(issue_iid=issue_iid, runtime_ctx=runtime_ctx)
+        manager = cls(issue_iid=issue_iid, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
         try:
             await manager._address_issue()
@@ -92,38 +85,40 @@ class IssueAddressorManager(BaseManager):
         """
         Process the issue by addressing it with the appropriate actions.
         """
-
         config = self._config
+        mention_comment = self.client.get_issue_comment(self.ctx.repo_id, self.issue.iid, self.mention_comment_id)
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            daiv_agent_kwargs = get_daiv_agent_kwargs(
-                model_config=self.ctx.config.models.daiv, use_max=self.issue.has_max_label()
-            )
             daiv_agent = await create_daiv_agent(
-                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **daiv_agent_kwargs
+                ctx=self.ctx,
+                checkpointer=checkpointer,
+                store=self.store,
+                issue_id=self.issue.iid,
+                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.daiv, use_max=self.issue.has_max_label()),
             )
 
-            current_state = await daiv_agent.aget_state(config)
-            if current_state is None or not current_state.created_at:
-                self._add_welcome_note()
-
-            human_message = await ISSUE_ADDRESSING_TEMPLATE.aformat(
-                issue_title=self.issue.title, issue_description=self.issue.description
-            )
             result = await daiv_agent.ainvoke(
-                {"messages": [human_message]},
+                {
+                    "messages": [
+                        HumanMessage(
+                            name=mention_comment.notes[0].author.username,
+                            id=mention_comment.notes[0].id,
+                            content=mention_comment.notes[0].body,
+                        )
+                    ]
+                },
                 merge_configs(config, RunnableConfig(tags=[daiv_agent.name])),
                 context=self.ctx,
             )
 
-            self._create_or_update_comment(extract_text_content(result["messages"][-1].content))
+            response = result and extract_text_content(result["messages"][-1].content)
 
             if self.git_manager.is_dirty() and (
                 merge_request_id := await self._commit_changes(thread_id=self.thread_id)
             ):
-                self._add_issue_addressed_note(
-                    merge_request_id, result and extract_text_content(result["messages"][-1].content)
-                )
+                self._add_issue_addressed_note(merge_request_id, response)
+            else:
+                self._create_or_update_comment(response)
 
     @property
     def _config(self):
@@ -131,7 +126,7 @@ class IssueAddressorManager(BaseManager):
         Get the config for the agent.
         """
         return RunnableConfig(
-            tags=[str(self.client.client_slug)],
+            tags=[str(self.client.git_platform)],
             metadata={"author": self.issue.author.username, "issue_id": self.issue.iid},
             configurable={"thread_id": self.thread_id},
         )
@@ -162,7 +157,7 @@ class IssueAddressorManager(BaseManager):
                 ).format(title=self.issue.title, description=self.issue.description),
             },
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+                tags=[pr_describer_settings.NAME, str(self.client.git_platform)], configurable={"thread_id": thread_id}
             ),
         )
         merge_requests = self.client.get_issue_related_merge_requests(
@@ -182,7 +177,9 @@ class IssueAddressorManager(BaseManager):
 
         if self.issue.assignee:
             assignee_id = (
-                self.issue.assignee.id if self.client.client_slug == ClientType.GITLAB else self.issue.assignee.username
+                self.issue.assignee.id
+                if self.client.git_platform == GitPlatform.GITLAB
+                else self.issue.assignee.username
             )
         else:
             assignee_id = None
@@ -202,24 +199,10 @@ class IssueAddressorManager(BaseManager):
                     "issue_id": self.issue.iid,
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
-                    "is_gitlab": self.client.client_slug == ClientType.GITLAB,
+                    "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
                 },
             ),
         )
-
-    def _add_welcome_note(self):
-        """
-        Leave a welcome note if the issue has no bot comment.
-        """
-        if not any(note.author.id == self.client.current_user.id for note in self.issue.notes):
-            self.client.create_issue_comment(
-                self.ctx.repo_id,
-                cast("int", self.issue.iid),
-                render_to_string(
-                    "codebase/issue_planning.txt",
-                    {"assignee": self.issue.assignee.username if self.issue.assignee else None, "bot_name": BOT_NAME},
-                ),
-            )
 
     def _add_unable_to_address_issue_note(self):
         """
@@ -241,7 +224,7 @@ class IssueAddressorManager(BaseManager):
                     "source_repo_id": self.ctx.repo_id,
                     "merge_request_id": merge_request_id,
                     # GitHub already shows the merge request link right after the comment.
-                    "show_merge_request_link": self.client.client_slug == ClientType.GITLAB,
+                    "show_merge_request_link": self.client.git_platform == GitPlatform.GITLAB,
                     "message": message,
                 },
             )
