@@ -1,5 +1,6 @@
 import logging
 
+from codebase.clients import RepoClient
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from core.utils import locked_task
@@ -20,9 +21,11 @@ async def address_issue_task(repo_id: str, issue_iid: int, mention_comment_id: s
         mention_comment_id (str): The mention comment id.
         ref (str | None): The reference.
     """
-    async with set_runtime_ctx(repo_id, ref=ref, scope="issue") as runtime_ctx:
+    client = RepoClient.create_instance()
+    issue = client.get_issue(repo_id, issue_iid)
+    async with set_runtime_ctx(repo_id, ref=ref, scope="issue", issue=issue) as runtime_ctx:
         await IssueAddressorManager.address_issue(
-            issue_iid=issue_iid, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
+            issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
         )
 
 

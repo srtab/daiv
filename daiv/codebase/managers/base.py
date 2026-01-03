@@ -68,7 +68,7 @@ class BaseManager:
         changes_description = await pr_describer.ainvoke(
             {
                 "diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
-                "context_file_content": get_context_file_content(
+                "context_file_content": await get_context_file_content(
                     Path(self.ctx.repo.working_dir), self.ctx.config.context_file_name
                 ),
             },
@@ -77,6 +77,6 @@ class BaseManager:
             ),
         )
 
-        self.git_manager.commit_changes(
+        self.git_manager.commit_and_push_changes(
             changes_description.commit_message, branch_name=self.ctx.repo.active_branch.name, skip_ci=skip_ci
         )

@@ -19,12 +19,13 @@ Example structure:
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 from deepagents.backends.utils import file_data_to_string
 from deepagents.middleware.filesystem import FileData, FilesystemState
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime
+from langgraph.runtime import Runtime  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC002
 
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from deepagents.backends.protocol import BACKEND_TYPES
-    from langgraph.runtime import Runtime
 
 
 BUILTIN_SKILLS_DEST_DIR = "/skills/"
@@ -128,15 +128,13 @@ class SkillsMiddleware(AgentMiddleware):
 
     state_schema = SkillsState
 
-    def __init__(self, *, backend: BACKEND_TYPES, scope: Literal["issue", "merge_request"] | None = None):
+    def __init__(self, *, backend: BACKEND_TYPES):
         """
         Initialize the skills middleware.
 
         Args:
-            scope: Scope of the skills to load. If None, all skills will be loaded.
             backend: The backend to use for reading the skills.
         """
-        self.scope = scope
         self.backend = backend
         self.project_skills_dir = "/.daiv/skills/"
         self.builtin_skills_dir = "/skills/"
@@ -201,9 +199,10 @@ class SkillsMiddleware(AgentMiddleware):
         """
         # The state is guaranteed to be SkillsState due to state_schema
         state = cast("SkillsState", request.state)
+        scope = request.runtime.context.scope
 
         skills_metadata = list(
-            filter(lambda skill: self.scope is None or skill.scope == self.scope, state.get("skills_metadata", []))
+            filter(lambda skill: scope is None or skill.scope == scope, state.get("skills_metadata", []))
         )
 
         if not skills_metadata:

@@ -232,7 +232,7 @@ def compute_similarity(text1: str, text2: str, ignore_whitespace=True) -> float:
     return difflib.SequenceMatcher(None, text1, text2).ratio()
 
 
-def get_context_file_content(
+async def get_context_file_content(
     repo_dir: Path, context_file_name: str | None, backend: BACKEND_TYPES | None = None
 ) -> str | None:
     """
@@ -252,10 +252,14 @@ def get_context_file_content(
         return None
 
     if backend:
-        return backend.read(f"/{context_file_name}")
+        response = (await backend.adownload_files([f"/{context_file_name}"]))[0]
+        if response.error:
+            return None
+        agentmd_content = response.content.decode("utf-8")
+    else:
+        context_file_path = repo_dir.joinpath(context_file_name)
+        if not context_file_path.is_file():
+            return None
+        agentmd_content = context_file_path.read_text()
 
-    context_file_path = repo_dir.joinpath(context_file_name)
-    if not context_file_path.is_file():
-        return None
-
-    return "\n".join(context_file_path.read_text().splitlines()[:500])
+    return "\n".join(agentmd_content.splitlines()[:500])

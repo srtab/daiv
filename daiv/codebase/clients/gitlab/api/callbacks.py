@@ -62,7 +62,7 @@ class NoteCallback(BaseCallback):
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
                 self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, Emoji.THUMBSUP, self.object_attributes.id
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
                 )
                 await sync_to_async(
                     execute_merge_request_task.si(
@@ -75,7 +75,7 @@ class NoteCallback(BaseCallback):
                 )()
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
-                    self.project.path_with_namespace, self.issue.iid, Emoji.THUMBSUP, self.object_attributes.id
+                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
                 )
                 await sync_to_async(
                     execute_issue_task.si(
@@ -88,6 +88,9 @@ class NoteCallback(BaseCallback):
                 )()
 
         elif self._is_issue_comment:
+            self._client.create_issue_note_emoji(
+                self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
+            )
             await sync_to_async(
                 address_issue_task.si(
                     repo_id=self.project.path_with_namespace,

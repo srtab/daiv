@@ -22,6 +22,7 @@ logger = logging.getLogger("daiv.clients")
 
 class Emoji(StrEnum):
     THUMBSUP = "thumbsup"
+    EYES = "eyes"
 
 
 class RepoClient(abc.ABC):

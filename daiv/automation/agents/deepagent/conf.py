@@ -14,7 +14,7 @@ class DAIVAgentSettings(BaseSettings):
 
     RECURSION_LIMIT: int = Field(default=200, description="Recursion limit for the agent.")
     MODEL_NAME: ModelName | str = Field(
-        default=ModelName.CLAUDE_SONNET_4_5,
+        default=ModelName.Z_AI_GLM_4_7,
         description="Model for tasks, a multi-modal (image and text) model with capabilities to call tools.",
     )
     FALLBACK_MODEL_NAME: ModelName | str = Field(

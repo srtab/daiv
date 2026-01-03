@@ -2,20 +2,32 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Annotated, Literal
+from pathlib import Path
+from textwrap import dedent
+from typing import TYPE_CHECKING, Annotated, Any
 
+from django.template.loader import render_to_string
+
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ContentBlock, create_text_block
 
 from automation.agents.middlewares.multimodal import images_to_content_blocks
-from automation.agents.utils import extract_images_from_text
+from automation.agents.pr_describer import PullRequestDescriberAgent, PullRequestMetadata
+from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.agents.utils import extract_images_from_text, get_context_file_content
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.utils import GitManager, redact_diff_content
+from core.constants import BOT_LABEL, BOT_NAME  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from langgraph.runtime import Runtime
 
 
 logger = logging.getLogger("daiv.tools")
@@ -71,9 +83,11 @@ Your are working on the issue #{{issue_id}} created in the repository {{reposito
 The user will interact with you through the issue comments that will be provided to you as messages.
 You should respond to the user's comments with the appropriate actions and tools.
 
-You have access to the following tool to interact with the issue:
+You have access to the following tool:
 
-- `{GET_ISSUE_TOOL_NAME}`: Get the issue details"""
+- `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
+- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
+- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""
 
 MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT = f"""\
 ## Git platform tools
@@ -82,10 +96,11 @@ Your are working on the merge request `{{merge_request_id}}` in the repository {
 The user will interact with you through the merge request comments that will be provided to you as messages.
 You should respond to the user's comments with the appropriate actions.
 
-You have access to the following tools to interact with the merge request:
+You have access to the following tools:
 
-- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for the merge request.
-- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job for the merge request."""  # noqa: E501
+- `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
+- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
+- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
 
 
 @tool(GET_ISSUE_TOOL_NAME, description=GET_ISSUE_TOOL_DESCRIPTION)
@@ -264,30 +279,83 @@ def job_logs_tool(
     return "\n".join(output_lines)
 
 
-class GitPlatformMiddleware(AgentMiddleware):
+class GitPlatformState(AgentState):
     """
-    Middleware to add the git platform tools to the agent.
+    State for the git platform middleware.
     """
 
-    def __init__(
-        self,
-        scope: Literal["issue", "merge_request"] | None = None,
-        issue_id: int | None = None,
-        merge_request_id: int | None = None,
-    ) -> None:
+    branch_name: str
+    """
+    The branch name used to commit the changes.
+    """
+
+    merge_request_id: int
+    """
+    The merge request ID used to commit the changes.
+    """
+
+
+class GitPlatformMiddleware(AgentMiddleware):
+    """
+    Middleware to add the git platform tools to the agent and commit and push the changes to the repository.
+
+    When the agent apply changes to the repository, the middleware will commit and push the changes to the repository
+    and create a merge request. The branch name and merge request ID will be stored in the state to be used later,
+    ensuring that the same branch and merge request are used for subsequent commits.
+
+    Args:
+        skip_ci: Whether to skip the CI.
+
+    Example:
+        ```python
+        from langchain.agents import create_agent
+        from langgraph.store.memory import InMemoryStore
+        from automation.agents.middlewares.git_platform import GitPlatformMiddleware
+
+        store = InMemoryStore()
+
+        agent = create_agent(
+            model="openai:gpt-4o",
+            middleware=[GitPlatformMiddleware()],
+            store=store,
+        )
+        ```
+    """
+
+    state_schema = GitPlatformState
+
+    def __init__(self, *, skip_ci: bool = False) -> None:
         """
         Initialize the middleware.
         """
-        self.scope = scope
-        self.issue_id = issue_id
-        self.merge_request_id = merge_request_id
+        self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
+        self.skip_ci = skip_ci
 
-        if scope == "issue":
-            self.tools = [get_issue_tool]
-        elif scope == "merge_request":
-            self.tools = [pipeline_tool, job_logs_tool]
-        else:
-            self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
+    async def abefore_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """
+        Before the agent starts, set the branch name and merge request ID.
+        """
+        branch_name = state.get("branch_name")
+        merge_request_id = state.get("merge_request_id")
+
+        if runtime.context.scope == "merge_request" and not (branch_name or merge_request_id):
+            branch_name = runtime.context.merge_request.source_branch
+            merge_request_id = runtime.context.merge_request.merge_request_id
+
+        if branch_name:
+            git_manager = GitManager(runtime.context.repo)
+
+            logger.info("[%s] Checking out to branch '%s'", self.name, branch_name)
+
+            try:
+                git_manager.checkout(branch_name)
+            except ValueError as e:
+                # The branch does not exist in the repository, so we need to create it.
+                logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, branch_name, e)
+                branch_name = None
+                merge_request_id = None
+
+        return {"branch_name": branch_name, "merge_request_id": merge_request_id}
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -299,18 +367,137 @@ class GitPlatformMiddleware(AgentMiddleware):
             git_platform=request.runtime.context.git_platform.value, repository=request.runtime.context.repo_id
         )
 
-        if self.scope == "issue":
+        scope = request.runtime.context.scope
+        if scope == "issue":
             system_prompt = ISSUE_GIT_PLATFORM_SYSTEM_PROMPT.format(
                 git_platform=request.runtime.context.git_platform.value,
                 repository=request.runtime.context.repo_id,
-                issue_id=self.issue_id,
+                issue_id=request.runtime.context.issue.iid,
             )
-        elif self.scope == "merge_request":
+        elif scope == "merge_request":
             system_prompt = MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT.format(
                 git_platform=request.runtime.context.git_platform.value,
                 repository=request.runtime.context.repo_id,
-                merge_request_id=self.merge_request_id,
+                merge_request_id=request.runtime.context.merge_request.merge_request_id,
             )
 
         request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
         return await handler(request)
+
+    async def aafter_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """
+        After the agent finishes, commit the changes and update or create the merge request.
+        """
+        git_manager = GitManager(runtime.context.repo)
+
+        if not git_manager.is_dirty():
+            return None
+
+        pr_metadata = await self._get_mr_metadata(runtime, git_manager.get_diff())
+        branch_name = state.get("branch_name") or pr_metadata.branch
+
+        logger.info("[%s] Committing and pushing changes to branch '%s'", self.name, branch_name)
+
+        unique_branch_name = git_manager.commit_and_push_changes(
+            pr_metadata.commit_message,
+            branch_name=branch_name,
+            skip_ci=self.skip_ci,
+            use_branch_if_exists=bool(state.get("branch_name")),
+        )
+
+        merge_request_id = state.get("merge_request_id")
+        if runtime.context.scope != "merge_request" and not merge_request_id:
+            logger.info(
+                "[%s] Creating merge request: '%s' -> '%s'",
+                self.name,
+                unique_branch_name,
+                runtime.context.config.default_branch,
+            )
+            merge_request_id = self._update_or_create_merge_request(
+                runtime, unique_branch_name, pr_metadata.title, pr_metadata.description
+            )
+
+        return {"branch_name": unique_branch_name, "merge_request_id": merge_request_id}
+
+    async def _get_mr_metadata(self, runtime: Runtime[RuntimeCtx], diff: str) -> PullRequestMetadata:
+        """
+        Get the PR metadata from the diff.
+
+        Args:
+            runtime: The runtime context.
+            diff: The diff of the changes.
+
+        Returns:
+            The PR metadata.
+        """
+        pr_describer = await PullRequestDescriberAgent.get_runnable(
+            model=runtime.context.config.models.pr_describer.model
+        )
+
+        extra_context = ""
+        if runtime.context.scope == "issue":
+            extra_context = dedent(
+                """\
+                This changes were made to address the following issue:
+
+                Issue ID: {issue.iid}
+                Issue title: {issue.title}
+                Issue description: {issue.description}
+                """
+            ).format(issue=runtime.context.issue)
+
+        return await pr_describer.ainvoke(
+            {
+                "diff": redact_diff_content(diff, runtime.context.config.omit_content_patterns),
+                "context_file_content": await get_context_file_content(
+                    Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name
+                ),
+                "extra_context": extra_context,
+            },
+            config={
+                "tags": [pr_describer_settings.NAME, runtime.context.git_platform.value],
+                "metadata": {"scope": runtime.context.scope, "repo_id": runtime.context.repo_id},
+            },
+        )
+
+    def _update_or_create_merge_request(
+        self, runtime: Runtime[RuntimeCtx], branch_name: str, title: str, description: str
+    ):
+        """
+        Update or create the merge request.
+
+        Args:
+            runtime: The runtime context.
+            branch_name: The branch name.
+            title: The title of the merge request.
+            description: The description of the merge request.
+        """
+        assignee_id = None
+
+        if runtime.context.issue.assignee:
+            assignee_id = (
+                runtime.context.issue.assignee.id
+                if runtime.context.git_platform == GitPlatform.GITLAB
+                else runtime.context.issue.assignee.username
+            )
+
+        client = RepoClient.create_instance()
+        return client.update_or_create_merge_request(
+            repo_id=runtime.context.repo_id,
+            source_branch=branch_name,
+            target_branch=runtime.context.config.default_branch,
+            labels=[BOT_LABEL],
+            title=title,
+            assignee_id=assignee_id,
+            description=render_to_string(
+                "codebase/issue_merge_request.txt",
+                {
+                    "description": description,
+                    "source_repo_id": runtime.context.repo_id,
+                    "issue_id": runtime.context.issue.iid,
+                    "bot_name": BOT_NAME,
+                    "bot_username": runtime.context.bot_username,
+                    "is_gitlab": runtime.context.git_platform == GitPlatform.GITLAB,
+                },
+            ),
+        )

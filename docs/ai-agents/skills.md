@@ -85,7 +85,6 @@ DAIV includes builtin Skills that are automatically loaded to the `.daiv/skills/
 |-------|-------------|-------|
 | `generating-agents-md` | Generates or updates an AGENTS.md file reflecting repository structure and conventions | Issues |
 | `creating-daiv-yml-config` | Creates or updates a .daiv.yml configuration file with sandbox settings (base_image and format_code commands) based on repository content | Issues |
-| `maintaining-changelog` | Updates or creates a CHANGELOG.md file for pull request changes | Merge Requests |
 
 You can override builtin skills by creating a Skill with the same name in your project's `.daiv/skills/` directory.
 

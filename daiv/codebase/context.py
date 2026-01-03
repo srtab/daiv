@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from git import Repo  # noqa: TC002
 
-from codebase.base import GitPlatform  # noqa: TC001
+from codebase.base import GitPlatform, Issue, MergeRequest  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
@@ -40,6 +40,12 @@ class RuntimeCtx:
     scope: Literal["issue", "merge_request"] | None = None
     """The scope of the context. If None, not running in a specific scope."""
 
+    issue: Issue | None = None
+    """The issue object if the context is scoped to an issue, None otherwise"""
+
+    merge_request: MergeRequest | None = None
+    """The merge request object if the context is scoped to a merge request, None otherwise"""
+
     bot_username: str | None = None
     """The bot username defined on the repository client"""
 
@@ -53,6 +59,8 @@ async def set_runtime_ctx(
     *,
     ref: str | None = None,
     scope: Literal["issue", "merge_request"] | None = None,
+    issue: Issue | None = None,
+    merge_request: MergeRequest | None = None,
     offline: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
@@ -85,6 +93,8 @@ async def set_runtime_ctx(
             repo=repo,
             config=config,
             scope=scope,
+            issue=issue,
+            merge_request=merge_request,
             bot_username=repo_client.current_user.username,
         )
         token = runtime_ctx.set(ctx)

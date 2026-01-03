@@ -29,14 +29,14 @@ uv run pytest tests/ -v                        # verbose output
 
 ### Linting & Formatting
 ```bash
-make lint-fix       # fix linting and formatting issues (USE THIS FIRST)
+make lint-fix       # check and fix linting and formatting issues (recommended)
 make lint           # check linting and formatting without fixing
 make lint-check     # run ruff linter check only
 make lint-format    # check code formatting only
 make lint-typing    # run type checking with mypy
 ```
 
-**IMPORTANT**: Always run `make lint-fix` before committing. Only manually fix issues that cannot be auto-fixed.
+**IMPORTANT**: Always run `make lint-fix` instead of `make lint`. Only manually fix issues that cannot be auto-fixed.
 
 ### Building Documentation
 ```bash

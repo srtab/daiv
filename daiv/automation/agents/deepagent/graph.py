@@ -28,7 +28,11 @@ from automation.agents.deepagent.backends import CompositeBackend, FilesystemBac
 from automation.agents.deepagent.conf import settings
 from automation.agents.deepagent.middlewares import FilesystemMiddleware
 from automation.agents.deepagent.prompts import WRITE_TODOS_SYSTEM_PROMPT, daiv_system_prompt
-from automation.agents.deepagent.subagents import create_explore_subagent, create_general_purpose_subagent
+from automation.agents.deepagent.subagents import (
+    create_changelog_subagent,
+    create_explore_subagent,
+    create_general_purpose_subagent,
+)
 from automation.agents.middlewares.git_platform import GitPlatformMiddleware
 from automation.agents.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agents.middlewares.memory import LongTermMemoryMiddleware
@@ -80,8 +84,6 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
     ctx: RuntimeCtx,
-    issue_id: int | None = None,
-    merge_request_id: int | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
@@ -124,7 +126,7 @@ async def create_daiv_agent(
             routes={"/skills/": StateBackend(runtime=runtime)},
         )
 
-    subagents = [create_general_purpose_subagent(ctx), create_explore_subagent(ctx)]
+    subagents = [create_general_purpose_subagent(ctx), create_explore_subagent(ctx), create_changelog_subagent(ctx)]
     subagent_middlewares = [
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
         FilesystemMiddleware(backend=backend),
@@ -143,10 +145,15 @@ async def create_daiv_agent(
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
         WebSearchMiddleware(),
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(scope=ctx.scope, issue_id=issue_id, merge_request_id=merge_request_id),
+        GitPlatformMiddleware(),
         LongTermMemoryMiddleware(backend=backend),
-        SkillsMiddleware(scope=ctx.scope, backend=backend),
-        SubAgentMiddleware(default_model=model, default_middleware=subagent_middlewares, subagents=subagents),
+        SkillsMiddleware(backend=backend),
+        SubAgentMiddleware(
+            default_model=model,
+            default_middleware=subagent_middlewares,
+            subagents=subagents,
+            general_purpose_agent=False,
+        ),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),

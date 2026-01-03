@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 
 ## [1.1.0] - 2025-12-04

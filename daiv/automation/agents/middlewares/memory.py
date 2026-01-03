@@ -77,7 +77,7 @@ class LongTermMemoryMiddleware(AgentMiddleware):
         Returns:
             dict[str, Any] | None: The state updates with the long-term memory from the AGENTS.md file.
         """
-        context_file_content = get_context_file_content(
+        context_file_content = await get_context_file_content(
             Path(runtime.context.repo.working_dir),
             runtime.context.config.context_file_name,
             backend=self.backend(

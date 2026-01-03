@@ -148,7 +148,6 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     """
     Tool to run a list of Bash commands in a persistent shell session rooted at the repository's root.
     """  # noqa: E501
-    logger.info("[%s] Running bash command: %s", bash_tool.name, command)
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
     response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
