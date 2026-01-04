@@ -2,11 +2,14 @@ from typing import TYPE_CHECKING
 
 from deepagents.graph import SubAgent
 
+from automation.agents.middlewares.file_system import FilesystemMiddleware
 from automation.agents.middlewares.sandbox import SandboxMiddleware
 from automation.agents.middlewares.web_search import WebSearchMiddleware
 from codebase.utils import GitManager, redact_diff_content
 
 if TYPE_CHECKING:
+    from deepagents.backends import BackendProtocol
+
     from codebase.context import RuntimeCtx
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
@@ -105,11 +108,11 @@ Complete the user's changelog request efficiently and report your changes clearl
 CHANGELOG_SUBAGENT_DESCRIPTION = """Specialized agent for updating changelogs and release notes based on changes made to the codebase. Use this when you need to update/edit the changelog, or when the user requests changelog updates. You will be provided with a diff of the changes that have been made to the codebase. Make sure to call this agent after all changes have been applied. Avoid editing directly the changelog if it is not explicitly requested by the user, call this agent instead."""  # noqa: E501
 
 
-def create_general_purpose_subagent(runtime: RuntimeCtx) -> SubAgent:
+def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
-    middleware = [WebSearchMiddleware()]
+    middleware = [WebSearchMiddleware(), FilesystemMiddleware(backend=backend)]
 
     if runtime.config.sandbox.enabled:
         middleware.append(SandboxMiddleware(close_session=False))
@@ -122,11 +125,11 @@ def create_general_purpose_subagent(runtime: RuntimeCtx) -> SubAgent:
     )
 
 
-def create_explore_subagent(runtime: RuntimeCtx) -> SubAgent:
+def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> SubAgent:
     """
     Create the explore subagent.
     """
-    middleware = []
+    middleware = [FilesystemMiddleware(backend=backend, read_only=True)]
 
     if runtime.config.sandbox.enabled:
         middleware.append(SandboxMiddleware(close_session=False))
@@ -139,15 +142,12 @@ def create_explore_subagent(runtime: RuntimeCtx) -> SubAgent:
     )
 
 
-def create_changelog_subagent(runtime: RuntimeCtx) -> SubAgent:
+def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> SubAgent:
     """
     Create the changelog subagent.
     """
-    if runtime.scope == "issue":
-        git_manager = GitManager(runtime.repo)
-        diff = git_manager.get_diff()
-    else:
-        raise NotImplementedError("Changelog subagent is not supported for merge requests.")
+    git_manager = GitManager(runtime.repo)
+    diff = git_manager.get_diff()
 
     redacted_diff = redact_diff_content(diff, runtime.config.omit_content_patterns)
 
@@ -155,5 +155,5 @@ def create_changelog_subagent(runtime: RuntimeCtx) -> SubAgent:
         name="changelog",
         description=CHANGELOG_SUBAGENT_DESCRIPTION,
         system_prompt=CHANGELOG_SYSTEM_PROMPT.format(diff=redacted_diff),
-        middleware=[WebSearchMiddleware()],
+        middleware=[WebSearchMiddleware(), FilesystemMiddleware(backend=backend)],
     )

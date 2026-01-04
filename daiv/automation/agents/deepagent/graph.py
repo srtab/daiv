@@ -22,21 +22,19 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.formatted_text import HTML
 
+from automation.agents.backends import CompositeBackend, FilesystemBackend
 from automation.agents.base import BaseAgent, ThinkingLevel
-from automation.agents.constants import ModelName
-from automation.agents.deepagent.backends import CompositeBackend, FilesystemBackend
 from automation.agents.deepagent.conf import settings
-from automation.agents.deepagent.middlewares import FilesystemMiddleware
 from automation.agents.deepagent.prompts import WRITE_TODOS_SYSTEM_PROMPT, daiv_system_prompt
 from automation.agents.deepagent.subagents import (
     create_changelog_subagent,
     create_explore_subagent,
     create_general_purpose_subagent,
 )
+from automation.agents.middlewares.file_system import FilesystemMiddleware
 from automation.agents.middlewares.git_platform import GitPlatformMiddleware
 from automation.agents.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agents.middlewares.memory import LongTermMemoryMiddleware
-from automation.agents.middlewares.multimodal import InjectImagesMiddleware
 from automation.agents.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agents.middlewares.sandbox import SandboxMiddleware
 from automation.agents.middlewares.web_search import WebSearchMiddleware
@@ -49,6 +47,8 @@ if TYPE_CHECKING:
     from langchain.tools import ToolRuntime
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
+
+    from automation.agents.constants import ModelName
 
 
 DEFAULT_SUMMARIZATION_TRIGGER = ("tokens", 170000)
@@ -111,14 +111,10 @@ async def create_daiv_agent(
 
     summarization_trigger = DEFAULT_SUMMARIZATION_TRIGGER
     summarization_keep = DEFAULT_SUMMARIZATION_KEEP
-    supported_image_inputs = False
 
-    if model.profile is not None and isinstance(model.profile, dict):
-        if "max_input_tokens" in model.profile and isinstance(model.profile["max_input_tokens"], int):
-            summarization_trigger = ("fraction", 0.85)
-            summarization_keep = ("fraction", 0.10)
-        if "image_inputs" in model.profile and model.profile["image_inputs"] is True:
-            supported_image_inputs = True
+    if isinstance(model.profile, dict) and isinstance(model.profile.get("max_input_tokens"), int):
+        summarization_trigger = ("fraction", 0.85)
+        summarization_keep = ("fraction", 0.10)
 
     def backend(runtime: ToolRuntime[RuntimeCtx]):
         return CompositeBackend(
@@ -126,10 +122,8 @@ async def create_daiv_agent(
             routes={"/skills/": StateBackend(runtime=runtime)},
         )
 
-    subagents = [create_general_purpose_subagent(ctx), create_explore_subagent(ctx), create_changelog_subagent(ctx)]
-    subagent_middlewares = [
+    subagent_default_middlewares = [
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
-        FilesystemMiddleware(backend=backend),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -139,7 +133,7 @@ async def create_daiv_agent(
     ]
 
     if fallback_models:
-        subagent_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
+        subagent_default_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
     deepagent_middleware = [
         TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
@@ -150,9 +144,13 @@ async def create_daiv_agent(
         SkillsMiddleware(backend=backend),
         SubAgentMiddleware(
             default_model=model,
-            default_middleware=subagent_middlewares,
-            subagents=subagents,
+            default_middleware=subagent_default_middlewares,
             general_purpose_agent=False,
+            subagents=[
+                create_general_purpose_subagent(backend, ctx),
+                create_explore_subagent(backend, ctx),
+                create_changelog_subagent(backend, ctx),
+            ],
         ),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
@@ -162,9 +160,6 @@ async def create_daiv_agent(
         PatchToolCallsMiddleware(),
         dinamic_daiv_system_prompt,
     ]
-
-    if supported_image_inputs:
-        deepagent_middleware.append(InjectImagesMiddleware())
 
     if ctx.config.sandbox.enabled:
         deepagent_middleware.append(SandboxMiddleware())
@@ -198,7 +193,10 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=[ModelName.CLAUDE_SONNET_4_5], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx,
+            model_names=["openrouter:mistralai/devstral-2512:free"],
+            store=InMemoryStore(),
+            checkpointer=InMemorySaver(),
         )
         while True:
             user_input = await session.prompt_async()

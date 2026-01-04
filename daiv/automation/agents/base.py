@@ -31,16 +31,14 @@ CLAUDE_THINKING_MODELS = (
 )
 
 OPENAI_THINKING_MODELS = (
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gpt-5.1",
+    "gpt-5.2",
     "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
-    "openai/gpt-5-mini",
-    "openai/gpt-5-nano",
-    "openai/gpt-5.1",
+    "gpt-5.1-codex-max",
+    "openai/gpt-5.2",
     "openai/gpt-5.1-codex",
     "openai/gpt-5.1-codex-mini",
+    "openai/gpt-5.1-codex-max",
 )
 
 

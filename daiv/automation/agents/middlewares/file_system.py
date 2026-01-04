@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from deepagents.backends.protocol import BackendProtocol
 
-    from .backends import DeleteResult, RenameResult
+    from automation.agents.backends import DeleteResult, RenameResult
 
 
 DELETE_TOOL_DESCRIPTION = """Deletes a file or directory from the filesystem.
