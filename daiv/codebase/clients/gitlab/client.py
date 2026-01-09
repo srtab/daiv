@@ -4,6 +4,7 @@ import logging
 import tempfile
 from contextlib import contextmanager
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -346,15 +347,17 @@ class GitLabClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        safe_sha = sha.replace("/", "_").replace(" ", "-")
+        from codebase.clients.utils import safe_slug
 
-        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             parsed = urlparse(repository.clone_url)
             clone_url = f"{parsed.scheme}://oauth2:{self.client.private_token}@{parsed.netloc}{parsed.path}"
 
-            yield Repo.clone_from(clone_url, tmpdir, branch=sha)
+            clone_dir = Path(tmpdir) / "repo"
+            clone_dir.mkdir(exist_ok=True)
+            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """

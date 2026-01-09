@@ -11,6 +11,7 @@ from git import Repo
 
 from codebase.base import Discussion, GitPlatform, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.clients import RepoClient
+from codebase.clients.utils import safe_slug
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -185,14 +186,14 @@ class SWERepoClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        safe_sha = sha.replace("/", "_").replace(" ", "-")
-
-        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
+            clone_dir = Path(tmpdir) / "repo"
+            clone_dir.mkdir(exist_ok=True)
             # Clone the repository without depth restriction to ensure the specific commit is available
             # For SWE-bench, we often need specific historical commits, so a full clone is necessary
-            repo = Repo.clone_from(repository.clone_url, tmpdir)
+            repo = Repo.clone_from(repository.clone_url, clone_dir)
             # Checkout the specific commit/branch
             repo.git.checkout(sha)
 

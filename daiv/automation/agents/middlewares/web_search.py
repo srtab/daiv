@@ -125,8 +125,6 @@ async def web_search_tool(query: Annotated[str, "The search query."]) -> str:
     Tool to search the web and use the results to inform responses.
     """  # noqa: E501
 
-    logger.info("[%s] Performing web search for '%s'", web_search_tool.name, query)
-
     if not (results := await _get_web_search_results(query)):
         return "No relevant results found for the given search query."
 

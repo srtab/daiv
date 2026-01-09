@@ -12,7 +12,7 @@ class DAIVAgentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="DAIV_AGENT_", env_parse_none_str="None")
 
-    RECURSION_LIMIT: int = Field(default=200, description="Recursion limit for the agent.")
+    RECURSION_LIMIT: int = Field(default=500, description="Recursion limit for the agent.")
     MODEL_NAME: ModelName | str = Field(
         default=ModelName.Z_AI_GLM_4_7,
         description="Model for tasks, a multi-modal (image and text) model with capabilities to call tools.",

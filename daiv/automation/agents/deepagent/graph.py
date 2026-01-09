@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.conf import django
@@ -6,7 +7,9 @@ from django.utils import timezone
 
 from deepagents.backends.state import StateBackend
 from deepagents.graph import BASE_AGENT_PROMPT
+from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -25,7 +28,7 @@ from prompt_toolkit.formatted_text import HTML
 from automation.agents.backends import CompositeBackend, FilesystemBackend
 from automation.agents.base import BaseAgent, ThinkingLevel
 from automation.agents.deepagent.conf import settings
-from automation.agents.deepagent.prompts import WRITE_TODOS_SYSTEM_PROMPT, daiv_system_prompt
+from automation.agents.deepagent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agents.deepagent.subagents import (
     create_changelog_subagent,
     create_explore_subagent,
@@ -34,11 +37,9 @@ from automation.agents.deepagent.subagents import (
 from automation.agents.middlewares.file_system import FilesystemMiddleware
 from automation.agents.middlewares.git_platform import GitPlatformMiddleware
 from automation.agents.middlewares.logging import ToolCallLoggingMiddleware
-from automation.agents.middlewares.memory import LongTermMemoryMiddleware
 from automation.agents.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
-from automation.agents.middlewares.sandbox import SandboxMiddleware
+from automation.agents.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agents.middlewares.web_search import WebSearchMiddleware
-from automation.agents.skills.middleware import SkillsMiddleware
 from automation.agents.toolkits import MCPToolkit
 from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
@@ -56,7 +57,7 @@ DEFAULT_SUMMARIZATION_KEEP = ("messages", 6)
 
 
 @dynamic_prompt
-def dinamic_daiv_system_prompt(request: ModelRequest) -> str:
+async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     """
     Dynamic prompt for the DAIV system.
 
@@ -66,17 +67,24 @@ def dinamic_daiv_system_prompt(request: ModelRequest) -> str:
     Returns:
         str: The dynamic prompt for the DAIV system.
     """
-    return (
-        request.system_prompt
-        + "\n\n"
-        + daiv_system_prompt.format(
-            current_date_time=timezone.now().strftime("%d %B, %Y"),
-            bot_name=BOT_NAME,
-            bot_username=request.runtime.context.bot_username,
-            repository=request.runtime.context.repo_id,
-            git_platform=request.runtime.context.git_platform.value,
-        )
+    tool_names = [tool.name for tool in request.tools]
+
+    system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
+        current_date_time=timezone.now().strftime("%d %B, %Y"),
+        bot_name=BOT_NAME,
+        bot_username=request.runtime.context.bot_username,
+        repository=request.runtime.context.repo_id,
+        git_platform=request.runtime.context.git_platform.value,
+        bash_tool_enabled=BASH_TOOL_NAME in tool_names,
     )
+    return request.system_prompt + "\n\n" + system_prompt.content
+
+
+async def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
+    """
+    Dynamic prompt for the write todos system.
+    """
+    return (await WRITE_TODOS_SYSTEM_PROMPT.aformat(bash_tool_enabled=bash_tool_enabled)).content
 
 
 async def create_daiv_agent(
@@ -84,10 +92,12 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
     ctx: RuntimeCtx,
+    commit_changes: bool = True,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
     cache: bool = False,
+    offline: bool = False,
 ):
     """
     Create the DAIV agent.
@@ -96,10 +106,12 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
+        commit_changes: Whether to commit the changes to the repository when the agent finishes.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
         cache: Whether to enable cache for the agent.
+        offline: Whether to enable offline mode for the agent.
 
     Returns:
         The DAIV agent.
@@ -118,12 +130,12 @@ async def create_daiv_agent(
 
     def backend(runtime: ToolRuntime[RuntimeCtx]):
         return CompositeBackend(
-            default=FilesystemBackend(root_dir=ctx.repo.working_dir, virtual_mode=True),
+            default=FilesystemBackend(root_dir=Path(ctx.repo.working_dir).parent, virtual_mode=True),
             routes={"/skills/": StateBackend(runtime=runtime)},
         )
 
     subagent_default_middlewares = [
-        TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
+        TodoListMiddleware(system_prompt=await dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -136,18 +148,19 @@ async def create_daiv_agent(
         subagent_default_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
     deepagent_middleware = [
-        TodoListMiddleware(system_prompt=WRITE_TODOS_SYSTEM_PROMPT),
-        WebSearchMiddleware(),
+        TodoListMiddleware(
+            system_prompt=await dynamic_write_todos_system_prompt(bash_tool_enabled=ctx.config.sandbox.enabled)
+        ),
+        GitPlatformMiddleware(commit_changes=commit_changes),
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(),
-        LongTermMemoryMiddleware(backend=backend),
-        SkillsMiddleware(backend=backend),
+        MemoryMiddleware(backend=backend, sources=[f"/{ctx.config.context_file_name}", "/.daiv/AGENTS.md"]),
+        SkillsMiddleware(backend=backend, sources=["/skills/", "/.daiv/skills/"]),
         SubAgentMiddleware(
             default_model=model,
             default_middleware=subagent_default_middlewares,
             general_purpose_agent=False,
             subagents=[
-                create_general_purpose_subagent(backend, ctx),
+                create_general_purpose_subagent(backend, ctx, offline=offline),
                 create_explore_subagent(backend, ctx),
                 create_changelog_subagent(backend, ctx),
             ],
@@ -158,8 +171,11 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
-        dinamic_daiv_system_prompt,
+        dynamic_daiv_system_prompt,
     ]
+
+    if not offline:
+        deepagent_middleware.append(WebSearchMiddleware())
 
     if ctx.config.sandbox.enabled:
         deepagent_middleware.append(SandboxMiddleware())
@@ -193,10 +209,7 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx,
-            model_names=["openrouter:mistralai/devstral-2512:free"],
-            store=InMemoryStore(),
-            checkpointer=InMemorySaver(),
+            ctx=ctx, model_names=["openrouter:openai/gpt-5.2"], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()
@@ -206,7 +219,7 @@ async def main():
                 config={"configurable": {"thread_id": "1"}},
                 stream_mode="messages",
             ):
-                if message_chunk and message_chunk.content:
+                if message_chunk and message_chunk.content and message_chunk.type != "tool":
                     print(message_chunk.content, end="", flush=True)  # noqa: T201
             print()  # noqa: T201
 

@@ -31,116 +31,76 @@ logger = logging.getLogger("daiv.tools")
 BASH_TOOL_NAME = "bash"
 
 BASH_TOOL_DESCRIPTION = f"""\
-Executes a single shell command in a sandboxed environment (repository root).
+Executes a bash command in a persistent shell session.
 
-This tool is primarily for terminal operations like running scripts, tests, builds, and other CLI workflows.
+IMPORTANT: This tool is for terminal operations like tests, linters, formatters, npm, docker, git, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
 
-### Input
-- command (required: string)
-  - The shell command to execute from repository root.
-  - Do not include `cd` (commands always run in repo root).
-  - Prefer non-interactive flags (e.g., `-y`, `--yes`, `--no-progress`, `CI=1`) when applicable.
-  - If you need multiple steps, combine commands with `&&` or `;`:
-    - Use `&&` when later steps depend on earlier steps succeeding.
-    - Use `;` only when you want later steps to run even if earlier ones fail.
-  - Avoid newlines in the command string (newlines are okay only inside quoted strings).
+Before executing the command, please follow these steps:
 
-### Prefer other tools for file operations (IMPORTANT)
-Do NOT use this tool for:
-- Reading files (avoid `cat`, `head`, `tail`) → use `read_file`
-- Searching contents (avoid `grep`) → use `grep` tool
-- Finding files (avoid `find`) → use `glob` tool
-- Editing/writing/moving/deleting files → use `write_file` / `edit_file` / `rename` / `delete`
+1. Directory Verification:
+   - If the command will create new directories or files, first use the ls tool to verify the parent directory exists and is the correct location
+   - For example, before running "mkdir foo/bar", first use ls to check that "foo" exists and is the intended parent directory
 
-### Directory verification (only when creating new paths)
-If your command will create new directories/files, first verify the parent directory exists using the dedicated `ls` tool.
-Example:
-- Before: `mkdir foo/bar`
-- First: use `ls` (tool) to confirm `foo/` exists, then run the command.
+2. Command Execution:
+   - Always quote file paths that contain spaces with double quotes (e.g., cd "path with spaces/file.txt")
+   - Examples of proper quoting:
+     - cd "/Users/name/My Documents" (correct)
+     - cd /Users/name/My Documents (incorrect - will fail)
+     - python "/path/with spaces/script.py" (correct)
+     - python /path/with spaces/script.py (incorrect - will fail)
+   - After ensuring proper quoting, execute the command
+   - Capture the output of the command
 
-### Quoting
-Always quote paths that contain spaces:
-- ✅ `python "path with spaces/script.py"`
-- ✅ `pytest "tests/integration suite/"`
-- ❌ `python path with spaces/script.py`
+Usage notes:
+  - The command parameter is required
+  - Commands run in an isolated sandbox environment
+  - Returns combined stdout/stderr output with exit code
+  - If the output is very large, it may be truncated
+  - Avoid using {BASH_TOOL_NAME} with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
+    - File search: Use `glob` (NOT find or ls)
+    - Content search: Use `grep` (NOT grep or rg)
+    - Read files: Use `read_file` (NOT cat/head/tail)
+    - Edit files: Use `edit_file` (NOT sed/awk)
+    - Write files: Use `write_file` (NOT echo >/cat <<EOF)
+    - Communication: Output text directly (NOT echo/printf)
 
-### Return value (Pydantic schema)
-The tool returns a `RunCommandResult`:
+  - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings)
+    - Use '&&' when commands depend on each other (e.g., "mkdir dir && cd dir")
+    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
 
-- command: str
-- output: str  (combined stdout/stderr). Output is truncated to MAX_OUTPUT_LENGTH lines.
-- exit_code: int  (0 indicates success)
+  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of cd.
+    - <good-example>pytest /foo/bar/tests</good-example>
+    - <bad-example>cd /foo/bar && pytest tests</bad-example>
 
-### Failure handling (recommended)
-If exit_code != 0:
-1. Read `output` for the error message and the failing step.
-2. If the command chains multiple steps with `&&`, re-run only the failing step to isolate.
-3. If a tool is prompting or hanging, re-run with non-interactive flags (`-y/--yes`, `CI=1`, etc.) or choose a non-interactive alternative.
-4. If the issue looks like “file not found” / wrong path, verify paths using `ls` / `glob` tools and re-run with corrected relative paths.
+Examples:
+    <good-example>
+    {BASH_TOOL_NAME}(command="pytest /foo/bar/tests")
+    {BASH_TOOL_NAME}(command="python /path/to/script.py")
+    {BASH_TOOL_NAME}(command="npm install && npm test")
+    </good-example>
+    <bad-examples>
+    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Use absolute path instead
+    {BASH_TOOL_NAME}(command="cat file.txt")  # Use read_file tool instead
+    {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use glob tool instead
+    {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use grep tool instead
+    </bad-examples>
 
-### Write scope & boundaries
-- Writes must stay strictly within the repository root; do not touch parent directories, `$HOME`, or follow symlinks that exit the repo.
-- No Git operations available (no commit/checkout/rebase/push/etc.).
-- Default to non-interactive commands; avoid prompts.
-- Avoid high-impact/system-level actions.
-- No system package managers or global installs (`apt-get`, `yum`, `brew`, etc.).
-- No Docker builds/pushes or container/image manipulation.
-- No unscoped destructive operations.
-- No DB schema changes/migrations/seeds.
-- Do not edit secrets/credentials (e.g., `.env`) or CI settings.
-
-### Examples
-Good:
-- `{BASH_TOOL_NAME}(command="pytest tests/unit")`
-- `{BASH_TOOL_NAME}(command="python tools/lint.py")`
-- `{BASH_TOOL_NAME}(command="npm ci && npm test")`
-- `{BASH_TOOL_NAME}(command="uv lock")`
-
-Bad:
-- `{BASH_TOOL_NAME}(command="cd src && pytest")`                    # never use `cd`
-- `{BASH_TOOL_NAME}(command="cat file.txt | head -10")`             # use `read_file`
-- `{BASH_TOOL_NAME}(command="find . -name '*.py'")`                 # use `glob`
-- `{BASH_TOOL_NAME}(command="grep -r 'pattern' .")`                 # use `grep` tool
-- `{BASH_TOOL_NAME}(command="rm -rf some/path")`                    # use `delete` tool
-- `{BASH_TOOL_NAME}(command="sed -i 's/old/new/g' file.txt")`       # use `edit_file`
-- `{BASH_TOOL_NAME}(command="mv file.txt file2.txt")`               # use `rename` tool
-- `{BASH_TOOL_NAME}(command="echo 'Hello' > file.txt")`             # use `write_file`
+Write scope and boundaries:
+  - Writes must stay strictly within the repository root; do not touch parent directories, `$HOME`, or follow symlinks that exit the repo.
+  - VERY IMPORTANT: No write operations to Git allowed (no commit/checkout/rebase/push/etc.), only read operations are allowed.
+  - Avoid high-impact/system-level actions.
+  - No Docker builds/pushes or container/image manipulation.
+  - No unscoped destructive operations.
+  - No DB schema changes/migrations/seeds.
+  - Do not edit secrets/credentials (e.g., `.env`) or CI settings.
 """  # noqa: E501
 
-SANBOX_SYSTEM_PROMPT = f"""\
+SANDBOX_SYSTEM_PROMPT = f"""\
 ## Bash tool `{BASH_TOOL_NAME}`
 
-You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a sandboxed environment.
-Use it to run programs such as tests, builds, linters, formatters, and scripts.
+You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session.
 
-### Working directory (CRITICAL)
-- Every command starts in the **repository root directory**.
-- **DO NOT use `cd`**.
-- Use **relative paths from repo root** (e.g., `python scripts/run.py`, `pytest tests/unit`).
-
-### When to use `{BASH_TOOL_NAME}`
-- Running test suites (`pytest`, `npm test`, `go test`, etc.)
-- Building projects (`make`, `npm run build`, `cargo build`, etc.)
-- Running project scripts (`python tools/foo.py`, etc.)
-- Running non-interactive CLI tasks required by the repo workflow
-
-### When NOT to use `{BASH_TOOL_NAME}`
-- Do not use it to read, search, or edit repository files. Use specialized tools instead:
-  - `ls` (list directories)
-  - `glob` (find files by pattern)
-  - `grep` (search within files)
-  - `read_file` (read file contents)
-  - `write_file` / `edit_file` / `rename` / `delete` (modify filesystem)
-
-### Examples
-- ✅ `{BASH_TOOL_NAME}(command="make test")`
-- ✅ `{BASH_TOOL_NAME}(command="python scripts/check.py")`
-- ✅ `{BASH_TOOL_NAME}(command="npm ci && npm test")`
-- ❌ `{BASH_TOOL_NAME}(command="cd subdir && pytest")` (never `cd`)
-- ❌ `{BASH_TOOL_NAME}(command="cat README.md")` (use `read_file`)
-- ❌ `{BASH_TOOL_NAME}(command="find . -name '*.py'")` (use `glob`)
-- ❌ `{BASH_TOOL_NAME}(command="grep -R 'foo' .")` (use `grep` tool)
-"""  # noqa: E501
+Use this tool to run commands, scripts, tests, builds, and other shell operations."""
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
@@ -182,19 +142,32 @@ async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: st
     """
     tar_archive = io.BytesIO()
 
+    def _exclude_git(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        """
+        Filter tar members to exclude any `.git` paths.
+
+        Args:
+            info: The tar member info.
+
+        Returns:
+            The tar member info if it should be included, otherwise None.
+        """
+        # tar uses POSIX paths; Path(...).parts is safe here and keeps this readable.
+        return None if ".git" in Path(info.name).parts else info
+
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
-        # Ignore .git directory to avoid including it in the archive and risking to include access tokens used
-        # to clone the repository.
-        tar.add(repo_dir, arcname=repo_dir.name, filter=lambda info: None if ".git" in info.name.split("/") else info)
+        # Archive the repository *contents* (no top-level root folder), while excluding `.git` to avoid leaking
+        # credentials/tokens and to reduce archive size.
+        for child in repo_dir.iterdir():
+            if child.name == ".git":
+                continue
+            tar.add(child, arcname=child.name, filter=_exclude_git)
 
     try:
         response = await DAIVSandboxClient().run_commands(
             session_id,
             RunCommandsRequest(
-                commands=commands,
-                workdir=repo_dir.name,
-                archive=base64.b64encode(tar_archive.getvalue()).decode(),
-                fail_fast=True,
+                commands=commands, archive=base64.b64encode(tar_archive.getvalue()).decode(), fail_fast=True
             ),
         )
     except httpx.RequestError:
@@ -307,6 +280,12 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             The model response from the handler.
         """
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + SANBOX_SYSTEM_PROMPT)
+        request = request.override(
+            system_prompt=request.system_prompt
+            + "\n\n"
+            + SANDBOX_SYSTEM_PROMPT.format(
+                repo_working_dir="/archives" + Path(request.runtime.context.repo.working_dir).name
+            )
+        )
 
         return await handler(request)

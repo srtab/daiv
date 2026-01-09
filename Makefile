@@ -46,7 +46,7 @@ evals:
 	LANGSMITH_TEST_SUITE="DAIV: PR Describer" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_pr_describer -n 2
 
 swebench:
-	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --model-names "openrouter:anthropic/claude-sonnet-4.5" --output-path /tmp/predictions.json
+	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --output-path predictions.json --num-samples 1
 
 swebench-evaluate: swebench-clean
 	mkdir -p /tmp/swebench

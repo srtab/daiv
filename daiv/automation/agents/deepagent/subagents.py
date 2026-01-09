@@ -25,8 +25,7 @@ GENERAL_PURPOSE_SYSTEM_PROMPT = """You are an agent for DAIV. Given the user's m
 EXPLORE_SYSTEM_PROMPT = """\
 You are a file search specialist for DAIV. You excel at thoroughly navigating and exploring codebases.
 
-=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
-This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
+=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS === This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
 - Creating new files (no Write, touch, or file creation of any kind)
 - Modifying existing files (no Edit operations)
 - Deleting files (no rm or deletion)
@@ -48,6 +47,11 @@ Guidelines:
 - Return file paths as absolute paths in your final response
 - For clear communication, avoid using emojis
 - Communicate your final report directly as a regular message - do NOT attempt to create files
+
+NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
+
+- Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations
+- Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files
 
 Complete the user's search request efficiently and report your findings clearly."""  # noqa: E501
 
@@ -105,14 +109,17 @@ Complete the user's changelog request efficiently and report your changes clearl
 {diff}
 """  # noqa: E501
 
-CHANGELOG_SUBAGENT_DESCRIPTION = """Specialized agent for updating changelogs and release notes based on changes made to the codebase. Use this when you need to update/edit the changelog, or when the user requests changelog updates. You will be provided with a diff of the changes that have been made to the codebase. Make sure to call this agent after all changes have been applied. Avoid editing directly the changelog if it is not explicitly requested by the user, call this agent instead."""  # noqa: E501
+CHANGELOG_SUBAGENT_DESCRIPTION = """Specialized agent for updating changelogs and release notes based on changes made to the codebase. Use PROACTIVELY when you need to update/edit the changelog, or when the user requests changelog updates. You will be provided with a diff of the changes that have been made to the codebase. Make sure to call this agent after all changes have been applied. Avoid editing directly the changelog if it is not explicitly requested by the user, call this agent instead."""  # noqa: E501
 
 
-def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> SubAgent:
+def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
-    middleware = [WebSearchMiddleware(), FilesystemMiddleware(backend=backend)]
+    middleware = [FilesystemMiddleware(backend=backend)]
+
+    if not offline:
+        middleware.append(WebSearchMiddleware())
 
     if runtime.config.sandbox.enabled:
         middleware.append(SandboxMiddleware(close_session=False))
@@ -131,9 +138,6 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
     """
     middleware = [FilesystemMiddleware(backend=backend, read_only=True)]
 
-    if runtime.config.sandbox.enabled:
-        middleware.append(SandboxMiddleware(close_session=False))
-
     return SubAgent(
         name="explore",
         description=EXPLORE_SUBAGENT_DESCRIPTION,
@@ -142,7 +146,7 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
     )
 
 
-def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> SubAgent:
+def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False) -> SubAgent:
     """
     Create the changelog subagent.
     """
@@ -151,9 +155,14 @@ def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> 
 
     redacted_diff = redact_diff_content(diff, runtime.config.omit_content_patterns)
 
+    middleware = [FilesystemMiddleware(backend=backend)]
+
+    if not offline:
+        middleware.append(WebSearchMiddleware())
+
     return SubAgent(
         name="changelog",
         description=CHANGELOG_SUBAGENT_DESCRIPTION,
         system_prompt=CHANGELOG_SYSTEM_PROMPT.format(diff=redacted_diff),
-        middleware=[WebSearchMiddleware(), FilesystemMiddleware(backend=backend)],
+        middleware=middleware,
     )

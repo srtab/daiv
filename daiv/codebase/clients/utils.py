@@ -46,3 +46,16 @@ def clean_job_logs(log: str, git_platform: GitPlatform, failed: bool = False) ->
         cleaned = strip_iso_timestamps(_clean_ansi_codes(log))
         return extract_last_command_from_github_logs(cleaned) if failed else cleaned
     return log
+
+
+def safe_slug(name: str) -> str:
+    """
+    Create a safe slug from a string.
+
+    Args:
+        name: The string to create a safe slug from
+
+    Returns:
+        A safe slug
+    """
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_")

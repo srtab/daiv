@@ -324,12 +324,13 @@ class GitPlatformMiddleware(AgentMiddleware):
 
     state_schema = GitPlatformState
 
-    def __init__(self, *, skip_ci: bool = False) -> None:
+    def __init__(self, *, skip_ci: bool = False, commit_changes: bool = True) -> None:
         """
         Initialize the middleware.
         """
-        self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
         self.skip_ci = skip_ci
+        self.commit_changes = commit_changes
+        self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
 
     async def abefore_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -363,31 +364,34 @@ class GitPlatformMiddleware(AgentMiddleware):
         """
         Update the system prompt with the git platform system prompt.
         """
-        system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(
-            git_platform=request.runtime.context.git_platform.value, repository=request.runtime.context.repo_id
-        )
-
-        scope = request.runtime.context.scope
-        if scope == "issue":
-            system_prompt = ISSUE_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                git_platform=request.runtime.context.git_platform.value,
-                repository=request.runtime.context.repo_id,
-                issue_id=request.runtime.context.issue.iid,
-            )
-        elif scope == "merge_request":
-            system_prompt = MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                git_platform=request.runtime.context.git_platform.value,
-                repository=request.runtime.context.repo_id,
-                merge_request_id=request.runtime.context.merge_request.merge_request_id,
+        if scope := request.runtime.context.scope:
+            system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(
+                git_platform=request.runtime.context.git_platform.value, repository=request.runtime.context.repo_id
             )
 
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
+            if scope == "issue":
+                system_prompt = ISSUE_GIT_PLATFORM_SYSTEM_PROMPT.format(
+                    git_platform=request.runtime.context.git_platform.value,
+                    repository=request.runtime.context.repo_id,
+                    issue_id=request.runtime.context.issue.iid,
+                )
+            elif scope == "merge_request":
+                system_prompt = MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT.format(
+                    git_platform=request.runtime.context.git_platform.value,
+                    repository=request.runtime.context.repo_id,
+                    merge_request_id=request.runtime.context.merge_request.merge_request_id,
+                )
+
+            request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
         return await handler(request)
 
     async def aafter_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, commit the changes and update or create the merge request.
         """
+        if not self.commit_changes:
+            return None
+
         git_manager = GitManager(runtime.context.repo)
 
         if not git_manager.is_dirty():
@@ -474,7 +478,7 @@ class GitPlatformMiddleware(AgentMiddleware):
         """
         assignee_id = None
 
-        if runtime.context.issue.assignee:
+        if runtime.context.issue and runtime.context.issue.assignee:
             assignee_id = (
                 runtime.context.issue.assignee.id
                 if runtime.context.git_platform == GitPlatform.GITLAB
@@ -494,7 +498,7 @@ class GitPlatformMiddleware(AgentMiddleware):
                 {
                     "description": description,
                     "source_repo_id": runtime.context.repo_id,
-                    "issue_id": runtime.context.issue.iid,
+                    "issue_id": runtime.context.issue.iid if runtime.context.issue else None,
                     "bot_name": BOT_NAME,
                     "bot_username": runtime.context.bot_username,
                     "is_gitlab": runtime.context.git_platform == GitPlatform.GITLAB,

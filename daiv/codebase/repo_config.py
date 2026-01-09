@@ -56,10 +56,21 @@ class Sandbox(BaseModel):
     """
 
     base_image: str | None = Field(
-        default=None,
+        default="python:3.12-alpine",
         examples=["python:3.12-alpine", "node:18-alpine"],
-        description="The base image to use for the sandbox to execute commands.",
+        description=(
+            "The base image for the sandbox to allow agents to execute shell commands. "
+            "Supply a custom image if you need preinstalled tooling."
+            "To disable the sandbox, set this to `null`."
+        ),
     )
+    network_enabled: bool = Field(default=False, description="Whether to enable the network in the sandbox.")
+    read_only_rootfs: bool = Field(
+        default=True, description="Whether to enable the read-only root filesystem in the sandbox."
+    )
+    memory_bytes: int | None = Field(default=None, description="The memory limit for the sandbox.")
+    cpu_time_seconds: int | None = Field(default=None, description="The CPU time limit for the sandbox.")
+    cpus: str | None = Field(default=None, description="The CPU limit for the sandbox.")
     format_code: list[str] | None = Field(
         default=None,
         examples=[["ruff check --fix", "ruff format"], ["npm run format", "npx prettier --write"]],

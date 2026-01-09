@@ -182,7 +182,7 @@ class RepoClient(abc.ABC):
 
     @staticmethod
     @functools.cache
-    def create_instance(*, client_slug: GitPlatform = settings.CLIENT, **kwargs: Any) -> RepoClient:
+    def create_instance(*, git_platform: GitPlatform = settings.CLIENT, **kwargs: Any) -> RepoClient:
         """
         Get the repository client based on the configuration.
 
@@ -196,7 +196,7 @@ class RepoClient(abc.ABC):
         from .gitlab import GitLabClient
         from .swe import SWERepoClient
 
-        if client_slug == GitPlatform.GITLAB:
+        if git_platform == GitPlatform.GITLAB:
             assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
 
             return GitLabClient(
@@ -205,7 +205,7 @@ class RepoClient(abc.ABC):
                 **kwargs,
             )
 
-        if client_slug == GitPlatform.GITHUB:
+        if git_platform == GitPlatform.GITHUB:
             assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
             assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
             assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
@@ -218,7 +218,7 @@ class RepoClient(abc.ABC):
                 **kwargs,
             )
 
-        if client_slug == GitPlatform.SWE:
+        if git_platform == GitPlatform.SWE:
             return SWERepoClient(**kwargs)
 
         raise ValueError("Invalid repository client configuration")

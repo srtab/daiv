@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored `get_context_file_content` logic from `AgentsMDMiddleware` to standalone utility function in `automation.agents.utils`
 - Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
 
+### Fixed
+
+- Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
+
 ### Removed
 
 - Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
