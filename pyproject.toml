@@ -18,7 +18,7 @@ classifiers = [
 dependencies = [
   "celery[redis]==5.6.2",
   "ddgs==9.10.0",
-  "deepagents==0.3.3",
+  "deepagents==0.3.5",
   "django==6.0.1",
   "django-extensions==4.1.0",
   "django-ninja==1.5.2",

@@ -22,11 +22,11 @@ from langchain.agents.middleware import (
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from prompt_toolkit import PromptSession
-from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.formatted_text import HTML
 
 from automation.agents.backends import CompositeBackend, FilesystemBackend
 from automation.agents.base import BaseAgent, ThinkingLevel
+from automation.agents.constants import BUILTIN_SKILLS_PATH, PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
 from automation.agents.deepagent.conf import settings
 from automation.agents.deepagent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agents.deepagent.subagents import (
@@ -116,6 +116,8 @@ async def create_daiv_agent(
     Returns:
         The DAIV agent.
     """
+    agent_path = Path(ctx.repo.working_dir)
+
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
     fallback_models = [
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
@@ -130,8 +132,8 @@ async def create_daiv_agent(
 
     def backend(runtime: ToolRuntime[RuntimeCtx]):
         return CompositeBackend(
-            default=FilesystemBackend(root_dir=Path(ctx.repo.working_dir).parent, virtual_mode=True),
-            routes={"/skills/": StateBackend(runtime=runtime)},
+            default=FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True),
+            routes={BUILTIN_SKILLS_PATH: StateBackend(runtime=runtime)},
         )
 
     subagent_default_middlewares = [
@@ -153,8 +155,11 @@ async def create_daiv_agent(
         ),
         GitPlatformMiddleware(commit_changes=commit_changes),
         FilesystemMiddleware(backend=backend),
-        MemoryMiddleware(backend=backend, sources=[f"/{ctx.config.context_file_name}", "/.daiv/AGENTS.md"]),
-        SkillsMiddleware(backend=backend, sources=["/skills/", "/.daiv/skills/"]),
+        MemoryMiddleware(
+            backend=backend,
+            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{PROJECT_MEMORY_PATH}"],
+        ),
+        SkillsMiddleware(backend=backend, sources=[BUILTIN_SKILLS_PATH, f"/{agent_path.name}/{PROJECT_SKILLS_PATH}"]),
         SubAgentMiddleware(
             default_model=model,
             default_middleware=subagent_default_middlewares,
@@ -200,16 +205,20 @@ async def create_daiv_agent(
 async def main():
     session = PromptSession(
         message=HTML('<style fg="#ffffff">></style> '),
-        editing_mode=EditingMode.VI,
         complete_while_typing=True,  # Show completions as you type
         complete_in_thread=True,  # Async completion prevents menu freezing
         mouse_support=False,
         enable_open_in_editor=True,  # Allow Ctrl+X Ctrl+E to open external editor
+        enable_history_search=True,
+        wrap_lines=True,
         reserve_space_for_menu=7,  # Reserve space for completion menu to show 5-6 results
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=["openrouter:openai/gpt-5.2"], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx,
+            model_names=["openrouter:minimax/minimax-m2.1"],
+            store=InMemoryStore(),
+            checkpointer=InMemorySaver(),
         )
         while True:
             user_input = await session.prompt_async()

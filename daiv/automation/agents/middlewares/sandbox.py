@@ -142,26 +142,11 @@ async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: st
     """
     tar_archive = io.BytesIO()
 
-    def _exclude_git(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        """
-        Filter tar members to exclude any `.git` paths.
-
-        Args:
-            info: The tar member info.
-
-        Returns:
-            The tar member info if it should be included, otherwise None.
-        """
-        # tar uses POSIX paths; Path(...).parts is safe here and keeps this readable.
-        return None if ".git" in Path(info.name).parts else info
-
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
         # Archive the repository *contents* (no top-level root folder), while excluding `.git` to avoid leaking
         # credentials/tokens and to reduce archive size.
         for child in repo_dir.iterdir():
-            if child.name == ".git":
-                continue
-            tar.add(child, arcname=child.name, filter=_exclude_git)
+            tar.add(child, arcname=child.name)
 
     try:
         response = await DAIVSandboxClient().run_commands(
@@ -247,7 +232,10 @@ class SandboxMiddleware(AgentMiddleware):
 
         session_id = await DAIVSandboxClient().start_session(
             StartSessionRequest(
-                base_image=runtime.context.config.sandbox.base_image, extract_patch=True, persist_workdir=True
+                base_image=runtime.context.config.sandbox.base_image,
+                extract_patch=True,
+                ephemeral=False,
+                network_enabled=True,
             )
         )
         return {"session_id": session_id}
