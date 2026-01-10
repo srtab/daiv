@@ -13,44 +13,6 @@ def test_job_is_failed_when_status_is_not_failed():
     assert job.is_failed() is False
 
 
-class TestIssueHasAutoLabel:
-    """Test the has_auto_label() method for Issue model."""
-
-    def test_has_auto_label_returns_true_with_daiv_auto_label(self):
-        """Test that has_auto_label returns True when issue has 'daiv-auto' label."""
-        issue = Issue(
-            id=1,
-            iid=1,
-            title="Test Issue",
-            author=User(id=1, username="user", name="User"),
-            labels=["bug", "daiv-auto", "feature"],
-        )
-        assert issue.has_auto_label() is True
-
-    def test_has_auto_label_returns_true_case_insensitive(self):
-        """Test that has_auto_label is case-insensitive."""
-        issue = Issue(
-            id=1, iid=1, title="Test Issue", author=User(id=1, username="user", name="User"), labels=["DAIV-AUTO"]
-        )
-        assert issue.has_auto_label() is True
-
-    def test_has_auto_label_returns_false_without_auto_label(self):
-        """Test that has_auto_label returns False when issue doesn't have 'daiv-auto' label."""
-        issue = Issue(
-            id=1,
-            iid=1,
-            title="Test Issue",
-            author=User(id=1, username="user", name="User"),
-            labels=["bug", "daiv", "feature"],
-        )
-        assert issue.has_auto_label() is False
-
-    def test_has_auto_label_returns_false_with_empty_labels(self):
-        """Test that has_auto_label returns False when issue has no labels."""
-        issue = Issue(id=1, iid=1, title="Test Issue", author=User(id=1, username="user", name="User"), labels=[])
-        assert issue.has_auto_label() is False
-
-
 class TestIssueHasMaxLabel:
     """Test the has_max_label() method for Issue model."""
 

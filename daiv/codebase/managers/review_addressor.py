@@ -9,9 +9,9 @@ from langchain_core.runnables import RunnableConfig
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line, PatchSet
 
-from automation.agents.review_addressor.agent import ReviewAddressorAgent
-from automation.agents.review_addressor.conf import settings as review_addressor_settings
-from automation.agents.review_addressor.schemas import ReviewContext
+from automation.agent.review_addressor.agent import ReviewAddressorAgent
+from automation.agent.review_addressor.conf import settings as review_addressor_settings
+from automation.agent.review_addressor.schemas import ReviewContext
 from codebase.base import Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType, SimpleDiscussion
 from codebase.clients.base import Emoji
 from codebase.utils import get_repo_ref, note_mentions_daiv, notes_to_messages, redact_diff_content

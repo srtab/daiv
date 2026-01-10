@@ -1,8 +1,8 @@
 from django.core.checks import Error, register
 
-from .agents.base import BaseAgent, ModelProvider
-from .agents.deepagent.conf import settings as deepagent_settings
-from .agents.pr_describer.conf import settings as pr_describer_settings
+from .agent.base import BaseAgent, ModelProvider
+from .agent.conf import settings as deepagent_settings
+from .agent.pr_describer.conf import settings as pr_describer_settings
 from .conf import settings
 
 declared_model_names = {

@@ -1,8 +1,8 @@
 from openevals.llm import create_llm_as_judge
 from openevals.prompts import CORRECTNESS_PROMPT
 
-from automation.agents.base import BaseAgent, ThinkingLevel
-from automation.agents.constants import ModelName
+from automation.agent.base import BaseAgent, ThinkingLevel
+from automation.agent.constants import ModelName
 
 correctness_evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,

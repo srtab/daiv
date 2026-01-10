@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from langsmith import testing as t
 
-from automation.agents.constants import ModelName
-from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agent.constants import ModelName
+from automation.agent.pr_describer import PullRequestDescriberAgent
 
 from .evaluators import correctness_evaluator
 

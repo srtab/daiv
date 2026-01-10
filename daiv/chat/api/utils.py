@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from automation.agents.deepagent.graph import create_daiv_agent
+from automation.agent.graph import create_daiv_agent
 from chat.api.schemas import ChatCompletionChunk
 from codebase.context import set_runtime_ctx
 

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
-from automation.agents.mcp.schemas import McpConfiguration
+from automation.agent.mcp.schemas import McpConfiguration
 
 
 class Command(BaseCommand):

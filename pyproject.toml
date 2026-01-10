@@ -32,7 +32,7 @@ dependencies = [
   "langchain-mcp-adapters==0.2.1",
   "langgraph==1.0.5",
   "langgraph-checkpoint-postgres==3.0.2",
-  "langsmith[pytest]==0.6.1",
+  "langsmith[pytest]==0.6.2",
   "langsmith-fetch>=0.3.1",
   "openevals==0.1.3",
   "prompt-toolkit==3.0.52",

@@ -7,8 +7,8 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
-from automation.agents.deepagent.graph import create_daiv_agent
-from automation.agents.utils import extract_text_content
+from automation.agent.graph import create_daiv_agent
+from automation.agent.utils import extract_text_content
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
 

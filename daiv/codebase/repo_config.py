@@ -10,10 +10,10 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
-from automation.agents.base import ThinkingLevel  # noqa: TC001
-from automation.agents.constants import ModelName  # noqa: TC001
-from automation.agents.deepagent.conf import settings as deepagent_settings
-from automation.agents.pr_describer.conf import settings as pr_describer_settings
+from automation.agent.base import ThinkingLevel  # noqa: TC001
+from automation.agent.conf import settings as deepagent_settings
+from automation.agent.constants import ModelName  # noqa: TC001
+from automation.agent.pr_describer.conf import settings as pr_describer_settings
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -92,7 +92,7 @@ class Sandbox(BaseModel):
         return self.enabled and self.format_code is not None
 
 
-class DAIVModelConfig(BaseModel):
+class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
     """
@@ -129,7 +129,7 @@ class Models(BaseModel):
     Model configuration for all agents.
     """
 
-    daiv: DAIVModelConfig = Field(default_factory=DAIVModelConfig, description="Configuration for the DAIV agent.")
+    agent: AgentModelConfig = Field(default_factory=AgentModelConfig, description="Configuration for the DAIV agent.")
     pr_describer: PRDescriberModelConfig = Field(
         default_factory=PRDescriberModelConfig, description="Configuration for the PR describer agent."
     )

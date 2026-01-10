@@ -8,9 +8,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-from automation.agents.deepagent.graph import create_daiv_agent
-from automation.agents.deepagent.utils import get_daiv_agent_kwargs
-from automation.agents.utils import extract_text_content
+from automation.agent.graph import create_daiv_agent
+from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform, Issue
 from core.utils import generate_uuid
 
@@ -85,7 +84,7 @@ class IssueAddressorManager(BaseManager):
                 ctx=self.ctx,
                 checkpointer=checkpointer,
                 store=self.store,
-                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.daiv, use_max=self.issue.has_max_label()),
+                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()),
             )
 
             result = await daiv_agent.ainvoke(

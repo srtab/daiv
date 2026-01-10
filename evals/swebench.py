@@ -10,8 +10,8 @@ import django
 from datasets import load_dataset
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents.constants import ModelName
-from automation.agents.deepagent.graph import create_daiv_agent
+from automation.agent.constants import ModelName
+from automation.agent.graph import create_daiv_agent
 from codebase.base import GitPlatform
 from codebase.context import set_runtime_ctx
 from codebase.utils import GitManager

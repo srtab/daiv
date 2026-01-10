@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from automation.agents.utils import get_context_file_content
+from automation.agent.pr_describer.agent import PullRequestDescriberAgent
+from automation.agent.pr_describer.conf import settings as pr_describer_settings
+from automation.agent.utils import get_context_file_content
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
 
