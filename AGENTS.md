@@ -36,7 +36,7 @@ make lint-format    # check code formatting only
 make lint-typing    # run type checking with mypy
 ```
 
-**IMPORTANT**: Always run `make lint-fix` instead of `make lint`. Only manually fix issues that cannot be auto-fixed.
+**IMPORTANT**: Always run `make lint-fix` instead of `make lint` to automatically fix issues. Only manually fix issues that cannot be auto-fixed by `make lint-fix`.
 
 ### Building Documentation
 ```bash
