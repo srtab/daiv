@@ -1,216 +1,85 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesystemMiddleware
-from deepagents.middleware.filesystem import FilesystemState, _get_backend, _validate_path
-from langchain.tools import ToolRuntime  # noqa: TC002
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import BaseTool, StructuredTool
-from langgraph.types import Command
+from deepagents.middleware.filesystem import FilesystemState
+from langchain.tools import ToolRuntime
+from langchain_core.prompts import SystemMessagePromptTemplate
+
+from automation.agent.utils import copy_builtin_skills_to_backend
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from deepagents.backends.protocol import BackendProtocol
-
-    from automation.agent.backends import DeleteResult, RenameResult
-
-
-DELETE_TOOL_DESCRIPTION = """Deletes a file or directory from the filesystem.
-
-Usage:
-- The path parameter must be an absolute path, not a relative path
-- For FILES: Deletes the specified file
-- For DIRECTORIES: Must set recursive=True to delete a directory and all its contents
-- This operation is irreversible - exercise caution to avoid unintended data loss
-- Before deleting a directory, examine its contents with the ls or glob tool
-
-Examples:
-- delete(path="/file.txt") - Delete a single file
-- delete(path="/empty_dir", recursive=True) - Delete an empty directory
-- delete(path="/project/old_code", recursive=True) - Delete directory and all contents"""
-
-RENAME_TOOL_DESCRIPTION = """Renames a file or directory in the filesystem.
-
-Usage:
-- The path and new_path parameters must be absolute paths, not relative paths
-- Works for both files and directories
-- Errors if the old path doesn't exist
-- Errors if the new path already exists (no overwrite)
-- Creates parent directories for the new path if needed
-
-Examples:
-- rename(path="/old.txt", new_path="/new.txt") - Rename a file
-- rename(path="/old_dir", new_path="/new_dir") - Rename a directory
-- rename(path="/src/old.py", new_path="/lib/new.py") - Move and rename"""
+    from langchain_core.runnables import RunnableConfig
+    from langgraph.runtime import Runtime
 
 
-DAIV_FILESYSTEM_SYSTEM_PROMPT = """## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `delete`, `rename`
+REMINDER_ABSOLUTE_PATHS = """
+IMPORTANT:
+- Tool inputs/outputs use absolute paths (e.g. /repo/...).
+- DO NOT output these absolute paths to the user.
+- Convert to repo-relative paths in all user-visible text.
+"""
+
+GREP_TOOL_DESCRIPTION = GREP_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+GLOB_TOOL_DESCRIPTION = GLOB_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+LIST_FILES_TOOL_DESCRIPTION = LIST_FILES_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+READ_FILE_TOOL_DESCRIPTION = READ_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+WRITE_FILE_TOOL_DESCRIPTION = WRITE_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+EDIT_FILE_TOOL_DESCRIPTION = EDIT_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+
+DAIV_FILESYSTEM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
+    """\
+## Filesystem Tools `ls`, `read_file`, {{#read_only}}write_file`, `edit_file`, {{/read_only}}`glob`, `grep`
 
 You have access to a filesystem which you can interact with using these tools.
-All file paths must start with a /.
+Tool-call arguments (ls/read_file{{#read_only}}/edit_file{{/read_only}}/etc.) MUST use absolute paths (start with "/").
+User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths.
 
-- ls: list files in a directory (requires absolute path)
-- read_file: read a file from the filesystem
-- write_file: write to a file in the filesystem
-- edit_file: edit a file in the filesystem
-- glob: find files matching a pattern (e.g., "**/*.py")
-- grep: search for text within files
-- delete: delete a file or directory (use recursive=True for directories)
-- rename: rename or move a file or directory"""  # noqa: E501
-
-
-def _delete_tool_generator(
-    backend: BackendProtocol | Callable[[ToolRuntime], BackendProtocol], custom_description: str | None = None
-) -> BaseTool:
-    """Generate the delete tool.
-
-    Args:
-        backend: Backend to use for file storage, or a factory function.
-        custom_description: Optional custom description for the tool.
-
-    Returns:
-        Configured delete tool that deletes files/directories using the backend.
-    """
-    tool_description = custom_description or DELETE_TOOL_DESCRIPTION
-
-    def sync_delete(path: str, runtime: ToolRuntime[None, FilesystemState], recursive: bool = False) -> Command | str:
-        """Synchronous wrapper for delete tool."""
-        resolved_backend = _get_backend(backend, runtime)
-
-        try:
-            validated_path = _validate_path(path)
-        except ValueError as e:
-            return f"Error: {e}"
-
-        res: DeleteResult = resolved_backend.delete(validated_path, recursive=recursive)
-
-        if res.error:
-            return res.error
-
-        if res.files_update is not None:
-            return Command(
-                update={
-                    "files": res.files_update,
-                    "messages": [
-                        ToolMessage(
-                            content=f"Deleted {'directory' if recursive else 'file'} {res.path}",
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ],
-                }
-            )
-        return f"Deleted {'directory' if recursive else 'file'} {res.path}"
-
-    async def async_delete(
-        path: str, runtime: ToolRuntime[None, FilesystemState], recursive: bool = False
-    ) -> Command | str:
-        """Asynchronous wrapper for delete tool."""
-        resolved_backend = _get_backend(backend, runtime)
-
-        try:
-            validated_path = _validate_path(path)
-        except ValueError as e:
-            return f"Error: {e}"
-
-        res: DeleteResult = await resolved_backend.adelete(validated_path, recursive=recursive)
-
-        if res.error:
-            return res.error
-
-        if res.files_update is not None:
-            return Command(
-                update={
-                    "files": res.files_update,
-                    "messages": [
-                        ToolMessage(
-                            content=f"Deleted {'directory' if recursive else 'file'} {res.path}",
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ],
-                }
-            )
-        return f"Deleted {'directory' if recursive else 'file'} {res.path}"
-
-    return StructuredTool.from_function(
-        name="delete", description=tool_description, func=sync_delete, coroutine=async_delete
-    )
+ - ls: list files in a directory
+ - read_file: read a file from the filesystem
+{{^read_only}}
+ - write_file: write to a file in the filesystem
+ - edit_file: edit a file in the filesystem
+{{/read_only}}
+ - glob: find files matching a pattern (e.g., "**/*.py")
+ - grep: search for text within files
+""",
+    "mustache",
+)
 
 
-def _rename_tool_generator(
-    backend: BackendProtocol | Callable[[ToolRuntime], BackendProtocol], custom_description: str | None = None
-) -> BaseTool:
-    """Generate the rename tool.
+def _get_backend2(
+    backend: BackendProtocol, state: FilesystemState, runtime: Runtime, config: RunnableConfig
+) -> BackendProtocol:
+    if callable(backend):
+        # Construct an artificial tool runtime to resolve backend factory
+        tool_runtime = ToolRuntime(
+            state=state,
+            context=runtime.context,
+            stream_writer=runtime.stream_writer,
+            store=runtime.store,
+            config=config,
+            tool_call_id=None,
+        )
+        backend = backend(tool_runtime)
+        if backend is None:
+            raise AssertionError("FilesystemMiddleware requires a valid backend instance")
+        return backend
 
-    Args:
-        backend: Backend to use for file storage, or a factory function.
-        custom_description: Optional custom description for the tool.
-
-    Returns:
-        Configured rename tool that renames files/directories using the backend.
-    """
-    tool_description = custom_description or RENAME_TOOL_DESCRIPTION
-
-    def sync_rename(path: str, new_path: str, runtime: ToolRuntime[None, FilesystemState]) -> Command | str:
-        """Synchronous wrapper for rename tool."""
-        resolved_backend = _get_backend(backend, runtime)
-
-        try:
-            validated_old_path = _validate_path(path)
-            validated_new_path = _validate_path(new_path)
-        except ValueError as e:
-            return f"Error: {e}"
-
-        res: RenameResult = resolved_backend.rename(validated_old_path, validated_new_path)
-
-        if res.error:
-            return res.error
-
-        if res.files_update is not None:
-            return Command(
-                update={
-                    "files": res.files_update,
-                    "messages": [
-                        ToolMessage(
-                            content=f"Renamed {res.old_path} to {res.new_path}", tool_call_id=runtime.tool_call_id
-                        )
-                    ],
-                }
-            )
-        return f"Renamed {res.old_path} to {res.new_path}"
-
-    async def async_rename(path: str, new_path: str, runtime: ToolRuntime[None, FilesystemState]) -> Command | str:
-        """Asynchronous wrapper for rename tool."""
-        resolved_backend = _get_backend(backend, runtime)
-
-        try:
-            validated_old_path = _validate_path(path)
-            validated_new_path = _validate_path(new_path)
-        except ValueError as e:
-            return f"Error: {e}"
-
-        res: RenameResult = await resolved_backend.arename(validated_old_path, validated_new_path)
-
-        if res.error:
-            return res.error
-
-        if res.files_update is not None:
-            return Command(
-                update={
-                    "files": res.files_update,
-                    "messages": [
-                        ToolMessage(
-                            content=f"Renamed {res.old_path} to {res.new_path}", tool_call_id=runtime.tool_call_id
-                        )
-                    ],
-                }
-            )
-        return f"Renamed {res.old_path} to {res.new_path}"
-
-    return StructuredTool.from_function(
-        name="rename", description=tool_description, func=sync_rename, coroutine=async_rename
-    )
+    return backend
 
 
 class FilesystemMiddleware(BaseFilesystemMiddleware):
@@ -236,17 +105,40 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
     """
 
     def __init__(self, *args, read_only: bool = False, **kwargs) -> None:
-        system_prompt = DAIV_FILESYSTEM_SYSTEM_PROMPT if not read_only else None
-        custom_tool_descriptions = kwargs.pop("custom_tool_descriptions", {})
+        """
+        Initialize the FilesystemMiddleware.
 
+        Args:
+            *args: Additional arguments to pass to the superclass.
+            read_only: Whether the filesystem is read-only.
+            **kwargs: Additional keyword arguments to pass to the superclass.
+        """
+        system_prompt = kwargs.pop("system_prompt", DAIV_FILESYSTEM_SYSTEM_PROMPT.format(read_only=read_only).content)
+        custom_tool_descriptions = kwargs.pop(
+            "custom_tool_descriptions",
+            {
+                "grep": GREP_TOOL_DESCRIPTION,
+                "glob": GLOB_TOOL_DESCRIPTION,
+                "read_file": READ_FILE_TOOL_DESCRIPTION,
+                "write_file": WRITE_FILE_TOOL_DESCRIPTION,
+                "edit_file": EDIT_FILE_TOOL_DESCRIPTION,
+                "list_files": LIST_FILES_TOOL_DESCRIPTION,
+            },
+        )
         super().__init__(
             *args, system_prompt=system_prompt, custom_tool_descriptions=custom_tool_descriptions, **kwargs
         )
-
-        if not read_only:
-            self.tools.extend([
-                _delete_tool_generator(self.backend, custom_tool_descriptions.get("delete")),
-                _rename_tool_generator(self.backend, custom_tool_descriptions.get("rename")),
-            ])
-        else:
+        self.read_only = read_only
+        if self.read_only:
             self.tools = [tool for tool in self.tools if tool.name not in ["edit_file", "write_file"]]
+
+    async def abefore_agent(
+        self, state: FilesystemState, runtime: Runtime, config: RunnableConfig
+    ) -> dict[str, Any] | None:
+        """
+        Before the agent starts, add the builtin skills to the state.
+        """
+        files_to_update = await copy_builtin_skills_to_backend(_get_backend2(self.backend, state, runtime, config))
+        if files_to_update:
+            return {"files": files_to_update}
+        return None

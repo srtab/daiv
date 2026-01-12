@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from django.conf import django
 from django.utils import timezone
 
+from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.state import StateBackend
 from deepagents.graph import BASE_AGENT_PROMPT
 from deepagents.middleware.memory import MemoryMiddleware
@@ -24,7 +26,6 @@ from langgraph.store.memory import InMemoryStore
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 
-from automation.agent.backends import CompositeBackend, FilesystemBackend
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
@@ -56,6 +57,18 @@ DEFAULT_SUMMARIZATION_TRIGGER = ("tokens", 170000)
 DEFAULT_SUMMARIZATION_KEEP = ("messages", 6)
 
 
+OUTPUT_INVARIANTS_SYSTEM_PROMPT = """\
+<output_invariants>
+Applies to ALL user-visible text (issue comments, MR comments, chat):
+
+- NEVER include "/repo/" anywhere in user-visible output.
+- Any repository file path shown to the user MUST be repo-relative (no leading "/").
+  <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
+- Code references MUST use repo-relative paths: [path:line](path#Lline)
+- Pre-send check: if your draft contains "/repo/", rewrite before sending.
+</output_invariants>"""
+
+
 @dynamic_prompt
 async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     """
@@ -77,7 +90,15 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         git_platform=request.runtime.context.git_platform.value,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
     )
-    return request.system_prompt + "\n\n" + system_prompt.content
+    return (
+        BASE_AGENT_PROMPT
+        + "\n\n"
+        + OUTPUT_INVARIANTS_SYSTEM_PROMPT
+        + "\n\n"
+        + request.system_prompt
+        + "\n\n"
+        + system_prompt.content.strip()
+    )
 
 
 async def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -191,7 +212,6 @@ async def create_daiv_agent(
     return create_agent(
         model,
         tools=await MCPToolkit.get_tools(),
-        system_prompt=BASE_AGENT_PROMPT,
         middleware=deepagent_middleware,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,

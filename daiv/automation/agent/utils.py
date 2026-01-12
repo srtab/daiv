@@ -348,7 +348,7 @@ def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = Fal
     return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
 
 
-def copy_builtin_skills_to_backend(backend: BACKEND_TYPES) -> dict[str, FileData]:
+async def copy_builtin_skills_to_backend(backend: BACKEND_TYPES) -> dict[str, FileData]:
     """
     Copy builtin skills to the /skills/ directory.
 
@@ -361,10 +361,10 @@ def copy_builtin_skills_to_backend(backend: BACKEND_TYPES) -> dict[str, FileData
     files_to_update = {}
     for builtin_skill_dir in BUILTIN_SKILLS_DIR.iterdir():
         for root, _dirs, files in builtin_skill_dir.walk():
-            for file in files:
+            for file in filter(lambda f: f.endswith(".md") or f.endswith(".py"), files):
                 source_path = Path(root) / Path(file)
                 dest_path = Path(BUILTIN_SKILLS_PATH) / source_path.relative_to(BUILTIN_SKILLS_DIR)
-                write_result = backend.write(str(dest_path), source_path.read_text())
+                write_result = await backend.awrite(str(dest_path), source_path.read_text())
                 if write_result.files_update is not None:
                     files_to_update.update(write_result.files_update)
     return files_to_update

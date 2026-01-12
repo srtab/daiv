@@ -3,7 +3,7 @@ from enum import StrEnum
 from daiv.settings.components import PROJECT_DIR
 
 # Path where the builtin skills are stored on the filesystem to be copied to the backend.
-BUILTIN_SKILLS_DIR = PROJECT_DIR / "automation" / "agents" / "skills"
+BUILTIN_SKILLS_DIR = PROJECT_DIR / "automation" / "agent" / "skills"
 
 # Path where the builtin skills are stored in the backend.
 BUILTIN_SKILLS_PATH = "/skills/"

@@ -79,7 +79,7 @@ Examples:
     {BASH_TOOL_NAME}(command="npm install && npm test")
     </good-example>
     <bad-examples>
-    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Use absolute path instead
+    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Avoid using cd, use absolute path instead
     {BASH_TOOL_NAME}(command="cat file.txt")  # Use read_file tool instead
     {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use glob tool instead
     {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use grep tool instead
@@ -100,13 +100,13 @@ SANDBOX_SYSTEM_PROMPT = f"""\
 
 You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session.
 
-Use this tool to run commands, scripts, tests, builds, and other shell operations."""
+Use this tool to run commands, scripts, tests, builds, and other shell operations. Avoid using cd to change the working directory, use absolute paths instead when possible."""  # noqa: E501
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
 async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
-    Tool to run a list of Bash commands in a persistent shell session rooted at the repository's root.
+    Tool to run a list of Bash commands in a persistent shell session.
     """  # noqa: E501
 
     repo_working_dir = Path(runtime.context.repo.working_dir)
@@ -143,8 +143,6 @@ async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: st
     tar_archive = io.BytesIO()
 
     with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
-        # Archive the repository *contents* (no top-level root folder), while excluding `.git` to avoid leaking
-        # credentials/tokens and to reduce archive size.
         for child in repo_dir.iterdir():
             tar.add(child, arcname=child.name)
 
@@ -212,9 +210,8 @@ class SandboxMiddleware(AgentMiddleware):
         """
         assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
 
-        self.tools = []
         self.close_session = close_session
-        self.tools.append(bash_tool)
+        self.tools = [bash_tool]
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """
@@ -268,12 +265,6 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             The model response from the handler.
         """
-        request = request.override(
-            system_prompt=request.system_prompt
-            + "\n\n"
-            + SANDBOX_SYSTEM_PROMPT.format(
-                repo_working_dir="/archives" + Path(request.runtime.context.repo.working_dir).name
-            )
-        )
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT)
 
         return await handler(request)
