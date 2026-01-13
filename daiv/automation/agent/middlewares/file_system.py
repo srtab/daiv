@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -12,8 +12,6 @@ from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesys
 from deepagents.middleware.filesystem import FilesystemState
 from langchain.tools import ToolRuntime
 from langchain_core.prompts import SystemMessagePromptTemplate
-
-from automation.agent.utils import copy_builtin_skills_to_backend
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol
@@ -128,17 +126,10 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
         super().__init__(
             *args, system_prompt=system_prompt, custom_tool_descriptions=custom_tool_descriptions, **kwargs
         )
-        self.read_only = read_only
-        if self.read_only:
-            self.tools = [tool for tool in self.tools if tool.name not in ["edit_file", "write_file"]]
+        excluded_tools = ["execute"]
 
-    async def abefore_agent(
-        self, state: FilesystemState, runtime: Runtime, config: RunnableConfig
-    ) -> dict[str, Any] | None:
-        """
-        Before the agent starts, add the builtin skills to the state.
-        """
-        files_to_update = await copy_builtin_skills_to_backend(_get_backend2(self.backend, state, runtime, config))
-        if files_to_update:
-            return {"files": files_to_update}
-        return None
+        if read_only:
+            excluded_tools.append("edit_file")
+            excluded_tools.append("write_file")
+
+        self.tools = [tool for tool in self.tools if tool.name not in excluded_tools]

@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 from langchain_core.messages.content import create_image_block
 
-from automation.agent.constants import BUILTIN_SKILLS_DIR, BUILTIN_SKILLS_PATH
 from automation.agent.schemas import Image
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -17,7 +16,6 @@ from .conf import settings
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import BACKEND_TYPES
-    from deepagents.middleware.filesystem import FileData
     from langchain_core.messages import ImageContentBlock
 
     from codebase.repo_config import AgentModelConfig
@@ -346,25 +344,3 @@ def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = Fal
         thinking_level = settings.MAX_THINKING_LEVEL
 
     return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
-
-
-async def copy_builtin_skills_to_backend(backend: BACKEND_TYPES) -> dict[str, FileData]:
-    """
-    Copy builtin skills to the /skills/ directory.
-
-    Args:
-        backend: The backend to use for copying the builtin skills.
-
-    Returns:
-        A dictionary of the files that were copied to the backend.
-    """
-    files_to_update = {}
-    for builtin_skill_dir in BUILTIN_SKILLS_DIR.iterdir():
-        for root, _dirs, files in builtin_skill_dir.walk():
-            for file in filter(lambda f: f.endswith(".md") or f.endswith(".py"), files):
-                source_path = Path(root) / Path(file)
-                dest_path = Path(BUILTIN_SKILLS_PATH) / source_path.relative_to(BUILTIN_SKILLS_DIR)
-                write_result = await backend.awrite(str(dest_path), source_path.read_text())
-                if write_result.files_update is not None:
-                    files_to_update.update(write_result.files_update)
-    return files_to_update

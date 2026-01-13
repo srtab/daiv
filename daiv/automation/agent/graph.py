@@ -5,13 +5,10 @@ from typing import TYPE_CHECKING
 from django.conf import django
 from django.utils import timezone
 
-from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.backends.state import StateBackend
 from deepagents.graph import BASE_AGENT_PROMPT
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -28,13 +25,14 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
+from automation.agent.constants import PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
@@ -46,7 +44,6 @@ from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
-    from langchain.tools import ToolRuntime
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
@@ -151,11 +148,7 @@ async def create_daiv_agent(
         summarization_trigger = ("fraction", 0.85)
         summarization_keep = ("fraction", 0.10)
 
-    def backend(runtime: ToolRuntime[RuntimeCtx]):
-        return CompositeBackend(
-            default=FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True),
-            routes={BUILTIN_SKILLS_PATH: StateBackend(runtime=runtime)},
-        )
+    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     subagent_default_middlewares = [
         TodoListMiddleware(system_prompt=await dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -180,7 +173,7 @@ async def create_daiv_agent(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{PROJECT_MEMORY_PATH}"],
         ),
-        SkillsMiddleware(backend=backend, sources=[BUILTIN_SKILLS_PATH, f"/{agent_path.name}/{PROJECT_SKILLS_PATH}"]),
+        SkillsMiddleware(backend=backend, sources=[f"/{agent_path.name}/{PROJECT_SKILLS_PATH}"]),
         SubAgentMiddleware(
             default_model=model,
             default_middleware=subagent_default_middlewares,
