@@ -33,6 +33,10 @@ BASH_TOOL_NAME = "bash"
 BASH_TOOL_DESCRIPTION = f"""\
 Executes a bash command in a persistent shell session.
 
+**CRITICAL**: Maintain your current working directory throughout the session by using absolute paths instead of cd.
+  - ✅ CORRECT: `pytest /foo/bar/tests/`
+  - ❌ WRONG: `cd /foo/bar && pytest tests/`
+
 IMPORTANT: This tool is for terminal operations like tests, linters, formatters, npm, docker, git, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
 
 Before executing the command, please follow these steps:
@@ -68,10 +72,6 @@ Usage notes:
     - Use '&&' when commands depend on each other (e.g., "mkdir dir && cd dir")
     - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
 
-  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of cd.
-    - <good-example>pytest /foo/bar/tests</good-example>
-    - <bad-example>cd /foo/bar && pytest tests</bad-example>
-
 Examples:
     <good-example>
     {BASH_TOOL_NAME}(command="pytest /foo/bar/tests")
@@ -79,7 +79,7 @@ Examples:
     {BASH_TOOL_NAME}(command="npm install && npm test")
     </good-example>
     <bad-examples>
-    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Avoid using cd, use absolute path instead
+    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Use absolute path instead of cd
     {BASH_TOOL_NAME}(command="cat file.txt")  # Use read_file tool instead
     {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use glob tool instead
     {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use grep tool instead
@@ -93,6 +93,8 @@ Write scope and boundaries:
   - No unscoped destructive operations.
   - No DB schema changes/migrations/seeds.
   - Do not edit secrets/credentials (e.g., `.env`) or CI settings.
+
+REMEMBER: You should use absolute paths instead of cd to change directories.
 """  # noqa: E501
 
 SANDBOX_SYSTEM_PROMPT = f"""\
@@ -100,18 +102,48 @@ SANDBOX_SYSTEM_PROMPT = f"""\
 
 You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session.
 
-Use this tool to run commands, scripts, tests, builds, and other shell operations. Avoid using cd to change the working directory, use absolute paths instead when possible."""  # noqa: E501
+Use this tool to run commands, scripts, tests, builds, and other shell operations.
+IMPORTANT: Avoid using cd to change the working directory, use absolute paths instead."""  # noqa: E501
+
+
+async def _get_or_start_session_id(runtime: ToolRuntime[RuntimeCtx]) -> str | None:
+    """
+    Get the sandbox session ID, starting a session if needed.
+
+    Args:
+        runtime: The tool runtime context.
+
+    Returns:
+        The sandbox session ID if available.
+    """
+    session_id = runtime.state.get("session_id")
+    if session_id:
+        return session_id
+
+    session_id = await DAIVSandboxClient().start_session(
+        StartSessionRequest(
+            base_image=runtime.context.config.sandbox.base_image,
+            extract_patch=True,
+            ephemeral=False,
+            network_enabled=True,
+        )
+    )
+    runtime.state["session_id"] = session_id
+    return session_id
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
 async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Tool to run a list of Bash commands in a persistent shell session.
-    """  # noqa: E501
-
+    """
     repo_working_dir = Path(runtime.context.repo.working_dir)
-    response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
 
+    session_id = await _get_or_start_session_id(runtime)
+    if session_id is None:
+        return "error: Failed to start sandbox session. The bash tool is not working properly."
+
+    response = await _run_bash_commands([command], repo_working_dir, session_id)
     if response is None:
         return (
             "error: Failed to run command. Verify that the command is valid. "
@@ -174,7 +206,7 @@ class SandboxState(AgentState):
     Schema for the sandbox state.
     """
 
-    session_id: str
+    session_id: str | None = None
     """
     The sandbox session ID.
     """
@@ -182,9 +214,9 @@ class SandboxState(AgentState):
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware to start a sandbox session before running the commands.
+    Middleware to manage a sandbox session for running commands.
 
-    This middleware starts a sandbox session before agent starts the execution loop and
+    This middleware lazily starts a sandbox session the first time the bash tool is called and
     closes it after the agent finishes the execution loop. It also adds the sandbox tools to the agent.
 
     Example:
@@ -215,27 +247,18 @@ class SandboxMiddleware(AgentMiddleware):
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """
-        Start a sandbox session before the agent start the execution loop.
+        Prepare state for lazy sandbox session start.
 
         Args:
             state (StateT): The state of the agent.
             runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
-            dict[str, list] | None: The state updates with the sandbox session.
+            dict[str, list] | None: The state updates with the sandbox session placeholder.
         """
-        if "session_id" in state and state["session_id"] is not None:
+        if "session_id" in state:
             return None
-
-        session_id = await DAIVSandboxClient().start_session(
-            StartSessionRequest(
-                base_image=runtime.context.config.sandbox.base_image,
-                extract_patch=True,
-                ephemeral=False,
-                network_enabled=True,
-            )
-        )
-        return {"session_id": session_id}
+        return {"session_id": None}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
         """

@@ -323,12 +323,12 @@ class GitPlatformMiddleware(AgentMiddleware):
 
     state_schema = GitPlatformState
 
-    def __init__(self, *, skip_ci: bool = False, commit_changes: bool = True) -> None:
+    def __init__(self, *, skip_ci: bool = False, auto_commit_changes: bool = True) -> None:
         """
         Initialize the middleware.
         """
         self.skip_ci = skip_ci
-        self.commit_changes = commit_changes
+        self.auto_commit_changes = auto_commit_changes
         self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
 
     async def abefore_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
@@ -388,7 +388,7 @@ class GitPlatformMiddleware(AgentMiddleware):
         """
         After the agent finishes, commit the changes and update or create the merge request.
         """
-        if not self.commit_changes:
+        if not self.auto_commit_changes:
             return None
 
         git_manager = GitManager(runtime.context.repo)

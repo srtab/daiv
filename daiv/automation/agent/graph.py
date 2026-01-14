@@ -56,7 +56,7 @@ DEFAULT_SUMMARIZATION_KEEP = ("messages", 6)
 
 OUTPUT_INVARIANTS_SYSTEM_PROMPT = """\
 <output_invariants>
-Applies to ALL user-visible text (issue comments, MR comments, chat):
+Applies to ALL user-visible text:
 
 - NEVER include "/repo/" anywhere in user-visible output.
 - Any repository file path shown to the user MUST be repo-relative (no leading "/").
@@ -98,11 +98,11 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     )
 
 
-async def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
+def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
     """
     Dynamic prompt for the write todos system.
     """
-    return (await WRITE_TODOS_SYSTEM_PROMPT.aformat(bash_tool_enabled=bash_tool_enabled)).content
+    return WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content
 
 
 async def create_daiv_agent(
@@ -110,7 +110,7 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
     ctx: RuntimeCtx,
-    commit_changes: bool = True,
+    auto_commit_changes: bool = True,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
@@ -124,7 +124,7 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
-        commit_changes: Whether to commit the changes to the repository when the agent finishes.
+        auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
@@ -151,7 +151,7 @@ async def create_daiv_agent(
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     subagent_default_middlewares = [
-        TodoListMiddleware(system_prompt=await dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -163,12 +163,19 @@ async def create_daiv_agent(
     if fallback_models:
         subagent_default_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
-    deepagent_middleware = [
+    agent_conditional_middlewares = []
+
+    if not offline:
+        agent_conditional_middlewares.append(WebSearchMiddleware())
+    if ctx.config.sandbox.enabled:
+        agent_conditional_middlewares.append(SandboxMiddleware())
+    if fallback_models:
+        agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
+
+    agent_middleware = [
         TodoListMiddleware(
-            system_prompt=await dynamic_write_todos_system_prompt(bash_tool_enabled=ctx.config.sandbox.enabled)
+            system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=ctx.config.sandbox.enabled)
         ),
-        GitPlatformMiddleware(commit_changes=commit_changes),
-        FilesystemMiddleware(backend=backend),
         MemoryMiddleware(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{PROJECT_MEMORY_PATH}"],
@@ -184,6 +191,9 @@ async def create_daiv_agent(
                 create_changelog_subagent(backend, ctx),
             ],
         ),
+        *agent_conditional_middlewares,
+        FilesystemMiddleware(backend=backend),
+        GitPlatformMiddleware(auto_commit_changes=auto_commit_changes),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -193,19 +203,10 @@ async def create_daiv_agent(
         dynamic_daiv_system_prompt,
     ]
 
-    if not offline:
-        deepagent_middleware.append(WebSearchMiddleware())
-
-    if ctx.config.sandbox.enabled:
-        deepagent_middleware.append(SandboxMiddleware())
-
-    if fallback_models:
-        deepagent_middleware.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
-
     return create_agent(
         model,
         tools=await MCPToolkit.get_tools(),
-        middleware=deepagent_middleware,
+        middleware=agent_middleware,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,
         store=store,

@@ -47,7 +47,7 @@ async def main(
                     ctx=ctx,
                     store=store,
                     # checkpointer=checkpointer,  # noqa: ERA001
-                    commit_changes=False,
+                    auto_commit_changes=False,
                     offline=True,
                 )
                 human_message = dedent(

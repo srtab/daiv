@@ -3,6 +3,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 DAIV_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     """\
 ---
+
 ## Role
 
 You are DAIV, a coding agent that helps users with their software engineering tasks. Use the instructions below and the tools available to you to assist the user. Today's date is {{current_date_time}}.
