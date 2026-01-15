@@ -190,7 +190,7 @@ class SWERepoClient(RepoClient):
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             clone_dir = Path(tmpdir) / "repo"
-            clone_dir.mkdir(exist_ok=True)
+            clone_dir.mkdir(parents=True, exist_ok=True)
             # Clone the repository without depth restriction to ensure the specific commit is available
             # For SWE-bench, we often need specific historical commits, so a full clone is necessary
             repo = Repo.clone_from(repository.clone_url, clone_dir)
@@ -237,7 +237,7 @@ class SWERepoClient(RepoClient):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 

@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored `get_context_file_content` logic from `AgentsMDMiddleware` to standalone utility function in `automation.agents.utils`
 - Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
 - Deferred sandbox session creation until the first `bash` tool invocation.
+- Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
 
 ### Fixed
 

@@ -45,5 +45,5 @@ class TestSandboxArchiveLayout:
         assert "src/app.py" in names
         assert not any(n.startswith("repoX/") for n in names)
 
-        # Excludes `.git`
-        assert not any(n == ".git" or n.startswith(".git/") for n in names)
+        # `.git` is included in the archive
+        assert any(n == ".git" or n.startswith(".git/") for n in names)

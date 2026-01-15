@@ -74,7 +74,7 @@ class RepoClient(abc.ABC):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         pass
 
     @abc.abstractmethod

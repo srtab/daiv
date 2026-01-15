@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -57,7 +58,7 @@ class TestSWERepoClient:
 
         with swe_client.load_repo(repository, "abc123") as repo:
             assert repo == mock_repo
-            mock_clone.assert_called_once_with("https://github.com/psf/requests.git", mock_tmpdir)
+            mock_clone.assert_called_once_with("https://github.com/psf/requests.git", Path(mock_tmpdir) / "repo")
             mock_repo.git.checkout.assert_called_once_with("abc123")
 
     @patch("codebase.clients.swe.Repo.clone_from")

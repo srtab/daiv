@@ -247,6 +247,7 @@ class GitLabClient(RepoClient):
             title=mr.title,
             description=mr.description,
             labels=mr.labels,
+            web_url=mr.web_url,
             sha=mr.sha,
         )
 
@@ -294,7 +295,7 @@ class GitLabClient(RepoClient):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         """
         Create a merge request in a repository or update an existing one if it already exists.
 
@@ -308,18 +309,29 @@ class GitLabClient(RepoClient):
             assignee_id: The assignee ID.
 
         Returns:
-            The merge request ID.
+            The merge request data.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         try:
-            return project.mergerequests.create({
+            merge_request = project.mergerequests.create({
                 "source_branch": source_branch,
                 "target_branch": target_branch,
                 "title": title,
                 "description": description,
                 "labels": labels or [],
                 "assignee_id": assignee_id,
-            }).get_id()
+            })
+            return MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=cast("int", merge_request.get_id()),
+                source_branch=merge_request.source_branch,
+                target_branch=merge_request.target_branch,
+                title=merge_request.title,
+                description=merge_request.description,
+                labels=merge_request.labels,
+                web_url=merge_request.web_url,
+                sha=merge_request.sha,
+            )
         except GitlabCreateError as e:
             if e.response_code != 409:
                 raise e
@@ -332,7 +344,17 @@ class GitLabClient(RepoClient):
                 merge_request.labels = labels or []
                 merge_request.assignee_id = assignee_id
                 merge_request.save()
-                return merge_request.get_id()
+                return MergeRequest(
+                    repo_id=repo_id,
+                    merge_request_id=cast("int", merge_request.get_id()),
+                    source_branch=merge_request.source_branch,
+                    target_branch=merge_request.target_branch,
+                    title=merge_request.title,
+                    description=merge_request.description,
+                    labels=merge_request.labels,
+                    web_url=merge_request.web_url,
+                    sha=merge_request.sha,
+                )
             raise e
 
     @contextmanager
@@ -495,6 +517,7 @@ class GitLabClient(RepoClient):
                 title=mr["title"],
                 description=mr["description"],
                 labels=mr["labels"],
+                web_url=mr.get("web_url"),
             )
             for mr in issue.related_merge_requests(get_all=True)
             if (assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id)

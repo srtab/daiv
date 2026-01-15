@@ -16,7 +16,7 @@ from langchain_core.messages.content import ContentBlock, create_text_block
 from automation.agent.pr_describer import PullRequestDescriberAgent, PullRequestMetadata
 from automation.agent.pr_describer.conf import settings as pr_describer_settings
 from automation.agent.utils import extract_images_from_text, get_context_file_content, images_to_content_blocks
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, MergeRequest
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -416,11 +416,11 @@ class GitPlatformMiddleware(AgentMiddleware):
                 unique_branch_name,
                 runtime.context.config.default_branch,
             )
-            merge_request_id = self._update_or_create_merge_request(
+            merge_request = self._update_or_create_merge_request(
                 runtime, unique_branch_name, pr_metadata.title, pr_metadata.description
             )
 
-        return {"branch_name": unique_branch_name, "merge_request_id": merge_request_id}
+        return {"branch_name": unique_branch_name, "merge_request_id": merge_request.merge_request_id}
 
     async def _get_mr_metadata(self, runtime: Runtime[RuntimeCtx], diff: str) -> PullRequestMetadata:
         """
@@ -465,7 +465,7 @@ class GitPlatformMiddleware(AgentMiddleware):
 
     def _update_or_create_merge_request(
         self, runtime: Runtime[RuntimeCtx], branch_name: str, title: str, description: str
-    ):
+    ) -> MergeRequest:
         """
         Update or create the merge request.
 

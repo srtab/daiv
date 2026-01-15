@@ -307,6 +307,7 @@ class GitHubClient(RepoClient):
             title=mr.title,
             description=mr.body or "",
             labels=[label.name for label in mr.labels],
+            web_url=mr.html_url,
             sha=mr.head.sha,
         )
 
@@ -399,6 +400,7 @@ class GitHubClient(RepoClient):
                                             state
                                             title
                                             body
+                                            url
                                             labels(first: 10) {
                                                 nodes {
                                                     name
@@ -436,6 +438,7 @@ class GitHubClient(RepoClient):
                         title=node["title"],
                         description=node["body"],
                         labels=[mr_label.name for mr_label in labels] if labels else [],
+                        web_url=node.get("url"),
                         state=node["state"],
                     )
                 )
@@ -725,7 +728,7 @@ class GitHubClient(RepoClient):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         """
         Update or create a merge request.
 
@@ -739,7 +742,7 @@ class GitHubClient(RepoClient):
             assignee_id: The assignee ID.
 
         Returns:
-            The merge request ID.
+            The merge request data.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
 
@@ -763,7 +766,17 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return pr.number
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+        )
 
     def _serialize_comments(
         self, comments: list[IssueComment | PullRequestComment], from_merge_request: bool = False

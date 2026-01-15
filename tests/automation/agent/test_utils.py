@@ -51,7 +51,7 @@ class TestImagesToContentBlocks:
     @patch("automation.agent.utils.extract_valid_image_mimetype", new=Mock(return_value="image/png"))
     async def test_from_images_github_user_attachments(self, mock_repo_client):
         """Test that GitHub user-attachments URLs are downloaded with authentication."""
-        mock_repo_client.client_slug = GitPlatform.GITHUB
+        mock_repo_client.git_platform = GitPlatform.GITHUB
         mock_repo_client.get_project_uploaded_file = AsyncMock(return_value=b"github image content")
 
         images = [
@@ -76,7 +76,7 @@ class TestImagesToContentBlocks:
 
     async def test_images_to_content_blocks_github_user_attachments_download_fails(self, mock_repo_client):
         """Test that failed GitHub downloads don't add to result."""
-        mock_repo_client.client_slug = GitPlatform.GITHUB
+        mock_repo_client.git_platform = GitPlatform.GITHUB
         mock_repo_client.get_project_uploaded_file = AsyncMock(return_value=None)
 
         images = [
@@ -92,7 +92,7 @@ class TestImagesToContentBlocks:
 
     async def test_images_to_content_blocks_github_external_url_not_user_attachments(self, mock_repo_client):
         """Test that non-user-attachments GitHub URLs are treated as regular URLs."""
-        mock_repo_client.client_slug = GitPlatform.GITHUB
+        mock_repo_client.git_platform = GitPlatform.GITHUB
 
         with patch("automation.agent.utils.is_valid_url", return_value=True):
             images = [Image(url="https://github.com/user/repo/raw/main/image.png", filename="image.png")]
@@ -109,7 +109,7 @@ class TestGetDaivAgentKwargs:
     def test_get_daiv_agent_kwargs_without_use_max(self):
         """Test that get_daiv_agent_kwargs returns default config when use_max=False."""
         models_config = Models()
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=False)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
         assert kwargs["model_names"] == [settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME]
         assert kwargs["thinking_level"] == settings.THINKING_LEVEL
@@ -117,7 +117,7 @@ class TestGetDaivAgentKwargs:
     def test_get_daiv_agent_kwargs_with_use_max(self):
         """Test that get_daiv_agent_kwargs sets high-performance mode when use_max=True."""
         models_config = Models()
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=True)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
 
         # When use_max=True, the fallback is the regular planning_model from config
         assert kwargs["model_names"] == [settings.MAX_MODEL_NAME, settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME]
@@ -127,7 +127,7 @@ class TestGetDaivAgentKwargs:
     def test_get_daiv_agent_kwargs_does_not_include_skip_approval(self):
         """Test that get_daiv_agent_kwargs does not set skip_approval."""
         models_config = Models()
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=False)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
         # Note: skip_approval is not in kwargs as it's handled elsewhere
         assert "skip_approval" not in kwargs
@@ -141,7 +141,7 @@ class TestGetDaivAgentKwargs:
             thinking_level="low",
         )
         models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=False)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
         assert kwargs["model_names"] == ["openrouter:anthropic/claude-haiku-4.5", "openrouter:openai/gpt-4.1-mini"]
         assert kwargs["thinking_level"] == ThinkingLevel.LOW
@@ -151,7 +151,7 @@ class TestGetDaivAgentKwargs:
         # Set up YAML model config
         model_config = AgentModelConfig(model="openrouter:anthropic/claude-haiku-4.5", thinking_level="low")
         models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=True)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
 
         # use_max should override YAML config
         assert kwargs["model_names"][0] == settings.MAX_MODEL_NAME
@@ -162,7 +162,7 @@ class TestGetDaivAgentKwargs:
         # Set up partial YAML model config (only model)
         model_config = AgentModelConfig(model="openrouter:anthropic/claude-haiku-4.5")
         models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(models_config=models_config, use_max=False)
+        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
         # model should come from YAML
         assert kwargs["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"

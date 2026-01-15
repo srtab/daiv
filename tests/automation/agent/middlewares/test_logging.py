@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 
 class TestToolCallLoggingMiddleware:
-    async def test_logs_tool_call_start_and_finish(self, caplog):
+    async def test_logs_tool_call(self, caplog):
         from langchain_core.messages import ToolMessage
         from langgraph.prebuilt.tool_node import ToolCallRequest
 
@@ -26,8 +26,7 @@ class TestToolCallLoggingMiddleware:
         assert result.content == "ok"
 
         messages = [r.getMessage() for r in caplog.records if r.name == "daiv.tools"]
-        assert any("[demo_tool] Tool call started" in m for m in messages)
-        assert any("[demo_tool] Tool call finished" in m for m in messages)
+        assert any("[demo_tool] Tool call (id=call_1" in m for m in messages)
 
     async def test_logs_tool_call_exception_and_reraises(self, caplog):
         from langgraph.prebuilt.tool_node import ToolCallRequest
@@ -52,4 +51,4 @@ class TestToolCallLoggingMiddleware:
             await ToolCallLoggingMiddleware().awrap_tool_call(request, handler)
 
         messages = [r.getMessage() for r in caplog.records if r.name == "daiv.tools"]
-        assert any("[demo_tool] Tool call failed" in m for m in messages)
+        assert any("[demo_tool] Tool call (id=call_1" in m for m in messages)

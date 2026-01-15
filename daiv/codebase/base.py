@@ -60,6 +60,7 @@ class MergeRequest(BaseModel):
     title: str
     description: str
     labels: list[str] = Field(default_factory=list)
+    web_url: str | None = None
     sha: str | None = None
 
 
