@@ -101,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path", type=str, default="SWE-bench/SWE-bench_Lite")
     parser.add_argument("--dataset-split", type=str, default="dev")
     parser.add_argument("--num-samples", type=int)
-    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.Z_AI_GLM_4_7])
+    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.CLAUDE_SONNET_4_5])
     parser.add_argument("--output-path", type=str, default="predictions.json")
 
     args = parser.parse_args()

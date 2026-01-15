@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Annotated
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime  # noqa: TC002
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.types import Command
 from langgraph.typing import StateT  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -157,7 +159,17 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
             logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
-    return json.dumps([result.model_dump(mode="json") for result in response.results])
+    return Command(
+        update={
+            "session_id": session_id,
+            "messages": [
+                ToolMessage(
+                    content=json.dumps([result.model_dump(mode="json") for result in response.results]),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
