@@ -7,7 +7,6 @@ from automation.agent.constants import ModelName
 class PRDescriberSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PR_DESCRIBER_", env_parse_none_str="None")
 
-    NAME: str = Field(default="PullRequestDescriber", description="Name of the PR describer agent.")
     MODEL_NAME: ModelName | str = Field(
         default=ModelName.GPT_4_1_MINI, description="Model name to be used for PR describer."
     )

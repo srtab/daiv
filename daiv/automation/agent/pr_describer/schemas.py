@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
-
 from pydantic import BaseModel, Field
-
-
-class PullRequestDescriberInput(TypedDict):
-    diff: str
-    context_file_content: NotRequired[str]
-    extra_context: NotRequired[str]
 
 
 class PullRequestMetadata(BaseModel):

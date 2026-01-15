@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -13,9 +12,9 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ContentBlock, create_text_block
 
-from automation.agent.pr_describer import PullRequestDescriberAgent, PullRequestMetadata
 from automation.agent.pr_describer.conf import settings as pr_describer_settings
-from automation.agent.utils import extract_images_from_text, get_context_file_content, images_to_content_blocks
+from automation.agent.pr_describer.graph import create_pr_describer_agent
+from automation.agent.utils import extract_images_from_text, images_to_content_blocks
 from codebase.base import GitPlatform, MergeRequest
 from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
@@ -27,6 +26,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langgraph.runtime import Runtime
+
+    from automation.agent.pr_describer.schemas import PullRequestMetadata
 
 
 logger = logging.getLogger("daiv.tools")
@@ -433,8 +434,8 @@ class GitPlatformMiddleware(AgentMiddleware):
         Returns:
             The PR metadata.
         """
-        pr_describer = await PullRequestDescriberAgent.get_runnable(
-            model=runtime.context.config.models.pr_describer.model
+        pr_describer = create_pr_describer_agent(
+            model=runtime.context.config.models.pr_describer.model, ctx=runtime.context
         )
 
         extra_context = ""
@@ -452,9 +453,6 @@ class GitPlatformMiddleware(AgentMiddleware):
         return await pr_describer.ainvoke(
             {
                 "diff": redact_diff_content(diff, runtime.context.config.omit_content_patterns),
-                "context_file_content": await get_context_file_content(
-                    Path(runtime.context.repo.working_dir), runtime.context.config.context_file_name
-                ),
                 "extra_context": extra_context,
             },
             config={
