@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added comparison table to Quick Actions documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
 - Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
+- Migrated pre-commit tooling to prek.
 - Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
   - Enhanced system prompt with explicit rules about factuality and convention handling
   - Improved guidance for branch naming and commit messages based on repository conventions
