@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
 
-from automation.agent.pr_describer.conf import settings as pr_describer_settings
 from automation.agent.pr_describer.graph import create_pr_describer_agent
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
@@ -66,7 +65,7 @@ class BaseManager:
         changes_description = await pr_describer.ainvoke(
             {"diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns)},
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.git_platform)], configurable={"thread_id": thread_id}
+                tags=[pr_describer.get_name(), str(self.client.git_platform)], configurable={"thread_id": thread_id}
             ),
         )
 

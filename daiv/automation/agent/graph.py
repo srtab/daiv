@@ -151,7 +151,6 @@ async def create_daiv_agent(
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     subagent_default_middlewares = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),

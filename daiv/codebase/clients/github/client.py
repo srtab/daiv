@@ -309,6 +309,7 @@ class GitHubClient(RepoClient):
             labels=[label.name for label in mr.labels],
             web_url=mr.html_url,
             sha=mr.head.sha,
+            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
         )
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
@@ -408,6 +409,11 @@ class GitHubClient(RepoClient):
                                             }
                                             headRefName
                                             baseRefName
+                                            author {
+                                                id
+                                                login
+                                                name
+                                            }
                                         }
                                     }
                                 }
@@ -440,6 +446,11 @@ class GitHubClient(RepoClient):
                         labels=[mr_label.name for mr_label in labels] if labels else [],
                         web_url=node.get("url"),
                         state=node["state"],
+                        author=User(
+                            id=node["author"].get("id"),
+                            username=node["author"].get("login"),
+                            name=node["author"].get("name"),
+                        ),
                     )
                 )
 
@@ -776,6 +787,7 @@ class GitHubClient(RepoClient):
             labels=[label.name for label in pr.labels],
             web_url=pr.html_url,
             sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
         )
 
     def _serialize_comments(

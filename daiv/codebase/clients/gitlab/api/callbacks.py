@@ -114,6 +114,7 @@ class NoteCallback(BaseCallback):
                         repo_id=self.project.path_with_namespace,
                         merge_request_id=self.merge_request.iid,
                         merge_request_source_branch=self.merge_request.source_branch,
+                        mention_comment_id=self.object_attributes.discussion_id,
                     ).delay
                 )()
             else:
@@ -131,24 +132,23 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
-        if (
-            not self._repo_config.code_review.enabled
-            or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
-            or self.object_attributes.action not in [NoteAction.CREATE, NoteAction.UPDATE]
-            or not self.merge_request
-            or self.merge_request.state != "opened"
-        ):
-            return False
-
-        return note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        return bool(
+            self._repo_config.code_review.enabled
+            and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+            and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
+            and self.merge_request
+            and self.merge_request.state == "opened"
+            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        )
 
     @cached_property
     def _is_issue_comment(self) -> bool:
         """
         Accept the webhook if the note is an issue comment that mentions DAIV.
         """
-        return (
-            self.object_attributes.noteable_type == NoteableType.ISSUE
+        return bool(
+            self._repo_config.issue_addressing.enabled
+            and self.object_attributes.noteable_type == NoteableType.ISSUE
             and self.object_attributes.action == NoteAction.CREATE
             and self.issue
             and self.issue.state == "opened"

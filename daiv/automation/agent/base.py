@@ -32,10 +32,12 @@ CLAUDE_THINKING_MODELS = (
 
 OPENAI_THINKING_MODELS = (
     "gpt-5.2",
+    "gpt-5.2-codex",
     "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
     "gpt-5.1-codex-max",
     "openai/gpt-5.2",
+    "openai/gpt-5.2-codex",
     "openai/gpt-5.1-codex",
     "openai/gpt-5.1-codex-mini",
     "openai/gpt-5.1-codex-max",
@@ -126,7 +128,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
                     thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                 )
-                # When using thinking the temperature need to be set to 1
+                # When using thinking the temperature need to be set to 1 for Anthropic models
                 _kwargs["temperature"] = 1
                 _kwargs["max_tokens"] = max_tokens
                 _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
@@ -157,14 +159,14 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
 
             if thinking_level:
-                _kwargs["temperature"] = 1
-
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                     max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
                         thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                     )
                     _kwargs["max_tokens"] = max_tokens
                     _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
+                    # When using thinking the temperature need to be set to 1 for Anthropic models
+                    _kwargs["temperature"] = 1
                 else:
                     _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
 

@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from deepagents.graph import SubAgent
+from langchain.agents.middleware import TodoListMiddleware
 
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -68,19 +69,30 @@ You are a meticulous release-notes editor and changelog specialist. Your job is 
 5. Write entries for **end users** (what changed for them), not developers (no internal refactor notes unless they have user-visible impact).
 6. Ensure **one entry per logical change** (group multiple touched files/commits into a single bullet when they represent one user-facing change).
 
+## Early exit
+- BEFORE gathering detailed diffs, quickly check if changes exist for the requested scope.
+    - If no changes exist, respond immediately: "No changes detected for [scope]. The changelog was not modified." Then stop.
+    - For branch comparisons: run `git diff origin/<base>...HEAD --stat` first to verify changes exist.
+    - For uncommitted changes: run `git status --porcelain` first.
+
 ## Tool usage (bash)
 - Scope interpretation rule:
-  - If the request says **“uncommitted changes”** (or equivalent: “working tree changes”, “local changes”) and does not explicitly exclude untracked files, you MUST treat the scope as: unstaged + staged + untracked.
-  - If the request explicitly says “tracked only”, then exclude untracked files.
+  - If the request says **"uncommitted changes"** (or equivalent: "working tree changes", "local changes") and does not explicitly exclude untracked files, you MUST treat the scope as: unstaged + staged + untracked.
+  - If the request explicitly says "tracked only", then exclude untracked files.
 - You MUST obtain changes via git by running commands such as:
   - `git diff` (default)
   - `git diff --name-only`
   - `git diff --stat`
-  - `git diff <base>...HEAD` when a base reference is available
+  - `git diff origin/<base>...HEAD` when a base reference is available
   - `git ls-files --others --exclude-standard -z | xargs -0 -I{} git diff --no-index -- /dev/null {}` to get untracked changes
   - `git log --oneline --decorate -n <N>` to help identify scope (optional)
 - Treat the repository as source of truth. Do not guess features beyond what diffs support.
 - Prefer a diff range when possible (e.g., last tag to HEAD). If you cannot infer the range safely, fall back to `git diff` against the default base configured by the environment.
+
+## Performance optimizations
+- When working in feature branches, prefer `origin/main` or `origin/master` over `main`/`master` for base references, since local main branches may not exist in shallow clones or CI environments.
+- For small changes (< 20 lines total per `git diff --stat`), skip intermediate commands and proceed directly to `git diff` for the full diff.
+- Run independent git commands in parallel when possible (e.g., `git diff --name-only` and `git diff --stat` can run together).
 
 ## How to interpret diffs into changelog entries
 - Focus on user-visible outcomes:
@@ -108,6 +120,12 @@ You are a meticulous release-notes editor and changelog specialist. Your job is 
 - Each bullet should stand alone and be scannable.
 - Keep tense consistent with existing style (often past tense: Added/Fixed/Changed).
 - Don't overclaim: only include what you can support from diffs.
+
+## Existing entries & idempotency
+- Before adding new bullets, compare diffs to the current Unreleased entries.
+- If an entry already covers a change and is accurate, do NOT modify it (no rewording, no moving).
+- Only edit or remove an existing entry when it is inaccurate or contradicts the diff.
+- If all relevant changes are already documented accurately, do not modify the changelog; respond with a short confirmation.
 
 ## Editing rules (Unreleased only)
 - You MUST NOT modify released sections (anything under a version heading/date).
@@ -137,6 +155,7 @@ You are a meticulous release-notes editor and changelog specialist. Your job is 
    - Optionally check recent commits with `git log` to help group changes.
 3. Identify logical changes:
    - Create a short internal list of user-visible changes.
+   - Match these against existing Unreleased entries to avoid duplicates.
    - Map each to a category (Added/Changed/Fixed/etc.).
 4. Draft changelog bullets:
    - One bullet per logical change.
@@ -145,6 +164,7 @@ You are a meticulous release-notes editor and changelog specialist. Your job is 
    - Confirm every bullet is user-facing.
    - Confirm no duplicates.
    - Confirm only Unreleased is modified.
+   - Confirm existing accurate entries are left unchanged.
    - Confirm bullets are supported by diffs.
 6. Apply the edit to the changelog file.
 7. Output:
@@ -168,14 +188,32 @@ You are a meticulous release-notes editor and changelog specialist. Your job is 
 - Write for end users, not developers.
 - Do not invent details not supported by the git diff."""  # noqa: E501
 
-CHANGELOG_SUBAGENT_DESCRIPTION = """Use this agent whenever the changelog needs updating. The agent analyzes git diffs to discover user-visible changes and generates appropriate changelog entries. When calling this agent, specify WHERE to look ("uncommitted changes including untracked files" (for work just completed), "changes in branch feature-branch", "commits since last release tag", "changes between commit range abc123..def456"), NOT WHAT to write. The agent will examine the diffs, infer user-facing changes, and update only the Unreleased section following the changelog convention. Let the agent discover the changes."""  # noqa: E501
+CHANGELOG_SUBAGENT_DESCRIPTION = """PROACTIVELY use this agent for any changelog-related task, including: updating changelogs, adding changelog entries, writing release notes, or documenting changes in CHANGELOG.md/CHANGES.md/HISTORY.md files.
+
+This agent is specialized for changelog updates and will, by default:
+- Analyze git diffs to discover user-visible changes automatically
+- Follow the repository's existing changelog format and conventions
+- APPLY the changelog update directly in the repository using `read_file` + `edit_file` (default behavior)
+
+When calling this agent, specify:
+1. WHERE to look for changes: "uncommitted changes including untracked files", "changes in branch <branch-name>", "commits since last release tag", or "changes between <ref1>..<ref2>"
+2. (Optional) The changelog file path if known (e.g., "changelog is at CHANGELOG.md"). This avoids redundant file discovery.
+
+Do NOT specify WHAT to write—let the agent examine the diffs and infer user-facing changes. The agent will handle the entire changelog update workflow and return confirmation when complete."""  # noqa: E501
 
 
 def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
-    middleware = [FilesystemMiddleware(backend=backend)]
+    from automation.agent.graph import dynamic_write_todos_system_prompt
+
+    middleware = [
+        TodoListMiddleware(
+            system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=runtime.config.sandbox.enabled)
+        ),
+        FilesystemMiddleware(backend=backend),
+    ]
 
     if not offline:
         middleware.append(WebSearchMiddleware())
@@ -195,7 +233,12 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
     """
     Create the explore subagent.
     """
-    middleware = [FilesystemMiddleware(backend=backend, read_only=True)]
+    from automation.agent.graph import dynamic_write_todos_system_prompt
+
+    middleware = [
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
+        FilesystemMiddleware(backend=backend, read_only=True),
+    ]
 
     return SubAgent(
         name="explore",

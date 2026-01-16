@@ -12,7 +12,6 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages.content import ContentBlock, create_text_block
 
-from automation.agent.pr_describer.conf import settings as pr_describer_settings
 from automation.agent.pr_describer.graph import create_pr_describer_agent
 from automation.agent.utils import extract_images_from_text, images_to_content_blocks
 from codebase.base import GitPlatform, MergeRequest
@@ -68,35 +67,61 @@ Get logs from a specific pipeline job with pagination support (bottom-to-top).
 - Logs are shown from bottom to top, as errors typically appear at the end."""  # noqa: E501
 
 GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git platform tools
+## Git context
 
-You have access to the following tools to interact with the repository {{repository}} from the {{git_platform}} platform:
+You're currently working on the following repository:
+
+- Git platform: {{git_platform}}
+- Repository ID: {{repository}}
+- Current branch: {{current_branch}}
+- Default branch: {{default_branch}}
+- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
+
+### Tools
+
+You have access to the following tools to interact with the platform's resources:
 
 - `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
 - `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
 - `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
 
 ISSUE_GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git platform tools
+## Git context
 
-Your are working on the issue #{{issue_id}} created in the repository {{repository}} from the {{git_platform}} platform.
-The user will interact with you through the issue comments that will be provided to you as messages.
-You should respond to the user's comments with the appropriate actions and tools.
+- Repository ID: {{repository}}
+- Git platform: {{git_platform}}
+- Current branch: {{current_branch}}
+- Default branch: {{default_branch}}
+- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
 
-You have access to the following tool:
+You're currently working on issue #{{issue_id}}.
+
+The user will interact with you through the issue comments that will be provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
+
+### Tools
+
+You have access to the following tools to interact with the platform's resources:
 
 - `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
 - `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
-- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""
+- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
 
 MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git platform tools
+## Git context
 
-Your are working on the merge request `{{merge_request_id}}` in the repository {{repository}} from the {{git_platform}} platform.
-The user will interact with you through the merge request comments that will be provided to you as messages.
-You should respond to the user's comments with the appropriate actions.
+- Git platform: {{git_platform}}
+- Repository ID: {{repository}}
+- Current branch: {{current_branch}}
+- Default branch: {{default_branch}}
+- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
 
-You have access to the following tools:
+You're currently working on merge request `{{merge_request_id}}`.
+
+The user will interact with you through the merge request comments that will be provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
+
+### Tools
+
+You have access to the following tools to interact with the platform's resources:
 
 - `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
 - `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
@@ -365,21 +390,21 @@ class GitPlatformMiddleware(AgentMiddleware):
         Update the system prompt with the git platform system prompt.
         """
         if scope := request.runtime.context.scope:
-            system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(
-                git_platform=request.runtime.context.git_platform.value, repository=request.runtime.context.repo_id
-            )
+            context = {
+                "git_platform": request.runtime.context.git_platform.value,
+                "repository": request.runtime.context.repo_id,
+                "current_branch": request.runtime.context.repo.active_branch.name,
+                "default_branch": request.runtime.context.config.default_branch,
+            }
+            system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(**context)
 
             if scope == "issue":
                 system_prompt = ISSUE_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                    git_platform=request.runtime.context.git_platform.value,
-                    repository=request.runtime.context.repo_id,
-                    issue_id=request.runtime.context.issue.iid,
+                    issue_id=request.runtime.context.issue.iid, **context
                 )
             elif scope == "merge_request":
                 system_prompt = MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                    git_platform=request.runtime.context.git_platform.value,
-                    repository=request.runtime.context.repo_id,
-                    merge_request_id=request.runtime.context.merge_request.merge_request_id,
+                    merge_request_id=request.runtime.context.merge_request.merge_request_id, **context
                 )
 
             request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
@@ -420,8 +445,10 @@ class GitPlatformMiddleware(AgentMiddleware):
             merge_request = self._update_or_create_merge_request(
                 runtime, unique_branch_name, pr_metadata.title, pr_metadata.description
             )
+            merge_request_id = merge_request.merge_request_id
+            logger.info("[%s] Merge request created: %s", self.name, merge_request.web_url)
 
-        return {"branch_name": unique_branch_name, "merge_request_id": merge_request.merge_request_id}
+        return {"branch_name": unique_branch_name, "merge_request_id": merge_request_id}
 
     async def _get_mr_metadata(self, runtime: Runtime[RuntimeCtx], diff: str) -> PullRequestMetadata:
         """
@@ -450,16 +477,20 @@ class GitPlatformMiddleware(AgentMiddleware):
                 """
             ).format(issue=runtime.context.issue)
 
-        return await pr_describer.ainvoke(
+        result = await pr_describer.ainvoke(
             {
                 "diff": redact_diff_content(diff, runtime.context.config.omit_content_patterns),
                 "extra_context": extra_context,
             },
             config={
-                "tags": [pr_describer_settings.NAME, runtime.context.git_platform.value],
+                "tags": [pr_describer.get_name(), runtime.context.git_platform.value],
                 "metadata": {"scope": runtime.context.scope, "repo_id": runtime.context.repo_id},
             },
         )
+        if result and "structured_response" in result:
+            return result["structured_response"]
+
+        raise ValueError("Failed to get PR metadata from the diff.")
 
     def _update_or_create_merge_request(
         self, runtime: Runtime[RuntimeCtx], branch_name: str, title: str, description: str

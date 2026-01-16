@@ -98,7 +98,7 @@ class IssueAddressorManager(BaseManager):
                     ]
                 },
                 config=RunnableConfig(
-                    tags=[daiv_agent.name, self.client.git_platform.value],
+                    tags=[daiv_agent.get_name(), self.client.git_platform.value],
                     metadata={
                         "author": self.issue.author.username,
                         "issue_id": self.issue.iid,

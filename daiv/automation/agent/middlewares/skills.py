@@ -68,11 +68,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if "skills_metadata" in state:
             return None
 
-        await self._copy_builtin_skills()
+        await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
 
         return await super().abefore_agent(state, runtime, config)
 
-    async def _copy_builtin_skills(self):
+    async def _copy_builtin_skills(self, agent_path: Path):
         """
         Copy builtin skills to the project skills directory if they don't exist.
 
@@ -84,6 +84,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         committing them to the repository.
         """
         files_to_upload = []
+        project_skills_path = Path(f"/{agent_path.name}/{PROJECT_SKILLS_PATH}")
 
         for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
             if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":
@@ -92,12 +93,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             for root, _dirs, files in builtin_skill_dir.walk():
                 for file in files:
                     source_path = Path(root) / Path(file)
-                    dest_path = Path(PROJECT_SKILLS_PATH) / source_path.relative_to(BUILTIN_SKILLS_PATH)
+                    dest_path = project_skills_path / source_path.relative_to(BUILTIN_SKILLS_PATH)
                     if not dest_path.exists():
-                        dest_path.mkdir(parents=True, exist_ok=True)
                         files_to_upload.append((str(dest_path), source_path.read_text().encode("utf-8")))
 
-            dest_path = Path(PROJECT_SKILLS_PATH) / builtin_skill_dir.relative_to(BUILTIN_SKILLS_PATH)
+            dest_path = project_skills_path / builtin_skill_dir.relative_to(BUILTIN_SKILLS_PATH)
             files_to_upload.append((str(dest_path / ".gitignore"), b"*"))
 
         for response in await self._backend.aupload_files(files_to_upload):

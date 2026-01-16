@@ -11,9 +11,7 @@ from typing import TYPE_CHECKING, Annotated
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime  # noqa: TC002
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langgraph.types import Command
 from langgraph.typing import StateT  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -108,32 +106,6 @@ Use this tool to run commands, scripts, tests, builds, and other shell operation
 IMPORTANT: Avoid using cd to change the working directory, use absolute paths instead."""  # noqa: E501
 
 
-async def _get_or_start_session_id(runtime: ToolRuntime[RuntimeCtx]) -> str | None:
-    """
-    Get the sandbox session ID, starting a session if needed.
-
-    Args:
-        runtime: The tool runtime context.
-
-    Returns:
-        The sandbox session ID if available.
-    """
-    session_id = runtime.state.get("session_id")
-    if session_id:
-        return session_id
-
-    session_id = await DAIVSandboxClient().start_session(
-        StartSessionRequest(
-            base_image=runtime.context.config.sandbox.base_image,
-            extract_patch=True,
-            ephemeral=False,
-            network_enabled=True,
-        )
-    )
-    runtime.state["session_id"] = session_id
-    return session_id
-
-
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
 async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
@@ -141,11 +113,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     """
     repo_working_dir = Path(runtime.context.repo.working_dir)
 
-    session_id = await _get_or_start_session_id(runtime)
-    if session_id is None:
-        return "error: Failed to start sandbox session. The bash tool is not working properly."
-
-    response = await _run_bash_commands([command], repo_working_dir, session_id)
+    response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
     if response is None:
         return (
             "error: Failed to run command. Verify that the command is valid. "
@@ -159,17 +127,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
             logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
-    return Command(
-        update={
-            "session_id": session_id,
-            "messages": [
-                ToolMessage(
-                    content=json.dumps([result.model_dump(mode="json") for result in response.results]),
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
+    return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
 async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
@@ -257,7 +215,7 @@ class SandboxMiddleware(AgentMiddleware):
         self.close_session = close_session
         self.tools = [bash_tool]
 
-    async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
+    async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Prepare state for lazy sandbox session start.
 
@@ -266,13 +224,25 @@ class SandboxMiddleware(AgentMiddleware):
             runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
-            dict[str, list] | None: The state updates with the sandbox session placeholder.
+            dict[str, str] | None: The state updates with the sandbox session ID.
         """
-        if "session_id" in state:
+        if not self.close_session and "session_id" in state:
+            # If the session is not being closed, don't start a new one, reuse the existing one.
+            # Also, avoid reusing the session_id if it is already set from a previous run that failed to close
+            # the session.
             return None
-        return {"session_id": None}
 
-    async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, list] | None:
+        session_id = await DAIVSandboxClient().start_session(
+            StartSessionRequest(
+                base_image=runtime.context.config.sandbox.base_image,
+                extract_patch=True,
+                ephemeral=False,
+                network_enabled=True,
+            )
+        )
+        return {"session_id": session_id}
+
+    async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Close the sandbox session after the agent finishes the execution loop.
 
@@ -281,7 +251,7 @@ class SandboxMiddleware(AgentMiddleware):
             runtime (Runtime[RuntimeCtx]): The runtime context.
 
         Returns:
-            dict[str, list] | None: The state updates with the closed sandbox session.
+            dict[str, str] | None: The state updates with the closed sandbox session ID.
         """
         if self.close_session and "session_id" in state and state["session_id"] is not None:
             await DAIVSandboxClient().close_session(state["session_id"])

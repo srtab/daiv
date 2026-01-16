@@ -63,3 +63,6 @@ swebench-clean:
 
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
+
+langsmith-fetch:
+	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 10 ./my-traces

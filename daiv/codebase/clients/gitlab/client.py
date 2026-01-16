@@ -249,6 +249,7 @@ class GitLabClient(RepoClient):
             labels=mr.labels,
             web_url=mr.web_url,
             sha=mr.sha,
+            author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
         )
 
     def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
@@ -331,6 +332,11 @@ class GitLabClient(RepoClient):
                 labels=merge_request.labels,
                 web_url=merge_request.web_url,
                 sha=merge_request.sha,
+                author=User(
+                    id=merge_request.author.get("id"),
+                    username=merge_request.author.get("username"),
+                    name=merge_request.author.get("name"),
+                ),
             )
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -354,6 +360,11 @@ class GitLabClient(RepoClient):
                     labels=merge_request.labels,
                     web_url=merge_request.web_url,
                     sha=merge_request.sha,
+                    author=User(
+                        id=merge_request.author.get("id"),
+                        username=merge_request.author.get("username"),
+                        name=merge_request.author.get("name"),
+                    ),
                 )
             raise e
 
@@ -518,6 +529,11 @@ class GitLabClient(RepoClient):
                 description=mr["description"],
                 labels=mr["labels"],
                 web_url=mr.get("web_url"),
+                author=User(
+                    id=mr.get("author").get("id"),
+                    username=mr.get("author").get("username"),
+                    name=mr.get("author").get("name"),
+                ),
             )
             for mr in issue.related_merge_requests(get_all=True)
             if (assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id)

@@ -85,7 +85,7 @@ The user will primarily request you perform software engineering tasks. This inc
     assistant: [Uses the `task` tool with subagent_type=explore]
     </example>
 
-IMPORTANT: Always use the `write_todos` tool to plan and track tasks throughout the conversation.
+IMPORTANT: Proactively use the `write_todos` tool to plan and track tasks throughout the conversation when required. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
 
 {{^bash_tool_enabled}}
 ## Tool Limitations

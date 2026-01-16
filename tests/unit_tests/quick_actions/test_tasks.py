@@ -23,6 +23,7 @@ class TestExecuteQuickActionTask:
             description="Test MR Description",
             source_branch="source_branch",
             target_branch="target_branch",
+            author=self.user,
         )
 
     @patch("quick_actions.tasks.quick_action_registry")
