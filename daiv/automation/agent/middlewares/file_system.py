@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
@@ -9,15 +7,7 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesystemMiddleware
-from deepagents.middleware.filesystem import FilesystemState
-from langchain.tools import ToolRuntime
 from langchain_core.prompts import SystemMessagePromptTemplate
-
-if TYPE_CHECKING:
-    from deepagents.backends.protocol import BackendProtocol
-    from langchain_core.runnables import RunnableConfig
-    from langgraph.runtime import Runtime
-
 
 REMINDER_ABSOLUTE_PATHS = """
 IMPORTANT:
@@ -57,27 +47,6 @@ User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths
 """,
     "mustache",
 )
-
-
-def _get_backend2(
-    backend: BackendProtocol, state: FilesystemState, runtime: Runtime, config: RunnableConfig
-) -> BackendProtocol:
-    if callable(backend):
-        # Construct an artificial tool runtime to resolve backend factory
-        tool_runtime = ToolRuntime(
-            state=state,
-            context=runtime.context,
-            stream_writer=runtime.stream_writer,
-            store=runtime.store,
-            config=config,
-            tool_call_id=None,
-        )
-        backend = backend(tool_runtime)
-        if backend is None:
-            raise AssertionError("FilesystemMiddleware requires a valid backend instance")
-        return backend
-
-    return backend
 
 
 class FilesystemMiddleware(BaseFilesystemMiddleware):

@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING
 from django.core.cache import cache
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
 from automation.agent.base import ThinkingLevel  # noqa: TC001
 from automation.agent.conf import settings as deepagent_settings
 from automation.agent.constants import ModelName  # noqa: TC001
 from automation.agent.pr_describer.conf import settings as pr_describer_settings
+from core.conf import settings as core_settings
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -56,7 +57,7 @@ class Sandbox(BaseModel):
     """
 
     base_image: str | None = Field(
-        default="python:3.12-alpine",
+        default=core_settings.SANDBOX_BASE_IMAGE,
         examples=["python:3.12-alpine", "node:18-alpine"],
         description=(
             "The base image for the sandbox to allow agents to execute shell commands. "
@@ -64,17 +65,22 @@ class Sandbox(BaseModel):
             "To disable the sandbox, set this to `null`."
         ),
     )
-    network_enabled: bool = Field(default=False, description="Whether to enable the network in the sandbox.")
-    read_only_rootfs: bool = Field(
-        default=True, description="Whether to enable the read-only root filesystem in the sandbox."
+    ephemeral: bool = Field(
+        default=core_settings.SANDBOX_EPHEMERAL,
+        description="Whether to make sandbox sessions ephemeral (server decides persistence behavior).",
     )
-    memory_bytes: int | None = Field(default=None, description="The memory limit for the sandbox.")
-    cpu_time_seconds: int | None = Field(default=None, description="The CPU time limit for the sandbox.")
-    cpus: str | None = Field(default=None, description="The CPU limit for the sandbox.")
-    format_code: list[str] | None = Field(
-        default=None,
-        examples=[["ruff check --fix", "ruff format"], ["npm run format", "npx prettier --write"]],
-        description="Commands to be executed to format the code.",
+    network_enabled: bool = Field(
+        default=core_settings.SANDBOX_NETWORK_ENABLED, description="Whether to enable the network in the sandbox."
+    )
+    memory_bytes: int | None = Field(
+        default=core_settings.SANDBOX_MEMORY,
+        validation_alias=AliasChoices("memory_bytes", "memory"),
+        description="The memory limit for the sandbox (bytes).",
+    )
+    cpus: float | None = Field(
+        default=core_settings.SANDBOX_CPU,
+        validation_alias=AliasChoices("cpus", "cpu"),
+        description="The CPU limit for the sandbox (CPUs).",
     )
 
     @property
@@ -83,13 +89,6 @@ class Sandbox(BaseModel):
         Check if the sandbox is enabled.
         """
         return self.base_image is not None
-
-    @property
-    def format_code_enabled(self) -> bool:
-        """
-        Check if the format code is enabled.
-        """
-        return self.enabled and self.format_code is not None
 
 
 class AgentModelConfig(BaseModel):

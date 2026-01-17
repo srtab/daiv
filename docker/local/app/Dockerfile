@@ -26,9 +26,6 @@ RUN apt-get update \
         ca-certificates \
         ripgrep \
         # Cleaning up unused files
-    && curl -fsSL https://get.docker.com -o get-docker.sh \
-    && sh get-docker.sh \
-    && rm get-docker.sh \
     && apt-get purge -y --auto-remove \
         -o APT::AutoRemove::RecommendsImportant=0 \
         -o APT::Autoremove::SuggestsImportant=0 \

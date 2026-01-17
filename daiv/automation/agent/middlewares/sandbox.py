@@ -236,8 +236,10 @@ class SandboxMiddleware(AgentMiddleware):
             StartSessionRequest(
                 base_image=runtime.context.config.sandbox.base_image,
                 extract_patch=True,
-                ephemeral=False,
-                network_enabled=True,
+                ephemeral=runtime.context.config.sandbox.ephemeral,
+                network_enabled=runtime.context.config.sandbox.network_enabled,
+                memory_bytes=runtime.context.config.sandbox.memory_bytes,
+                cpus=runtime.context.config.sandbox.cpus,
             )
         )
         return {"session_id": session_id}

@@ -155,8 +155,3 @@ services:
   #     app:
   #       condition: service_healthy
   #       restart: true
-
-
-volumes:
-  repo-workspace:
-    driver: local

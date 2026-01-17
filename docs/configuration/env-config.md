@@ -102,6 +102,11 @@ Variables marked with:
 | `DAIV_SANDBOX_URL`     | URL of the sandbox service    | `http://sandbox:8000` | `http://sandbox:8000` |
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds        | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
+| `DAIV_SANDBOX_BASE_IMAGE` | Default base image for sandbox sessions (enables sandbox when set) | `python:3.12-alpine` | `python:3.14-alpine` |
+| `DAIV_SANDBOX_EPHEMERAL` | Default ephemeral setting for sandbox sessions | `False` | `True` |
+| `DAIV_SANDBOX_NETWORK_ENABLED` | Default network setting for sandbox sessions | `False` | `True` |
+| `DAIV_SANDBOX_CPU` | Default CPU limit for sandbox sessions (CPUs) | `None` | `1.0` |
+| `DAIV_SANDBOX_MEMORY` | Default memory limit for sandbox sessions (bytes) | `None` | `1073741824` |
 
 !!! info
     Check the [daiv-sandbox](https://github.com/daiv/daiv-sandbox) repository for server-side configuration of the sandbox service.

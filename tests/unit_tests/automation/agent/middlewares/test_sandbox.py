@@ -23,6 +23,10 @@ def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
     runtime.context.config = Mock()
     runtime.context.config.sandbox = Mock()
     runtime.context.config.sandbox.base_image = "python:3.12"
+    runtime.context.config.sandbox.ephemeral = False
+    runtime.context.config.sandbox.network_enabled = False
+    runtime.context.config.sandbox.memory_bytes = None
+    runtime.context.config.sandbox.cpus = None
     return runtime
 
 
