@@ -34,12 +34,12 @@ graph TD
     B --> D["💬 Comment on Issue/MR/PR<br/>(review feedback or @daiv command)"]
     B --> F["📤 Code Push<br/>(repository updates)"]
 
-    C --> G["🚀 Issue Addressor<br/>Plan → Approve → Execute"]
+    C --> G["🚀 Issue Addressor<br/>Plan → Confirm → Execute"]
     D --> H["🔍 Comment Analysis"]
     F --> J["🗂️ Clear cache"]
 
     H --> K["💬 Code Review Response<br/>(changes or answers)"]
-    H --> L["⚡ Quick Action<br/>(help, plan, pipeline commands)"]
+    H --> L["⚡ Quick Action<br/>(help, clone commands)"]
 
     G --> M["📤 Creates Merge/Pull Request"]
     K --> N["📝 Updates Code or Replies"]
@@ -70,7 +70,7 @@ Both platforms support all core features including Issue Addressing, Code Review
 
 ### **Step 2: Try DAIV**
 - **Create a test issue** - Write "Add a hello world function" and watch DAIV generate a plan
-- **Approve the plan** - Comment "@daiv /approve-plan" to see DAIV create a pull request with working code
+- **Approve the plan** - Reply to the plan comment with `@daiv proceed` to see DAIV create a pull request with working code
 
 ### **Step 3: Customize**
 - **[Configure agents](ai-agents/overview.md)** - Adjust how DAIV's AI agents behave for your codebase
@@ -88,7 +88,7 @@ Here's what a typical DAIV interaction looks like:
 
 1. **Developer creates issue:** "Add rate limiting to the API endpoints"
 2. **DAIV generates plan:** Analyzes codebase and posts detailed implementation steps
-3. **Developer approves:** Comments "@daiv /approve-plan"
+3. **Developer approves:** Comments "@daiv proceed"
 4. **DAIV implements:** Creates merge request with rate limiting code, tests, and documentation
 5. **Reviewer requests changes:** "@daiv use Redis instead of in-memory storage"
 6. **DAIV updates code:** Automatically modifies the implementation to use Redis
