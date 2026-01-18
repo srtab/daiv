@@ -208,6 +208,19 @@ This section documents the environment variables for each tool configuration use
 | `AUTOMATION_WEB_SEARCH_ENGINE`  | Web search engine to use (`duckduckgo`, `tavily`)              | `duckduckgo`   | `tavily`|
 | `AUTOMATION_WEB_SEARCH_API_KEY` :material-lock: | Web search API key (required if engine is `tavily`)            | *(none)*       |         |
 
+### Web Fetch
+
+The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content.
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `AUTOMATION_WEB_FETCH_ENABLED`  | Enable/disable the native `web_fetch` tool                     | `true`         | `false` |
+| `AUTOMATION_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `openrouter:openai/gpt-4.1-mini` | `openrouter:anthropic/claude-haiku-4.5` |
+| `AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `900` |
+| `AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `30`           | `10` |
+| `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests                 | *(none)*       | `http://proxy:8080` |
+| `AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `80000` | `120000` |
+
 ### MCP Tools
 
 MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality.
@@ -217,15 +230,13 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_PROXY_HOST`                | Host URL for the MCP proxy server                             | `http://mcp-proxy:9090`        | `http://localhost:9090` |
 | `MCP_PROXY_ADDR`                | Address for the MCP proxy to listen on                        | `:9090`                        | `:9090` |
 | `MCP_PROXY_AUTH_TOKEN` :material-lock: | Authentication token for MCP proxy                             | *(none)*                       | `secure-auth-token` |
-| `MCP_FETCH_ENABLED`             | Enable/disable Fetch MCP server for web scraping              | `true`                         | `false` |
-| `MCP_FETCH_VERSION`             | Version of the Fetch MCP server                               | `2025.4.7`                     | `2025.4.7` |
 | `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server for error monitoring         | `true`                         | `false` |
 | `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.17.1`                       | `0.17.1` |
 | `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                        | *(none)*                       | `sntryu_abc123...` |
 | `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
 
 !!! info
-    MCP tools are currently available in the **Plan and Execute** agent. The Fetch server provides web scraping capabilities, while the Sentry server enables error monitoring integration. For detailed configuration, see [MCP Tools](../ai-agents/mcp-tools.md).
+    MCP tools are currently available in the **Plan and Execute** agent. The Sentry server enables error monitoring integration. For detailed configuration, see [MCP Tools](../ai-agents/mcp-tools.md).
 
 !!! note
     Sentry MCP server requires both `MCP_SENTRY_ACCESS_TOKEN` and `MCP_SENTRY_HOST` to be configured for functionality.

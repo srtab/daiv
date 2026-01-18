@@ -9,13 +9,6 @@ class MCPSettings(BaseSettings):
     PROXY_ADDR: str = Field(default=":9090", description="The address the MCP proxy listens on.")
     PROXY_AUTH_TOKEN: SecretStr | None = Field(default=None, description="The auth token to the MCP proxy")
 
-    # Fetch MCP server
-    FETCH_ENABLED: bool = Field(default=True, description="Whether to enable the Fetch MCP server")
-    FETCH_VERSION: str = Field(
-        default="2025.4.7",
-        description="The version of the Fetch MCP server: https://pypi.org/project/mcp-server-fetch/",
-    )
-
     # Sentry MCP server
     SENTRY_ENABLED: bool = Field(default=True, description="Whether to enable the Sentry MCP server")
     SENTRY_VERSION: str = Field(

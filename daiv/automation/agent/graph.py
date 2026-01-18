@@ -33,6 +33,7 @@ from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
@@ -40,6 +41,7 @@ from automation.agent.subagents import (
     create_explore_subagent,
     create_general_purpose_subagent,
 )
+from automation.conf import settings as automation_settings
 from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
@@ -166,6 +168,8 @@ async def create_daiv_agent(
 
     if not offline:
         agent_conditional_middlewares.append(WebSearchMiddleware())
+    if not offline and automation_settings.WEB_FETCH_ENABLED:
+        agent_conditional_middlewares.append(WebFetchMiddleware())
     if ctx.config.sandbox.enabled:
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:

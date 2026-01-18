@@ -1,29 +1,6 @@
 from unittest.mock import patch
 
-from automation.agent.mcp.servers import FetchMCPServer, SentryMCPServer
-
-
-class TestFetchMCPServer:
-    def test_fetch_server_has_correct_name(self):
-        """Test that FetchMCPServer has the correct name."""
-        server = FetchMCPServer()
-        assert server.name == "fetch"
-
-    @patch("automation.agent.mcp.servers.settings")
-    def test_fetch_server_is_enabled_when_setting_true(self, mock_settings):
-        """Test that FetchMCPServer is enabled when FETCH_ENABLED is True."""
-        mock_settings.FETCH_ENABLED = True
-        server = FetchMCPServer()
-
-        assert server.is_enabled() is True
-
-    @patch("automation.agent.mcp.servers.settings")
-    def test_fetch_server_is_disabled_when_setting_false(self, mock_settings):
-        """Test that FetchMCPServer is disabled when FETCH_ENABLED is False."""
-        mock_settings.FETCH_ENABLED = False
-        server = FetchMCPServer()
-
-        assert server.is_enabled() is False
+from automation.agent.mcp.servers import SentryMCPServer
 
 
 class TestSentryMCPServer:

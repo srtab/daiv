@@ -1,14 +1,15 @@
 from django.core.checks import Error, register
 
 from .agent.base import BaseAgent, ModelProvider
-from .agent.conf import settings as deepagent_settings
+from .agent.conf import settings as agent_settings
 from .agent.pr_describer.conf import settings as pr_describer_settings
 from .conf import settings
 
 declared_model_names = {
-    deepagent_settings.MODEL_NAME,
-    deepagent_settings.FALLBACK_MODEL_NAME,
+    agent_settings.MODEL_NAME,
+    agent_settings.FALLBACK_MODEL_NAME,
     pr_describer_settings.MODEL_NAME,
+    settings.WEB_FETCH_MODEL_NAME,
 }
 
 

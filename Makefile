@@ -14,7 +14,7 @@ help:
 	@echo "  make evals          - Run evals"
 
 test:
-	LANGCHAIN_TRACING_V2=false uv run pytest tests
+	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests
 
 lint: lint-check lint-format
 
