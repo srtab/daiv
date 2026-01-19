@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -828,28 +828,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#approve-plan-action" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📋 Approve Plan Action
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#revise-plan-action" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📋 Revise Plan Action
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#clone-to-topic-action" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1274,28 +1252,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#approve-plan-action" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📋 Approve Plan Action
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#revise-plan-action" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📋 Revise Plan Action
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#clone-to-topic-action" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1518,7 +1474,7 @@
 <tr>
 <td><strong>Quick Actions</strong></td>
 <td><code>@daiv /command</code></td>
-<td>Execute specific commands (approve plans, get help, clone issues)</td>
+<td>Execute specific commands (get help, clone issues)</td>
 </tr>
 <tr>
 <td><strong>Direct Mentions</strong></td>
@@ -1542,7 +1498,7 @@
 <p>Quick Actions use shell-like parsing with support for:</p>
 <ul>
 <li><strong>Simple commands</strong>: <code>@daiv /help</code></li>
-<li><strong>Commands with arguments</strong>: <code>@daiv /approve-plan "some argument"</code>, <code>@daiv /revise-plan "some argument"</code></li>
+<li><strong>Commands with arguments</strong>: <code>@daiv /clone-to-topic backend, api</code></li>
 <li><strong>Case-insensitive</strong>: <code>@DAIV /HELP</code> works the same as <code>@daiv /help</code></li>
 </ul>
 <h3 id="workflow">Workflow</h3>
@@ -1560,13 +1516,9 @@
     I --&gt; J["🛠️ Execute Specific Logic"]
 
     J --&gt; K["📖 Help Action&lt;br/&gt;(show available commands)"]
-    J --&gt; L["📋 Plan Action&lt;br/&gt;(regenerate/approve plan)"]
-    J --&gt; M["🔧 Pipeline Action&lt;br/&gt;(repair failed jobs)"]
     J --&gt; R["📤 Clone to Topic&lt;br/&gt;(clone issue to repos)"]
 
     K --&gt; N["💬 Posts Help Message"]
-    L --&gt; O["🔄 Triggers Plan Workflow"]
-    M --&gt; P["🚦 Triggers Pipeline Repair"]
     R --&gt; S["📋 Creates Issues in&lt;br/&gt;Matching Repositories"]
 
     H --&gt; Q["💬 Posts Error Message&lt;br/&gt;(suggests valid actions)"]
@@ -1593,24 +1545,6 @@
 </code></pre></div></td></tr></table></div></p>
 <p><strong>Response</strong>: DAIV replies with a formatted list of all available Quick Actions and their descriptions.</p>
 <hr />
-<h3 id="approve-plan-action">📋 Approve Plan Action</h3>
-<p><strong>Command</strong>: <code>/approve-plan</code></p>
-<p><strong>Purpose</strong>: Run or launch the current plan for the issue</p>
-<p><strong>Scopes</strong>: Issues only</p>
-<p><strong>Usage</strong>: Leave a comment to approve and execute the current plan</p>
-<p><strong>Example</strong>:
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv /approve-plan
-</code></pre></div></td></tr></table></div></p>
-<hr />
-<h3 id="revise-plan-action">📋 Revise Plan Action</h3>
-<p><strong>Command</strong>: <code>/revise-plan</code></p>
-<p><strong>Purpose</strong>: Discard current plan and create a new one from scratch</p>
-<p><strong>Scopes</strong>: Issues only</p>
-<p><strong>Usage</strong>: Leave a comment on the issue to reset and regenerate the plan</p>
-<p><strong>Example</strong>:
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv /revise-plan
-</code></pre></div></td></tr></table></div></p>
-<hr />
 <h3 id="clone-to-topic-action">📤 Clone to Topic Action</h3>
 <p><strong>Command</strong>: <code>/clone-to-topic &lt;topics&gt;</code></p>
 <p><strong>Purpose</strong>: Clone the current issue to all repositories matching the specified topics.</p>
@@ -1618,7 +1552,7 @@
 <p><strong>Arguments</strong>: Comma-separated list of topics to match repositories against.</p>
 <p><strong>Usage</strong>: Leave a comment specifying the topics, and DAIV will create a copy of the issue in every matching repository (excluding the current one).</p>
 <p><strong>Example</strong>:
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv /clone-to-topic backend, microservices
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv /clone-to-topic backend, microservices
 </code></pre></div></td></tr></table></div></p>
 <p><strong>Response</strong>: DAIV replies with a summary of the cloned issues, including links to each new issue created.</p>
 <p><strong>Behavior</strong>:</p>
@@ -1635,7 +1569,7 @@
 <ul>
 <li>Check that the action supports the current scope (issue vs merge/pull request)</li>
 <li>Ensure proper spelling and case (actions are case-insensitive)</li>
-<li>Verify command syntax (e.g., <code>/approve-plan</code> not <code>/plan-execute</code>)</li>
+<li>Verify command syntax (e.g., <code>/help</code> not <code>/Help</code>)</li>
 </ul>
 <p><strong>No response from DAIV</strong>:</p>
 <ul>
@@ -1653,11 +1587,6 @@
 <li>Ensure the pipeline is in "failed" status</li>
 <li>Check that failed jobs have <code>script_failure</code> as the failure reason</li>
 <li>Verify jobs are not marked as <code>allow_failure</code></li>
-</ul>
-<p><strong>Plan action issues</strong>:</p>
-<ul>
-<li>Ensure you're commenting on an issue (not merge/pull request)</li>
-<li>Check if there's an existing plan to execute or revise</li>
 </ul>
 <p><strong>Clone to topic action issues</strong>:</p>
 <ul>
@@ -1677,41 +1606,37 @@
 <hr />
 <h2 id="examples">Examples</h2>
 <h3 id="getting-help">Getting Help</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /help
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv /help
+</code></pre></div></td></tr></table></div>
+<p><strong>Response</strong>:
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span>
+<span class="normal"><a href="#__codelineno-3-4">4</a></span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>### 🤖 DAIV Quick-Actions
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>Comment one of the commands below on this issue to trigger the bot:
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a>- `@daiv /help` - Shows the help message with the available quick actions.
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a>- `@daiv /clone-to-topic &lt;topics&gt;` - Clone this issue to all repositories matching the specified topics.
+</code></pre></div></td></tr></table></div></p>
+<hr />
+<h3 id="cloning-an-issue-to-multiple-repositories">Cloning an Issue to Multiple Repositories</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /clone-to-topic backend, api
 </code></pre></div></td></tr></table></div>
 <p><strong>Response</strong>:
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
 <span class="normal"><a href="#__codelineno-5-2">2</a></span>
 <span class="normal"><a href="#__codelineno-5-3">3</a></span>
-<span class="normal"><a href="#__codelineno-5-4">4</a></span>
-<span class="normal"><a href="#__codelineno-5-5">5</a></span>
-<span class="normal"><a href="#__codelineno-5-6">6</a></span>
-<span class="normal"><a href="#__codelineno-5-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>### 🤖 DAIV Quick-Actions
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a>Comment one of the commands below on this issue to trigger the bot:
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4"></a>- `@daiv /help` - Shows the help message with the available quick actions.
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a>- `@daiv /approve-plan` - Run or launch the current plan.
-<a id="__codelineno-5-6" name="__codelineno-5-6"></a>- `@daiv /revise-plan` - Discard current plan and create a new one from scratch.
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a>- `@daiv /clone-to-topic &lt;topics&gt;` - Clone this issue to all repositories matching the specified topics.
-</code></pre></div></td></tr></table></div></p>
-<hr />
-<h3 id="cloning-an-issue-to-multiple-repositories">Cloning an Issue to Multiple Repositories</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv /clone-to-topic backend, api
-</code></pre></div></td></tr></table></div>
-<p><strong>Response</strong>:
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
-<span class="normal"><a href="#__codelineno-7-2">2</a></span>
-<span class="normal"><a href="#__codelineno-7-3">3</a></span>
-<span class="normal"><a href="#__codelineno-7-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>Cloned issue to `3` repositories:
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a>- org/service-users#42
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a>- org/service-orders#18
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a>- org/service-payments#27
+<span class="normal"><a href="#__codelineno-5-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>Cloned issue to `3` repositories:
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a>- org/service-users#42
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a>- org/service-orders#18
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a>- org/service-payments#27
 </code></pre></div></td></tr></table></div></p>
 <hr />
 <h2 id="extension-and-development">Extension and Development</h2>
 <h3 id="adding-new-actions">Adding New Actions</h3>
 <ol>
-<li><strong>Create</strong> new action class in <code>automation/quick_actions/actions/</code></li>
+<li><strong>Create</strong> new action class in <code>quick_actions/actions/</code></li>
 <li><strong>Implement</strong> required methods <code>execute_action</code> and <code>actions</code></li>
 <li><strong>Decorate</strong> with <code>@quick_action</code> specifying command and scopes</li>
 <li><strong>Import</strong> in the actions module</li>
@@ -1747,7 +1672,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 15, 2025 17:46:54 UTC">December 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 19, 2026 22:07:38 UTC">January 19, 2026</span>
   </span>
 
     
@@ -1757,7 +1682,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 15, 2025 17:46:54 UTC">December 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 19, 2026 22:07:38 UTC">January 19, 2026</span>
   </span>
 
     
@@ -1803,10 +1728,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
