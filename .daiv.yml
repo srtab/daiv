@@ -1,3 +1,2 @@
 sandbox:
-  # Use the base image with uv installed
   base_image: "ghcr.io/astral-sh/uv:python3.14-bookworm"
