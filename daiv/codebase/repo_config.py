@@ -150,45 +150,6 @@ class RepositoryConfig(BaseModel):
     )
 
     # Codebase restrictions
-    exclude_patterns: tuple[str, ...] = Field(
-        default=(
-            # files
-            "*.pyc",
-            "*.log",
-            "*.zip",
-            "*.coverage",
-            # folders
-            "**/.git/**",
-            "**/.mypy_cache/**",
-            "**/.tox/**",
-            "**/vendor/**",
-            "**/venv/**",
-            "**/.venv/**",
-            "**/.env/**",
-            "**/node_modules/**",
-            "**/dist/**",
-            "**/__pycache__/**",
-            "**/data/**",
-            "**/.idea/**",
-            "**/.pytest_cache/**",
-            "**/.ruff_cache/**",
-        ),
-        description=(
-            "List of path patterns that DAIV should ignore when navigating the codebase. "
-            "For more information on the patterns syntax, refer to the `fnmatch` documentation: "
-            "https://docs.python.org/3/library/fnmatch.html"
-        ),
-    )
-    extend_exclude_patterns: list[str] = Field(
-        default_factory=list,
-        description=(
-            "List of path patterns that DAIV should ignore when navigating the codebase, "
-            "in addition to those specified by `exclude_patterns`."
-            "For more information on the patterns syntax, refer to the `fnmatch` documentation: "
-            "https://docs.python.org/3/library/fnmatch.html"
-        ),
-        examples=["**/tests/**", "requirements.txt"],
-    )
     omit_content_patterns: tuple[str, ...] = Field(
         default=("*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"),
         description=(
@@ -264,11 +225,3 @@ class RepositoryConfig(BaseModel):
         """
         cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
         logger.info("Invalidated cache for repository %s", repo_id)
-
-    @property
-    def combined_exclude_patterns(self) -> tuple[str, ...]:
-        """
-        Combines the base exclude patterns with any additional patterns specified.
-        Returns a tuple of all patterns that should be excluded.
-        """
-        return tuple(set(self.exclude_patterns) | set(self.extend_exclude_patterns))

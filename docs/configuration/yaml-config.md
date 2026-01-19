@@ -16,11 +16,6 @@ default_branch: main
 context_file_name: "AGENTS.md"
 
 # File access
-extend_exclude_patterns:
-  - "**/tests/**"
-  - "**/*.test.ts"
-  - "coverage/**"
-
 omit_content_patterns:
   - "*.min.js"
   - "*.svg"

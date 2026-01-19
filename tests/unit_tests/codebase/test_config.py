@@ -12,7 +12,6 @@ class RepositoryConfigTest:
             "code_review": {"enabled": True},
             "issue_addressing": {"enabled": True},
             "quick_actions": {"enabled": True},
-            "extend_exclude_patterns": ["tests/"],
         }
         mock_cache.get.return_value = cached_config
 
@@ -22,7 +21,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert config.extend_exclude_patterns == ["tests/"]
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @patch("codebase.repo_config.cache")
@@ -38,8 +36,6 @@ class RepositoryConfigTest:
           enabled: true
         quick_actions:
           enabled: true
-        extend_exclude_patterns:
-          - tests/
         """
 
         config = RepositoryConfig.get_config(repo_id)
@@ -48,7 +44,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert config.extend_exclude_patterns == ["tests/"]
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -66,7 +61,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -90,7 +84,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -110,7 +103,6 @@ class RepositoryConfigTest:
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.quick_actions.enabled is True
-        assert config.extend_exclude_patterns == []
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
