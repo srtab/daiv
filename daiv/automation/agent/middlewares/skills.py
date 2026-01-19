@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
-from deepagents.middleware.skills import SkillsState, SkillsStateUpdate
 
 from automation.agent.constants import BUILTIN_SKILLS_PATH, PROJECT_SKILLS_PATH
 
@@ -24,11 +24,6 @@ You have access to a skills library that provides specialized capabilities and d
 
 {skills_list}
 
-**Builtin Skills Are Available in the Project Directory:**
-Builtin skills are copied into the project's skills directory at agent startup so you can access their `SKILL.md` and
-supporting files through the normal filesystem tools. These copied skill folders include a `.gitignore` to keep them
-out of commits by default.
-
 **How to Use Skills (Progressive Disclosure):**
 
 Skills follow a **progressive disclosure** pattern - you see their name and description above, but only read full instructions when needed:
@@ -38,27 +33,33 @@ Skills follow a **progressive disclosure** pattern - you see their name and desc
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
 4. **Access supporting files**: Skills may include helper scripts, configs, or reference docs - use absolute paths to access them
 
-**Editing Builtin Skills:**
-If a user asks to change a builtin skill and expects the change to be committed, delete the `.gitignore` inside that
-builtin skill directory before editing so the files are tracked by git.
-
 **When to Use Skills:**
 - User's request matches a skill's domain (e.g., "research X" -> web-research skill)
 - You need specialized knowledge or structured workflows
 - A skill provides proven patterns for complex tasks
 
 **Executing Skill Scripts:**
-Skills may contain Python scripts or other executable files. Always use absolute paths from the skill list to execute them
-and use the bash tool when you need to run scripts.
+Skills may contain Python scripts or other executable files.
+Always use absolute paths from the skill list to execute them and use the bash tool when you need to run scripts.
+
+**Builtin Skills Are Available in the Project Directory:**
+Builtin skills are copied into the project's skills directory at agent startup so you can access their `SKILL.md` and
+supporting files through the normal filesystem tools. These copied skill folders include a `.gitignore` to keep them
+out of commits by default.
+
+**Editing Builtin Skills:**
+If a user asks to change a builtin skill and expects the change to be committed, delete the `.gitignore` inside that
+builtin skill directory before editing so the files are tracked by git.
 
 **Example Workflow:**
-
+<example>
 User: "Can you research the latest developments in quantum computing?"
 
-1. Check available skills -> See "web-research" skill with its path
-2. Read the skill using the path shown
-3. Follow the skill's research workflow (search -> organize -> synthesize)
-4. Use any helper scripts with absolute paths to execute them
+Assistant: Check available skills -> See "web-research" skill with its path
+Assistant: Read the skill using the path shown
+Assistant: Follow the skill's research workflow (search -> organize -> synthesize)
+Assistant: Use any helper scripts with absolute paths to execute them with the bash tool
+</example>
 
 Remember: Skills make you more capable and consistent. When in doubt, check if a skill exists for the task!"""  # noqa: E501
 
@@ -82,11 +83,21 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if "skills_metadata" in state:
             return None
 
-        await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
+        builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
 
-        return await super().abefore_agent(state, runtime, config)
+        skills_update = await super().abefore_agent(state, runtime, config)
 
-    async def _copy_builtin_skills(self, agent_path: Path):
+        # Mark builtin skills as builtin. Unmark non-builtin skills. This is necessary because the builtin skills can
+        # be rewritten to the project skills directory by the user and they should not be marked as builtin anymore.
+        if skills_update is not None:
+            for skill in skills_update["skills_metadata"]:
+                if skill["name"] in builtin_skills:
+                    skill["metadata"]["is_builtin"] = True
+                else:
+                    skill["metadata"].pop("is_builtin", None)
+        return skills_update
+
+    async def _copy_builtin_skills(self, agent_path: Path) -> list[str]:
         """
         Copy builtin skills to the project skills directory if they don't exist.
 
@@ -99,13 +110,19 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         Args:
             agent_path: The path to the agent's repository.
+
+        Returns:
+            A list of builtin skill names.
         """
+        builtin_skills = []
         files_to_upload = []
         project_skills_path = Path(f"/{agent_path.name}/{PROJECT_SKILLS_PATH}")
 
         for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
             if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":
                 continue
+
+            builtin_skills.append(builtin_skill_dir.name)
 
             for root, _dirs, files in builtin_skill_dir.walk():
                 for file in files:
@@ -120,3 +137,23 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         for response in await self._backend.aupload_files(files_to_upload):
             if response.error:
                 raise RuntimeError(f"Failed to upload builtin skill: {response.error}")
+        return builtin_skills
+
+    def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
+        """
+        Format the skills list for the system prompt.
+        """
+        if not skills:
+            paths = [f"{source_path}" for source_path in self.sources]
+            return f"(No skills available yet. You can create skills in {' or '.join(paths)})"
+
+        lines = []
+        for skill in skills:
+            metadata = skill.get("metadata", {})
+            if metadata.get("is_builtin"):
+                lines.append(f"- **{skill['name']} (Builtin)**: {skill['description']}")
+            else:
+                lines.append(f"- **{skill['name']}**: {skill['description']}")
+            lines.append(f"  -> Read `{skill['path']}` for full instructions")
+
+        return "\n".join(lines)

@@ -16,15 +16,15 @@ def _make_runtime(*, repo_working_dir: str) -> Mock:
     return runtime
 
 
-def _make_skill_md(*, name: str, description: str) -> str:
-    return f"""\
----
-name: {name}
-description: {description}
----
-
-# {name}
-"""
+def _make_skill_md(*, name: str, description: str, metadata: dict[str, str] | None = None) -> str:
+    frontmatter_lines = ["---", f"name: {name}", f"description: {description}"]
+    if metadata:
+        frontmatter_lines.append("metadata:")
+        for key, value in metadata.items():
+            frontmatter_lines.append(f"  {key}: {value}")
+    frontmatter_lines.append("---")
+    frontmatter = "\n".join(frontmatter_lines)
+    return f"{frontmatter}\n\n# {name}\n"
 
 
 class TestSkillsMiddleware:
@@ -73,6 +73,40 @@ class TestSkillsMiddleware:
         assert skills["skill-two"]["description"] == "does two"
         assert skills["skill-one"]["path"] == f"/{repo_name}/.daiv/skills/skill-one/SKILL.md"
         assert skills["skill-two"]["path"] == f"/{repo_name}/.daiv/skills/skill-two/SKILL.md"
+        assert skills["skill-one"]["metadata"]["is_builtin"] is True
+        assert skills["skill-two"]["metadata"]["is_builtin"] is True
+
+    async def test_marks_builtin_metadata_and_clears_custom(self, tmp_path: Path):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        repo_name = "repoX"
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-two").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="does one"))
+        (builtin / "skill-two" / "SKILL.md").write_text(_make_skill_md(name="skill-two", description="does two"))
+
+        custom_skill = tmp_path / repo_name / ".daiv" / "skills" / "custom-skill"
+        custom_skill.mkdir(parents=True)
+        (custom_skill / "SKILL.md").write_text(
+            _make_skill_md(
+                name="custom-skill", description="does custom", metadata={"is_builtin": "true", "owner": "user"}
+            )
+        )
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+
+        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+            result = await middleware.abefore_agent({}, runtime, Mock())
+
+        assert result is not None
+        skills = {skill["name"]: skill for skill in result["skills_metadata"]}
+        assert skills["skill-one"]["metadata"]["is_builtin"] is True
+        assert skills["skill-two"]["metadata"]["is_builtin"] is True
+        assert skills["custom-skill"]["metadata"]["owner"] == "user"
+        assert "is_builtin" not in skills["custom-skill"]["metadata"]
 
     async def test_uploads_missing_files_and_gitignore(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -160,3 +194,26 @@ class TestSkillsMiddleware:
             pytest.raises(RuntimeError, match="Failed to upload builtin skill: boom"),
         ):
             await middleware._copy_builtin_skills(agent_path=tmp_path / "repoX")
+
+    def test_format_skills_list_marks_builtin(self):
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        formatted = middleware._format_skills_list([
+            {
+                "name": "skill-one",
+                "description": "does one",
+                "path": "/skills/skill-one/SKILL.md",
+                "metadata": {"is_builtin": True},
+            },
+            {
+                "name": "custom-skill",
+                "description": "does custom",
+                "path": "/skills/custom-skill/SKILL.md",
+                "metadata": {},
+            },
+        ])
+
+        lines = formatted.splitlines()
+        assert lines[0] == "- **skill-one (Builtin)**: does one"
+        assert lines[1] == "  -> Read `/skills/skill-one/SKILL.md` for full instructions"
+        assert lines[2] == "- **custom-skill**: does custom"
+        assert lines[3] == "  -> Read `/skills/custom-skill/SKILL.md` for full instructions"

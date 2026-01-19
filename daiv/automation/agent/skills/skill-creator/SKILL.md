@@ -1,9 +1,6 @@
 ---
 name: skill-creator
 description: "Guide for creating effective skills that extend DAIV agent with specialized knowledge, workflows, or tool integrations. Use this skill when the user wants to create a new skill, update an existing skill, or get guidance on skill design patterns."
-metadata:
-  scope: issue
-  builtin: true
 ---
 
 # Skill Creator
