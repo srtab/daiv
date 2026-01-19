@@ -1,6 +1,9 @@
 ---
 name: creating-agents-md-file
 description: Generate or update an AGENTS.md file by analyzing a repository's structure, commands, tests, and conventions. Use when asked to create or improve `AGENTS.md`.
+metadata:
+  scope: issue
+  builtin: true
 ---
 
 # Creating AGENTS.md

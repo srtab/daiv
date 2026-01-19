@@ -24,14 +24,23 @@ You have access to a skills library that provides specialized capabilities and d
 
 {skills_list}
 
+**Builtin Skills Are Available in the Project Directory:**
+Builtin skills are copied into the project's skills directory at agent startup so you can access their `SKILL.md` and
+supporting files through the normal filesystem tools. These copied skill folders include a `.gitignore` to keep them
+out of commits by default.
+
 **How to Use Skills (Progressive Disclosure):**
 
 Skills follow a **progressive disclosure** pattern - you see their name and description above, but only read full instructions when needed:
 
 1. **Recognize when a skill applies**: Check if the user's task matches a skill's description
-2. **Read the skill's full instructions**: Use the path shown in the skill list above
+2. **Read the skill's full instructions**: Use the path shown in the skill list above and read the `SKILL.md` file
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
 4. **Access supporting files**: Skills may include helper scripts, configs, or reference docs - use absolute paths to access them
+
+**Editing Builtin Skills:**
+If a user asks to change a builtin skill and expects the change to be committed, delete the `.gitignore` inside that
+builtin skill directory before editing so the files are tracked by git.
 
 **When to Use Skills:**
 - User's request matches a skill's domain (e.g., "research X" -> web-research skill)
@@ -39,7 +48,8 @@ Skills follow a **progressive disclosure** pattern - you see their name and desc
 - A skill provides proven patterns for complex tasks
 
 **Executing Skill Scripts:**
-Skills may contain Python scripts or other executable files. Always use absolute paths from the skill list to execute them.
+Skills may contain Python scripts or other executable files. Always use absolute paths from the skill list to execute them
+and use the bash tool when you need to run scripts.
 
 **Example Workflow:**
 
@@ -58,6 +68,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     Rewrite the DeepAgentsSkillsMiddleware to copy the builtin skills to the project skills directory to make
     them available to the agent even if the project skills directory is not set up.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.system_prompt_template = SKILLS_SYSTEM_PROMPT
 
     async def abefore_agent(
         self, state: SkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
@@ -82,6 +96,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         Users can override built-in skills by creating them with the same name in the project skills directory and
         committing them to the repository.
+
+        Args:
+            agent_path: The path to the agent's repository.
         """
         files_to_upload = []
         project_skills_path = Path(f"/{agent_path.name}/{PROJECT_SKILLS_PATH}")
