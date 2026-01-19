@@ -116,6 +116,16 @@ Agents can leverage [Agent Skills](skills.md) for specialized domain knowledge:
 - **Builtin Skills**: Pre-packaged Skills for common tasks (e.g. AGENTS.md generation)
 - **Scoped Skills**: Target Skills to specific contexts (issues or merge requests)
 
+### 🤖 Specialized Subagents
+
+The Plan and Execute agent can delegate work to specialized subagents for focused tasks:
+
+- **General Purpose**: Multi-step tasks, research, and complex code searches
+- **Explore**: Fast codebase exploration and file pattern matching
+- **Changelog**: Maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, etc.)
+
+Subagents are automatically selected based on the task at hand, providing specialized expertise while maintaining access to the full toolset.
+
 ---
 
 ## Configuration and Customization

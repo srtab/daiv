@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
@@ -20,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
 - Added comparison table to Quick Actions documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
+- Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
 - Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
+- Migrated pre-commit tooling to prek.
 - Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
   - Enhanced system prompt with explicit rules about factuality and convention handling
   - Improved guidance for branch naming and commit messages based on repository conventions
@@ -28,9 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated default fallback models from `gpt-5.1` to `gpt-5.2` for both planning and execution in `PlanAndExecuteAgent`
 - Refactored `get_context_file_content` logic from `AgentsMDMiddleware` to standalone utility function in `automation.agents.utils`
 - Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
+- Deferred sandbox session creation until the first `bash` tool invocation.
+- Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
+
+### Fixed
+
+- Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
 
 ### Removed
 
+- Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 
 ## [1.1.0] - 2025-12-04

@@ -145,14 +145,25 @@ class GitManager:
             The diff of the repository.
         """
         try:
-            self.repo.git.add("-A")
-            diff = self.repo.git.diff("--cached", "HEAD")
-            if diff and not diff.endswith("\n"):
-                diff += "\n"
-            return diff
-        finally:
-            # Always unstage changes, even if something goes wrong
-            self.repo.git.reset("HEAD")
+            diff = self.repo.git.diff("HEAD")
+        except GitCommandError:
+            # No commits yet, get diff of all files
+            diff = self.repo.git.diff("--cached", "--no-prefix")
+
+        untracked_files = self.repo.untracked_files
+        if untracked_files:
+            for file in untracked_files:
+                try:
+                    file_diff = self.repo.git.diff("--no-index", "/dev/null", file)
+                    diff += f"\n{file_diff}"
+                except GitCommandError:
+                    # File might be binary or have issues
+                    pass
+
+        if diff and not diff.endswith("\n"):
+            diff += "\n"
+
+        return diff
 
     def is_dirty(self) -> bool:
         """
@@ -163,7 +174,7 @@ class GitManager:
         """
         return self.repo.is_dirty(index=True, working_tree=True, untracked_files=True)
 
-    def commit_changes(
+    def commit_and_push_changes(
         self,
         commit_message: str,
         *,
@@ -187,25 +198,46 @@ class GitManager:
         """
         self.repo.remotes.origin.fetch()
 
-        existing_branch_names = [head.name for head in self.repo.heads]
+        local_branch_names = [head.name for head in self.repo.heads]
+        remote_branch_names = [ref.remote_head for ref in self.repo.remotes.origin.refs if ref.remote_head != "HEAD"]
 
-        if branch_name in existing_branch_names:
+        branch_exists_locally = branch_name in local_branch_names
+        branch_exists_remotely = branch_name in remote_branch_names
+
+        if branch_exists_locally or branch_exists_remotely:
             if override_commits and use_branch_if_exists:
-                self.repo.delete_head(branch_name)
-                self.repo.create_head(branch_name)
-
+                if branch_exists_locally:
+                    self.repo.git.branch("-D", branch_name)  # Force delete local
+                self.repo.git.checkout("-b", branch_name)  # Create and checkout
             elif not use_branch_if_exists:
-                branch_name = self._gen_unique_branch_name(branch_name, existing_branch_names)
-                self.repo.create_head(branch_name)
+                # Need to check both local and remote for unique name generation
+                all_branch_names = list(set(local_branch_names + remote_branch_names))
+                branch_name = self._gen_unique_branch_name(branch_name, all_branch_names)
+                self.repo.git.checkout("-b", branch_name)
+            else:
+                # Branch exists, just checkout (Git will handle remote tracking)
+                self.repo.git.checkout(branch_name)
         else:
-            self.repo.create_head(branch_name)
-
-        self.repo.heads[branch_name].checkout()
+            self.repo.git.checkout("-b", branch_name)
 
         self.repo.git.add("-A")
         self.repo.index.commit(commit_message if not skip_ci else f"[skip ci] {commit_message}")
         self.repo.remotes.origin.push(branch_name, force=override_commits)
         return branch_name
+
+    def checkout(self, branch_name: str):
+        """
+        Checkout a branch.
+
+        Args:
+            branch_name: The branch name to checkout.
+        """
+        self.repo.remotes.origin.fetch()
+
+        try:
+            self.repo.git.checkout(branch_name)
+        except GitCommandError as e:
+            raise ValueError(f"Branch {branch_name} does not exist in the repository.") from e
 
     def _gen_unique_branch_name(
         self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS

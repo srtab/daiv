@@ -10,9 +10,6 @@ Enable issue addressing in your `.daiv.yml` configuration file at the repository
 # Enable automated issue resolution
 issue_addressing:
   enabled: true
-
-quick_actions:
-  enabled: true  # Required for /approve-plan command
 ```
 
 | Option    | Type   | Default | Description                                 |
@@ -45,7 +42,7 @@ Automatically approve the plan and proceed with implementation without requiring
 
 **Example:**
 - Add the `daiv-auto` label to an issue
-- DAIV will generate a plan and automatically execute it without waiting for `/approve-plan` command
+- DAIV will generate a plan and automatically execute it without waiting for manual approval
 
 ### `daiv-max` Label
 
@@ -69,7 +66,6 @@ You can combine labels to get both behaviors:
 You can reset the plan by:
 
   1. updating the issue title or description.
-  2. leaving a comment with `@daiv /revise-plan`.
 
 DAIV will automatically regenerate the plan.
 
@@ -79,16 +75,13 @@ DAIV uses a **human-in-the-loop** approach for plan approval. After generating a
 
 ### Approving the Plan
 
-Execute the plan by commenting on the issue:
+Approve and execute the plan by leaving a comment that mentions DAIV:
 
 ```
-@daiv /approve-plan
+@daiv proceed
 ```
 
 DAIV will execute the plan and open a merge request (GitLab) or pull request (GitHub) with the changes for review.
-
-!!! note
-    Plan approval requires `quick_actions.enabled: true` in your `.daiv.yml` configuration.
 
 ### Why Manual Approval?
 

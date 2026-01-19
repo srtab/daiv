@@ -5,10 +5,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_MAX_LABEL
 
 
-class ClientType(StrEnum):
+class GitPlatform(StrEnum):
     GITLAB = "gitlab"
     GITHUB = "github"
     SWE = "swe"
@@ -20,7 +20,7 @@ class Repository(BaseModel):
     name: str
     clone_url: str
     default_branch: str
-    client: ClientType
+    git_platform: GitPlatform
     topics: list[str] = Field(default_factory=list)
 
 
@@ -60,7 +60,9 @@ class MergeRequest(BaseModel):
     title: str
     description: str
     labels: list[str] = Field(default_factory=list)
+    web_url: str | None = None
     sha: str | None = None
+    author: User
 
 
 class MergeRequestDiff(BaseModel):
@@ -178,15 +180,6 @@ class Issue(BaseModel):
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    def has_auto_label(self) -> bool:
-        """
-        Check if the issue has the daiv-auto label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-auto label, False otherwise.
-        """
-        return any(label.lower() == BOT_AUTO_LABEL.lower() for label in self.labels)
 
     def has_max_label(self) -> bool:
         """

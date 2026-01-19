@@ -2,7 +2,7 @@ import logging
 
 from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
-from codebase.base import ClientType
+from codebase.base import GitPlatform
 from codebase.conf import settings
 
 from .callbacks import IssueCallback, IssueCommentCallback, PullRequestReviewCallback, PushCallback  # noqa: TC001
@@ -20,7 +20,7 @@ async def callback(request, payload: IssueCallback | IssueCommentCallback | Push
     Validates the webhook secret before processing the callback and returns 401 Unauthorized if validation fails.
     Returns 403 Forbidden if client type is not set to GitHub.
     """
-    if settings.CLIENT != ClientType.GITHUB:
+    if settings.CLIENT != GitPlatform.GITHUB:
         logger.warning("GitHub Hook: Client type is not set to GitHub, skipping callback.")
         return 403, None
 

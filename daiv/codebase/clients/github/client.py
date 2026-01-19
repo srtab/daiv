@@ -5,6 +5,7 @@ import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -16,8 +17,8 @@ from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
 from codebase.base import (
-    ClientType,
     Discussion,
+    GitPlatform,
     Issue,
     Job,
     MergeRequest,
@@ -54,7 +55,7 @@ class GitHubClient(RepoClient):
 
     client: Github
     client_installation: Installation.Installation
-    client_slug = ClientType.GITHUB
+    git_platform = GitPlatform.GITHUB
 
     def __init__(self, private_key: str, app_id: int, installation_id: int, url: str | None = None):
         if url is None:
@@ -83,7 +84,7 @@ class GitHubClient(RepoClient):
             name=repo.name,
             clone_url=repo.clone_url,
             default_branch=repo.default_branch,
-            client=self.client_slug,
+            git_platform=self.git_platform,
             topics=repo.topics,
         )
 
@@ -107,7 +108,7 @@ class GitHubClient(RepoClient):
                 slug=repo.full_name,
                 name=repo.name,
                 default_branch=repo.default_branch,
-                client=self.client_slug,
+                git_platform=self.git_platform,
                 topics=repo.topics,
             )
             for repo in self.client_installation.get_repos()
@@ -306,7 +307,9 @@ class GitHubClient(RepoClient):
             title=mr.title,
             description=mr.body or "",
             labels=[label.name for label in mr.labels],
+            web_url=mr.html_url,
             sha=mr.head.sha,
+            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
         )
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
@@ -398,6 +401,7 @@ class GitHubClient(RepoClient):
                                             state
                                             title
                                             body
+                                            url
                                             labels(first: 10) {
                                                 nodes {
                                                     name
@@ -405,6 +409,11 @@ class GitHubClient(RepoClient):
                                             }
                                             headRefName
                                             baseRefName
+                                            author {
+                                                id
+                                                login
+                                                name
+                                            }
                                         }
                                     }
                                 }
@@ -435,7 +444,13 @@ class GitHubClient(RepoClient):
                         title=node["title"],
                         description=node["body"],
                         labels=[mr_label.name for mr_label in labels] if labels else [],
+                        web_url=node.get("url"),
                         state=node["state"],
+                        author=User(
+                            id=node["author"].get("id"),
+                            username=node["author"].get("login"),
+                            name=node["author"].get("name"),
+                        ),
                     )
                 )
 
@@ -704,14 +719,16 @@ class GitHubClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        safe_sha = sha.replace("/", "_").replace(" ", "-")
+        from codebase.clients.utils import safe_slug
 
-        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
             token = self.client.requester.auth.token
             parsed = urlparse(repository.clone_url)
             clone_url = f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
-            yield Repo.clone_from(clone_url, tmpdir, branch=sha)
+            clone_dir = Path(tmpdir) / "repo"
+            clone_dir.mkdir(exist_ok=True)
+            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
 
     def update_or_create_merge_request(
         self,
@@ -722,7 +739,7 @@ class GitHubClient(RepoClient):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         """
         Update or create a merge request.
 
@@ -736,7 +753,7 @@ class GitHubClient(RepoClient):
             assignee_id: The assignee ID.
 
         Returns:
-            The merge request ID.
+            The merge request data.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
 
@@ -760,7 +777,18 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return pr.number
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+        )
 
     def _serialize_comments(
         self, comments: list[IssueComment | PullRequestComment], from_merge_request: bool = False

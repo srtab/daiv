@@ -1,12 +1,9 @@
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
 
-from automation.agents.pr_describer.agent import PullRequestDescriberAgent
-from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from automation.agents.utils import get_context_file_content
+from automation.agent.pr_describer.graph import create_pr_describer_agent
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
 
@@ -64,19 +61,14 @@ class BaseManager:
             thread_id: The thread ID.
             skip_ci: Whether to skip the CI.
         """
-        pr_describer = await PullRequestDescriberAgent.get_runnable(model=self.ctx.config.models.pr_describer.model)
+        pr_describer = create_pr_describer_agent(model=self.ctx.config.models.pr_describer.model, ctx=self.ctx)
         changes_description = await pr_describer.ainvoke(
-            {
-                "diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns),
-                "context_file_content": get_context_file_content(
-                    Path(self.ctx.repo.working_dir), self.ctx.config.context_file_name
-                ),
-            },
+            {"diff": redact_diff_content(self.git_manager.get_diff(), self.ctx.config.omit_content_patterns)},
             config=RunnableConfig(
-                tags=[pr_describer_settings.NAME, str(self.client.client_slug)], configurable={"thread_id": thread_id}
+                tags=[pr_describer.get_name(), str(self.client.git_platform)], configurable={"thread_id": thread_id}
             ),
         )
 
-        self.git_manager.commit_changes(
+        self.git_manager.commit_and_push_changes(
             changes_description.commit_message, branch_name=self.ctx.repo.active_branch.name, skip_ci=skip_ci
         )

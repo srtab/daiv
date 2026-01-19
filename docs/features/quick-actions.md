@@ -10,7 +10,7 @@ DAIV responds to two types of interactions:
 
 | Interaction Type | Format | Use Case |
 |------------------|--------|----------|
-| **Quick Actions** | `@daiv /command` | Execute specific commands (approve plans, get help, clone issues) |
+| **Quick Actions** | `@daiv /command` | Execute specific commands (get help, clone issues) |
 | **Direct Mentions** | `@daiv <request>` | Address code review comments, ask questions, request code changes |
 
 **To address code review comments**, use a direct mention without a slash command. See [Review Addressor](review-addressor.md) for details and examples.
@@ -35,7 +35,7 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 Quick Actions use shell-like parsing with support for:
 
 - **Simple commands**: `@daiv /help`
-- **Commands with arguments**: `@daiv /approve-plan "some argument"`, `@daiv /revise-plan "some argument"`
+- **Commands with arguments**: `@daiv /clone-to-topic backend, api`
 - **Case-insensitive**: `@DAIV /HELP` works the same as `@daiv /help`
 
 ### Workflow
@@ -55,13 +55,9 @@ graph TD
     I --> J["🛠️ Execute Specific Logic"]
 
     J --> K["📖 Help Action<br/>(show available commands)"]
-    J --> L["📋 Plan Action<br/>(regenerate/approve plan)"]
-    J --> M["🔧 Pipeline Action<br/>(repair failed jobs)"]
     J --> R["📤 Clone to Topic<br/>(clone issue to repos)"]
 
     K --> N["💬 Posts Help Message"]
-    L --> O["🔄 Triggers Plan Workflow"]
-    M --> P["🚦 Triggers Pipeline Repair"]
     R --> S["📋 Creates Issues in<br/>Matching Repositories"]
 
     H --> Q["💬 Posts Error Message<br/>(suggests valid actions)"]
@@ -97,40 +93,6 @@ graph TD
 ```
 
 **Response**: DAIV replies with a formatted list of all available Quick Actions and their descriptions.
-
----
-
-### 📋 Approve Plan Action
-
-**Command**: `/approve-plan`
-
-**Purpose**: Run or launch the current plan for the issue
-
-**Scopes**: Issues only
-
-**Usage**: Leave a comment to approve and execute the current plan
-
-**Example**:
-```
-@daiv /approve-plan
-```
-
----
-
-### 📋 Revise Plan Action
-
-**Command**: `/revise-plan`
-
-**Purpose**: Discard current plan and create a new one from scratch
-
-**Scopes**: Issues only
-
-**Usage**: Leave a comment on the issue to reset and regenerate the plan
-
-**Example**:
-```
-@daiv /revise-plan
-```
 
 ---
 
@@ -170,7 +132,7 @@ graph TD
 
 - Check that the action supports the current scope (issue vs merge/pull request)
 - Ensure proper spelling and case (actions are case-insensitive)
-- Verify command syntax (e.g., `/approve-plan` not `/plan-execute`)
+- Verify command syntax (e.g., `/help` not `/Help`)
 
 **No response from DAIV**:
 
@@ -188,11 +150,6 @@ graph TD
 - Ensure the pipeline is in "failed" status
 - Check that failed jobs have `script_failure` as the failure reason
 - Verify jobs are not marked as `allow_failure`
-
-**Plan action issues**:
-
-- Ensure you're commenting on an issue (not merge/pull request)
-- Check if there's an existing plan to execute or revise
 
 **Clone to topic action issues**:
 
@@ -226,8 +183,6 @@ Quick Actions log detailed information for troubleshooting:
 Comment one of the commands below on this issue to trigger the bot:
 
 - `@daiv /help` - Shows the help message with the available quick actions.
-- `@daiv /approve-plan` - Run or launch the current plan.
-- `@daiv /revise-plan` - Discard current plan and create a new one from scratch.
 - `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics.
 ```
 
@@ -253,7 +208,7 @@ Cloned issue to `3` repositories:
 
 ### Adding New Actions
 
-1. **Create** new action class in `automation/quick_actions/actions/`
+1. **Create** new action class in `quick_actions/actions/`
 2. **Implement** required methods `execute_action` and `actions`
 3. **Decorate** with `@quick_action` specifying command and scopes
 4. **Import** in the actions module

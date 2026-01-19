@@ -2,7 +2,7 @@ from django.http import HttpRequest  # noqa: TC002
 
 from ninja import Router
 
-from automation.agents.mcp.schemas import McpConfiguration
+from automation.agent.mcp.schemas import McpConfiguration
 
 from .security import AuthBearer
 

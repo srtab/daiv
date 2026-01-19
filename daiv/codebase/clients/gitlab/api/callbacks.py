@@ -16,57 +16,9 @@ from quick_actions.parser import QuickActionCommand, parse_quick_action
 from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
-from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
-
-ISSUE_CHANGE_FIELDS = {"title", "description", "labels", "state_id"}
+from .models import Issue, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
 logger = logging.getLogger("daiv.webhooks")
-
-
-class IssueCallback(BaseCallback):
-    """
-    Gitlab Issue Webhook
-    """
-
-    object_kind: Literal["issue", "work_item"]
-    project: Project
-    user: User
-    object_attributes: Issue
-    changes: dict
-
-    def accept_callback(self) -> bool:
-        return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
-            and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
-            # Only accept if there are changes in the title, description, labels or state of the issue.
-            and bool(self.changes.keys() & ISSUE_CHANGE_FIELDS)
-            # Only accept if the issue is a DAIV issue.
-            and self.object_attributes.is_daiv()
-            # When work_item is created without the parent issue, the object_kind=issue.
-            # We need to check the type too to avoid processing work_items as issues.
-            and self.object_kind == "issue"
-            and self.object_attributes.type == "Issue"
-            and self.object_attributes.state == "opened"
-        )
-
-    async def process_callback(self):
-        await sync_to_async(
-            address_issue_task.si(
-                repo_id=self.project.path_with_namespace,
-                issue_iid=self.object_attributes.iid,
-                should_reset_plan=self.should_reset_plan(),
-            ).delay
-        )()
-
-    def should_reset_plan(self) -> bool:
-        """
-        Check if the plan should be reset.
-        """
-        return bool(
-            self.object_attributes.action == IssueAction.UPDATE
-            and self.changes
-            and any(field_name in self.changes for field_name in ["title", "description"])
-        )
 
 
 class NoteCallback(BaseCallback):
@@ -96,11 +48,11 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_quick_action or self._is_merge_request_review)
+        return bool(self._is_quick_action or self._is_issue_comment or self._is_merge_request_review)
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback or issue comment like the plan approval use case.
+        Trigger the task to address the review feedback, issue comment or quick action.
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
@@ -110,7 +62,7 @@ class NoteCallback(BaseCallback):
             # Add a thumbsup emoji to the note to show the user that the quick action will be executed.
             if self._action_scope == Scope.MERGE_REQUEST:
                 self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, Emoji.THUMBSUP, self.object_attributes.id
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
                 )
                 await sync_to_async(
                     execute_merge_request_task.si(
@@ -123,7 +75,7 @@ class NoteCallback(BaseCallback):
                 )()
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
-                    self.project.path_with_namespace, self.issue.iid, Emoji.THUMBSUP, self.object_attributes.id
+                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
                 )
                 await sync_to_async(
                     execute_issue_task.si(
@@ -134,6 +86,18 @@ class NoteCallback(BaseCallback):
                         issue_id=self.issue.iid,
                     ).delay
                 )()
+
+        elif self._is_issue_comment:
+            self._client.create_issue_note_emoji(
+                self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
+            )
+            await sync_to_async(
+                address_issue_task.si(
+                    repo_id=self.project.path_with_namespace,
+                    issue_iid=self.issue.iid,
+                    mention_comment_id=self.object_attributes.discussion_id,
+                ).delay
+            )()
 
         elif self._is_merge_request_review:
             if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
@@ -150,6 +114,7 @@ class NoteCallback(BaseCallback):
                         repo_id=self.project.path_with_namespace,
                         merge_request_id=self.merge_request.iid,
                         merge_request_source_branch=self.merge_request.source_branch,
+                        mention_comment_id=self.object_attributes.discussion_id,
                     ).delay
                 )()
             else:
@@ -167,16 +132,28 @@ class NoteCallback(BaseCallback):
         """
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
-        if (
-            not self._repo_config.code_review.enabled
-            or self.object_attributes.noteable_type != NoteableType.MERGE_REQUEST
-            or self.object_attributes.action not in [NoteAction.CREATE, NoteAction.UPDATE]
-            or not self.merge_request
-            or self.merge_request.state != "opened"
-        ):
-            return False
+        return bool(
+            self._repo_config.code_review.enabled
+            and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
+            and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
+            and self.merge_request
+            and self.merge_request.state == "opened"
+            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        )
 
-        return note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+    @cached_property
+    def _is_issue_comment(self) -> bool:
+        """
+        Accept the webhook if the note is an issue comment that mentions DAIV.
+        """
+        return bool(
+            self._repo_config.issue_addressing.enabled
+            and self.object_attributes.noteable_type == NoteableType.ISSUE
+            and self.object_attributes.action == NoteAction.CREATE
+            and self.issue
+            and self.issue.state == "opened"
+            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        )
 
     @cached_property
     def _quick_action_command(self) -> QuickActionCommand | None:

@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import fnmatch
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain_core.runnables import RunnableConfig
-from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
-from unidiff.patch import Line, PatchSet
+from django.conf import settings as django_settings
 
-from automation.agents.review_addressor.agent import ReviewAddressorAgent
-from automation.agents.review_addressor.conf import settings as review_addressor_settings
-from automation.agents.review_addressor.schemas import ReviewContext
-from codebase.base import Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType, NoteType, SimpleDiscussion
-from codebase.clients.base import Emoji
-from codebase.utils import get_repo_ref, note_mentions_daiv, notes_to_messages, redact_diff_content
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
+from unidiff.patch import Line
+
+from automation.agent.graph import create_daiv_agent
+from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
+from codebase.base import MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
+from core.utils import generate_uuid
 
 from .base import BaseManager
 
@@ -182,244 +182,70 @@ class NoteProcessor:
         return None
 
 
-class ReviewAddressorManager(BaseManager):
+class CommentsAddressorManager(BaseManager):
     """
-    Manages the code review process.
+    Manages the comments addressing process.
     """
 
-    def __init__(self, *, merge_request_id: int, runtime_ctx: RuntimeCtx):
+    def __init__(self, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
-        self.merge_request_id = merge_request_id
-        self.note_processor = NoteProcessor()
+        self.merge_request = merge_request
+        self.mention_comment_id = mention_comment_id
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.merge_request.merge_request_id}")
 
     @classmethod
-    async def process_review_comments(cls, *, merge_request_id: int, runtime_ctx: RuntimeCtx):
-        """
-        Process review comments for merge request left in the diff that mention DAIV.
-
-        Args:
-            merge_request_id: The merge request ID.
-            runtime_ctx: The runtime context.
-        """
-        manager = cls(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx)
-
-        if review_contexts := manager._get_review_context(manager._extract_merge_request_diffs()):
-            await manager._address_review_context(review_contexts)
-
-    @classmethod
-    async def process_comments(cls, *, merge_request_id: int, runtime_ctx: RuntimeCtx):
+    async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
         Args:
-            merge_request_id (int): The merge request ID.
+            merge_request (MergeRequest): The merge request.
+            mention_comment_id (str): The mention comment id.
             runtime_ctx (RuntimeCtx): The runtime context.
         """
-        manager = cls(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx)
+        manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
-        if context := manager._get_comments_context(manager._extract_merge_request_diffs()):
-            await manager._address_review_context([context])
+        await manager._address_comments()
 
-    async def _address_review_context(self, review_contexts: list[ReviewContext]):
+    async def _address_comments(self):
         """
-        Process code review discussion.
-
-        If the discussion is resolved, it will save the file changes to be committed later.
-        Each iteration of dicussions resolution will be processed with the changes from the previous iterations,
-        ensuring that the file changes are processed correctly.
-
-        Args:
-            review_contexts: The list of review contexts to address.
+        Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
-        config = RunnableConfig(
-            tags=[review_addressor_settings.NAME, str(self.client.client_slug)],
-            metadata={"merge_request_id": self.merge_request_id},
-            recursion_limit=review_addressor_settings.RECURSION_LIMIT,
-            configurable={
-                "source_repo_id": self.ctx.repo_id,
-                "source_ref": get_repo_ref(self.ctx.repo),
-                "bot_username": self.ctx.bot_username,
-            },
+        mention_comment = self.client.get_merge_request_comment(
+            self.ctx.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
         )
 
-        review_addressor = await ReviewAddressorAgent.get_runnable(
-            store=self.store,
-            skip_format_code=not self.ctx.config.sandbox.format_code_enabled,
-            models_config=self.ctx.config.models,
-        )
+        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+            await checkpointer.adelete_thread(self.thread_id)
 
-        started_discussions: list[SimpleDiscussion] = []
-        resolved_discussions: list[SimpleDiscussion] = []
+            daiv_agent = await create_daiv_agent(
+                ctx=self.ctx,
+                checkpointer=checkpointer,
+                store=self.store,
+                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent),
+            )
 
-        try:
-            async for result in review_addressor.astream(
-                {"to_review": review_contexts}, config, stream_mode="custom", context=self.ctx
-            ):
-                discussion = result["review_context"].discussion
-
-                if result.get("plan_and_execute") == "starting":
-                    started_discussions.append(discussion)
-                    self.client.create_merge_request_note_emoji(
-                        self.ctx.repo_id, self.merge_request_id, Emoji.THUMBSUP, result["review_context"].notes[-1].id
-                    )
-                elif result.get("plan_and_execute") == "completed":
-                    started_discussions.remove(discussion)
-                    resolved_discussions.append(discussion)
-                elif result.get("plan_and_execute") == "aborted":
-                    started_discussions.remove(discussion)
-
-                if result.get("reply_reviewer") == "starting":
-                    self.client.create_merge_request_note_emoji(
-                        self.ctx.repo_id, self.merge_request_id, Emoji.THUMBSUP, result["review_context"].notes[-1].id
-                    )
-
-                if result.get("reply"):
-                    self.client.create_merge_request_comment(
-                        self.ctx.repo_id,
-                        self.merge_request_id,
-                        result["reply"],
-                        reply_to_id=discussion.id if discussion.is_thread else None,
-                    )
-        except Exception:
-            logger.exception("Error processing review comments")
-            for discussion in started_discussions:
-                self.client.create_merge_request_comment(
-                    self.ctx.repo_id,
-                    self.merge_request_id,
-                    (
-                        "⚠️ I was unable to address the request due to an unexpected error. "
-                        "Reply to this comment to try again."
-                    ),
-                    reply_to_id=discussion.id if discussion.is_thread else None,
-                )
-        finally:
-            if self.git_manager.is_dirty():
-                await self._commit_changes()
-
-            for discussion in resolved_discussions:
-                if discussion.is_resolvable and discussion.resolve_id:
-                    self.client.mark_merge_request_comment_as_resolved(
-                        self.ctx.repo_id, self.merge_request_id, discussion.resolve_id
-                    )
-
-    def _extract_merge_request_diffs(self) -> dict[str, PatchedFile]:
-        """
-        Extract patch files from merge request.
-        """
-        merge_request = self.client.get_merge_request(self.ctx.repo_id, self.merge_request_id)
-
-        patch_set_all: PatchSet = redact_diff_content(
-            # prefix the branches with "origin/" to get the diff from the remote repository.
-            self.ctx.repo.git.diff(
-                f"origin/{merge_request.target_branch}..origin/{merge_request.source_branch}", "--patch", "--binary"
-            ),
-            self.ctx.config.omit_content_patterns,
-            as_patch_set=True,
-        )
-
-        merge_request_patches: dict[str, PatchedFile] = {patch_file.path: patch_file for patch_file in patch_set_all}
-        merge_request_patches["__all__"] = patch_set_all
-        return merge_request_patches
-
-    def _get_review_context(self, merge_request_patches: dict[str, PatchedFile]) -> list[ReviewContext]:
-        """
-        Extract discussions data from merge request to be addressed by the agent.
-
-        It will extract the discussions that are not resolved and that have DAIV mentions in the latest note.
-        """
-        review_contexts = []
-
-        for discussion in self.client.get_merge_request_review_comments(self.ctx.repo_id, self.merge_request_id):
-            if not discussion.notes:
-                logger.info("Ignoring discussion, no notes: %s", discussion.id)
-                continue
-
-            if discussion.notes[-1].author.id == self.client.current_user.id:
-                logger.info("Ignoring discussion, DAIV is the author: %s", discussion.id)
-                continue
-
-            if not (note_mentions_daiv(discussion.notes[-1].body, self.client.current_user)):
-                logger.info("Ignoring discussion, no DAIV mention in latest note: %s", discussion.id)
-                continue
-
-            context = ReviewContext(discussion=discussion.as_simple())
-
-            for note in discussion.notes:
-                if note.type == NoteType.DISCUSSION_NOTE:
-                    context.diff = merge_request_patches["__all__"].__str__()
-
-                elif note.type == NoteType.DIFF_NOTE:
-                    if not note.position:
-                        logger.warning("Ignoring note, no position defined: %s", note.id)
-                        continue
-
-                    path = note.position.new_path or note.position.old_path
-
-                    if path not in merge_request_patches:
-                        logger.warning("Ignoring note, path not found in patches: %s", note.id)
-                        continue
-
-                    if context.diff is None:
-                        # This logic assumes that all notes will have the same patch file
-                        context.diff = self.note_processor.extract_diff(
-                            note, merge_request_patches[path], self._get_file_content(path)
+            result = await daiv_agent.ainvoke(
+                {
+                    "messages": [
+                        HumanMessage(
+                            name=mention_comment.notes[0].author.username,
+                            id=mention_comment.notes[0].id,
+                            content=mention_comment.notes[0].body,
                         )
-                else:
-                    raise ValueError(f"Unsupported note type: {note.type}")
+                    ]
+                },
+                config=RunnableConfig(
+                    tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                    metadata={
+                        "author": self.merge_request.author.username,
+                        "merge_request_id": self.merge_request.merge_request_id,
+                        "scope": self.ctx.scope,
+                    },
+                    configurable={"thread_id": self.thread_id},
+                ),
+                context=self.ctx,
+            )
 
-                context.notes.append(note)
-
-            if context.notes:
-                context.notes = notes_to_messages(context.notes, self.client.current_user.id)
-                review_contexts.append(context)
-        return review_contexts
-
-    def _get_comments_context(self, merge_request_patches: dict[str, PatchedFile]) -> ReviewContext | None:
-        """
-        Get the comments context from the merge request.
-        """
-        comments = self.client.get_merge_request_comments(self.ctx.repo_id, self.merge_request_id)
-
-        latest_comment = comments[-1]
-
-        if not latest_comment.notes:
-            logger.info("Ignoring merge request: %s, no notes found in latest comment.", self.merge_request_id)
-            return None
-
-        if not note_mentions_daiv(latest_comment.notes[-1].body, self.client.current_user):
-            logger.info("Ignoring merge request: %s, no DAIV mentions in latest comment.", self.merge_request_id)
-            return None
-
-        review_context = ReviewContext(
-            discussion=latest_comment.as_simple(), diff=merge_request_patches["__all__"].__str__()
-        )
-
-        # If the latest comment is a thread, we only include the notes from the thread.
-        # This is only relevant for GitLab, as in GitHub the comments are not threaded.
-        if latest_comment.is_thread:
-            review_context.notes.extend(notes_to_messages(latest_comment.notes, self.client.current_user.id))
-        else:
-            # If the latest comment is not a thread, we include all the comments.
-            for comment in comments:
-                if not comment.notes:
-                    logger.info("Ignoring comment with no notes: %s", comment.id)
-                    continue
-
-                review_context.notes.extend(notes_to_messages(comment.notes, self.client.current_user.id))
-
-        return review_context
-
-    def _get_file_content(self, path: str) -> str:
-        """
-        Get the file content from the repository.
-        """
-        resolved_file_path = (Path(self.ctx.repo.working_dir) / path).resolve()
-
-        if (
-            not resolved_file_path.exists()
-            or not resolved_file_path.is_file()
-            or any(fnmatch.fnmatch(path, pattern) for pattern in self.ctx.config.combined_exclude_patterns)
-        ):
-            raise FileNotFoundError(f"File content '{path}' not found in repository.")
-
-        return resolved_file_path.read_text()
+            response = result and extract_text_content(result["messages"][-1].content)
+            self.client.create_merge_request_comment(self.ctx.repo_id, self.merge_request.merge_request_id, response)

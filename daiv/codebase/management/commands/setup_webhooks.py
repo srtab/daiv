@@ -2,7 +2,7 @@ import logging
 
 from django.core.management.base import BaseCommand
 
-from codebase.base import ClientType
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings
 from core.conf import settings as core_settings
@@ -29,7 +29,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if settings.CLIENT == ClientType.GITHUB:
+        if settings.CLIENT == GitPlatform.GITHUB:
             logger.warning(
                 "GitHub webhooks must be set on the GitHub App configuration: "
                 "https://srtab.github.io/daiv/dev/getting-started/configuration/#step-4-verify-webhook-configuration"

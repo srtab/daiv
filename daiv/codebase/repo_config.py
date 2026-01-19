@@ -7,15 +7,14 @@ from typing import TYPE_CHECKING
 from django.core.cache import cache
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
-from automation.agents.base import ThinkingLevel  # noqa: TC001
-from automation.agents.codebase_chat.conf import settings as codebase_chat_settings
-from automation.agents.constants import ModelName  # noqa: TC001
-from automation.agents.plan_and_execute.conf import settings as plan_and_execute_settings
-from automation.agents.pr_describer.conf import settings as pr_describer_settings
-from automation.agents.review_addressor.conf import settings as review_addressor_settings
+from automation.agent.base import ThinkingLevel  # noqa: TC001
+from automation.agent.conf import settings as deepagent_settings
+from automation.agent.constants import ModelName  # noqa: TC001
+from automation.agent.pr_describer.conf import settings as pr_describer_settings
+from core.conf import settings as core_settings
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -58,14 +57,30 @@ class Sandbox(BaseModel):
     """
 
     base_image: str | None = Field(
-        default=None,
+        default=core_settings.SANDBOX_BASE_IMAGE,
         examples=["python:3.12-alpine", "node:18-alpine"],
-        description="The base image to use for the sandbox to execute commands.",
+        description=(
+            "The base image for the sandbox to allow agents to execute shell commands. "
+            "Supply a custom image if you need preinstalled tooling."
+            "To disable the sandbox, set this to `null`."
+        ),
     )
-    format_code: list[str] | None = Field(
-        default=None,
-        examples=[["ruff check --fix", "ruff format"], ["npm run format", "npx prettier --write"]],
-        description="Commands to be executed to format the code.",
+    ephemeral: bool = Field(
+        default=core_settings.SANDBOX_EPHEMERAL,
+        description="Whether to make sandbox sessions ephemeral (server decides persistence behavior).",
+    )
+    network_enabled: bool = Field(
+        default=core_settings.SANDBOX_NETWORK_ENABLED, description="Whether to enable the network in the sandbox."
+    )
+    memory_bytes: int | None = Field(
+        default=core_settings.SANDBOX_MEMORY,
+        validation_alias=AliasChoices("memory_bytes", "memory"),
+        description="The memory limit for the sandbox (bytes).",
+    )
+    cpus: float | None = Field(
+        default=core_settings.SANDBOX_CPU,
+        validation_alias=AliasChoices("cpus", "cpu"),
+        description="The CPU limit for the sandbox (CPUs).",
     )
 
     @property
@@ -75,113 +90,25 @@ class Sandbox(BaseModel):
         """
         return self.base_image is not None
 
-    @property
-    def format_code_enabled(self) -> bool:
-        """
-        Check if the format code is enabled.
-        """
-        return self.enabled and self.format_code is not None
 
-
-class PlanAndExecuteModelConfig(BaseModel):
+class AgentModelConfig(BaseModel):
     """
-    Model configuration for the plan and execute agent.
-    """
-
-    planning_model: ModelName | str = Field(
-        default=plan_and_execute_settings.PLANNING_MODEL_NAME,
-        description=(
-            "Model name for planning tasks. Overrides PLAN_AND_EXECUTE_PLANNING_MODEL_NAME environment variable."
-        ),
-    )
-    planning_fallback_model: ModelName | str = Field(
-        default=plan_and_execute_settings.PLANNING_FALLBACK_MODEL_NAME,
-        description=(
-            "Fallback model name for planning tasks. "
-            "Overrides PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME environment variable."
-        ),
-    )
-    planning_thinking_level: ThinkingLevel | None = Field(
-        default=plan_and_execute_settings.PLANNING_THINKING_LEVEL,
-        description=(
-            "Thinking level for planning tasks. "
-            "Overrides PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL environment variable."
-        ),
-    )
-    execution_model: ModelName | str = Field(
-        default=plan_and_execute_settings.EXECUTION_MODEL_NAME,
-        description=(
-            "Model name for execution tasks. Overrides PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME environment variable."
-        ),
-    )
-    execution_fallback_model: ModelName | str = Field(
-        default=plan_and_execute_settings.EXECUTION_FALLBACK_MODEL_NAME,
-        description=(
-            "Fallback model name for execution tasks. "
-            "Overrides PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME environment variable."
-        ),
-    )
-    execution_thinking_level: ThinkingLevel | None = Field(
-        default=plan_and_execute_settings.EXECUTION_THINKING_LEVEL,
-        description=(
-            "Thinking level for execution tasks. "
-            "Overrides PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL environment variable."
-        ),
-    )
-    code_review_model: ModelName | str = Field(
-        default=plan_and_execute_settings.CODE_REVIEW_MODEL_NAME,
-        description=(
-            "Model name for code review tasks. Overrides PLAN_AND_EXECUTE_CODE_REVIEW_MODEL_NAME environment variable."
-        ),
-    )
-    code_review_thinking_level: ThinkingLevel | None = Field(
-        default=plan_and_execute_settings.CODE_REVIEW_THINKING_LEVEL,
-        description=(
-            "Thinking level for code review tasks. "
-            "Overrides PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL environment variable."
-        ),
-    )
-
-
-class ReviewAddressorModelConfig(BaseModel):
-    """
-    Model configuration for the review addressor agent.
-    """
-
-    review_comment_model: ModelName | str = Field(
-        default=review_addressor_settings.REVIEW_COMMENT_MODEL_NAME,
-        description=(
-            "Model name for routing review comments. "
-            "Overrides REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME environment variable."
-        ),
-    )
-    reply_model: ModelName | str = Field(
-        default=review_addressor_settings.REPLY_MODEL_NAME,
-        description=(
-            "Model name for replying to review comments. "
-            "Overrides REVIEW_ADDRESSOR_REPLY_MODEL_NAME environment variable."
-        ),
-    )
-    reply_temperature: float = Field(
-        default=review_addressor_settings.REPLY_TEMPERATURE,
-        description=(
-            "Temperature for the reply model. Overrides REVIEW_ADDRESSOR_REPLY_TEMPERATURE environment variable."
-        ),
-    )
-
-
-class CodebaseChatModelConfig(BaseModel):
-    """
-    Model configuration for the codebase chat agent.
+    Model configuration for the DAIV agent.
     """
 
     model: ModelName | str = Field(
-        default=codebase_chat_settings.MODEL_NAME,
-        description="Model name for codebase chat. Overrides CODEBASE_CHAT_MODEL_NAME environment variable.",
+        default=deepagent_settings.MODEL_NAME,
+        description=("Model name for DAIV tasks. Overrides DAIV_AGENT_MODEL_NAME environment variable."),
     )
-    temperature: float = Field(
-        default=codebase_chat_settings.TEMPERATURE,
-        description="Temperature for codebase chat. Overrides CODEBASE_CHAT_TEMPERATURE environment variable.",
+    fallback_model: ModelName | str = Field(
+        default=deepagent_settings.FALLBACK_MODEL_NAME,
+        description=(
+            "Fallback model name for DAIV tasks. Overrides DAIV_AGENT_FALLBACK_MODEL_NAME environment variable."
+        ),
+    )
+    thinking_level: ThinkingLevel | None = Field(
+        default=deepagent_settings.THINKING_LEVEL,
+        description=("Thinking level for DAIV tasks. Overrides DAIV_AGENT_THINKING_LEVEL environment variable."),
     )
 
 
@@ -201,15 +128,7 @@ class Models(BaseModel):
     Model configuration for all agents.
     """
 
-    plan_and_execute: PlanAndExecuteModelConfig = Field(
-        default_factory=PlanAndExecuteModelConfig, description="Configuration for the plan and execute agent."
-    )
-    review_addressor: ReviewAddressorModelConfig = Field(
-        default_factory=ReviewAddressorModelConfig, description="Configuration for the review addressor agent."
-    )
-    codebase_chat: CodebaseChatModelConfig = Field(
-        default_factory=CodebaseChatModelConfig, description="Configuration for the codebase chat agent."
-    )
+    agent: AgentModelConfig = Field(default_factory=AgentModelConfig, description="Configuration for the DAIV agent.")
     pr_describer: PRDescriberModelConfig = Field(
         default_factory=PRDescriberModelConfig, description="Configuration for the PR describer agent."
     )

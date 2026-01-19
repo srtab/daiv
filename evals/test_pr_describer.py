@@ -4,8 +4,10 @@ from pathlib import Path
 import pytest
 from langsmith import testing as t
 
-from automation.agents.constants import ModelName
-from automation.agents.pr_describer import PullRequestDescriberAgent
+from automation.agent.constants import ModelName
+from automation.agent.pr_describer.graph import create_pr_describer_agent
+from codebase.base import GitPlatform
+from codebase.context import set_runtime_ctx
 
 from .evaluators import correctness_evaluator
 
@@ -43,12 +45,22 @@ async def test_pr_describer(inputs, reference_outputs):
     t.log_inputs(inputs)
     t.log_reference_outputs(reference_outputs)
 
-    pr_describer = await PullRequestDescriberAgent.get_runnable(model=ModelName.GPT_4_1_MINI)
-    outputs = await pr_describer.ainvoke(inputs)
+    async with set_runtime_ctx("srtab/daiv", ref="main", offline=True, git_platform=GitPlatform.GITLAB) as ctx:
+        agent_path = Path(ctx.repo.working_dir)
+        if "context_file_content" in inputs:
+            (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
+        else:
+            (agent_path / ctx.config.context_file_name).unlink()
+        pr_describer = create_pr_describer_agent(model=ModelName.GPT_4_1_MINI, ctx=ctx)
+        outputs = await pr_describer.ainvoke(inputs)
 
-    t.log_outputs(outputs.model_dump(mode="json"))
+    assert "structured_response" in outputs, outputs
+
+    t.log_outputs(outputs["structured_response"].model_dump(mode="json"))
 
     result = correctness_evaluator(
-        inputs=inputs, outputs=outputs.model_dump(mode="json"), reference_outputs=reference_outputs
+        inputs=inputs,
+        outputs=outputs["structured_response"].model_dump(mode="json"),
+        reference_outputs=reference_outputs,
     )
     assert result["score"] is True, result["comment"]

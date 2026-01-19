@@ -14,7 +14,7 @@ help:
 	@echo "  make evals          - Run evals"
 
 test:
-	LANGCHAIN_TRACING_V2=false uv run pytest tests
+	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests
 
 lint: lint-check lint-format
 
@@ -45,5 +45,24 @@ compilemessages:
 evals:
 	LANGSMITH_TEST_SUITE="DAIV: PR Describer" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_pr_describer -n 2
 
+swebench:
+	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --output-path predictions.json --num-samples 1
+
+swebench-evaluate: swebench-clean
+	mkdir -p /tmp/swebench
+	git clone https://github.com/SWE-bench/SWE-bench /tmp/swebench
+	cd /tmp/swebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
+		--dataset_name SWE-bench/SWE-bench_Lite \
+		--split dev \
+		--max_workers 4 \
+		--predictions_path /tmp/predictions.json \
+		--run_id 1
+
+swebench-clean:
+	rm -rf /tmp/swebench
+
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
+
+langsmith-fetch:
+	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 10 ./my-traces

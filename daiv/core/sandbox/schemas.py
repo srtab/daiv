@@ -7,7 +7,10 @@ class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
     extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
-    persist_workdir: bool = Field(default=True, description="Whether to persist the workdir between commands.")
+    ephemeral: bool = Field(default=False, description="Whether to make the session ephemeral or persistent.")
+    network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
+    memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
+    cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
 
     @classmethod
     @field_validator("base_image", "dockerfile")
@@ -19,7 +22,6 @@ class StartSessionRequest(BaseModel):
 
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
-    workdir: str | None = Field(default=None, description="The working directory to use for the commands.")
     archive: str = Field(description="The archive to use as the working directory for the commands.")
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
 

@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import ClientType, Discussion, Issue, Job, MergeRequest, Pipeline, Repository, User
+from codebase.base import Discussion, GitPlatform, Issue, Job, MergeRequest, Pipeline, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -22,6 +22,7 @@ logger = logging.getLogger("daiv.clients")
 
 class Emoji(StrEnum):
     THUMBSUP = "thumbsup"
+    EYES = "eyes"
 
 
 class RepoClient(abc.ABC):
@@ -30,7 +31,7 @@ class RepoClient(abc.ABC):
     """
 
     client: Github | Gitlab
-    client_slug: ClientType
+    git_platform: GitPlatform
 
     @abc.abstractmethod
     def get_repository(self, repo_id: str) -> Repository:
@@ -73,7 +74,7 @@ class RepoClient(abc.ABC):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         pass
 
     @abc.abstractmethod
@@ -181,7 +182,7 @@ class RepoClient(abc.ABC):
 
     @staticmethod
     @functools.cache
-    def create_instance(*, client_slug: ClientType = settings.CLIENT, **kwargs: Any) -> RepoClient:
+    def create_instance(*, git_platform: GitPlatform = settings.CLIENT, **kwargs: Any) -> RepoClient:
         """
         Get the repository client based on the configuration.
 
@@ -195,7 +196,7 @@ class RepoClient(abc.ABC):
         from .gitlab import GitLabClient
         from .swe import SWERepoClient
 
-        if client_slug == ClientType.GITLAB:
+        if git_platform == GitPlatform.GITLAB:
             assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
 
             return GitLabClient(
@@ -204,7 +205,7 @@ class RepoClient(abc.ABC):
                 **kwargs,
             )
 
-        if client_slug == ClientType.GITHUB:
+        if git_platform == GitPlatform.GITHUB:
             assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
             assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
             assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
@@ -217,7 +218,7 @@ class RepoClient(abc.ABC):
                 **kwargs,
             )
 
-        if client_slug == ClientType.SWE:
+        if git_platform == GitPlatform.SWE:
             return SWERepoClient(**kwargs)
 
         raise ValueError("Invalid repository client configuration")

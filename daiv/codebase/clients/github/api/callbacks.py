@@ -129,6 +129,16 @@ class IssueCommentCallback(GitHubCallback):
                     ).delay
                 )()
 
+        elif self._is_issue_comment:
+            self._client.create_issue_note_emoji(
+                self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
+            )
+            await sync_to_async(
+                address_issue_task.si(
+                    repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=self.comment.id
+                ).delay
+            )()
+
         elif self._is_merge_request_review:
             # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
             merge_request = self._client.get_merge_request(self.repository.full_name, self.issue.number)
@@ -158,6 +168,19 @@ class IssueCommentCallback(GitHubCallback):
             and self.issue.is_pull_request()
             and self.issue.state == "open"
             # and not self.issue.draft
+            and self.action in ["created", "edited"]
+            and note_mentions_daiv(self.comment.body, self._client.current_user)
+        )
+
+    @cached_property
+    def _is_issue_comment(self) -> bool:
+        """
+        Accept the webhook if the note is an issue comment that mentions DAIV.
+        """
+        return bool(
+            self._repo_config.issue_addressing.enabled
+            and self.issue.is_issue()
+            and self.issue.state == "open"
             and self.action in ["created", "edited"]
             and note_mentions_daiv(self.comment.body, self._client.current_user)
         )

@@ -1,15 +1,13 @@
-from typing import Literal
-
 from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .base import GitPlatform
 
 
 class CodebaseSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_", env_parse_none_str="None")
 
-    CLIENT: Literal["gitlab", "github", "swe"] = Field(
-        default="gitlab", description="Client to use for codebase operations"
-    )
+    CLIENT: GitPlatform = Field(default=GitPlatform.GITLAB, description="Git platform to use for codebase operations")
 
     # GitLab
     GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")

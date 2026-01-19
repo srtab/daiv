@@ -1,0 +1,7 @@
+### ⚠️ Sorry, something went wrong while responding to your comment.
+
+---
+
+💡 **Next Steps:**
+
+- 🔄 Leave a new comment mentioning @{{ bot_username }} to trigger a fresh response attempt.

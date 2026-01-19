@@ -4,6 +4,7 @@ import logging
 import tempfile
 from contextlib import contextmanager
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -11,8 +12,8 @@ from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 
 from codebase.base import (
-    ClientType,
     Discussion,
+    GitPlatform,
     Issue,
     Job,
     MergeRequest,
@@ -46,7 +47,7 @@ class GitLabClient(RepoClient):
     """
 
     client: Gitlab
-    client_slug = ClientType.GITLAB
+    git_platform = GitPlatform.GITLAB
 
     def __init__(self, auth_token: str, url: str | None = None):
         self.client = Gitlab(
@@ -79,7 +80,7 @@ class GitLabClient(RepoClient):
             name=project.name,
             clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
             default_branch=project.default_branch,
-            client=self.client_slug,
+            git_platform=self.git_platform,
             topics=project.topics,
         )
 
@@ -106,7 +107,7 @@ class GitLabClient(RepoClient):
                 name=project.name,
                 clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
                 default_branch=project.default_branch,
-                client=self.client_slug,
+                git_platform=self.git_platform,
                 topics=project.topics,
             )
             for project in self.client.projects.list(
@@ -246,7 +247,9 @@ class GitLabClient(RepoClient):
             title=mr.title,
             description=mr.description,
             labels=mr.labels,
+            web_url=mr.web_url,
             sha=mr.sha,
+            author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
         )
 
     def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
@@ -293,7 +296,7 @@ class GitLabClient(RepoClient):
         description: str,
         labels: list[str] | None = None,
         assignee_id: int | None = None,
-    ) -> int | str | None:
+    ) -> MergeRequest:
         """
         Create a merge request in a repository or update an existing one if it already exists.
 
@@ -307,18 +310,34 @@ class GitLabClient(RepoClient):
             assignee_id: The assignee ID.
 
         Returns:
-            The merge request ID.
+            The merge request data.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         try:
-            return project.mergerequests.create({
+            merge_request = project.mergerequests.create({
                 "source_branch": source_branch,
                 "target_branch": target_branch,
                 "title": title,
                 "description": description,
                 "labels": labels or [],
                 "assignee_id": assignee_id,
-            }).get_id()
+            })
+            return MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=cast("int", merge_request.get_id()),
+                source_branch=merge_request.source_branch,
+                target_branch=merge_request.target_branch,
+                title=merge_request.title,
+                description=merge_request.description,
+                labels=merge_request.labels,
+                web_url=merge_request.web_url,
+                sha=merge_request.sha,
+                author=User(
+                    id=merge_request.author.get("id"),
+                    username=merge_request.author.get("username"),
+                    name=merge_request.author.get("name"),
+                ),
+            )
         except GitlabCreateError as e:
             if e.response_code != 409:
                 raise e
@@ -331,7 +350,22 @@ class GitLabClient(RepoClient):
                 merge_request.labels = labels or []
                 merge_request.assignee_id = assignee_id
                 merge_request.save()
-                return merge_request.get_id()
+                return MergeRequest(
+                    repo_id=repo_id,
+                    merge_request_id=cast("int", merge_request.get_id()),
+                    source_branch=merge_request.source_branch,
+                    target_branch=merge_request.target_branch,
+                    title=merge_request.title,
+                    description=merge_request.description,
+                    labels=merge_request.labels,
+                    web_url=merge_request.web_url,
+                    sha=merge_request.sha,
+                    author=User(
+                        id=merge_request.author.get("id"),
+                        username=merge_request.author.get("username"),
+                        name=merge_request.author.get("name"),
+                    ),
+                )
             raise e
 
     @contextmanager
@@ -346,15 +380,17 @@ class GitLabClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        safe_sha = sha.replace("/", "_").replace(" ", "-")
+        from codebase.clients.utils import safe_slug
 
-        with tempfile.TemporaryDirectory(prefix=f"{repository.pk}-{safe_sha}-repo") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             parsed = urlparse(repository.clone_url)
             clone_url = f"{parsed.scheme}://oauth2:{self.client.private_token}@{parsed.netloc}{parsed.path}"
 
-            yield Repo.clone_from(clone_url, tmpdir, branch=sha)
+            clone_dir = Path(tmpdir) / "repo"
+            clone_dir.mkdir(exist_ok=True)
+            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
@@ -492,6 +528,12 @@ class GitLabClient(RepoClient):
                 title=mr["title"],
                 description=mr["description"],
                 labels=mr["labels"],
+                web_url=mr.get("web_url"),
+                author=User(
+                    id=mr.get("author").get("id"),
+                    username=mr.get("author").get("username"),
+                    name=mr.get("author").get("name"),
+                ),
             )
             for mr in issue.related_merge_requests(get_all=True)
             if (assignee_id is None or mr["assignee"] and mr["assignee"]["id"] == assignee_id)

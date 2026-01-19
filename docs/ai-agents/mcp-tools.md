@@ -10,7 +10,6 @@ DAIV currently supports the following MCP tools:
 
 | MCP Server | Tools | Use Cases |
 |------------|--------------|-----------|
-| [Fetch MCP Server](https://pypi.org/project/mcp-server-fetch/) | • `fetch`: Fetch content from URLs | • Researching documentation and examples from the web<br>• Fetching configuration files or data from remote sources<br>• Analyzing external APIs and their responses<br>• Gathering context from online resources |
 | [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) | • `find_organizations`: Discover Sentry organizations<br>• `get_issue_details`: Retrieve detailed information about specific issues | • Analyzing error patterns and crash reports<br>• Understanding issue context when fixing bugs<br>• Gathering debugging information from production systems<br>• Correlating code changes with error occurrences |
 
 ## Configuration
@@ -24,10 +23,6 @@ MCP tools are configured through environment variables. Here's how to set them u
 MCP_PROXY_HOST=http://mcp-proxy:9090         # Default: http://mcp-proxy:9090
 MCP_PROXY_ADDR=:9090                         # Default: :9090
 MCP_PROXY_AUTH_TOKEN=your-auth-token         # Optional authentication token
-
-# Fetch MCP Server
-MCP_FETCH_ENABLED=true                       # Default: true
-MCP_FETCH_VERSION=2025.4.7                   # Default: 2025.4.7
 
 # Sentry MCP Server
 MCP_SENTRY_ENABLED=true                      # Default: true
