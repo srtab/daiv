@@ -1,14 +1,31 @@
 import logging
 
+from django.conf import settings
+from django.core.management import call_command
 from django.tasks import task
 
+from crontask import cron
+
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.tasks")
+
+
+if codebase_settings.CLIENT == GitPlatform.GITLAB:
+
+    @cron("*/5 * * * *")  # every 5 minute
+    @task
+    async def setup_webhooks_cron_task():
+        """
+        Setup webhooks for all repositories every 5 minutes.
+        """
+        call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
 
 
 @task
