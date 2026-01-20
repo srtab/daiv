@@ -1,16 +1,17 @@
 import logging
 
+from django.tasks import task
+
 from codebase.clients import RepoClient
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
 from core.utils import locked_task
-from daiv import async_task
 
 logger = logging.getLogger("daiv.tasks")
 
 
-@async_task()
+@task
 @locked_task(key="{repo_id}:{issue_iid}")
 async def address_issue_task(repo_id: str, issue_iid: int, mention_comment_id: str, ref: str | None = None):
     """
@@ -30,7 +31,7 @@ async def address_issue_task(repo_id: str, issue_iid: int, mention_comment_id: s
         )
 
 
-@async_task()
+@task
 @locked_task(key="{repo_id}:{merge_request_id}")
 async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
     """
@@ -45,7 +46,7 @@ async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_requ
     #     await ReviewAddressorManager.process_review_comments(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx) # noqa: E501 ERA001
 
 
-@async_task()
+@task
 @locked_task(key="{repo_id}:{merge_request_id}")
 async def address_mr_comments_task(
     repo_id: str, merge_request_id: int, merge_request_source_branch: str, mention_comment_id: str

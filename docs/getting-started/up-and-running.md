@@ -9,14 +9,15 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 **Required Core Services:**
 
  * **[PostgreSQL](https://www.postgresql.org/)** - Stores application data;
- * **[Redis](https://redis.io/)** - Handles caching and message queueing;
+* **[Redis](https://redis.io/)** - Handles caching;
  * **[DAIV Application](https://github.com/srtab/daiv)** - Main API;
- * **[DAIV Worker](https://docs.celeryq.dev/)** - Background task processor.
+* **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** - Background task processor.
 
 **Optional Service:**
 
- * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary commands;
- * **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** - Proxy MCP server to run other MCP servers inside a container.
+* **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** - Periodic task scheduler;
+* **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary commands;
+* **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** - Proxy MCP server to run other MCP servers inside a container.
 
 ---
 
@@ -68,7 +69,6 @@ x-app-environment-defaults: &app_environment_defaults
   DJANGO_SETTINGS_MODULE: daiv.settings.production
   DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
   DJANGO_REDIS_URL: redis://daiv_redis:6379/0
-  DJANGO_BROKER_URL: redis://daiv_redis:6379/0
   DAIV_EXTERNAL_URL: https://your-hostname.com (2)
   # DATABASE
   DB_NAME: daiv
@@ -162,7 +162,6 @@ services:
     command: sh /home/daiv/start-worker
     environment:
       <<: *app_environment_defaults
-      CELERY_CONCURRENCY: 2 (6)
     secrets:
       - django_secret_key
       - db_password
@@ -175,28 +174,45 @@ services:
       - internal
     volumes:
       - mcp-proxy-volume:/home/daiv/data/mcp-proxy
-    healthcheck:
-      test: celery -A daiv inspect ping
-      interval: 10s
+    deploy:
+      <<: *deploy_defaults
+
+  scheduler:
+    image: ghcr.io/srtab/daiv:latest (5)
+    command: sh /home/daiv/start-crontask
+    environment:
+      <<: *app_environment_defaults
+    secrets:
+      - django_secret_key
+      - db_password
+      - codebase_gitlab_auth_token
+      - codebase_gitlab_webhook_secret
+      - daiv_sandbox_api_key
+      - openrouter_api_key
+      - mcp_proxy_auth_token
+    networks:
+      - internal
+    volumes:
+      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
 
   sandbox:
     image: ghcr.io/srtab/daiv-sandbox:latest (5)
     environment:
-      DAIV_SANDBOX_KEEP_TEMPLATE: true (7)
+      DAIV_SANDBOX_KEEP_TEMPLATE: true (6)
     networks:
       - internal
     secrets:
       - daiv_sandbox_api_key
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock (8)
-      - $HOME/.docker/config.json:/home/app/.docker/config.json (9)
+      - /var/run/docker.sock:/var/run/docker.sock (7)
+      - $HOME/.docker/config.json:/home/app/.docker/config.json (8)
     deploy:
       <<: *deploy_defaults
 
   mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.39.1
+    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     networks:
       - internal
     volumes:
@@ -243,10 +259,9 @@ secrets:
 3.   Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
 4.   Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
 5.   **Recommended**: Replace `latest` with a specific version tag for production deployments
-6.   Number of parallel worker processes. Adjust based on your server resources and expected workload
-7.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
-8.   **Required**: Sandbox needs Docker socket access to create isolated containers
-9.   **Optional**: Remove this volume if you don't need private registry access
+6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
+7.   **Required**: Sandbox needs Docker socket access to create isolated containers
+8.   **Optional**: Remove this volume if you don't need private registry access
 
 ### Step 3: Deploy the stack
 
@@ -302,7 +317,6 @@ x-app-defaults: &x_app_default
     DJANGO_SECRET_KEY: secret-key (1)
     DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
     DJANGO_REDIS_URL: redis://redis:6379/0
-    DJANGO_BROKER_URL: redis://redis:6379/0
     DAIV_EXTERNAL_URL: https://your-hostname.com (12)
     # Database settings
     DB_HOST: db
@@ -374,9 +388,16 @@ services:
     container_name: daiv-worker
     command: sh /home/daiv/start-worker
     ports: []
-    healthcheck:
-      test: celery -A daiv inspect ping
-      interval: 10s
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+
+  scheduler:
+    <<: *x_app_default
+    container_name: daiv-scheduler
+    command: sh /home/daiv/start-crontask
+    ports: []
     depends_on:
       app:
         condition: service_healthy
@@ -394,7 +415,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.39.1
+    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     restart: unless-stopped
     container_name: daiv-mcp-proxy
     volumes:

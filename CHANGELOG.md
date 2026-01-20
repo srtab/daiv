@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
 - Added support for `gpt-5.2` model from OpenAI
+- Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
 
 ### Changed
 
@@ -33,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
 - Deferred sandbox session creation until the first `bash` tool invocation.
 - Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
+- Migrated background processing from Celery to Django Tasks using the `django-tasks` database backend.
+- Simplified task definitions to use Django Tasks async support directly.
 
 ### Fixed
 
@@ -42,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
+- Removed Celery worker configuration and bootstrap scripts.
 
 ## [1.1.0] - 2025-12-04
 

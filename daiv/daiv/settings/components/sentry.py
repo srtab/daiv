@@ -12,7 +12,6 @@ SENTRY_ENABLE_TRACING = config("SENTRY_ENABLE_TRACING", cast=bool, default=False
 
 if SENTRY_DSN:
     import sentry_sdk
-    from sentry_sdk.integrations.celery import CeleryIntegration
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.integrations.logging import LoggingIntegration
     from sentry_sdk.integrations.redis import RedisIntegration
@@ -26,7 +25,7 @@ if SENTRY_DSN:
         enable_tracing=SENTRY_ENABLE_TRACING,
         profiles_sample_rate=1.0 if SENTRY_ENABLE_TRACING else 0.0,
         server_name=config("NODE_HOSTNAME", default=None),
-        integrations=[DjangoIntegration(), LoggingIntegration(), RedisIntegration(), CeleryIntegration()],
+        integrations=[DjangoIntegration(), LoggingIntegration(), RedisIntegration()],
     )
 
     if SERVICE_NAME := config("SERVICE_NAME", default=None):

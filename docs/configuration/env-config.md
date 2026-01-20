@@ -51,17 +51,6 @@ Variables marked with:
 |--------------------|----------------------------|:---------:|---------|
 | :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL | *(none)* | `redis://redis:6379/0` |
 
-### Celery / Broker
-
-| Variable                | Description                        | Default        | Example         |
-|-------------------------|------------------------------------|:--------------:|-----------------|
-| :material-asterisk: `DJANGO_BROKER_URL` :material-lock:     | Celery broker URL                  | `memory:///`   | `redis://redis:6379/0` |
-| `DJANGO_BROKER_USE_SSL` | Use SSL for broker connection      | `False`        | `True`          |
-| `CELERY_LOGLEVEL`       | Celery log level                   | `INFO`         | `DEBUG`         |
-| `CELERY_CONCURRENCY`    | Number of Celery workers           | `2`            | `4`             |
-
-!!! note
-    The `CELERY_CONCURRENCY` variable is used to specify the number of Celery workers to use. This is useful for scaling the application. The default value is `2` which is suitable for most use cases.
 
 ### Sentry
 

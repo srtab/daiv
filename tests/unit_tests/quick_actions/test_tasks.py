@@ -42,7 +42,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_issue.return_value = self.issue
 
         # Execute task with string action args
-        await execute_issue_task(
+        await execute_issue_task.aenqueue(
             repo_id="repo123",
             action_command="help",
             action_args="arg1 arg2",
@@ -81,7 +81,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_merge_request.return_value = self.merge_request
 
         # Execute task
-        await execute_merge_request_task(
+        await execute_merge_request_task.aenqueue(
             repo_id="repo123",
             action_command="help",
             action_args="",
@@ -109,7 +109,7 @@ class TestExecuteQuickActionTask:
         mock_registry.get_actions.return_value = []
 
         # Execute task
-        await execute_issue_task(
+        await execute_issue_task.aenqueue(
             repo_id="repo123",
             action_command="nonexistent",
             action_args="",
@@ -131,7 +131,7 @@ class TestExecuteQuickActionTask:
         mock_registry.get_actions.return_value = [mock_action_class1, mock_action_class2]
 
         # Execute task
-        await execute_issue_task(
+        await execute_issue_task.aenqueue(
             repo_id="repo123",
             action_command="duplicate",
             action_args="",
@@ -159,7 +159,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_issue.return_value = self.issue
 
         # Execute task
-        await execute_issue_task(
+        await execute_issue_task.aenqueue(
             repo_id="repo123",
             action_command="failing_action",
             action_args="",
@@ -192,7 +192,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_merge_request.return_value = self.merge_request
 
         # Execute task
-        await execute_merge_request_task(
+        await execute_merge_request_task.aenqueue(
             repo_id="repo123",
             action_command="failing_action",
             action_args="",
@@ -223,7 +223,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_merge_request.return_value = self.merge_request
 
         # Execute task with string scope
-        await execute_merge_request_task(
+        await execute_merge_request_task.aenqueue(
             repo_id="repo123",
             action_command="help",
             action_args="",
@@ -251,7 +251,7 @@ class TestExecuteQuickActionTask:
         mock_repo_client.get_issue.return_value = self.issue
 
         # Execute task with empty action args
-        await execute_issue_task(
+        await execute_issue_task.aenqueue(
             repo_id="repo123",
             action_command="help",
             action_args="",

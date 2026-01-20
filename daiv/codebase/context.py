@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 class RuntimeCtx:
     """
     Context to be used across the application layers.
-    It needs to be set as early as possible on the request lifecycle or celery task.
+    It needs to be set as early as possible on the request lifecycle or task execution.
 
     With this context, we ensure that application layers that need the repository files can access them without doing
     API calls by accessing the defined `repo_dir` directory, which is a temporary directory with the repository files.
 
-    The context is reset at the end of the request lifecycle or celery task.
+    The context is reset at the end of the request lifecycle or task execution.
     """
 
     git_platform: GitPlatform
@@ -115,7 +115,7 @@ def get_runtime_ctx() -> RuntimeCtx:
     if ctx is None:
         raise RuntimeError(
             "Runtime context not set. "
-            "It needs to be set as early as possible on the request lifecycle or celery task. "
+            "It needs to be set as early as possible on the request lifecycle or task execution. "
             "Use the `codebase.context.set_runtime_ctx` context manager to set the context."
         )
     return ctx

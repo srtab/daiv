@@ -69,11 +69,12 @@ COPY --chown=daiv:daiv ./daiv /home/daiv/app
 COPY --chown=daiv:daiv ./docker/production/app/entrypoint /home/daiv/entrypoint
 COPY --chown=daiv:daiv ./docker/production/app/start-app /home/daiv/start-app
 COPY --chown=daiv:daiv ./docker/production/app/start-worker /home/daiv/start-worker
+COPY --chown=daiv:daiv ./docker/production/app/start-crontask /home/daiv/start-crontask
 
 USER daiv
 WORKDIR /home/daiv
 
-RUN chmod +x entrypoint start-app start-worker \
+RUN chmod +x entrypoint start-app start-worker start-crontask \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
   && mkdir -p data/tantivy_index data/media data/static data/mcp-proxy
