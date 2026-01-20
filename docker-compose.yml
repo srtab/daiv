@@ -130,7 +130,7 @@ services:
       - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
 
   mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.39.1
+    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     restart: unless-stopped
     container_name: daiv-mcp-proxy
     env_file:

@@ -181,7 +181,6 @@ check_untyped_defs = true
 [[tool.mypy.overrides]]
 module = [
   "appconf.*",
-  "celery.*",
   "chat.*",
   "decouple.*",
   "django.*",
