@@ -117,7 +117,6 @@ except GitCommandError as e:
 
 ### Async Code
 - Use `async`/`await` for async functions
-- Test async functions with `pytest-asyncio` (asyncio_mode = "auto")
 - Use `asyncio.gather()` for concurrent operations
 
 ## Dependency Management
@@ -137,11 +136,12 @@ uv lock                                 # update the lock file
 ## Testing Guidelines
 
 - Use `pytest` with `pytest-asyncio` for async tests
-- Organize tests in classes prefixed with `Test`
+- Organize tests in functions.
 - Use descriptive test names: `test_<what_it_does>`
 - Use fixtures for common setup (e.g., `@pytest.fixture`)
-- Mock external dependencies with `unittest.mock` or `pytest-mock`
-- All tests should be in the `tests/` directory mirroring the `daiv/` structure
+- Mock external dependencies for unit tests with `unittest.mock` or `pytest-mock` or `pytest-httpx`.
+- All unit tests should be in the `tests/unit_tests/` directory mirroring the `daiv/` structure
+- All integration tests should be in the `tests/integration_tests/` directory.
 
 ## Documentation
 
@@ -152,10 +152,7 @@ uv lock                                 # update the lock file
 
 ## Changelog
 
-**ALWAYS** update `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format:
-- Use sections: Added, Changed, Deprecated, Removed, Fixed, Security
-- Add entries under `[Unreleased]` section
-- Include brief descriptions of changes
+**ALWAYS** update `CHANGELOG.md` after making changes to the project using the `changelog-curator` subagent.
 
 ## Translations
 

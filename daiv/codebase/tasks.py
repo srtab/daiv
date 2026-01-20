@@ -30,15 +30,17 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 
 @task
 @locked_task(key="{repo_id}:{issue_iid}")
-async def address_issue_task(repo_id: str, issue_iid: int, mention_comment_id: str, ref: str | None = None):
+async def address_issue_task(
+    repo_id: str, issue_iid: int, mention_comment_id: str | None = None, ref: str | None = None
+):
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
     Args:
         repo_id (str): The repository id.
         issue_iid (int): The issue id.
-        mention_comment_id (str): The mention comment id.
-        ref (str | None): The reference.
+        mention_comment_id (str | None): The mention comment id. Defaults to None.
+        ref (str | None): The reference. Defaults to None.
     """
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)

@@ -216,8 +216,6 @@ class CommentsAddressorManager(BaseManager):
         )
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
-            await checkpointer.adelete_thread(self.thread_id)
-
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx,
                 checkpointer=checkpointer,

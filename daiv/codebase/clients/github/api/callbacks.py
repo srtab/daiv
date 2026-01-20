@@ -13,7 +13,7 @@ from quick_actions.parser import QuickActionCommand, parse_quick_action
 from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
-from .models import Comment, Issue, IssueChanges, PullRequest, Repository, Review  # noqa: TC001
+from .models import Comment, Issue, PullRequest, Repository, Review  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -33,7 +33,6 @@ class IssueCallback(GitHubCallback):
 
     action: Literal["opened", "edited", "reopened", "labeled"]
     issue: Issue
-    changes: IssueChanges | None = None
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
@@ -43,26 +42,11 @@ class IssueCallback(GitHubCallback):
             self._repo_config.issue_addressing.enabled
             and self.issue.is_daiv()
             and self.issue.state == "open"
-            and (
-                self.action == "edited"
-                and bool(self.changes and (self.changes.body.from_value != "" or self.changes.title.from_value != ""))
-                or self.action in ["opened", "reopened", "labeled"]
-            )
+            and self.action in ["opened", "reopened", "labeled"]
         )
 
     async def process_callback(self):
-        await address_issue_task.aenqueue(
-            repo_id=self.repository.full_name, issue_iid=self.issue.number, should_reset_plan=self.should_reset_plan()
-        )
-
-    def should_reset_plan(self) -> bool:
-        """
-        Check if the plan should be reset.
-        """
-        return bool(
-            self.action == "edited"
-            and bool(self.changes and (self.changes.body.from_value != "" or self.changes.title.from_value != ""))
-        )
+        await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
 
 
 class IssueCommentCallback(GitHubCallback):
