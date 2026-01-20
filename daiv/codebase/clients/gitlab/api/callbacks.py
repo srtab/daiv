@@ -2,8 +2,6 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from asgiref.sync import sync_to_async
-
 from codebase.api.callbacks import BaseCallback
 from codebase.base import NoteType
 from codebase.clients import RepoClient
@@ -64,59 +62,49 @@ class NoteCallback(BaseCallback):
                 self._client.create_merge_request_note_emoji(
                     self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
                 )
-                await sync_to_async(
-                    execute_merge_request_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        comment_id=self.object_attributes.discussion_id,
-                        action_command=self._quick_action_command.command,
-                        action_args=" ".join(self._quick_action_command.args),
-                        merge_request_id=self.merge_request.iid,
-                    ).delay
-                )()
+                await execute_merge_request_task.aenqueue(
+                    repo_id=self.project.path_with_namespace,
+                    comment_id=self.object_attributes.discussion_id,
+                    action_command=self._quick_action_command.command,
+                    action_args=" ".join(self._quick_action_command.args),
+                    merge_request_id=self.merge_request.iid,
+                )
             elif self._action_scope == Scope.ISSUE:
                 self._client.create_issue_note_emoji(
                     self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
                 )
-                await sync_to_async(
-                    execute_issue_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        comment_id=self.object_attributes.discussion_id,
-                        action_command=self._quick_action_command.command,
-                        action_args=" ".join(self._quick_action_command.args),
-                        issue_id=self.issue.iid,
-                    ).delay
-                )()
+                await execute_issue_task.aenqueue(
+                    repo_id=self.project.path_with_namespace,
+                    comment_id=self.object_attributes.discussion_id,
+                    action_command=self._quick_action_command.command,
+                    action_args=" ".join(self._quick_action_command.args),
+                    issue_id=self.issue.iid,
+                )
 
         elif self._is_issue_comment:
             self._client.create_issue_note_emoji(
                 self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
             )
-            await sync_to_async(
-                address_issue_task.si(
-                    repo_id=self.project.path_with_namespace,
-                    issue_iid=self.issue.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                ).delay
-            )()
+            await address_issue_task.aenqueue(
+                repo_id=self.project.path_with_namespace,
+                issue_iid=self.issue.iid,
+                mention_comment_id=self.object_attributes.discussion_id,
+            )
 
         elif self._is_merge_request_review:
             if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
-                await sync_to_async(
-                    address_mr_review_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        merge_request_id=self.merge_request.iid,
-                        merge_request_source_branch=self.merge_request.source_branch,
-                    ).delay
-                )()
+                await address_mr_review_task.aenqueue(
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_id=self.merge_request.iid,
+                    merge_request_source_branch=self.merge_request.source_branch,
+                )
             elif self.object_attributes.type is None:  # This is a comment note.
-                await sync_to_async(
-                    address_mr_comments_task.si(
-                        repo_id=self.project.path_with_namespace,
-                        merge_request_id=self.merge_request.iid,
-                        merge_request_source_branch=self.merge_request.source_branch,
-                        mention_comment_id=self.object_attributes.discussion_id,
-                    ).delay
-                )()
+                await address_mr_comments_task.aenqueue(
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_id=self.merge_request.iid,
+                    merge_request_source_branch=self.merge_request.source_branch,
+                    mention_comment_id=self.object_attributes.discussion_id,
+                )
             else:
                 logger.warning("Unsupported note type: %s", self.object_attributes.type)
 

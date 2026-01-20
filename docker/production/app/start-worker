@@ -2,6 +2,4 @@
 
 set -eu pipefail
 
-exec celery -A daiv worker \
-    --loglevel=${CELERY_LOGLEVEL:-"INFO"} \
-    --concurrency=${CELERY_CONCURRENCY:-2}
+exec django-admin db_worker --skip-checks

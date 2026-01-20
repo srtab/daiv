@@ -11,8 +11,3 @@ USE_TZ = True
 USE_THOUSAND_SEPARATOR = True
 
 LOCALE_PATHS = (PROJECT_DIR / "accounts" / "locale", PROJECT_DIR / "codebase" / "locale")
-
-# CELERY
-
-CELERY_TIMEZONE = TIME_ZONE
-CELERY_ENABLE_UTC = False

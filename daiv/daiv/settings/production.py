@@ -6,6 +6,6 @@ include(
     "components/database.py",
     "components/redis.py",
     "components/logs.py",
-    "components/celery.py",
+    "components/tasks.py",
     "components/sentry.py",
 )

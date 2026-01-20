@@ -2,8 +2,6 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from asgiref.sync import sync_to_async
-
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -53,13 +51,9 @@ class IssueCallback(GitHubCallback):
         )
 
     async def process_callback(self):
-        await sync_to_async(
-            address_issue_task.si(
-                repo_id=self.repository.full_name,
-                issue_iid=self.issue.number,
-                should_reset_plan=self.should_reset_plan(),
-            ).delay
-        )()
+        await address_issue_task.aenqueue(
+            repo_id=self.repository.full_name, issue_iid=self.issue.number, should_reset_plan=self.should_reset_plan()
+        )
 
     def should_reset_plan(self) -> bool:
         """
@@ -109,47 +103,39 @@ class IssueCommentCallback(GitHubCallback):
             )
 
             if self._action_scope == Scope.ISSUE:
-                await sync_to_async(
-                    execute_issue_task.si(
-                        repo_id=self.repository.full_name,
-                        comment_id=self.comment.id,
-                        action_command=self._quick_action_command.command,
-                        action_args=" ".join(self._quick_action_command.args),
-                        issue_id=self.issue.number,
-                    ).delay
-                )()
+                await execute_issue_task.aenqueue(
+                    repo_id=self.repository.full_name,
+                    comment_id=self.comment.id,
+                    action_command=self._quick_action_command.command,
+                    action_args=" ".join(self._quick_action_command.args),
+                    issue_id=self.issue.number,
+                )
             elif self._action_scope == Scope.MERGE_REQUEST:
-                await sync_to_async(
-                    execute_merge_request_task.si(
-                        repo_id=self.repository.full_name,
-                        comment_id=self.comment.id,
-                        action_command=self._quick_action_command.command,
-                        action_args=" ".join(self._quick_action_command.args),
-                        merge_request_id=self.issue.number,
-                    ).delay
-                )()
+                await execute_merge_request_task.aenqueue(
+                    repo_id=self.repository.full_name,
+                    comment_id=self.comment.id,
+                    action_command=self._quick_action_command.command,
+                    action_args=" ".join(self._quick_action_command.args),
+                    merge_request_id=self.issue.number,
+                )
 
         elif self._is_issue_comment:
             self._client.create_issue_note_emoji(
                 self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
             )
-            await sync_to_async(
-                address_issue_task.si(
-                    repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=self.comment.id
-                ).delay
-            )()
+            await address_issue_task.aenqueue(
+                repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=self.comment.id
+            )
 
         elif self._is_merge_request_review:
             # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
             merge_request = self._client.get_merge_request(self.repository.full_name, self.issue.number)
 
-            await sync_to_async(
-                address_mr_comments_task.si(
-                    repo_id=self.repository.full_name,
-                    merge_request_id=self.issue.number,
-                    merge_request_source_branch=merge_request.source_branch,
-                ).delay
-            )()
+            await address_mr_comments_task.aenqueue(
+                repo_id=self.repository.full_name,
+                merge_request_id=self.issue.number,
+                merge_request_source_branch=merge_request.source_branch,
+            )
 
     @property
     def _is_quick_action(self) -> bool:
@@ -257,13 +243,11 @@ class PullRequestReviewCallback(GitHubCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        await sync_to_async(
-            address_mr_review_task.si(
-                repo_id=self.repository.full_name,
-                merge_request_id=self.pull_request.number,
-                merge_request_source_branch=self.pull_request.head.ref,
-            ).delay
-        )()
+        await address_mr_review_task.aenqueue(
+            repo_id=self.repository.full_name,
+            merge_request_id=self.pull_request.number,
+            merge_request_source_branch=self.pull_request.head.ref,
+        )
 
 
 class PushCallback(GitHubCallback):

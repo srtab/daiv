@@ -74,8 +74,12 @@ services:
     <<: *x_app_default
     container_name: daiv-worker
     command: sh /home/app/docker/start-worker
-    environment:
-      - C_FORCE_ROOT=true
+    ports: []
+
+  scheduler:
+    <<: *x_app_default
+    container_name: daiv-scheduler
+    command: sh /home/app/docker/start-crontask
     ports: []
 
   gitlab:

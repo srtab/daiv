@@ -1,6 +1,6 @@
 # Project Overview
 
-DAIV is an AI-powered development assistant built on Django with Celery for async task processing, LangChain/LangGraph for LLM integration, and includes `daiv-sandbox` for sandboxed command execution. It integrates with GitLab and GitHub to automate issue resolution, code reviews, and CI/CD pipeline repairs.
+DAIV is an AI-powered development assistant built on Django with Django Tasks for async task processing, LangChain/LangGraph for LLM integration, and includes `daiv-sandbox` for sandboxed command execution. It integrates with GitLab and GitHub to automate issue resolution, code reviews, and CI/CD pipeline repairs.
 
 ## Project Structure
 
@@ -10,7 +10,7 @@ DAIV is an AI-powered development assistant built on Django with Celery for asyn
     * `chat/` - Chat module with the OpenAI compatible API.
     * `core/` - Core module with common logic.
     * `quick_actions/` - Quick actions module.
-    * `daiv/` - Main logic of the Django project: settings, urls, wsgi, asgi, celery, etc.
+    * `daiv/` - Main logic of the Django project: settings, urls, wsgi, asgi, tasks, etc.
 * `docker/` - Dockerfiles and configurations for local and production deployments.
 * `docs/` - Documentation for the project.
 * `evals/` - Evaluation suite for the project (openevals + langsmith + pytest).

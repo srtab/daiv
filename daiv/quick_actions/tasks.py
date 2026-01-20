@@ -1,9 +1,9 @@
 import logging
 
+from django.tasks import task
 from django.template.loader import render_to_string
 
 from codebase.clients import RepoClient
-from daiv import async_task
 
 from .base import Scope
 from .registry import quick_action_registry
@@ -11,7 +11,7 @@ from .registry import quick_action_registry
 logger = logging.getLogger("daiv.quick_actions")
 
 
-@async_task(pydantic=True)
+@task
 async def execute_issue_task(repo_id: str, action_command: str, action_args: str, comment_id: str, issue_id: int):
     """
     Execute a quick action asynchronously.
@@ -61,7 +61,7 @@ async def execute_issue_task(repo_id: str, action_command: str, action_args: str
         )
 
 
-@async_task(pydantic=True)
+@task
 async def execute_merge_request_task(
     repo_id: str, action_command: str, action_args: str, comment_id: str, merge_request_id: int
 ) -> None:

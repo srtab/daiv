@@ -13,5 +13,5 @@ include(
     "components/redis.py",
     "components/logs.py",
     "components/debug.py",
-    "components/celery.py",
+    "components/tasks.py",
 )

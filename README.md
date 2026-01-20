@@ -25,7 +25,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 ## Technology Stack
 
 - **Backend Framework**: [Django](https://www.djangoproject.com/) for building robust APIs and managing database models.
-- **Async Tasks**: [Celery](https://docs.celeryproject.org/) with Redis, applying actions in the background and scaling the agents to handle multiple requests.
+- **Async Tasks**: [Django Tasks](https://docs.djangoproject.com/en/6.0/topics/tasks/) with the [`django-tasks` backend](https://pypi.org/project/django-tasks/) and [`django-crontask`](https://pypi.org/project/django-crontask/) for periodic scheduling.
 - **LLM Frameworks**: [LangChain](https://python.langchain.com/) and [LangGraph](https://langchain-ai.github.io/langgraph), integrating various LLM agents for intent understanding, query transformation, and natural language reasoning about code changes.
 - **Code Executor**: [Sandbox](https://github.com/srtab/daiv-sandbox/) for running commands in a secure sandbox to allow the agents to perform actions on the codebase.
 - **Observability**: [LangSmith](https://www.langchain.com/langsmith) for tracing and monitoring all the interactions between DAIV and your codebase.

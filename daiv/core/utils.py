@@ -115,7 +115,7 @@ def locked_task(key: str = "", blocking: bool = False):
                         Default is False.
 
     Example:
-        @shared_task
+        @task
         @locked_task(key="{repo_id}:{issue_iid}")  # Lock key will be: "task_name:repo123:issue456"
         def process_issue(repo_id: str, issue_iid: int):
             pass
