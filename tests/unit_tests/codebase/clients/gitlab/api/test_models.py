@@ -18,8 +18,8 @@ class TestGitLabIssueIsDaiv:
         )
         assert issue.is_daiv() is True
 
-    def test_issue_is_not_daiv_with_daiv_auto_label(self):
-        """Test that is_daiv returns False when issue has 'daiv-auto' label."""
+    def test_issue_is_daiv_with_daiv_auto_label(self):
+        """Test that is_daiv returns True when issue has 'daiv-auto' label."""
         issue = Issue(
             id=1,
             iid=1,
@@ -30,7 +30,7 @@ class TestGitLabIssueIsDaiv:
             type="Issue",
             assignee_id=1,
         )
-        assert issue.is_daiv() is False
+        assert issue.is_daiv() is True
 
     def test_issue_is_daiv_with_daiv_max_label(self):
         """Test that is_daiv returns True when issue has 'daiv-max' label."""
@@ -119,8 +119,8 @@ class TestGitLabMergeRequestIsDaiv:
         )
         assert mr.is_daiv() is True
 
-    def test_mr_is_not_daiv_with_daiv_auto_label(self):
-        """Test that is_daiv returns False when MR has 'daiv-auto' label."""
+    def test_mr_is_daiv_with_daiv_auto_label(self):
+        """Test that is_daiv returns True when MR has 'daiv-auto' label."""
         mr = MergeRequest(
             id=1,
             iid=1,
@@ -130,7 +130,7 @@ class TestGitLabMergeRequestIsDaiv:
             source_branch="main",
             target_branch="feature",
         )
-        assert mr.is_daiv() is False
+        assert mr.is_daiv() is True
 
     def test_mr_is_daiv_with_daiv_max_label(self):
         """Test that is_daiv returns True when MR has 'daiv-max' label."""

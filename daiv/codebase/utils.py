@@ -150,20 +150,30 @@ class GitManager:
             # No commits yet, get diff of all files
             diff = self.repo.git.diff("--cached", "--no-prefix")
 
-        untracked_files = self.repo.untracked_files
+        untracked_files = self._get_untracked_files()
         if untracked_files:
             for file in untracked_files:
-                try:
-                    file_diff = self.repo.git.diff("--no-index", "/dev/null", file)
+                # `git diff --no-index` returns exit code 1 when differences are found,
+                # which GitPython treats as an exception by default. We still want the output.
+                file_diff = self.repo.git.diff("--no-index", "/dev/null", file, with_exceptions=False)
+                if file_diff:
                     diff += f"\n{file_diff}"
-                except GitCommandError:
-                    # File might be binary or have issues
-                    pass
 
         if diff and not diff.endswith("\n"):
             diff += "\n"
 
         return diff
+
+    def _get_untracked_files(self) -> list[str]:
+        """
+        Get untracked files using git directly (no GitPython caching).
+
+        GitPython's `Repo.untracked_files` can be stale if accessed before files are created.
+        Using `git ls-files --others --exclude-standard` ensures we see newly-created files.
+        """
+        raw = self.repo.git.ls_files("--others", "--exclude-standard")
+        files = [line.strip() for line in raw.splitlines() if line.strip()]
+        return files
 
     def is_dirty(self) -> bool:
         """
@@ -172,7 +182,9 @@ class GitManager:
         Returns:
             True if the repository is dirty, False otherwise.
         """
-        return self.repo.is_dirty(index=True, working_tree=True, untracked_files=True)
+        # Use `git status --porcelain` instead of GitPython caching (`untracked_files`)
+        # to ensure newly created files are detected reliably.
+        return bool(self.repo.git.status("--porcelain").strip())
 
     def commit_and_push_changes(
         self,
@@ -277,6 +289,9 @@ class GitManager:
         """
         if not patch or not patch.strip():
             return
+
+        if not patch.endswith("\n"):
+            patch += "\n"
 
         diff_bytes = patch.encode("utf-8", "surrogateescape")
         diff_args = ["--whitespace=nowarn"]

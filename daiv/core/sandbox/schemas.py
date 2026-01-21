@@ -11,6 +11,9 @@ class StartSessionRequest(BaseModel):
     network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
+    environment: dict[str, str] | None = Field(
+        default=None, description="Environment variables to set for the session."
+    )
 
     @classmethod
     @field_validator("base_image", "dockerfile")
@@ -22,7 +25,9 @@ class StartSessionRequest(BaseModel):
 
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
-    archive: str = Field(description="The archive to use as the working directory for the commands.")
+    archive: str | None = Field(
+        default=None, description="The archive to use as the working directory for the commands."
+    )
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
 
 

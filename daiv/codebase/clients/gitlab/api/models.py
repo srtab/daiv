@@ -4,7 +4,7 @@ from typing import Literal
 from ninja import Field
 from pydantic import BaseModel
 
-from core.constants import BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 
 class IssueAction(StrEnum):
@@ -41,7 +41,7 @@ class Issue(BaseModel):
         """
         Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
         """
-        daiv_labels = {BOT_LABEL.lower(), BOT_MAX_LABEL.lower()}
+        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
 
 
@@ -65,7 +65,7 @@ class MergeRequest(BaseModel):
         """
         Check if the merge request is a DAIV merge request by checking for any DAIV label (daiv, daiv-auto, daiv-max).
         """
-        daiv_labels = {BOT_LABEL.lower(), BOT_MAX_LABEL.lower()}
+        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
 
 

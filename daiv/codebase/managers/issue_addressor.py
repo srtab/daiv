@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.managers")
 
 
+PLAN_ISSUE_PROMPT = "Present a plan to address this issue and wait for approval before executing it."
+ADDRESS_ISSUE_PROMPT = "Address this issue."
+
+
 class IssueAddressorError(Exception):
     """
     Exception raised when the issue addressor encounters an error.
@@ -49,20 +53,20 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, *, issue: Issue, mention_comment_id: str, runtime_ctx: RuntimeCtx):
+    def __init__(self, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue = issue
         self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue.iid}")
         self.mention_comment_id = mention_comment_id
 
     @classmethod
-    async def address_issue(cls, *, issue: Issue, mention_comment_id: str, runtime_ctx: RuntimeCtx):
+    async def address_issue(cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
         """
         Address the issue.
 
         Args:
             issue (Issue): The issue object.
-            mention_comment_id (str): The mention comment id.
+            mention_comment_id (str | None): The mention comment id. Defaults to None.
             runtime_ctx (RuntimeCtx): The runtime context.
         """
         manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
@@ -77,7 +81,22 @@ class IssueAddressorManager(BaseManager):
         """
         Process the issue by addressing it with the appropriate actions.
         """
-        mention_comment = self.client.get_issue_comment(self.ctx.repo_id, self.issue.iid, self.mention_comment_id)
+        messages = []
+
+        if self.mention_comment_id:
+            # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
+            mention_comment = self.client.get_issue_comment(self.ctx.repo_id, self.issue.iid, self.mention_comment_id)
+            messages.append(
+                HumanMessage(
+                    name=mention_comment.notes[0].author.username,
+                    id=mention_comment.notes[0].id,
+                    content=mention_comment.notes[0].body,
+                )
+            )
+        else:
+            # The issue was triggered by the bot label, so we need to request the agent to address it.
+            message_content = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
+            messages.append(HumanMessage(name=self.issue.author.username, id=self.issue.id, content=message_content))
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             daiv_agent = await create_daiv_agent(
@@ -88,15 +107,7 @@ class IssueAddressorManager(BaseManager):
             )
 
             result = await daiv_agent.ainvoke(
-                {
-                    "messages": [
-                        HumanMessage(
-                            name=mention_comment.notes[0].author.username,
-                            id=mention_comment.notes[0].id,
-                            content=mention_comment.notes[0].body,
-                        )
-                    ]
-                },
+                {"messages": messages},
                 config=RunnableConfig(
                     tags=[daiv_agent.get_name(), self.client.git_platform.value],
                     metadata={

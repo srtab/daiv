@@ -14,9 +14,41 @@ from quick_actions.parser import QuickActionCommand, parse_quick_action
 from quick_actions.registry import quick_action_registry
 from quick_actions.tasks import execute_issue_task, execute_merge_request_task
 
-from .models import Issue, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
 logger = logging.getLogger("daiv.webhooks")
+
+
+class IssueCallback(BaseCallback):
+    """
+    Gitlab Issue Webhook
+    """
+
+    object_kind: Literal["issue", "work_item"]
+    project: Project
+    user: User
+    object_attributes: Issue
+
+    def accept_callback(self) -> bool:
+        return (
+            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
+            and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+            # Only accept if the issue is a DAIV issue.
+            and self.object_attributes.is_daiv()
+            # When work_item is created without the parent issue, the object_kind=issue.
+            # We need to check the type too to avoid processing work_items as issues.
+            and self.object_kind == "issue"
+            and self.object_attributes.type == "Issue"
+            and self.object_attributes.state == "opened"
+        )
+
+    async def process_callback(self):
+        """
+        Trigger the task to address the issue.
+        """
+        await address_issue_task.aenqueue(
+            repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
+        )
 
 
 class NoteCallback(BaseCallback):
