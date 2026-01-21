@@ -6,10 +6,11 @@ import json
 import logging
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
@@ -176,7 +177,7 @@ class SandboxState(AgentState):
     Schema for the sandbox state.
     """
 
-    session_id: str | None = None
+    session_id: NotRequired[Annotated[str | None, PrivateStateAttr]]
     """
     The sandbox session ID.
     """
