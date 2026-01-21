@@ -290,6 +290,9 @@ class GitManager:
         if not patch or not patch.strip():
             return
 
+        if not patch.endswith("\n"):
+            patch += "\n"
+
         diff_bytes = patch.encode("utf-8", "surrogateescape")
         diff_args = ["--whitespace=nowarn"]
 
