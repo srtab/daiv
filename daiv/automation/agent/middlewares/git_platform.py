@@ -67,7 +67,7 @@ Tool to interact with GitLab API to retrieve information about issues, merge req
 """  # noqa: E501
 
 
-GIT_PLATFORM_SYSTEM_PROMPT = """\
+GIT_PLATFORM_SYSTEM_PROMPT = f"""\
 ## Git Platform Tools
 
 You have access to the following platform tools:

@@ -81,6 +81,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     tool_names = [tool.name for tool in request.tools]
+    agent_path = Path(request.runtime.context.repo.working_dir)
 
     system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date_time=timezone.now().strftime("%d %B, %Y"),
@@ -89,7 +90,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         repository=request.runtime.context.repo_id,
         git_platform=request.runtime.context.git_platform.value,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
-        working_directory=Path(request.runtime.context.repo.working_dir).parent.as_posix(),
+        working_directory=f"/{agent_path.name}/",
     )
     return (
         BASE_AGENT_PROMPT
