@@ -1,335 +1,299 @@
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-from textwrap import dedent
-from typing import TYPE_CHECKING, Annotated, Any
+import os
+import shlex
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from django.template.loader import render_to_string
-
-from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages.content import ContentBlock, create_text_block
 
-from automation.agent.pr_describer.graph import create_pr_describer_agent
-from automation.agent.utils import extract_images_from_text, images_to_content_blocks
-from codebase.base import GitPlatform, MergeRequest
-from codebase.clients import RepoClient
 from codebase.clients.utils import clean_job_logs
+from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, redact_diff_content
-from core.constants import BOT_LABEL, BOT_NAME  # noqa: TC001
+from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from langgraph.runtime import Runtime
-
-    from automation.agent.pr_describer.schemas import PullRequestMetadata
-
 
 logger = logging.getLogger("daiv.tools")
 
-JOB_LOGS_DEFAULT_LINE_COUNT = 200
 
-GET_ISSUE_TOOL_NAME = "get_issue"
-PIPELINE_TOOL_NAME = "pipeline"
-JOB_LOGS_TOOL_NAME = "job_logs"
+GITLAB_MAX_OUTPUT_LINES = 2_000
+GITLAB_CLI_TIMEOUT = 30
+GITLAB_REQUESTS_TIMEOUT = 15
+GITLAB_PER_PAGE = "5"
+GITLAB_TOOL_NAME = "gitlab"
 
-GET_ISSUE_TOOL_DESCRIPTION = """\
-Get the issue details by its ID.
+GITLAB_TOOL_DESCRIPTION = f"""\
+Tool to interact with GitLab API to retrieve information about issues, merge requests, pipelines, jobs, and other resources.
 
-**Usage rules:**
-- Returns JSON formatted issue data with title, description, state, assignee, author, and labels
-- If the issue has images in the description, they are returned as image blocks
-- An error message is returned if the issue details cannot be retrieved
+**What this tool does:**
+- Retrieves GitLab project resources using the python-gitlab CLI
+- Automatically targets the configured project (no `--project-id` needed)
+- Returns data in a simplified format by default (`output_mode='simplified'`)
+- Paginate the results to the first 5 items
+- The output may be truncated bottom-up to {GITLAB_MAX_OUTPUT_LINES} lines by default
+- The results are ordered from the most recent to the oldest by default.
+
+**Command Format:**
+`<object> <action> <arguments...>`
+
+**Auto-configured:**
+- Project ID is automatically set (do NOT pass --project-id)
+- `--output` argument is automatically set to according to the `output_mode`, do not pass it manually (it's auto-set).
+
+**Common use cases:**
+- Get a specific issue by its IID: `command: project-issue get --iid <issue_iid>, output_mode: 'detailed'`
+- Get a specific merge request by its IID: `command: project-merge-request get --iid <merge_request_iid>, output_mode: 'detailed'`
+- List pipelines for a merge request: `command: project-merge-request-pipeline list --mr-iid <merge_request_iid>, output_mode: 'simplified'`
+- Get the logs/console output of a job: `command: project-job trace --id <job_id>, output_mode: 'detailed'` (the output is truncated to {GITLAB_MAX_OUTPUT_LINES} lines)
+- List issues: `command: project-issue list --state opened --labels bug --page <page_number>, output_mode: 'simplified'` (paginate the results to the specified page)
+
+**Bad Examples:**
+✗ `gitlab project-issue get --iid 42` (don't include 'gitlab' prefix)
+✗ `project-issue get --iid 42 --project-id 123` (project-id auto-added)
+✗ `project-issue get --id 42` (use --iid for issues, not --id)
+✗ `project-issue list --output json` (don't pass --output manually, it's auto-set)
+
+**Important Notes:**
+- Do NOT attempt to fetch URLs from the output - they require authentication
+- Always use IID when available, not the internal ID.
+- Some actions support additional filters - pass them as additional arguments. If you don't know the available filters, use the `--help` argument to get the list of available arguments.
+- When getting a resource by its IID/ID, use `output_mode='detailed'` to get the full output. For listing resources to discover IDs, use the default `output_mode='simplified'`, avoiding long outputs.
+- Always quote text that contain spaces or multiline text with double quotes (e.g., project-merge-request-note create --body "This is a note with a space")
 """  # noqa: E501
 
-PIPELINE_TOOL_DESCRIPTION = f"""\
-Get the latest pipeline/workflow status for a merge/pull request.
 
-**Usage rules:**
-- Returns JSON formatted pipeline/workflow data with status, ID, SHA, web URL, and categorized jobs;
-- Jobs are separated into failed_jobs, success_jobs, and other_jobs;
-- For failed pipelines/workflows, includes detailed information about failed jobs with failure reasons;
-- Use this tool to understand if a pipeline/workflow failed and which jobs failed;
-- After getting failed job IDs, use the `{JOB_LOGS_TOOL_NAME}` tool to inspect specific job logs."""  # noqa: E501
+GIT_PLATFORM_SYSTEM_PROMPT = """\
+## Git Platform Tools
 
-JOB_LOGS_TOOL_DESCRIPTION = f"""\
-Get logs from a specific pipeline job with pagination support (bottom-to-top).
+You have access to the following platform tools:
 
-**Usage rules:**
-- Returns paginated log output from a pipeline job, starting from the END (most recent/relevant);
-- For failed jobs, only the output of the failing command is shown (useful for debugging);
-- Use `line_count` to specify the number of lines to read (default: {JOB_LOGS_DEFAULT_LINE_COUNT});
-- Use `offset_from_end` to paginate backwards through logs (0 = last lines, 100 = skip last 100 lines, etc.);
-- Logs are shown from bottom to top, as errors typically appear at the end."""  # noqa: E501
+- `{GITLAB_TOOL_NAME}`: Interact with GitLab API to retrieve issues, merge requests, pipelines, jobs, and other resources. Wraps the `python-gitlab` CLI.
 
-GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git context
+<example>
+user: Draft a plan to fix issue #42.
+assistant:
+  [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
+assistant:
+  [Use the issue title/description/acceptance criteria to draft a fix plan + checklist]
+</example>
+<example>
+user: Fix the failing pipeline for merge request #123.
+assistant:
+  [Call `{GITLAB_TOOL_NAME}("project-merge-request-pipeline list --mr-iid 123", output_mode="simplified")`]
+  [Pick the latest pipeline_id from the list]
+  [Call `{GITLAB_TOOL_NAME}("project-pipeline-job list --pipeline-id <pipeline_id>", output_mode="detailed")`]
+  [Filter jobs where status is 'failed' and collect the job_ids]
+  [For each failing job_id: Call `{GITLAB_TOOL_NAME}("project-job trace --id <job_id>", output_mode="detailed")`]
+assistant:
+  [Analyze traces → identify root cause → propose changes]
+assistant:
+  [Implement fixes and describe what to change + where]
+</example>
 
-You're currently working on the following repository:
-
-- Git platform: {{git_platform}}
-- Repository ID: {{repository}}
-- Current branch: {{current_branch}}
-- Default branch: {{default_branch}}
-- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
-
-### Tools
-
-You have access to the following tools to interact with the platform's resources:
-
-- `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
-- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
-- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
-
-ISSUE_GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git context
-
-- Repository ID: {{repository}}
-- Git platform: {{git_platform}}
-- Current branch: {{current_branch}}
-- Default branch: {{default_branch}}
-- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
-
-You're currently working on issue #{{issue_id}}.
-
-The user will interact with you through the issue comments that will be provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
-
-### Tools
-
-You have access to the following tools to interact with the platform's resources:
-
-- `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
-- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
-- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
-
-MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT = f"""\
-## Git context
-
-- Git platform: {{git_platform}}
-- Repository ID: {{repository}}
-- Current branch: {{current_branch}}
-- Default branch: {{default_branch}}
-- Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
-
-You're currently working on merge request `{{merge_request_id}}`.
-
-The user will interact with you through the merge request comments that will be provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
-
-### Tools
-
-You have access to the following tools to interact with the platform's resources:
-
-- `{GET_ISSUE_TOOL_NAME}`: Get the issue details by its ID.
-- `{PIPELINE_TOOL_NAME}`: Get the latest pipeline/workflow status for a merge/pull request.
-- `{JOB_LOGS_TOOL_NAME}`: Get logs from a specific pipeline job with pagination support (bottom-to-top)."""  # noqa: E501
+**Notes:**
+- Use `output_mode="detailed"` when you need fields like status/name/stage/etc., not just IDs.
+- Always fetch job traces for failing jobs before proposing code/config changes."""  # noqa: E501
 
 
-@tool(GET_ISSUE_TOOL_NAME, description=GET_ISSUE_TOOL_DESCRIPTION)
-async def get_issue_tool(
-    issue_id: Annotated[int, "The issue ID to get details from."], runtime: ToolRuntime[RuntimeCtx]
-) -> list[ContentBlock] | str:
+GITLAB_CLI_DENY_RESOURCES = [
+    # Token & credential minting
+    "personal-access-token",
+    "user-personal-access-token",
+    "user-impersonation-token",
+    "project-access-token",
+    "group-access-token",
+    "deploy-token",
+    "project-deploy-token",
+    "group-deploy-token",
+    # Keys (SSH/GPG)  # noqa: ERA001
+    "key",
+    "user-key",
+    "current-user-key",
+    "project-key",
+    "deploy-key",
+    "user-gpg-key",
+    "current-user-gpg-key",
+    # Webhooks / outbound integrations
+    "hook",
+    "project-hook",
+    "group-hook",
+    "project-integration",
+    # Secrets & secret-adjacent storage
+    "project-variable",
+    "group-variable",
+    "project-secure-file",
+    "project-artifact",
+    # Access control / governance / protections
+    "project-member",
+    "group-member",
+    "group-member-all",
+    "member-role",
+    "group-member-role",
+    "project-invitation",
+    "group-invitation",
+    "project-access-request",
+    "group-access-request",
+    "project-protected-branch",
+    "project-protected-tag",
+    "project-protected-environment",
+    "project-approval-rule",
+    "group-approval-rule",
+    "project-merge-request-approval",
+    "project-merge-request-approval-rule",
+    "project-merge-request-approval-state",
+    "project-push-rules",
+    "group-push-rules",
+    # Import / export / mirroring (bulk movement of code/data)
+    "project-export",
+    "group-export",
+    "project-import",
+    "group-import",
+    "bulk-import",
+    "bulk-import-all-entity",
+    "bulk-import-entity",
+    "project-pull-mirror",
+    "project-remote-mirror",
+    # Instance/admin surface (block if there’s any chance the tool token is admin-capable)
+    "application",
+    "application-settings",
+    "application-appearance",
+    "application-statistics",
+    "license",
+    "ldap-group",
+    "geo-node",
+    "feature",
+    "audit-event",
+    "group-audit-event",
+    "project-audit-event",
+]
+
+
+@tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
+async def gitlab_tool(
+    subcommand: Annotated[
+        str,
+        "The complete subcommand string in format: '<object> <action> <arguments>'. "
+        "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'. "
+        "Do NOT include 'gitlab' command prefix or --project-id argument - these are auto-added.",
+    ],
+    runtime: ToolRuntime[RuntimeCtx],
+    output_mode: Annotated[
+        Literal["detailed", "simplified"],
+        "The output format to use (default: 'simplified').",
+        "'simplified' is useful for long lists of items to discover IDs. Use it when listing resources.",
+        "'detailed' is useful for detailed output. Use it when getting resource details.",
+    ] = "simplified",
+) -> str:
     """
-    Tool to get the issue details by its ID.
+    Tool to interact with GitLab API using the `python-gitlab` command line interface.
+
+    This tool ensures that the interaction with the GitLab API is done in a more safe and secure way by using
+    a subprocess without shell expansion, and that the output is as minimal as possible by paginating the results
+    and truncating the output to avoid overwhelming the model with too much data.
     """
-    client = RepoClient.create_instance()
+    if not subcommand or not subcommand.strip():
+        return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
 
     try:
-        issue = client.get_issue(runtime.context.repo_id, issue_id)
-    except Exception as e:
-        logger.warning("[%s] Failed to get issue details for issue %d: %s", get_issue_tool.name, issue_id, e)
-        return f"error: Failed to get issue details for issue {issue_id}. Error: {e}"
+        splitted_subcommand = shlex.split(subcommand.strip())
+    except ValueError as e:
+        return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 
-    image_blocks = []
-    if extracted_images_data := extract_images_from_text(issue.description):
-        image_blocks = await images_to_content_blocks(runtime.context.repo_id, extracted_images_data)
+    if len(splitted_subcommand) < 2:
+        return f"error: Incomplete subcommand. Expected format: '<object> <action> <arguments>'. Got: '{subcommand}'"
 
-    output_data = {
-        "id": issue.id,
-        "title": issue.title,
-        "description": issue.description,
-        "state": issue.state,
-        "assignee": issue.assignee.username if issue.assignee else None,
-        "author": issue.author.username if issue.author else None,
-        "labels": issue.labels,
+    resource = splitted_subcommand[0]
+
+    if resource == "gitlab":
+        return (
+            "error: Do not include 'gitlab' command prefix. "
+            "Start directly with the object. Example: 'project-issue get --iid 123'"
+        )
+
+    if resource in GITLAB_CLI_DENY_RESOURCES:
+        return f"error: The resource '{resource}' is not allowed. Please use a different resource."
+
+    remaining_args = splitted_subcommand[2:]
+
+    if "--project-id" in remaining_args:
+        return "error: The project ID is automatically set."
+
+    disallowed_flags = {"--output", "--verbose", "-v", "--fancy"}
+    if any(flag in remaining_args for flag in disallowed_flags):
+        return "error: The output format is automatically set according to the `output_mode`."
+
+    envs = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
+        "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
+        "GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+        "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
+        "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
+        "GITLAB_USER_AGENT": USER_AGENT,
     }
 
-    output_data = [create_text_block(text=json.dumps(output_data, indent=2))]
+    args = ["gitlab"]
 
-    if image_blocks:
-        output_data.extend(image_blocks)
+    if output_mode == "detailed":
+        args.append("--verbose")
 
-    return output_data
-
-
-@tool(PIPELINE_TOOL_NAME, description=PIPELINE_TOOL_DESCRIPTION)
-def pipeline_tool(
-    merge_request_id: Annotated[int, "The merge request ID to get the latest pipeline/workflow status from."],
-    runtime: ToolRuntime[RuntimeCtx],
-) -> str:
-    """
-    Tool to get the latest pipeline/workflow status for a merge/pull request.
-    """
-    client = RepoClient.create_instance()
-    try:
-        pipelines = client.get_merge_request_latest_pipelines(runtime.context.repo_id, merge_request_id)
-    except Exception as e:
-        logger.warning("[%s] Failed to get pipeline for merge request %d: %s", pipeline_tool.name, merge_request_id, e)
-        return f"error: Failed to get pipeline for merge request {merge_request_id}. Error: {e}"
-
-    if not pipelines:
-        return f"No pipelines found for merge request {merge_request_id}."
-
-    output_data = []
-    for pipeline in pipelines:
-        # Separate jobs by status
-        failed_jobs = [job for job in pipeline.jobs if job.status == "failed" and not job.allow_failure]
-        success_jobs = [job for job in pipeline.jobs if job.status == "success"]
-        other_jobs = [job for job in pipeline.jobs if job not in failed_jobs and job not in success_jobs]
-
-        # Build the JSON output
-        output_data.append({
-            "pipeline_status": pipeline.status,
-            "pipeline_id": pipeline.iid or pipeline.id,
-            "sha": pipeline.sha,
-            "url": pipeline.web_url,
-            "total_jobs": len(pipeline.jobs),
-            "failed_jobs": [
-                {
-                    "id": job.id,
-                    "name": job.name,
-                    "stage": job.stage,
-                    "status": job.status,
-                    "failure_reason": job.failure_reason,
-                }
-                for job in failed_jobs
-            ],
-            "success_jobs": [{"id": job.id, "name": job.name, "stage": job.stage} for job in success_jobs],
-            "other_jobs": [
-                {"id": job.id, "name": job.name, "stage": job.stage, "status": job.status} for job in other_jobs
-            ],
-        })
-
-        if pipeline.status in ["failed", "success"]:
-            if failed_jobs:
-                output_data[-1]["message"] = (
-                    "You can use the `job_logs` tool with the Job ID to inspect the logs of failed jobs."
-                )
-            else:
-                output_data[-1]["message"] = "Pipeline completed successfully with no failed jobs."
-
-    return json.dumps(output_data, indent=2)
-
-
-@tool(JOB_LOGS_TOOL_NAME, description=JOB_LOGS_TOOL_DESCRIPTION)
-def job_logs_tool(
-    job_id: Annotated[int, "The job ID to get logs from."],
-    runtime: ToolRuntime[RuntimeCtx],
-    offset_from_end: Annotated[int, "Number of lines to skip from the end (default: 0 = show last lines)."] = 0,
-    line_count: Annotated[
-        int, f"Number of lines to read (default: {JOB_LOGS_DEFAULT_LINE_COUNT})."
-    ] = JOB_LOGS_DEFAULT_LINE_COUNT,
-) -> str:
-    """
-    Tool to get logs from a specific pipeline job with pagination support (bottom-to-top).
-    """
-    client = RepoClient.create_instance()
+    args += splitted_subcommand
+    args += ["--project-id", runtime.context.repo_id]
 
     try:
-        job = client.get_job(runtime.context.repo_id, job_id)
-    except Exception as e:
-        logger.warning("[%s] Failed to get job details for job %d: %s", job_logs_tool.name, job_id, e)
-        return f"error: Failed to get job details for job {job_id}. Error: {e}"
-
-    try:
-        raw_logs = client.job_log_trace(runtime.context.repo_id, job_id)
-    except Exception as e:
-        logger.warning("[%s] Failed to get logs for job %d: %s", job_logs_tool.name, job_id, e)
-        return f"error: Failed to get logs for job {job_id}. Error: {e}"
-
-    if not raw_logs:
-        logger.warning("[%s] No logs found for job %d", job_logs_tool.name, job_id)
-        return f"No logs found for job {job_id}."
-
-    cleaned_logs = clean_job_logs(raw_logs, client.git_platform, job.is_failed())
-
-    log_lines = cleaned_logs.splitlines()
-    total_lines = len(log_lines)
-
-    if offset_from_end < 0:
-        offset_from_end = 0
-    if offset_from_end >= total_lines:
-        return (
-            f"error: offset_from_end ({offset_from_end}) exceeds total log lines ({total_lines}). Use a smaller offset."
+        process = await asyncio.create_subprocess_exec(
+            *args, env=envs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
 
-    # Calculate line range from the end
-    # If offset_from_end=0, we want the last line_count lines
-    # If offset_from_end=100, we want lines before the last 100
-    end_line = total_lines - offset_from_end
-    start_line = max(1, end_line - line_count + 1)
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=GITLAB_CLI_TIMEOUT)
+    except TimeoutError:
+        try:
+            process.kill()
+            await process.wait()
+        except Exception as e:
+            logger.warning("[%s] Failed to kill GitLab process: %s", gitlab_tool.name, e)
+        return "error: GitLab command timed out after 30 seconds. The operation may be too complex or the API is slow."
+    except Exception as e:
+        logger.exception("[%s] Failed to execute GitLab command.", gitlab_tool.name, e)
+        return f"error: Failed to execute GitLab command. Details: {str(e)}"
 
-    # Extract the requested lines (convert to 0-based indexing)
-    selected_lines = log_lines[start_line - 1 : end_line]
+    if process.returncode != 0:
+        stderr_text = stderr.decode("utf-8").strip()
 
-    output_lines = [
-        f"Job ID: {job_id}",
-        f"Job Name: {job.name}",
-        f"Job Status: {job.status}",
-        f"Job Allow Failure: {job.allow_failure}",
-        f"Job Failure Reason: {job.failure_reason}",
-        f"Showing lines {start_line}-{end_line} of {total_lines} total lines",
-        "",
-        "--- Log Output ---",
-    ]
+        if "404" in stderr_text or "not found" in stderr_text.lower():
+            return (
+                f"error: Resource not found. "
+                f"Please verify the IID/ID exists and you're using the correct argument type. "
+                f"Details: {stderr_text}"
+            )
+        elif "401" in stderr_text or "unauthorized" in stderr_text.lower():
+            return "error: Authentication failed. The GitLab token may be invalid or expired."
+        elif "403" in stderr_text or "forbidden" in stderr_text.lower():
+            return "error: Access denied. You may not have permission to access this resource."
 
-    for i, line in enumerate(selected_lines, start=start_line):
-        output_lines.append(f"{i}: {line}")
+        return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
 
-    output_lines.append("--- End of Log Output ---")
-    output_lines.append("")
+    output = stdout.decode("utf-8").strip()
+    if not output:
+        return "Command executed successfully but returned no data"
 
-    if start_line > 1:
-        lines_before = start_line - 1
-        output_lines.append(
-            f"There are {lines_before} earlier lines available. "
-            f"Use offset_from_end >= {offset_from_end + line_count} to read more lines."
-        )
-    else:
-        output_lines.append("Start of logs reached.")
+    if resource == "project-job" and splitted_subcommand[1] == "trace":
+        # TODO: evict the output to the file system if it's too long
+        cleaned_output = clean_job_logs(output, runtime.context.git_platform)
 
-    return "\n".join(output_lines)
+        return "".join(cleaned_output.splitlines(keepends=True)[-GITLAB_MAX_OUTPUT_LINES:])
 
-
-class GitPlatformState(AgentState):
-    """
-    State for the git platform middleware.
-    """
-
-    branch_name: str
-    """
-    The branch name used to commit the changes.
-    """
-
-    merge_request_id: int
-    """
-    The merge request ID used to commit the changes.
-    """
+    return "".join(output.splitlines(keepends=True)[:GITLAB_MAX_OUTPUT_LINES])
 
 
 class GitPlatformMiddleware(AgentMiddleware):
     """
-    Middleware to add the git platform tools to the agent and commit and push the changes to the repository.
-
-    When the agent apply changes to the repository, the middleware will commit and push the changes to the repository
-    and create a merge request. The branch name and merge request ID will be stored in the state to be used later,
-    ensuring that the same branch and merge request are used for subsequent commits.
-
-    Args:
-        skip_ci: Whether to skip the CI.
+    Middleware to add the git platform tools to the agent.
 
     Example:
         ```python
@@ -347,41 +311,11 @@ class GitPlatformMiddleware(AgentMiddleware):
         ```
     """
 
-    state_schema = GitPlatformState
-
-    def __init__(self, *, skip_ci: bool = False, auto_commit_changes: bool = True) -> None:
+    def __init__(self) -> None:
         """
         Initialize the middleware.
         """
-        self.skip_ci = skip_ci
-        self.auto_commit_changes = auto_commit_changes
-        self.tools = [get_issue_tool, pipeline_tool, job_logs_tool]
-
-    async def abefore_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
-        """
-        Before the agent starts, set the branch name and merge request ID.
-        """
-        branch_name = state.get("branch_name")
-        merge_request_id = state.get("merge_request_id")
-
-        if runtime.context.scope == "merge_request" and not (branch_name or merge_request_id):
-            branch_name = runtime.context.merge_request.source_branch
-            merge_request_id = runtime.context.merge_request.merge_request_id
-
-        if branch_name:
-            git_manager = GitManager(runtime.context.repo)
-
-            logger.info("[%s] Checking out to branch '%s'", self.name, branch_name)
-
-            try:
-                git_manager.checkout(branch_name)
-            except ValueError as e:
-                # The branch does not exist in the repository, so we need to create it.
-                logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, branch_name, e)
-                branch_name = None
-                merge_request_id = None
-
-        return {"branch_name": branch_name, "merge_request_id": merge_request_id}
+        self.tools = [gitlab_tool]
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -389,147 +323,6 @@ class GitPlatformMiddleware(AgentMiddleware):
         """
         Update the system prompt with the git platform system prompt.
         """
-        if scope := request.runtime.context.scope:
-            context = {
-                "git_platform": request.runtime.context.git_platform.value,
-                "repository": request.runtime.context.repo_id,
-                "current_branch": request.runtime.context.repo.active_branch.name,
-                "default_branch": request.runtime.context.config.default_branch,
-            }
-            system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(**context)
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + GIT_PLATFORM_SYSTEM_PROMPT)
 
-            if scope == "issue":
-                system_prompt = ISSUE_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                    issue_id=request.runtime.context.issue.iid, **context
-                )
-            elif scope == "merge_request":
-                system_prompt = MERGE_REQUEST_GIT_PLATFORM_SYSTEM_PROMPT.format(
-                    merge_request_id=request.runtime.context.merge_request.merge_request_id, **context
-                )
-
-            request = request.override(system_prompt=request.system_prompt + "\n\n" + system_prompt)
         return await handler(request)
-
-    async def aafter_agent(self, state: GitPlatformState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
-        """
-        After the agent finishes, commit the changes and update or create the merge request.
-        """
-        if not self.auto_commit_changes:
-            return None
-
-        git_manager = GitManager(runtime.context.repo)
-
-        if not git_manager.is_dirty():
-            return None
-
-        pr_metadata = await self._get_mr_metadata(runtime, git_manager.get_diff())
-        branch_name = state.get("branch_name") or pr_metadata.branch
-
-        logger.info("[%s] Committing and pushing changes to branch '%s'", self.name, branch_name)
-
-        unique_branch_name = git_manager.commit_and_push_changes(
-            pr_metadata.commit_message,
-            branch_name=branch_name,
-            skip_ci=self.skip_ci,
-            use_branch_if_exists=bool(state.get("branch_name")),
-        )
-
-        merge_request_id = state.get("merge_request_id")
-        if runtime.context.scope != "merge_request" and not merge_request_id:
-            logger.info(
-                "[%s] Creating merge request: '%s' -> '%s'",
-                self.name,
-                unique_branch_name,
-                runtime.context.config.default_branch,
-            )
-            merge_request = self._update_or_create_merge_request(
-                runtime, unique_branch_name, pr_metadata.title, pr_metadata.description
-            )
-            merge_request_id = merge_request.merge_request_id
-            logger.info("[%s] Merge request created: %s", self.name, merge_request.web_url)
-
-        return {"branch_name": unique_branch_name, "merge_request_id": merge_request_id}
-
-    async def _get_mr_metadata(self, runtime: Runtime[RuntimeCtx], diff: str) -> PullRequestMetadata:
-        """
-        Get the PR metadata from the diff.
-
-        Args:
-            runtime: The runtime context.
-            diff: The diff of the changes.
-
-        Returns:
-            The PR metadata.
-        """
-        pr_describer = create_pr_describer_agent(
-            model=runtime.context.config.models.pr_describer.model, ctx=runtime.context
-        )
-
-        extra_context = ""
-        if runtime.context.scope == "issue":
-            extra_context = dedent(
-                """\
-                This changes were made to address the following issue:
-
-                Issue ID: {issue.iid}
-                Issue title: {issue.title}
-                Issue description: {issue.description}
-                """
-            ).format(issue=runtime.context.issue)
-
-        result = await pr_describer.ainvoke(
-            {
-                "diff": redact_diff_content(diff, runtime.context.config.omit_content_patterns),
-                "extra_context": extra_context,
-            },
-            config={
-                "tags": [pr_describer.get_name(), runtime.context.git_platform.value],
-                "metadata": {"scope": runtime.context.scope, "repo_id": runtime.context.repo_id},
-            },
-        )
-        if result and "structured_response" in result:
-            return result["structured_response"]
-
-        raise ValueError("Failed to get PR metadata from the diff.")
-
-    def _update_or_create_merge_request(
-        self, runtime: Runtime[RuntimeCtx], branch_name: str, title: str, description: str
-    ) -> MergeRequest:
-        """
-        Update or create the merge request.
-
-        Args:
-            runtime: The runtime context.
-            branch_name: The branch name.
-            title: The title of the merge request.
-            description: The description of the merge request.
-        """
-        assignee_id = None
-
-        if runtime.context.issue and runtime.context.issue.assignee:
-            assignee_id = (
-                runtime.context.issue.assignee.id
-                if runtime.context.git_platform == GitPlatform.GITLAB
-                else runtime.context.issue.assignee.username
-            )
-
-        client = RepoClient.create_instance()
-        return client.update_or_create_merge_request(
-            repo_id=runtime.context.repo_id,
-            source_branch=branch_name,
-            target_branch=runtime.context.config.default_branch,
-            labels=[BOT_LABEL],
-            title=title,
-            assignee_id=assignee_id,
-            description=render_to_string(
-                "codebase/issue_merge_request.txt",
-                {
-                    "description": description,
-                    "source_repo_id": runtime.context.repo_id,
-                    "issue_id": runtime.context.issue.iid if runtime.context.issue else None,
-                    "bot_name": BOT_NAME,
-                    "bot_username": runtime.context.bot_username,
-                    "is_gitlab": runtime.context.git_platform == GitPlatform.GITLAB,
-                },
-            ),
-        )

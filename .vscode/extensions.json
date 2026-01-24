@@ -9,6 +9,5 @@
     "eamodio.gitlens",
     "charliermarsh.ruff",
     "tamasfe.even-better-toml",
-    "ms-ossdata.vscode-pgsql",
   ]
 }

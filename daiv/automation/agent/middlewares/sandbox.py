@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import PrivateStateAttr
+from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
@@ -32,11 +32,11 @@ logger = logging.getLogger("daiv.tools")
 BASH_TOOL_NAME = "bash"
 
 BASH_TOOL_DESCRIPTION = f"""\
-Executes a bash command in a persistent shell session.
+Executes a given bash command in a persistent shell session. Working directory doesn't persist between commands.
 
 **CRITICAL**: Maintain your current working directory throughout the session by using absolute paths instead of cd.
-  - ✅ CORRECT: `pytest /foo/bar/tests/`
-  - ❌ WRONG: `cd /foo/bar && pytest tests/`
+  <good-example>pytest /foo/bar/tests/</good-example>
+  <bad-example>cd /foo/bar && pytest tests/</bad-example>
 
 IMPORTANT: This tool is for terminal operations like tests, linters, formatters, npm, docker, git, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
 
@@ -68,32 +68,20 @@ Usage notes:
     - Edit files: Use `edit_file` (NOT sed/awk)
     - Write files: Use `write_file` (NOT echo >/cat <<EOF)
     - Communication: Output text directly (NOT echo/printf)
-
-  - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings)
-    - Use '&&' when commands depend on each other (e.g., "mkdir dir && cd dir")
+  - When issuing multiple commands:
+    - If the commands are independent and can run in parallel, make multiple `bash` tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two `bash` tool calls in parallel.
+    - If the commands depend on each other and must run sequentially, use a single `bash` call with '&&' to chain them together (e.g., `python -m venv .venv && source .venv/bin/activate && pip install -r reqs.txt`). For instance, if one operation must complete before another starts (like mkdir before cp, write_file before bash for tests, or git add before git commit), run these operations sequentially instead.
     - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
-
-Examples:
-    <good-example>
-    {BASH_TOOL_NAME}(command="pytest /foo/bar/tests")
-    {BASH_TOOL_NAME}(command="python /path/to/script.py")
-    {BASH_TOOL_NAME}(command="npm install && npm test")
-    </good-example>
-    <bad-examples>
-    {BASH_TOOL_NAME}(command="cd /foo/bar && pytest tests")  # Use absolute path instead of cd
-    {BASH_TOOL_NAME}(command="cat file.txt")  # Use read_file tool instead
-    {BASH_TOOL_NAME}(command="find . -name '*.py'")  # Use glob tool instead
-    {BASH_TOOL_NAME}(command="grep -r 'pattern' .")  # Use grep tool instead
-    </bad-examples>
+    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
 
 Write scope and boundaries:
-  - Writes must stay strictly within the repository root; do not touch parent directories, `$HOME`, or follow symlinks that exit the repo.
-  - VERY IMPORTANT: No write operations to Git allowed (no commit/checkout/rebase/push/etc.), only read operations are allowed.
+  - Writes must stay strictly within the working directory; do not touch parent directories, `$HOME`, or follow symlinks that exit the repo.
   - Avoid high-impact/system-level actions.
   - No Docker builds/pushes or container/image manipulation.
   - No unscoped destructive operations.
   - No DB schema changes/migrations/seeds.
   - Do not edit secrets/credentials (e.g., `.env`) or CI settings.
+  - VERY IMPORTANT: Never commit/push changes to git, even if the user asks you to. Only use git for inspection.
 
 REMEMBER: You should use absolute paths instead of cd to change directories.
 """  # noqa: E501
@@ -101,10 +89,9 @@ REMEMBER: You should use absolute paths instead of cd to change directories.
 SANDBOX_SYSTEM_PROMPT = f"""\
 ## Bash tool `{BASH_TOOL_NAME}`
 
-You have access to a `{BASH_TOOL_NAME}` tool for running shell commands in a persistent shell session.
+You have access to a `{BASH_TOOL_NAME}` tool to execute bash commands on your working directory. Use this tool to run commands, scripts, tests, builds, and other shell operations.
 
-Use this tool to run commands, scripts, tests, builds, and other shell operations.
-IMPORTANT: Avoid using cd to change the working directory, use absolute paths instead."""  # noqa: E501
+IMPORTANT: Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it."""  # noqa: E501
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
@@ -177,7 +164,7 @@ class SandboxState(AgentState):
     Schema for the sandbox state.
     """
 
-    session_id: NotRequired[Annotated[str | None, PrivateStateAttr]]
+    session_id: NotRequired[Annotated[str | None, OmitFromOutput]]
     """
     The sandbox session ID.
     """

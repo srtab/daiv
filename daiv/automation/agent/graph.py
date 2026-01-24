@@ -28,6 +28,7 @@ from automation.agent.conf import settings
 from automation.agent.constants import PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
+from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -88,6 +89,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         repository=request.runtime.context.repo_id,
         git_platform=request.runtime.context.git_platform.value,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
+        working_directory=Path(request.runtime.context.repo.working_dir).parent.as_posix(),
     )
     return (
         BASE_AGENT_PROMPT
@@ -196,7 +198,8 @@ async def create_daiv_agent(
         ),
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(auto_commit_changes=auto_commit_changes),
+        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitPlatformMiddleware(),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
