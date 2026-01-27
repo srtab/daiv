@@ -3,264 +3,147 @@ import pytest
 from slash_commands.parser import parse_slash_command
 
 
-class TestParseSlashCommand:
-    def test_parse_simple_command(self):
-        """Test parsing a simple bot command."""
-        note_body = "@testbot /help"
-        result = parse_slash_command(note_body, "testbot")
+def _assert_parsed(note_body: str, bot_name: str, *, command: str, args: list[str], raw: str) -> None:
+    result = parse_slash_command(note_body, bot_name)
 
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == []
-        assert result.raw == "@testbot /help"
+    assert result is not None
+    assert result.command == command
+    assert result.args == args
+    assert result.raw == raw
 
-    def test_parse_command_with_args(self):
-        """Test parsing a command with arguments."""
-        note_body = "@testbot /assign user1 user2"
-        result = parse_slash_command(note_body, "testbot")
 
-        assert result is not None
-        assert result.command == "assign"
-        assert result.args == ["user1", "user2"]
-        assert result.raw == "@testbot /assign user1 user2"
+def _assert_not_parsed(note_body: str, bot_name: str) -> None:
+    assert parse_slash_command(note_body, bot_name) is None
 
-    def test_parse_command_with_quoted_args(self):
-        """Test parsing a command with quoted arguments."""
-        note_body = '@testbot /create "test issue" --label "bug fix"'
-        result = parse_slash_command(note_body, "testbot")
 
-        assert result is not None
-        assert result.command == "create"
-        assert result.args == ["test issue", "--label", "bug fix"]
-        assert result.raw == '@testbot /create "test issue" --label "bug fix"'
+MENTION_CASES = [
+    pytest.param("@testbot /help", "testbot", "help", [], "@testbot /help", id="simple"),
+    pytest.param(
+        "@testbot /assign user1 user2",
+        "testbot",
+        "assign",
+        ["user1", "user2"],
+        "@testbot /assign user1 user2",
+        id="args",
+    ),
+    pytest.param(
+        '@testbot /create "test issue" --label "bug fix"',
+        "testbot",
+        "create",
+        ["test issue", "--label", "bug fix"],
+        '@testbot /create "test issue" --label "bug fix"',
+        id="quoted",
+    ),
+    pytest.param("@TestBot /help", "testbot", "help", [], "@TestBot /help", id="case-insensitive-bot"),
+    pytest.param("@testbot /HELP", "testbot", "help", [], "@testbot /HELP", id="case-insensitive-command"),
+    pytest.param(
+        "Some text before\n@testbot /help\nSome text after",
+        "testbot",
+        "help",
+        [],
+        "@testbot /help",
+        id="middle-of-text",
+    ),
+    pytest.param("@testbot /help\n@testbot /status", "testbot", "help", [], "@testbot /help", id="first-command-only"),
+    pytest.param("@test.bot /help", "test.bot", "help", [], "@test.bot /help", id="special-chars-bot"),
+    pytest.param(
+        "@testbot /help arg1\nthis should not be included",
+        "testbot",
+        "help",
+        ["arg1"],
+        "@testbot /help arg1",
+        id="newline-stops",
+    ),
+    pytest.param("@testbot\t\t/help\targ1", "testbot", "help", ["arg1"], "@testbot\t\t/help\targ1", id="tabs"),
+    pytest.param(
+        "@testbot /create 'single quotes' \"double quotes\" unquoted",
+        "testbot",
+        "create",
+        ["single quotes", "double quotes", "unquoted"],
+        "@testbot /create 'single quotes' \"double quotes\" unquoted",
+        id="complex-quoting",
+    ),
+]
 
-    def test_parse_case_insensitive_bot_name(self):
-        """Test that bot name matching is case insensitive."""
-        note_body = "@TestBot /help"
-        result = parse_slash_command(note_body, "testbot")
+BARE_CASES = [
+    pytest.param("/help", "testbot", "help", [], "/help", id="bare-simple"),
+    pytest.param(
+        "/review please check the security aspects",
+        "testbot",
+        "review",
+        ["please", "check", "the", "security", "aspects"],
+        "/review please check the security aspects",
+        id="bare-args",
+    ),
+    pytest.param("  /help", "testbot", "help", [], "/help", id="bare-leading-whitespace"),
+    pytest.param(
+        '/security-audit "check authentication"',
+        "testbot",
+        "security-audit",
+        ["check authentication"],
+        '/security-audit "check authentication"',
+        id="bare-quoted",
+    ),
+    pytest.param(
+        "/help me understand", "testbot", "help", ["me", "understand"], "/help me understand", id="bare-start-line"
+    ),
+    pytest.param("/HELP", "testbot", "help", [], "/HELP", id="bare-case-insensitive"),
+    pytest.param("/help\targ1\targ2", "testbot", "help", ["arg1", "arg2"], "/help\targ1\targ2", id="bare-tabs"),
+]
 
-        assert result is not None
-        assert result.command == "help"
-        assert result.raw == "@TestBot /help"
+INVALID_CASES = [
+    pytest.param("Just some regular text without commands", "testbot", id="no-command"),
+    pytest.param("@otherbot /help", "testbot", id="different-bot"),
+    pytest.param("Contact testbot@example.com for help", "testbot", id="email"),
+    pytest.param("@testbotx /help", "testbot", id="partial-bot"),
+    pytest.param("@testbot   ", "testbot", id="mention-no-command"),
+    pytest.param("", "testbot", id="empty-note"),
+    pytest.param("   \n\t  ", "testbot", id="whitespace-only"),
+    pytest.param("http://example.com/help", "testbot", id="slash-mid-word"),
+    pytest.param("Some text before\n/help\nSome text after", "testbot", id="bare-multiline"),
+    pytest.param("/", "testbot", id="bare-slash-only"),
+]
 
-    def test_parse_case_insensitive_command(self):
-        """Test that command is converted to lowercase."""
-        note_body = "@testbot /HELP"
-        result = parse_slash_command(note_body, "testbot")
+INVALID_SHLEX_CASES = [
+    pytest.param('@testbot /create "unmatched quote', "testbot", id="mention-unmatched-quote"),
+    pytest.param('/command "unmatched quote', "testbot", id="bare-unmatched-quote"),
+]
 
-        assert result is not None
-        assert result.command == "help"  # Should be lowercase
 
-    def test_parse_command_in_middle_of_text(self):
-        """Test parsing command that appears in middle of note."""
-        note_body = "Some text before\n@testbot /help\nSome text after"
-        result = parse_slash_command(note_body, "testbot")
+@pytest.mark.parametrize("note_body, bot_name, command, args, raw", MENTION_CASES)
+def test_parse_mention_command_cases(note_body: str, bot_name: str, command: str, args: list[str], raw: str) -> None:
+    """Test parsing mention-based slash commands."""
+    _assert_parsed(note_body, bot_name, command=command, args=args, raw=raw)
 
-        assert result is not None
-        assert result.command == "help"
-        assert result.raw == "@testbot /help"
 
-    def test_parse_first_command_only(self):
-        """Test that only first command is parsed when multiple exist."""
-        note_body = "@testbot /help\n@testbot /status"
-        result = parse_slash_command(note_body, "testbot")
+@pytest.mark.parametrize("note_body, bot_name, command, args, raw", BARE_CASES)
+def test_parse_bare_command_cases(note_body: str, bot_name: str, command: str, args: list[str], raw: str) -> None:
+    """Test parsing bare slash commands."""
+    _assert_parsed(note_body, bot_name, command=command, args=args, raw=raw)
 
-        assert result is not None
-        assert result.command == "help"
-        assert result.raw == "@testbot /help"
 
-    def test_parse_no_command_found(self):
-        """Test when no bot command is found."""
-        note_body = "Just some regular text without commands"
-        result = parse_slash_command(note_body, "testbot")
+@pytest.mark.parametrize("note_body, bot_name", INVALID_CASES)
+def test_parse_invalid_cases(note_body: str, bot_name: str) -> None:
+    """Test inputs that should not parse into commands."""
+    _assert_not_parsed(note_body, bot_name)
 
-        assert result is None
 
-    def test_parse_different_bot_name(self):
-        """Test that commands for different bots are ignored."""
-        note_body = "@otherbot /help"
-        result = parse_slash_command(note_body, "testbot")
+@pytest.mark.parametrize("note_body, bot_name", INVALID_SHLEX_CASES)
+def test_parse_shlex_error_handling(note_body: str, bot_name: str) -> None:
+    """Test handling of shlex parsing errors (unmatched quotes)."""
+    _assert_not_parsed(note_body, bot_name)
 
-        assert result is None
 
-    def test_parse_email_address_ignored(self):
-        """Test that email addresses are not matched as bot commands."""
-        note_body = "Contact testbot@example.com for help"
-        result = parse_slash_command(note_body, "testbot")
+def test_parse_prioritizes_mention_over_bare() -> None:
+    """Test that mention format is prioritized over bare format."""
+    text = "/bare-command\n@testbot /mention-command"
+    result = parse_slash_command(text, "testbot")
 
-        assert result is None
+    assert result is not None
+    assert result.command == "mention-command"
 
-    def test_parse_partial_bot_name_ignored(self):
-        """Test that partial bot name matches are ignored."""
-        note_body = "@testbotx /help"  # Extra character
-        result = parse_slash_command(note_body, "testbot")
 
-        assert result is None
-
-    def test_parse_bot_name_with_special_chars(self):
-        """Test parsing bot name that contains special regex characters."""
-        note_body = "@test.bot /help"
-        result = parse_slash_command(note_body, "test.bot")
-
-        assert result is not None
-        assert result.command == "help"
-
-    def test_parse_command_with_newline_in_middle(self):
-        """Test that commands stop at newlines."""
-        note_body = "@testbot /help arg1\nthis should not be included"
-        result = parse_slash_command(note_body, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == ["arg1"]
-        assert "this should not be included" not in result.raw
-
-    def test_parse_empty_command(self):
-        """Test parsing when bot is mentioned but no command follows."""
-        note_body = "@testbot   "  # Just whitespace after mention
-        result = parse_slash_command(note_body, "testbot")
-
-        assert result is None
-
-    def test_parse_command_with_tabs(self):
-        """Test parsing command with tab characters."""
-        note_body = "@testbot\t\t/help\targ1"
-        result = parse_slash_command(note_body, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == ["arg1"]
-
-    def test_parse_command_with_complex_quoting(self):
-        """Test parsing command with complex shell-style quoting."""
-        note_body = "@testbot /create 'single quotes' \"double quotes\" unquoted"
-        result = parse_slash_command(note_body, "testbot")
-
-        assert result is not None
-        assert result.command == "create"
-        assert result.args == ["single quotes", "double quotes", "unquoted"]
-
-    def test_parse_command_shlex_error_handling(self):
-        """Test handling of shlex parsing errors (unmatched quotes)."""
-        note_body = '@testbot /create "unmatched quote'
-        result = parse_slash_command(note_body, "testbot")
-
-        assert result is None
-
-    def test_parse_empty_note_body(self):
-        """Test parsing empty note body."""
-        result = parse_slash_command("", "testbot")
-        assert result is None
-
-    def test_parse_none_note_body(self):
-        """Test parsing None note body."""
-        with pytest.raises(TypeError):
-            parse_slash_command(None, "testbot")  # type: ignore
-
-    def test_parse_whitespace_only_note_body(self):
-        """Test parsing note body with only whitespace."""
-        result = parse_slash_command("   \n\t  ", "testbot")
-        assert result is None
-
-    def test_parse_bare_slash_command(self):
-        """Test parsing bare slash command (/command)."""
-        text = "/help"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == []
-        assert result.raw == "/help"
-
-    def test_parse_bare_slash_command_with_args(self):
-        """Test parsing bare slash command with arguments."""
-        text = "/review please check the security aspects"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "review"
-        assert result.args == ["please", "check", "the", "security", "aspects"]
-        assert result.raw == "/review please check the security aspects"
-
-    def test_parse_bare_slash_command_with_leading_whitespace(self):
-        """Test parsing bare slash command with leading whitespace."""
-        text = "  /help"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == []
-        assert "/help" in result.raw
-
-    def test_parse_bare_slash_command_in_multiline(self):
-        """Test parsing bare slash command in multiline text."""
-        text = "Some text before\n/help\nSome text after"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is None
-
-    def test_parse_prioritizes_mention_over_bare(self):
-        """Test that mention format is prioritized over bare format."""
-        text = "/bare-command\n@testbot /mention-command"
-        result = parse_slash_command(text, "testbot")
-
-        # Should find the mention format first
-        assert result is not None
-        assert result.command == "mention-command"
-
-    def test_parse_bare_slash_command_with_quoted_args(self):
-        """Test parsing bare slash command with quoted arguments."""
-        text = '/security-audit "check authentication"'
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "security-audit"
-        assert result.args == ["check authentication"]
-
-    def test_parse_bare_slash_at_start_of_line(self):
-        """Test parsing bare slash command at the start of a line."""
-        text = "/help me understand"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == ["me", "understand"]
-
-    def test_parse_bare_slash_not_mid_word(self):
-        """Test that slash in middle of word is not detected."""
-        text = "http://example.com/help"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is None
-
-    def test_parse_bare_slash_command_case_insensitive(self):
-        """Test that bare slash commands are converted to lowercase."""
-        text = "/HELP"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-
-    def test_parse_bare_slash_shlex_error(self):
-        """Test handling of shlex parsing errors in bare format."""
-        text = '/command "unmatched quote'
-        result = parse_slash_command(text, "testbot")
-
-        assert result is None
-
-    def test_parse_bare_slash_only(self):
-        """Test parsing when only slash is present."""
-        text = "/"
-        result = parse_slash_command(text, "testbot")
-
-        # Should return None as there's no command after the slash
-        assert result is None
-
-    def test_parse_bare_slash_with_tabs(self):
-        """Test parsing bare slash command with tabs."""
-        text = "/help\targ1\targ2"
-        result = parse_slash_command(text, "testbot")
-
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == ["arg1", "arg2"]
+def test_parse_none_note_body() -> None:
+    """Test parsing None note body."""
+    with pytest.raises(TypeError):
+        parse_slash_command(None, "testbot")  # type: ignore
