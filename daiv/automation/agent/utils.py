@@ -228,3 +228,20 @@ def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = Fal
         thinking_level = settings.MAX_THINKING_LEVEL
 
     return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
+
+
+def extract_body_from_frontmatter(frontmatter_text: str) -> str:
+    """
+    Extract prompt from text.
+
+    Args:
+        frontmatter_text (str): The frontmatter text to extract content from.
+
+    Returns:
+        str: The extracted content.
+    """
+    frontmatter_pattern = r"^---\s*\n(.*?)\n---\s*\n"
+    match = re.match(frontmatter_pattern, frontmatter_text, re.DOTALL)
+    if not match:
+        return frontmatter_text
+    return frontmatter_text[match.end() :]

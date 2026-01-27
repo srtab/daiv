@@ -1,4 +1,4 @@
-### 🤖 {{ bot_name }} Quick-Actions
+### 🤖 {{ bot_name }} Slash Commands
 Comment **one** of the commands below on this {{ scope }} to trigger the bot:
 
 {% for action in actions %}{{ action }}

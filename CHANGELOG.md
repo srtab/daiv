@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
+- Added code review and security audit agent skills for structured review and security guidance.
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
@@ -20,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
-- Added comparison table to Quick Actions documentation clarifying the difference between slash commands and direct mentions.
+- Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
 - Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
 - Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
@@ -43,9 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed `/review` and `/security-audit` slash commands in favor of builtin skills.
 - Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 - Removed Celery worker configuration and bootstrap scripts.
+- Removed the `quick_actions` Django app, templates, and tests in favor of the `slash_commands` module.
 
 ## [1.1.0] - 2025-12-04
 
@@ -61,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added OpenRouter support to Anthropic caching middleware, reducing costs.
 - Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
 - Added `EXECUTION_THINKING_LEVEL` configuration to `PlanAndExecuteAgent` to allow users to enable thinking for execution tasks.
-- Added `/clone-to-topic` quick action to clone issues to all repositories matching specified topics, enabling bulk distribution of issues across multiple repositories.
+- Added `/clone-to-topic` slash command to clone issues to all repositories matching specified topics, enabling bulk distribution of issues across multiple repositories.
 
 ### Changed
 
@@ -119,10 +122,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated project from Python 3.13 to Python 3.14.
 - Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
 - Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
-- Moved quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.
-- Migrated quick action `help` to activate as `@daiv /help` instead of `@daiv help`. **BREAKING CHANGE**
-- Migrated quick action `plan execute` to activate as `@daiv /approve-plan` instead of `@daiv plan execute`. **BREAKING CHANGE**
-- Migrated quick action `plan revise` to activate as `@daiv /revise-plan` instead of `@daiv plan revise`. **BREAKING CHANGE**
+- Moved slash commands from `daiv/automation/slash_commands` to `daiv/slash_commands`.
+- Migrated slash command `help` to activate as `@daiv /help` instead of `@daiv help`. **BREAKING CHANGE**
+- Migrated slash command `plan execute` to activate as `@daiv /approve-plan` instead of `@daiv plan execute`. **BREAKING CHANGE**
+- Migrated slash command `plan revise` to activate as `@daiv /revise-plan` instead of `@daiv plan revise`. **BREAKING CHANGE**
 - Updated project dependencies.
 - Updated documentation.
 
@@ -154,14 +157,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added quick actions feature to allow users perform actions by commenting on the merge request or issue.
-- Added quick actions to allow users to trigger plan revision by commenting `@daiv plan revise` on the issue.
+- Added slash commands feature to allow users perform actions by commenting on the merge request or issue.
+- Added slash commands to allow users to trigger plan revision by commenting `@daiv plan revise` on the issue.
 
 ### Changed
 
 - Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async only.
-- Migrated `PipelineFixerAgent` to be triggered by a quick action instead of a webhook, allowing users to request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
-- Migrated `IssueAddressorAgent` plan approval to be triggered by a quick action, allowing users to request a plan approval by commenting `@daiv plan execute` on the issue.
+- Migrated `PipelineFixerAgent` to be triggered by a slash command instead of a webhook, allowing users to request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
+- Migrated `IssueAddressorAgent` plan approval to be triggered by a slash command, allowing users to request a plan approval by commenting `@daiv plan execute` on the issue.
 
 ### Fixed
 

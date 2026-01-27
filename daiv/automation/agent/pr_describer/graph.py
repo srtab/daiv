@@ -12,7 +12,7 @@ from langchain.agents.middleware import dynamic_prompt
 from langchain_core.prompts import ChatPromptTemplate
 
 from automation.agent import BaseAgent
-from automation.agent.constants import PROJECT_MEMORY_PATH
+from automation.agent.constants import DAIV_MEMORY_PATH
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
 
@@ -58,7 +58,7 @@ def create_pr_describer_agent(model: ModelName | str, *, ctx: RuntimeCtx) -> Run
                 backend=backend,
                 sources=[
                     f"/{agent_path.name}/{ctx.config.context_file_name}",
-                    f"/{agent_path.name}/{PROJECT_MEMORY_PATH}",
+                    f"/{agent_path.name}/{DAIV_MEMORY_PATH}",
                 ],
             ),
             AnthropicPromptCachingMiddleware(),

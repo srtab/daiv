@@ -24,7 +24,7 @@ DAIV automates three key software engineering activities:
 
 ### Workflow Overview
 
-DAIV responds to repository events with specialized workflows for each feature (Issue Addressor, Code Review Response, Quick Actions):
+DAIV responds to repository events with specialized workflows for each feature (Issue Addressor, Code Review Response, Slash Commands):
 
 ```mermaid
 graph TD
@@ -39,7 +39,7 @@ graph TD
     F --> J["🗂️ Clear cache"]
 
     H --> K["💬 Code Review Response<br/>(changes or answers)"]
-    H --> L["⚡ Quick Action<br/>(help, clone commands)"]
+    H --> L["⚡ Slash Command<br/>(help, clone commands)"]
 
     G --> M["📤 Creates Merge/Pull Request"]
     K --> N["📝 Updates Code or Replies"]
@@ -58,7 +58,7 @@ DAIV integrates with major Git platforms to automate your development workflow:
 - [:simple-gitlab: **GitLab**](https://gitlab.com) - Full feature support (GitLab.com and self-hosted)
 - [:simple-github: **GitHub**](https://github.com) - Full feature support (GitHub.com and GitHub Enterprise)
 
-Both platforms support all core features including Issue Addressing, Code Review Response, and Quick Actions.
+Both platforms support all core features including Issue Addressing, Code Review Response, and Slash Commands.
 
 ---
 

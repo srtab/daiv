@@ -9,6 +9,7 @@ from ninja import Router
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import extract_text_content
+from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
 
@@ -56,7 +57,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             content_type="text/event-stream",
         )
     try:
-        async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
+        async with set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx:
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
             result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
 

@@ -2,14 +2,19 @@ from enum import StrEnum
 
 from daiv.settings.components import PROJECT_DIR
 
-# Path where the builtin skills are stored on the filesystem to be copied to the backend.
+# Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Path where the project skills are stored in repository.
-PROJECT_SKILLS_PATH = ".daiv/skills"
+# Path where the skills are stored in repository.
+DAIV_SKILLS_PATH = ".daiv/skills"
+CURSOR_SKILLS_PATH = ".cursor/skills"
+CLAUDE_CODER_SKILLS_PATH = ".claude/skills"
 
-# Path where the project memory is stored in repository.
-PROJECT_MEMORY_PATH = ".daiv/AGENTS.md"
+# Paths where the skills are stored in repository.
+SKILLS_SOURCES = [DAIV_SKILLS_PATH, CURSOR_SKILLS_PATH, CLAUDE_CODER_SKILLS_PATH]
+
+# Path where the memory is stored in repository.
+DAIV_MEMORY_PATH = ".daiv/AGENTS.md"
 
 
 class ModelName(StrEnum):

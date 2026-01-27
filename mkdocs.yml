@@ -88,7 +88,7 @@ nav:
   - Features:
     - Issue Addressor: features/issue-addressor.md
     - Review Addressor: features/review-addressor.md
-    - Quick Actions: features/quick-actions.md
+    - Slash Commands: features/slash-commands.md
   - AI Agents:
     - Overview: ai-agents/overview.md
     - Agent Skills: ai-agents/skills.md

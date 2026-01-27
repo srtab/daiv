@@ -1,0 +1,9 @@
+### ❌ Slash Command Error
+
+I tried to run **`{{ command }}`**, but something unexpected happened and the command didn't complete.
+
+**What you can do now**
+
+1. 🔄 **Retry** - add the same slash command again.
+2. 📜 **Check the app logs** - open the DAIV logs to see the full stack trace and [open an issue](https://github.com/srtab/daiv/issues/new) if the problem persists.
+

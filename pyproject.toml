@@ -140,7 +140,7 @@ lint.isort.known-first-party = [
   "chat",
   "codebase",
   "core",
-  "quick_actions",
+  "slash_commands",
   "daiv",
 ]
 lint.isort.section-order = [

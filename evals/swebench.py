@@ -12,7 +12,7 @@ from langgraph.store.memory import InMemoryStore
 
 from automation.agent.constants import ModelName
 from automation.agent.graph import create_daiv_agent
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 from codebase.utils import GitManager
 
@@ -37,6 +37,7 @@ async def main(
 
             async with set_runtime_ctx(
                 item["repo"],
+                scope=Scope.GLOBAL,
                 ref=item["base_commit"],
                 offline=True,
                 git_platform=GitPlatform.SWE,
