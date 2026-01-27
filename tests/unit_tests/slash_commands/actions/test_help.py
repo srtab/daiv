@@ -9,7 +9,7 @@ from slash_commands.actions.help import HelpSlashCommand
 @fixture
 def help_slash_command() -> HelpSlashCommand:
     """Set up test fixtures."""
-    command = HelpSlashCommand()
+    command = HelpSlashCommand(scope=Scope.ISSUE, repo_id="repo1", bot_username="bot")
     command.client = MagicMock(current_user=MagicMock(username="bot"))
     return command
 
@@ -26,7 +26,5 @@ def test_help_command_has_correct_attributes():
 @patch("slash_commands.actions.help.slash_command_registry.get_commands", new=Mock(return_value=[]))
 async def test_help_command_returns_correct_message(help_slash_command: HelpSlashCommand):
     """Test that HelpSlashCommand returns the correct message."""
-    message = await help_slash_command.execute_for_agent(
-        args="", scope=Scope.ISSUE, repo_id="repo1", bot_username="bot"
-    )
+    message = await help_slash_command.execute_for_agent(args="", available_skills=[])
     assert message == "No slash commands available."

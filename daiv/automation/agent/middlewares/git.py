@@ -43,6 +43,7 @@ You're currently working on issue #{{issue_iid}}.
 
 The user will interact with you through the issue comments that will be automatically provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
 {{/issue_iid}}
+
 {{#merge_request_iid}}
 You're currently working on merge request #{{merge_request_iid}}.
 

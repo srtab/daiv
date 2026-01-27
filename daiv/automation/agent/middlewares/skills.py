@@ -14,13 +14,10 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from automation.agent.constants import BUILTIN_SKILLS_PATH, DAIV_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
-from slash_commands.parser import SlashCommandCommand, parse_agent_slash_command
+from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from deepagents.backends import BackendProtocol
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
@@ -80,60 +77,6 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
 )
 
 
-def _skill_tool_generator(backend: BackendProtocol | Callable[[ToolRuntime], BackendProtocol]) -> BaseTool:
-    """
-    Generate a skill tool.
-
-    Args:
-        backend: The backend to read the skill from.
-
-    Returns:
-        A BaseTool.
-    """
-
-    async def skill_tool(
-        skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],
-        runtime: ToolRuntime[RuntimeCtx, SkillsState],
-        skill_args: Annotated[str | None, "Optional arguments to pass to the skill."] = None,
-    ) -> str:
-        """
-        Tool to execute a skill.
-        """
-        available_skills = runtime.state["skills_metadata"]
-        loaded_skill = next(
-            (skill_metadata for skill_metadata in available_skills if skill_metadata["name"] == skill), None
-        )
-
-        if loaded_skill is None:
-            available_skills_names = [skill_metadata["name"] for skill_metadata in available_skills]
-            return f"error: Skill '{skill}' not found. Available skills: {', '.join(available_skills_names)}."
-
-        responses = backend.download_files([loaded_skill["path"]])
-        if responses[0].error:
-            return f"error: Failed to launch skill '{skill}': {responses[0].error}. {responses[0].error_message}"
-
-        body = extract_body_from_frontmatter(responses[0].content.decode("utf-8").strip())
-
-        # Positional args like $1, $2
-        for i, a in enumerate(shlex.split(skill_args or ""), start=1):
-            body = body.replace(f"${i}", a).replace(f"{SKILL_ARGUMENTS_PLACEHOLDER}[{i}]", a)
-
-        # Named args, only $ARGUMENTS supported
-        if arg_str := skill_args.strip():
-            body = (
-                body.replace(SKILL_ARGUMENTS_PLACEHOLDER, arg_str)
-                if SKILL_ARGUMENTS_PLACEHOLDER in body
-                else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
-            )
-
-        return [
-            ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
-            HumanMessage(content=body),
-        ]
-
-    return tool(SKILLS_TOOL_NAME, description=SKILLS_TOOL_DESCRIPTION)(skill_tool)
-
-
 class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
     Middleware to apply builtin slash commands early in the conversation and copy builtin skills to the project skills
@@ -143,7 +86,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
-        self.tools = [_skill_tool_generator(self._backend)]
+        self.tools = [self._skill_tool_generator()]
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(
@@ -153,10 +96,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
         """
-        builtin_slash_commands = await self._apply_builtin_slash_commands(state["messages"], runtime.context)
-        if builtin_slash_commands:
-            return builtin_slash_commands
-
         if "skills_metadata" in state:
             return None
 
@@ -172,6 +111,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     skill["metadata"]["is_builtin"] = True
                 else:
                     skill["metadata"].pop("is_builtin", None)
+
+        builtin_slash_commands = await self._apply_builtin_slash_commands(
+            state["messages"], runtime.context, skills_update["skills_metadata"]
+        )
+
+        if builtin_slash_commands:
+            return builtin_slash_commands
+
         return skills_update
 
     async def _copy_builtin_skills(self, agent_path: Path) -> list[str]:
@@ -234,7 +181,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return AVAILABLE_SKILLS_TEMPLATE.format(skills_list=skills)
 
     async def _apply_builtin_slash_commands(
-        self, messages: list[AnyMessage], context: RuntimeCtx
+        self, messages: list[AnyMessage], context: RuntimeCtx, skills: list[SkillMetadata]
     ) -> SkillsStateUpdate | None:
         """
         Detect and execute builtin slash commands (not project skills) early in the conversation.
@@ -242,6 +189,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Args:
             messages: The list of messages.
             context: The runtime context.
+            skills: The list of skills.
 
         Returns:
             State update with messages injected, or None if no builtin slash command detected.
@@ -264,17 +212,15 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
             return None
 
-        command = command_classes[0]()
+        command = command_classes[0](scope=context.scope, repo_id=context.repo_id, bot_username=context.bot_username)
         logger.info("[%s] Executing `%s` slash command", self.name, slash_command.raw)
 
         try:
             result = await command.execute_for_agent(
                 args=" ".join(slash_command.args),
-                scope=context.scope,
-                repo_id=context.repo_id,
-                bot_username=context.bot_username,
                 issue_iid=context.issue.iid if context.issue else None,
                 merge_request_id=context.merge_request.merge_request_id if context.merge_request else None,
+                available_skills=skills,
             )
         except Exception:
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
@@ -303,4 +249,58 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if not text_content or not text_content.strip():
             return None
 
-        return parse_agent_slash_command(text_content, bot_username)
+        return parse_slash_command(text_content, bot_username)
+
+    def _skill_tool_generator(self) -> BaseTool:
+        """
+        Generate a skill tool.
+
+        Args:
+            backend: The backend to read the skill from.
+
+        Returns:
+            A BaseTool.
+        """
+
+        async def skill_tool(
+            skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],
+            runtime: ToolRuntime[RuntimeCtx, SkillsState],
+            skill_args: Annotated[str | None, "Optional arguments to pass to the skill."] = None,
+        ) -> str:
+            """
+            Tool to execute a skill.
+            """
+            available_skills = runtime.state["skills_metadata"]
+
+            loaded_skill = next(
+                (skill_metadata for skill_metadata in available_skills if skill_metadata["name"] == skill), None
+            )
+
+            if loaded_skill is None:
+                available_skills_names = [skill_metadata["name"] for skill_metadata in available_skills]
+                return f"error: Skill '{skill}' not found. Available skills: {', '.join(available_skills_names)}."
+
+            responses = await self._backend.adownload_files([loaded_skill["path"]])
+            if responses[0].error:
+                return f"error: Failed to launch skill '{skill}': {responses[0].error}."
+
+            body = extract_body_from_frontmatter(responses[0].content.decode("utf-8").strip())
+
+            # Positional args like $1, $2
+            for i, a in enumerate(shlex.split(skill_args or ""), start=1):
+                body = body.replace(f"${i}", a).replace(f"{SKILL_ARGUMENTS_PLACEHOLDER}[{i}]", a)
+
+            # Named args, only $ARGUMENTS supported
+            if skill_args and (arg_str := skill_args.strip()):
+                body = (
+                    body.replace(SKILL_ARGUMENTS_PLACEHOLDER, arg_str)
+                    if SKILL_ARGUMENTS_PLACEHOLDER in body
+                    else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
+                )
+
+            return [
+                ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
+                HumanMessage(content=body),
+            ]
+
+        return tool(SKILLS_TOOL_NAME, description=SKILLS_TOOL_DESCRIPTION)(skill_tool)

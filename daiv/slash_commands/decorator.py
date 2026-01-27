@@ -31,6 +31,3 @@ def slash_command(command: str, scopes: list[Scope]) -> Callable[[type[SlashComm
         return cls
 
     return decorator
-
-
-__all__ = ["slash_command"]

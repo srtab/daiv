@@ -79,5 +79,5 @@ class TestSlashCommandDecorator:
             mock_registry.register.assert_called_once_with(InheritedCommand, "inherited_command", [Scope.ISSUE])
 
             # Verify inheritance still works
-            command = InheritedCommand()
+            command = InheritedCommand(scope=Scope.ISSUE, repo_id="repo1", bot_username="bot")
             assert command.shared_method() == "shared"

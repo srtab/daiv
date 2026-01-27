@@ -30,10 +30,10 @@ EDIT_FILE_TOOL_DESCRIPTION = EDIT_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_A
 
 DAIV_FILESYSTEM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     """\
-## Filesystem Tools `ls`, `read_file`, {{#read_only}}write_file`, `edit_file`, {{/read_only}}`glob`, `grep`
+## Filesystem Tools
 
 You have access to a filesystem which you can interact with using these tools.
-Tool-call arguments (ls/read_file{{#read_only}}/edit_file{{/read_only}}/etc.) MUST use absolute paths (start with "/").
+Tool-call arguments (ls/read_file{{^read_only}}/edit_file{{/read_only}}/etc.) MUST use absolute paths (start with "/").
 User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths.
 
  - ls: list files in a directory

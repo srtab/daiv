@@ -22,6 +22,8 @@ _COMMAND_RE_TEMPLATE = r"""
     (?P<cmd>[^\n\r]+)    # capture the rest of the line (until newline)
 """
 
+_BARE_COMMAND_RE_TEMPLATE = r"^\s*/(?P<cmd>[^\n\r]+)"
+
 
 def _parse_command_match(text: str, *, pattern: str, flags: int) -> SlashCommandCommand | None:
     match = re.search(pattern, text, flags=flags)
@@ -43,7 +45,7 @@ def _parse_command_match(text: str, *, pattern: str, flags: int) -> SlashCommand
 
 def parse_slash_command(note_body: str, bot_name: str) -> SlashCommandCommand | None:
     """
-    Parse the first '@<bot_name> …' command in `note_body`.
+    Parse the first '@<bot_name> /<command> [arguments]' or '/<command> [arguments]' command in `note_body`.
 
     Args:
         note_body: The full text of a GitLab note / comment.
@@ -52,29 +54,11 @@ def parse_slash_command(note_body: str, bot_name: str) -> SlashCommandCommand | 
     Returns:
         SlashCommandCommand if found, otherwise None.
     """
-    pattern = _COMMAND_RE_TEMPLATE.format(bot=re.escape(bot_name))
-
-    return _parse_command_match(note_body, pattern=pattern, flags=re.IGNORECASE | re.VERBOSE)
-
-
-def parse_agent_slash_command(text: str, bot_name: str) -> SlashCommandCommand | None:
-    """
-    Parse slash commands for agent middleware.
-
-    Supports both mention-based format (`@<bot_name> /command ...`) and bare slash commands (`/command ...`).
-
-    Args:
-        text: The message text to parse.
-        bot_name: The bot mention to look for (case-insensitive).
-
-    Returns:
-        SlashCommandCommand if found, otherwise None.
-    """
-    # Try mention-based format first
-    if result := parse_slash_command(text, bot_name):
+    # Try mention-based format
+    if result := _parse_command_match(
+        note_body, pattern=_COMMAND_RE_TEMPLATE.format(bot=re.escape(bot_name)), flags=re.IGNORECASE | re.VERBOSE
+    ):
         return result
 
     # Try bare slash command format
-    # Look for lines starting with '/' (optionally preceded by whitespace)
-    bare_pattern = r"^\s*/(?P<cmd>[^\n\r]+)"
-    return _parse_command_match(text, pattern=bare_pattern, flags=re.MULTILINE)
+    return _parse_command_match(note_body, pattern=_BARE_COMMAND_RE_TEMPLATE, flags=re.IGNORECASE)
