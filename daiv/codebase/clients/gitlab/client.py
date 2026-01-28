@@ -445,14 +445,17 @@ class GitLabClient(RepoClient):
         issue = project.issues.create(issue_data)
         return issue.iid
 
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
         """
-        Create an emoji in a note of an issue.
+        Create an emoji direclty on an issue or on an issue note.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        note = issue.notes.get(note_id, lazy=True)
-        note.awardemojis.create({"name": emoji})
+        if note_id is not None:
+            note = issue.notes.get(note_id, lazy=True)
+            note.awardemojis.create({"name": emoji})
+        else:
+            issue.awardemojis.create({"name": emoji})
 
     def _get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
         """

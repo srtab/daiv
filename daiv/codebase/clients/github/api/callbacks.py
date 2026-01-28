@@ -32,6 +32,7 @@ class IssueCallback(GitHubCallback):
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
+        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         return (
@@ -42,6 +43,7 @@ class IssueCallback(GitHubCallback):
         )
 
     async def process_callback(self):
+        self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)
         await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
 
 
@@ -76,9 +78,7 @@ class IssueCommentCallback(GitHubCallback):
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
         """
         if self._is_issue_comment:
-            self._client.create_issue_note_emoji(
-                self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
-            )
+            self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id)
             await address_issue_task.aenqueue(
                 repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=self.comment.id
             )

@@ -24,9 +24,13 @@ class IssueCallback(BaseCallback):
     project: Project
     object_attributes: Issue
 
+    def model_post_init(self, __context: Any):
+        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
+        self._client = RepoClient.create_instance()
+
     def accept_callback(self) -> bool:
         return (
-            RepositoryConfig.get_config(self.project.path_with_namespace).issue_addressing.enabled
+            self._repo_config.issue_addressing.enabled
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
             # Only accept if the issue is a DAIV issue.
             and self.object_attributes.is_daiv()
@@ -41,6 +45,7 @@ class IssueCallback(BaseCallback):
         """
         Trigger the task to address the issue.
         """
+        self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
         await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
         )
@@ -82,7 +87,7 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self._is_issue_comment:
-            self._client.create_issue_note_emoji(
+            self._client.create_issue_emoji(
                 self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
             )
             await address_issue_task.aenqueue(
