@@ -273,7 +273,7 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")
 
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue emojis")
 

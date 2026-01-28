@@ -64,8 +64,8 @@ class TestGitHubClient:
         call_args = mock_download.call_args
         assert call_args[1]["headers"]["Authorization"] == "Bearer test-token-123"
 
-    def test_create_issue_note_emoji_converts_note_id_to_int(self, github_client):
-        """Test that create_issue_note_emoji converts string note_id to int."""
+    def test_create_issue_emoji_converts_note_id_to_int(self, github_client):
+        """Test that create_issue_emoji converts string note_id to int."""
         mock_repo = Mock()
         mock_issue = Mock()
         mock_comment = Mock()
@@ -75,7 +75,7 @@ class TestGitHubClient:
         mock_issue.get_comment.return_value = mock_comment
 
         # Pass note_id as a string
-        github_client.create_issue_note_emoji("owner/repo", 123, Emoji.THUMBSUP, "3645723306")
+        github_client.create_issue_emoji("owner/repo", 123, Emoji.THUMBSUP, "3645723306")
 
         # Verify that get_comment was called with an integer
         mock_issue.get_comment.assert_called_once_with(3645723306)

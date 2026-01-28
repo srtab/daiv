@@ -25,29 +25,6 @@ PLAN_ISSUE_PROMPT = "Present a plan to address this issue and wait for approval 
 ADDRESS_ISSUE_PROMPT = "Address this issue."
 
 
-class IssueAddressorError(Exception):
-    """
-    Exception raised when the issue addressor encounters an error.
-    """
-
-
-class UnableToPlanIssueError(IssueAddressorError):
-    """
-    Exception raised when the agent is unable to plan the issue.
-
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.soft = kwargs.pop("soft", False)
-        super().__init__(*args, **kwargs)
-
-
-class UnableToExecutePlanError(IssueAddressorError):
-    """
-    Exception raised when the agent is unable to execute the plan.
-    """
-
-
 class IssueAddressorManager(BaseManager):
     """
     Manages the issue processing and addressing workflow.

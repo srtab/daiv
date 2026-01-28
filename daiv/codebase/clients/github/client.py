@@ -213,16 +213,18 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def create_issue_note_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
         """
         Create an emoji in a note of an issue.
         """
         if not (emoji_reaction := EMOJI_MAP.get(emoji)):
             raise ValueError(f"Unsupported emoji: {emoji}")
 
-        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(int(note_id)).create_reaction(
-            emoji_reaction
-        )
+        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        if note_id is not None:
+            issue.get_comment(int(note_id)).create_reaction(emoji_reaction)
+        else:
+            issue.create_reaction(emoji_reaction)
 
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """
