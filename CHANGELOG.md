@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
+- Added code review and security audit agent skills for structured review and security guidance.
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
@@ -20,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
-- Added comparison table to Quick Actions documentation clarifying the difference between slash commands and direct mentions.
+- Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
 - Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
 - Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
@@ -46,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 - Removed Celery worker configuration and bootstrap scripts.
+- Removed the `quick_actions` Django app, templates, and tests in favor of the `slash_commands` module.
 
 ## [1.1.0] - 2025-12-04
 

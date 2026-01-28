@@ -4,15 +4,26 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from automation.agent.middlewares.skills import SkillsMiddleware
+from codebase.base import Scope
+from slash_commands.base import SlashCommand
+from slash_commands.registry import SlashCommandRegistry
 
 
-def _make_runtime(*, repo_working_dir: str) -> Mock:
+def _make_runtime(
+    *, repo_working_dir: str, bot_username: str = "daiv-bot", scope: Scope = Scope.GLOBAL, repo_id: str = "repo-1"
+) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.repo = Mock()
     runtime.context.repo.working_dir = repo_working_dir
+    runtime.context.bot_username = bot_username
+    runtime.context.scope = scope
+    runtime.context.repo_id = repo_id
+    runtime.context.issue = None
+    runtime.context.merge_request = None
     return runtime
 
 
@@ -64,7 +75,7 @@ class TestSkillsMiddleware:
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
-            result = await middleware.abefore_agent({}, runtime, Mock())
+            result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
@@ -99,7 +110,7 @@ class TestSkillsMiddleware:
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
-            result = await middleware.abefore_agent({}, runtime, Mock())
+            result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
@@ -212,8 +223,204 @@ class TestSkillsMiddleware:
             },
         ])
 
-        lines = formatted.splitlines()
-        assert lines[0] == "- **skill-one (Builtin)**: does one"
-        assert lines[1] == "  -> Read `/skills/skill-one/SKILL.md` for full instructions"
-        assert lines[2] == "- **custom-skill**: does custom"
-        assert lines[3] == "  -> Read `/skills/custom-skill/SKILL.md` for full instructions"
+        assert formatted.startswith("<available_skills>")
+        assert "<name>skill-one</name>" in formatted
+        assert "<description>does one</description>" in formatted
+        assert "<name>custom-skill</name>" in formatted
+        assert "<description>does custom</description>" in formatted
+        assert formatted.count("<builtin>true</builtin>") == 1
+
+    def test_format_skills_list_returns_empty_hint(self):
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills", "/extra/skills"])
+        formatted = middleware._format_skills_list([])
+        assert formatted == "(No skills available yet. You can create skills in /skills or /extra/skills)"
+
+    def test_extract_slash_command_requires_human_message(self):
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        messages = [AIMessage(content="hello")]
+        assert middleware._extract_slash_command(messages, "daiv") is None
+
+    def test_extract_slash_command_skips_blank_content(self):
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        messages = [HumanMessage(content="  \n\t ")]
+        assert middleware._extract_slash_command(messages, "daiv") is None
+
+    def test_extract_slash_command_parses_multimodal_content(self):
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        messages = [
+            HumanMessage(
+                content=[
+                    {"type": "text", "text": "@daiv /help arg1"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/demo.png"}},
+                ]
+            )
+        ]
+        result = middleware._extract_slash_command(messages, "daiv")
+        assert result is not None
+        assert result.command == "help"
+        assert result.args == ["arg1"]
+        assert result.raw == "@daiv /help arg1"
+
+    async def test_apply_builtin_slash_commands_executes_command(self):
+        class DemoSlashCommand(SlashCommand):
+            description = "demo"
+
+            async def execute_for_agent(
+                self,
+                *,
+                args: str,
+                issue_iid: int | None = None,
+                merge_request_id: int | None = None,
+                available_skills: list | None = None,
+            ) -> str:
+                skill_name = available_skills[0]["name"] if available_skills else "none"
+                return f"{args}|{issue_iid}|{merge_request_id}|{skill_name}"
+
+        registry = SlashCommandRegistry()
+        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
+
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        context = Mock()
+        context.bot_username = "daiv"
+        context.scope = Scope.GLOBAL
+        context.repo_id = "repo-1"
+        context.issue = Mock(iid=101)
+        context.merge_request = Mock(merge_request_id=202)
+
+        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
+            result = await middleware._apply_builtin_slash_commands(
+                [HumanMessage(content="/demo arg1")], context, [{"name": "skill-one"}]
+            )
+
+        assert result is not None
+        assert result["jump_to"] == "end"
+        assert isinstance(result["messages"][0], AIMessage)
+        assert result["messages"][0].content == "arg1|101|202|skill-one"
+
+    async def test_apply_builtin_slash_commands_returns_error_message_on_failure(self):
+        class FailingSlashCommand(SlashCommand):
+            description = "fail"
+
+            async def execute_for_agent(
+                self,
+                *,
+                args: str,
+                issue_iid: int | None = None,
+                merge_request_id: int | None = None,
+                available_skills: list | None = None,
+            ) -> str:
+                raise RuntimeError("boom")
+
+        registry = SlashCommandRegistry()
+        registry.register(FailingSlashCommand, "fail", [Scope.GLOBAL])
+
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        context = Mock()
+        context.bot_username = "daiv"
+        context.scope = Scope.GLOBAL
+        context.repo_id = "repo-1"
+        context.issue = None
+        context.merge_request = None
+
+        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
+            result = await middleware._apply_builtin_slash_commands(
+                [HumanMessage(content="/fail now")], context, [{"name": "skill-one"}]
+            )
+
+        assert result is not None
+        assert result["jump_to"] == "end"
+        assert isinstance(result["messages"][0], AIMessage)
+        assert result["messages"][0].content == "Failed to execute `/fail now`."
+
+    async def test_apply_builtin_slash_commands_returns_none_for_ambiguous_command(self):
+        class DemoSlashCommand(SlashCommand):
+            description = "demo"
+
+        class OtherSlashCommand(SlashCommand):
+            description = "other"
+
+        DemoSlashCommand.command = "demo"
+        OtherSlashCommand.command = "demo"
+
+        registry = Mock()
+        registry.get_commands.return_value = [DemoSlashCommand, OtherSlashCommand]
+
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        context = Mock()
+        context.bot_username = "daiv"
+        context.scope = Scope.GLOBAL
+        context.repo_id = "repo-1"
+        context.issue = None
+        context.merge_request = None
+
+        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
+            result = await middleware._apply_builtin_slash_commands(
+                [HumanMessage(content="/demo now")], context, [{"name": "skill-one"}]
+            )
+
+        assert result is None
+
+    async def test_skill_tool_reports_missing_skill(self):
+        backend = Mock()
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        result = await tool.coroutine(skill="missing", runtime=runtime)  # type: ignore[union-attr]
+        assert result == "error: Skill 'missing' not found. Available skills: demo."
+
+    async def test_skill_tool_reports_download_failure(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(return_value=[Mock(error="boom", content=b"")])
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        result = await tool.coroutine(skill="demo", runtime=runtime)  # type: ignore[union-attr]
+        assert result == "error: Failed to launch skill 'demo': boom."
+
+    async def test_skill_tool_formats_body_with_arguments(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[
+                Mock(
+                    error=None,
+                    content=(b"---\nname: demo\ndescription: Demo\n---\nFirst $1, second $2, all: $ARGUMENTS"),
+                )
+            ]
+        )
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")  # type: ignore[union-attr]
+        assert isinstance(result, list)
+        assert isinstance(result[0], ToolMessage)
+        assert result[0].content == "Launching skill 'demo'..."
+        assert isinstance(result[1], HumanMessage)
+        assert result[1].content == "First alpha, second beta, all: alpha beta"
+
+    async def test_skill_tool_appends_named_arguments_when_missing_placeholder(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[Mock(error=None, content=b"---\nname: demo\ndescription: Demo\n---\nRun this.")]
+        )
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")  # type: ignore[union-attr]
+        assert isinstance(result, list)
+        assert result[1].content.endswith("\n\n$ARGUMENTS: --flag=1")

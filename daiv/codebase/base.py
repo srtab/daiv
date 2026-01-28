@@ -14,6 +14,21 @@ class GitPlatform(StrEnum):
     SWE = "swe"
 
 
+class Scope(StrEnum):
+    """
+    Scope of the conversation.
+    """
+
+    GLOBAL = "Global"
+    """The conversation is scoped to the global scope."""
+
+    ISSUE = "Issue"
+    """The conversation is scoped to an issue."""
+
+    MERGE_REQUEST = "Merge Request"
+    """The conversation is scoped to a merge request."""
+
+
 class Repository(BaseModel):
     pk: int
     slug: str

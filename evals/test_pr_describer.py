@@ -6,7 +6,7 @@ from langsmith import testing as t
 
 from automation.agent.constants import ModelName
 from automation.agent.pr_describer.graph import create_pr_describer_agent
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
 from .evaluators import correctness_evaluator
@@ -45,7 +45,9 @@ async def test_pr_describer(inputs, reference_outputs):
     t.log_inputs(inputs)
     t.log_reference_outputs(reference_outputs)
 
-    async with set_runtime_ctx("srtab/daiv", ref="main", offline=True, git_platform=GitPlatform.GITLAB) as ctx:
+    async with set_runtime_ctx(
+        "srtab/daiv", scope=Scope.GLOBAL, ref="main", offline=True, git_platform=GitPlatform.GITLAB
+    ) as ctx:
         agent_path = Path(ctx.repo.working_dir)
         if "context_file_content" in inputs:
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))

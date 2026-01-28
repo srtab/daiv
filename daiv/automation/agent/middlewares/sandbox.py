@@ -87,7 +87,7 @@ REMEMBER: You should use absolute paths instead of cd to change directories.
 """  # noqa: E501
 
 SANDBOX_SYSTEM_PROMPT = f"""\
-## Bash tool `{BASH_TOOL_NAME}`
+## Bash tool
 
 You have access to a `{BASH_TOOL_NAME}` tool to execute bash commands on your working directory. Use this tool to run commands, scripts, tests, builds, and other shell operations.
 

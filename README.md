@@ -15,7 +15,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 - 💬 **Code Review Addressor**: Assists with code review comments by providing context-aware answers or directly applying requested changes. This reduces the overhead of going back and forth on merge requests.
 - 🧠 **Codebase Chat**: Chat with your codebase for context-aware answers. An OpenAI-compatible API is available for easy integration with tools such as [Open-WebUI](https://github.com/open-webui/open-webui).
 - ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing).
-- ⚡ **Quick Actions**: Command-based interactions for common tasks on issues and merge requests, such as regenerating plan, approving plan, repairing pipeline, etc.
+- ⚡ **Slash Commands**: Command-based interactions for common tasks on issues and merge requests, such as help to list available commands, cloning issues to multiple repositories, etc.
 - 🔧 **MCP Tools**: Supporting [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools to extend the capabilities of the agents.
 - 🎯 **Agent Skills**: Modular, reusable capabilities that give agents domain-specific expertise. Define custom workflows in your repository's `.daiv/skills/` directory, or use builtin skills like changelog maintenance and AGENTS.md generation.
 - 📦 **Sandbox**: Running commands in a secure sandbox to allow the agents to perform actions on the codebase, such as installing/updating dependencies, generating translations, etc. with your own docker image.

@@ -43,12 +43,12 @@ class CodeReview(BaseModel):
     enabled: bool = Field(default=True, description="Enable code review features.")
 
 
-class QuickActions(BaseModel):
+class SlashCommands(BaseModel):
     """
-    Quick actions configuration.
+    Slash commands configuration.
     """
 
-    enabled: bool = Field(default=True, description="Enable quick actions features.")
+    enabled: bool = Field(default=True, description="Enable slash command features.")
 
 
 class Sandbox(BaseModel):
@@ -162,7 +162,9 @@ class RepositoryConfig(BaseModel):
     )
 
     # Features
-    quick_actions: QuickActions = Field(default_factory=QuickActions, description="Configure quick actions features.")
+    slash_commands: SlashCommands = Field(
+        default_factory=SlashCommands, description="Configure slash command features."
+    )
     code_review: CodeReview = Field(default_factory=CodeReview, description="Configure code review features.")
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."

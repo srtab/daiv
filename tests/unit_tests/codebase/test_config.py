@@ -11,7 +11,7 @@ class RepositoryConfigTest:
             "default_branch": "main",
             "code_review": {"enabled": True},
             "issue_addressing": {"enabled": True},
-            "quick_actions": {"enabled": True},
+            "slash_commands": {"enabled": True},
         }
         mock_cache.get.return_value = cached_config
 
@@ -20,7 +20,7 @@ class RepositoryConfigTest:
         assert config.default_branch == "main"
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
-        assert config.quick_actions.enabled is True
+        assert config.slash_commands.enabled is True
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
     @patch("codebase.repo_config.cache")
@@ -34,7 +34,7 @@ class RepositoryConfigTest:
           enabled: true
         issue_addressing:
           enabled: true
-        quick_actions:
+        slash_commands:
           enabled: true
         """
 
@@ -43,7 +43,7 @@ class RepositoryConfigTest:
         assert config.default_branch == "main"
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
-        assert config.quick_actions.enabled is True
+        assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -60,7 +60,7 @@ class RepositoryConfigTest:
         assert config.default_branch == "main"
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
-        assert config.quick_actions.enabled is True
+        assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -83,7 +83,7 @@ class RepositoryConfigTest:
         assert config.default_branch == "main"
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
-        assert config.quick_actions.enabled is True
+        assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
@@ -102,7 +102,7 @@ class RepositoryConfigTest:
         assert config.default_branch == "main"
         assert config.code_review.enabled is True
         assert config.issue_addressing.enabled is True
-        assert config.quick_actions.enabled is True
+        assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )

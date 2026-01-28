@@ -1,11 +1,11 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
 
-from codebase.base import GitPlatform, Issue, MergeRequest  # noqa: TC001
+from codebase.base import GitPlatform, Issue, MergeRequest, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
@@ -37,7 +37,7 @@ class RuntimeCtx:
     config: RepositoryConfig
     """The repository configuration"""
 
-    scope: Literal["issue", "merge_request"] | None = None
+    scope: Scope | None = None
     """The scope of the context. If None, not running in a specific scope."""
 
     issue: Issue | None = None
@@ -57,8 +57,8 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 async def set_runtime_ctx(
     repo_id: str,
     *,
+    scope: Scope,
     ref: str | None = None,
-    scope: Literal["issue", "merge_request"] | None = None,
     issue: Issue | None = None,
     merge_request: MergeRequest | None = None,
     offline: bool = False,
@@ -69,8 +69,10 @@ async def set_runtime_ctx(
 
     Args:
         repo_id: The repository identifier
+        scope: The scope of the context.
         ref: The reference branch or tag. If None, the default branch will be used.
-        scope: The scope of the context. If None, not running in a specific scope.
+        issue: The issue object if the context is scoped to an issue, None otherwise
+        merge_request: The merge request object if the context is scoped to a merge request, None otherwise
         offline: Whether to use the cached configuration or to fetch it from the repository.
         **kwargs: Additional keyword arguments to pass to the repository client.
 

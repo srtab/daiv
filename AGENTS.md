@@ -9,7 +9,7 @@ DAIV is an AI-powered development assistant built on Django with Django Tasks fo
     * `codebase/` - Codebase module with all the repository interaction and related logic.
     * `chat/` - Chat module with the OpenAI compatible API.
     * `core/` - Core module with common logic.
-    * `quick_actions/` - Quick actions module.
+    * `slash_commands/` - Slash commands module.
     * `daiv/` - Main logic of the Django project: settings, urls, wsgi, asgi, tasks, etc.
 * `docker/` - Dockerfiles and configurations for local and production deployments.
 * `docs/` - Documentation for the project.

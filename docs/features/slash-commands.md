@@ -1,16 +1,17 @@
-# ⚡ Quick Actions
+# ⚡ Slash Commands
 
-Quick Actions provide command-based interactions with DAIV directly from issues and merge/pull requests. They are useful for common tasks and information requests.
+Slash commands provide command-based interactions with DAIV directly from issues and merge/pull requests. They are
+useful for common tasks and information requests.
 
 ---
 
-## Quick Actions vs. Direct Mentions
+## Slash commands vs. direct mentions
 
 DAIV responds to two types of interactions:
 
 | Interaction Type | Format | Use Case |
 |------------------|--------|----------|
-| **Quick Actions** | `@daiv /command` | Execute specific commands (get help, clone issues) |
+| **Slash Commands** | `@daiv /command` | Execute specific commands (get help, clone issues) |
 | **Direct Mentions** | `@daiv <request>` | Address code review comments, ask questions, request code changes |
 
 **To address code review comments**, use a direct mention without a slash command. See [Review Addressor](review-addressor.md) for details and examples.
@@ -19,11 +20,11 @@ DAIV responds to two types of interactions:
 
 ## Overview
 
-Quick Actions are triggered by mentioning DAIV with specific commands in issue or merge/pull request comments.
+Slash commands are triggered by mentioning DAIV with specific commands in issue or merge/pull request comments.
 
-### How Quick Actions Work
+### How slash commands work
 
-**Command Format**: `@<daiv-username> /<action> [arguments]`
+**Command Format**: `@<daiv-username> /<command> [arguments]`
 
 **Supported Scopes**:
 
@@ -32,7 +33,7 @@ Quick Actions are triggered by mentioning DAIV with specific commands in issue o
 
 **Command Parsing**:
 
-Quick Actions use shell-like parsing with support for:
+Slash commands use shell-like parsing with support for:
 
 - **Simple commands**: `@daiv /help`
 - **Commands with arguments**: `@daiv /clone-to-topic backend, api`
@@ -44,23 +45,23 @@ Quick Actions use shell-like parsing with support for:
 graph TD
     A["👤 User"] --> B["💬 Comments with @daiv<br/>(e.g., '@daiv /help')"]
     B --> C["🔔 Comment Webhook"]
-    C --> D["📝 Quick Action Parser<br/>(extracts command and args)"]
-    D --> E["📋 Registry Lookup<br/>(finds matching action)"]
+    C --> D["📝 Slash Command Parser<br/>(extracts command and args)"]
+    D --> E["📋 Registry Lookup<br/>(finds matching command)"]
 
-    E --> F["✅ Action Found?"]
-    F -->|Yes| G["⚡ Execute Action"]
-    F -->|No| H["❌ Unknown Action Error"]
+    E --> F["✅ Command Found?"]
+    F -->|Yes| G["⚡ Execute Command"]
+    F -->|No| H["❌ Unknown Command Error"]
 
     G --> I["🔍 Validate Scope<br/>(Issue vs Merge/Pull Request)"]
     I --> J["🛠️ Execute Specific Logic"]
 
-    J --> K["📖 Help Action<br/>(show available commands)"]
+    J --> K["📖 Help Command<br/>(show available commands)"]
     J --> R["📤 Clone to Topic<br/>(clone issue to repos)"]
 
     K --> N["💬 Posts Help Message"]
     R --> S["📋 Creates Issues in<br/>Matching Repositories"]
 
-    H --> Q["💬 Posts Error Message<br/>(suggests valid actions)"]
+    H --> Q["💬 Posts Error Message<br/>(suggests valid commands)"]
 
     style B fill:#e1f5fe
     style E fill:#fff3e0
@@ -68,22 +69,22 @@ graph TD
     style H fill:#ffebee
 ```
 
-### Basic Usage
+### Basic usage
 
 1. **Navigate** to any issue or merge/pull request
-2. **Add a comment** mentioning DAIV with the desired action
+2. **Add a comment** mentioning DAIV with the desired command
 3. **Submit** the comment
-4. **DAIV responds** with the action result
+4. **DAIV responds** with the command result
 
 ---
 
-## Available Quick Actions
+## Available slash commands
 
-### 🆘 Help Action
+### 🆘 Help command
 
 **Command**: `/help`
 
-**Purpose**: Displays all available Quick Actions for the current scope (issue or merge/pull request).
+**Purpose**: Displays all available slash commands for the current scope (issue or merge/pull request).
 
 **Scopes**: Issues, Merge/Pull Requests
 
@@ -92,11 +93,11 @@ graph TD
 @daiv /help
 ```
 
-**Response**: DAIV replies with a formatted list of all available Quick Actions and their descriptions.
+**Response**: DAIV replies with a formatted list of all available slash commands and their descriptions.
 
 ---
 
-### 📤 Clone to Topic Action
+### 📤 Clone to topic command
 
 **Command**: `/clone-to-topic <topics>`
 
@@ -126,12 +127,12 @@ graph TD
 
 ## Troubleshooting
 
-### Common Issues
+### Common issues
 
-**Action not recognized**:
+**Command not recognized**:
 
-- Check that the action supports the current scope (issue vs merge/pull request)
-- Ensure proper spelling and case (actions are case-insensitive)
+- Check that the command supports the current scope (issue vs merge/pull request)
+- Ensure proper spelling and case (commands are case-insensitive)
 - Verify command syntax (e.g., `/help` not `/Help`)
 
 **No response from DAIV**:
@@ -143,24 +144,24 @@ graph TD
 **Permission errors**:
 
 - Ensure DAIV has sufficient repository permissions
-- Confirm the user triggering the action has appropriate access levels
+- Confirm the user triggering the command has appropriate access levels
 
-**Pipeline action issues**:
+**Pipeline command issues**:
 
 - Ensure the pipeline is in "failed" status
 - Check that failed jobs have `script_failure` as the failure reason
 - Verify jobs are not marked as `allow_failure`
 
-**Clone to topic action issues**:
+**Clone to topic command issues**:
 
 - Ensure you provide at least one topic
 - Check that target repositories have the specified topics configured
 - Verify DAIV has access to the target repositories
 - Confirm the current repository is not the only one matching the topics
 
-### Debug Information
+### Debug information
 
-Quick Actions log detailed information for troubleshooting:
+Slash commands log detailed information for troubleshooting:
 
 - Command parsing results
 - Registry lookup attempts
@@ -171,7 +172,7 @@ Quick Actions log detailed information for troubleshooting:
 
 ## Examples
 
-### Getting Help
+### Getting help
 
 ```
 @daiv /help
@@ -179,16 +180,16 @@ Quick Actions log detailed information for troubleshooting:
 
 **Response**:
 ```
-### 🤖 DAIV Quick-Actions
+### 🤖 DAIV Slash Commands
 Comment one of the commands below on this issue to trigger the bot:
 
-- `@daiv /help` - Shows the help message with the available quick actions.
+- `@daiv /help` - Shows the help message with the available slash commands.
 - `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics.
 ```
 
 ---
 
-### Cloning an Issue to Multiple Repositories
+### Cloning an issue to multiple repositories
 
 ```
 @daiv /clone-to-topic backend, api
@@ -204,20 +205,20 @@ Cloned issue to `3` repositories:
 
 ---
 
-## Extension and Development
+## Extension and development
 
-### Adding New Actions
+### Adding new commands
 
-1. **Create** new action class in `quick_actions/actions/`
-2. **Implement** required methods `execute_action` and `actions`
-3. **Decorate** with `@quick_action` specifying command and scopes
+1. **Create** new command class in `slash_commands/actions/`
+2. **Implement** required methods `execute_action_for_issue`, `execute_action_for_merge_request`, and `execute_for_agent`
+3. **Decorate** with `@slash_command` specifying command and scopes
 4. **Import** in the actions module
-5. **Test** the action in development environment
+5. **Test** the command in development environment
 
-### Best Practices
+### Best practices
 
-- **Keep actions simple**: Quick Actions should execute immediately
-- **Provide clear descriptions**: Help users understand what each action does
+- **Keep commands simple**: Slash commands should execute immediately
+- **Provide clear descriptions**: Help users understand what each command does
 - **Handle errors gracefully**: Post user-friendly error messages
-- **Use appropriate scopes**: Only enable actions where they make sense
+- **Use appropriate scopes**: Only enable commands where they make sense
 - **Follow naming conventions**: Use clear, descriptive command names
