@@ -1,4 +1,4 @@
-FROM python:3.14.0-slim-bookworm
+FROM python:3.14.2-slim-bookworm
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -25,6 +25,15 @@ RUN apt-get update \
         gnupg \
         ca-certificates \
         ripgrep \
+    # Install GitHub CLI
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y \
+        gh \
         # Cleaning up unused files
     && apt-get purge -y --auto-remove \
         -o APT::AutoRemove::RecommendsImportant=0 \

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from automation.agent.graph import create_daiv_agent
 from chat.api.schemas import ChatCompletionChunk
+from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ async def generate_stream(
     chunk_uuid = str(uuid.uuid4())
     created = int(datetime.now().timestamp())
 
-    async with set_runtime_ctx(repo_id=repo_id, ref=ref) as runtime_ctx:
+    async with set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx:
         try:
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
 

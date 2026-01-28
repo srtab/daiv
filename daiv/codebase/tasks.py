@@ -6,7 +6,7 @@ from django.tasks import task
 
 from crontask import cron
 
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
@@ -44,7 +44,7 @@ async def address_issue_task(
     """
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)
-    async with set_runtime_ctx(repo_id, ref=ref, scope="issue", issue=issue) as runtime_ctx:
+    async with set_runtime_ctx(repo_id, scope=Scope.ISSUE, ref=ref, issue=issue) as runtime_ctx:
         await IssueAddressorManager.address_issue(
             issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
         )
@@ -82,7 +82,7 @@ async def address_mr_comments_task(
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
     async with set_runtime_ctx(
-        repo_id, ref=merge_request_source_branch, scope="merge_request", merge_request=merge_request
+        repo_id, scope=Scope.MERGE_REQUEST, ref=merge_request_source_branch, merge_request=merge_request
     ) as runtime_ctx:
         await CommentsAddressorManager.address_comments(
             merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx

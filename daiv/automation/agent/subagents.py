@@ -4,6 +4,7 @@ from deepagents.graph import SubAgent
 from langchain.agents.middleware import TodoListMiddleware
 
 from automation.agent.middlewares.file_system import FilesystemMiddleware
+from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
@@ -213,6 +214,7 @@ def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCt
             system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=runtime.config.sandbox.enabled)
         ),
         FilesystemMiddleware(backend=backend),
+        GitPlatformMiddleware(),
     ]
 
     if not offline:
@@ -252,7 +254,7 @@ def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx, off
     """
     Create the changelog subagent.
     """
-    middleware = [FilesystemMiddleware(backend=backend)]
+    middleware = [FilesystemMiddleware(backend=backend), GitPlatformMiddleware()]
 
     if not offline:
         middleware.append(WebSearchMiddleware())

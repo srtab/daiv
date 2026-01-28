@@ -25,9 +25,10 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import PROJECT_MEMORY_PATH, PROJECT_SKILLS_PATH
+from automation.agent.constants import DAIV_MEMORY_PATH, SKILLS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
+from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -42,6 +43,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
 )
 from automation.conf import settings as automation_settings
+from codebase.base import Scope
 from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
@@ -80,6 +82,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     tool_names = [tool.name for tool in request.tools]
+    agent_path = Path(request.runtime.context.repo.working_dir)
 
     system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date_time=timezone.now().strftime("%d %B, %Y"),
@@ -88,6 +91,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         repository=request.runtime.context.repo_id,
         git_platform=request.runtime.context.git_platform.value,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
+        working_directory=f"/{agent_path.name}/",
     )
     return (
         BASE_AGENT_PROMPT
@@ -181,9 +185,9 @@ async def create_daiv_agent(
         ),
         MemoryMiddleware(
             backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{PROJECT_MEMORY_PATH}"],
+            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{DAIV_MEMORY_PATH}"],
         ),
-        SkillsMiddleware(backend=backend, sources=[f"/{agent_path.name}/{PROJECT_SKILLS_PATH}"]),
+        SkillsMiddleware(backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]),
         SubAgentMiddleware(
             default_model=model,
             default_middleware=subagent_default_middlewares,
@@ -196,7 +200,8 @@ async def create_daiv_agent(
         ),
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(auto_commit_changes=auto_commit_changes),
+        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitPlatformMiddleware(),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -230,12 +235,9 @@ async def main():
         wrap_lines=True,
         reserve_space_for_menu=7,  # Reserve space for completion menu to show 5-6 results
     )
-    async with set_runtime_ctx(repo_id="srtab/daiv", ref="main") as ctx:
+    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx,
-            model_names=["openrouter:minimax/minimax-m2.1"],
-            store=InMemoryStore(),
-            checkpointer=InMemorySaver(),
+            ctx=ctx, model_names=["openrouter:z-ai/glm-4.7"], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()

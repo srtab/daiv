@@ -1,0 +1,8 @@
+### 🤖 {{ bot_name }} Slash Commands
+
+{% for action in actions %}{{ action }}
+{% endfor -%}
+
+You can **invoke slash commands**, either by:
+- Using the slash command: `{% if need_mention_to_invoke %}@{{ bot_username }} {% endif %}/command-name [arguments]`
+- Asking me to perform a task that matches the command's description (I'll automatically invoke the appropriate command)

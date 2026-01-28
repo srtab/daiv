@@ -29,7 +29,7 @@ issue_addressing:
 code_review:
   enabled: true
 
-quick_actions:
+slash_commands:
   enabled: true
 
 # Sandbox
@@ -89,10 +89,10 @@ issue_addressing:
 |-----------|--------|---------|---------------------------------------------|
 | `enabled` | `bool` | `true`  | Enable the [code review addressor feature](../features/review-addressor.md). |
 
-### Quick Actions
+### Slash Commands
 | Option    | Type   | Default | Description                                 |
 |-----------|--------|---------|---------------------------------------------|
-| `enabled` | `bool` | `true`  | Enable [quick actions feature](../features/quick-actions.md).              |
+| `enabled` | `bool` | `true`  | Enable [slash commands feature](../features/slash-commands.md).              |
 
 !!! tip
     Disable features you do not need to reduce noise and speed up processing.

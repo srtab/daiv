@@ -1,16 +1,16 @@
 #########################################################################################################
 # Python compile image
 #########################################################################################################
-FROM python:3.14.0-slim-bookworm AS app-compiler
+FROM python:3.14.2-slim-bookworm AS app-compiler
 
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-  # dependencies for building Python packages
-  build-essential \
-  # psycopg dependencies
-  libpq-dev
+    # dependencies for building Python packages
+    build-essential \
+    # psycopg dependencies
+    libpq-dev
 
 # Install uv
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
@@ -31,26 +31,38 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #########################################################################################################
 # Python build image
 #########################################################################################################
-FROM python:3.14.0-slim-bookworm AS python-builder
+FROM python:3.14.2-slim-bookworm AS python-builder
 
 LABEL maintainer="srtabs@gmail.com"
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-  # Psycopg dependencies
-  libpq5 \
-  # Used on healthcheckers
-  curl \
-  # Translations
-  gettext \
-  # Git
-  git \
-  # Ripgrep for file search
-  ripgrep \
+    # Psycopg dependencies
+    libpq5 \
+    # Used on healthcheckers
+    curl \
+    ca-certificates \
+    gnupg \
+    # Translations
+    gettext \
+    # Git
+    git \
+    # Ripgrep for file search
+    ripgrep \
+  # Install GitHub CLI
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+  # GitHub CLI
+    gh \
   # Cleaning up unused files
   && apt-get purge -y --auto-remove \
-  -o APT::AutoRemove::RecommendsImportant=0 \
-  -o APT::Autoremove::SuggestsImportant=0 \
+    -o APT::AutoRemove::RecommendsImportant=0 \
+    -o APT::Autoremove::SuggestsImportant=0 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/* \
   # Create aplication specific user
@@ -77,7 +89,7 @@ WORKDIR /home/daiv
 RUN chmod +x entrypoint start-app start-worker start-crontask \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
-  && mkdir -p data/tantivy_index data/media data/static data/mcp-proxy
+  && mkdir -p data/media data/static data/mcp-proxy
 
 HEALTHCHECK --interval=10s --start-period=30s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
