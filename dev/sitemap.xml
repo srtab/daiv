@@ -2,58 +2,58 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://srtab.github.io/daiv/dev/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/community/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/mcp-tools/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/overview/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/ai-agents/skills/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/configuration/env-config/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/configuration/monitoring/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/configuration/yaml-config/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/features/issue-addressor/</loc>
-         <lastmod>2026-01-20</lastmod>
-    </url>
-    <url>
-         <loc>https://srtab.github.io/daiv/dev/features/quick-actions/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/features/review-addressor/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/features/slash-commands/</loc>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/getting-started/configuration/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/getting-started/supported-providers/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/getting-started/up-and-running/</loc>
-         <lastmod>2026-01-20</lastmod>
+         <lastmod>2026-01-28</lastmod>
     </url>
 </urlset>
