@@ -86,10 +86,10 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
             {
                 "grep": GREP_TOOL_DESCRIPTION,
                 "glob": GLOB_TOOL_DESCRIPTION,
+                "ls": LIST_FILES_TOOL_DESCRIPTION,
                 "read_file": READ_FILE_TOOL_DESCRIPTION,
                 "write_file": WRITE_FILE_TOOL_DESCRIPTION,
                 "edit_file": EDIT_FILE_TOOL_DESCRIPTION,
-                "list_files": LIST_FILES_TOOL_DESCRIPTION,
             },
         )
         super().__init__(

@@ -33,7 +33,7 @@ class IssueAddressorManager(BaseManager):
     def __init__(self, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue = issue
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{issue.iid}")
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope.value}/{issue.iid}")
         self.mention_comment_id = mention_comment_id
 
     @classmethod
