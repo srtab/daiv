@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.clients")
 
-EMOJI_MAP = {Emoji.THUMBSUP: "+1"}
+EMOJI_MAP = {Emoji.THUMBSUP: "+1", Emoji.EYES: "eyes"}
 
 
 class GitHubClient(RepoClient):
