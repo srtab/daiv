@@ -11,7 +11,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain_core.prompts import SystemMessagePromptTemplate
 
 from automation.agent.pr_describer.graph import create_pr_describer_agent
-from codebase.base import GitPlatform, MergeRequest
+from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, redact_diff_content
@@ -112,11 +112,13 @@ class GitMiddleware(AgentMiddleware):
         branch_name = state.get("branch_name")
         merge_request_id = state.get("merge_request_id")
 
-        if runtime.context.scope == "merge_request" and not (branch_name or merge_request_id):
+        if runtime.context.scope == Scope.MERGE_REQUEST:
+            # In this case, ignore the branch name and merge request ID from the state,
+            # and use the source branch and merge request ID from the merge request.
             branch_name = runtime.context.merge_request.source_branch
             merge_request_id = runtime.context.merge_request.merge_request_id
 
-        if branch_name:
+        if branch_name and branch_name != runtime.context.repo.active_branch.name:
             git_manager = GitManager(runtime.context.repo)
 
             logger.info("[%s] Checking out to branch '%s'", self.name, branch_name)
@@ -179,7 +181,7 @@ class GitMiddleware(AgentMiddleware):
         )
 
         merge_request_id = state.get("merge_request_id")
-        if runtime.context.scope != "merge_request" and not merge_request_id:
+        if runtime.context.scope != Scope.MERGE_REQUEST and not merge_request_id:
             logger.info(
                 "[%s] Creating merge request: '%s' -> '%s'",
                 self.name,
@@ -210,7 +212,7 @@ class GitMiddleware(AgentMiddleware):
         )
 
         extra_context = ""
-        if runtime.context.scope == "issue":
+        if runtime.context.scope == Scope.ISSUE:
             extra_context = dedent(
                 """\
                 This changes were made to address the following issue:

@@ -191,7 +191,9 @@ class CommentsAddressorManager(BaseManager):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.merge_request.merge_request_id}")
+        self.thread_id = generate_uuid(
+            f"{self.ctx.repo_id}:{self.ctx.scope.value}/{self.merge_request.merge_request_id}"
+        )
 
     @classmethod
     async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
