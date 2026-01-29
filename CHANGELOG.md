@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
+- Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception when attempting to read files from empty repositories.
 
 ### Removed
 
