@@ -128,7 +128,17 @@ class GitHubClient(RepoClient):
             The content of the file. If the file is binary or not a text file, it returns None.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
-        return repo.get_contents(file_path, ref=ref).decoded_content.decode()
+        try:
+            content = repo.get_contents(file_path, ref=ref)
+        except GithubException as e:
+            error_message = str(getattr(e, "data", {}).get("message", "")).lower()
+            if e.status == 404 and ("repository is empty" in error_message or "not found" in error_message):
+                return None
+            raise
+        try:
+            return content.decoded_content.decode()
+        except UnicodeDecodeError:
+            return None
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
         """
