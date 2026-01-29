@@ -148,12 +148,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
             builtin_skills.append(builtin_skill_dir.name)
 
-            for root, _dirs, files in builtin_skill_dir.walk():
+            for root, dirs, files in builtin_skill_dir.walk():
+                # Modifying dirs in-place will prune the (subsequent) files
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for file in files:
                     source_path = Path(root) / Path(file)
+                    if source_path.suffix == ".pyc":
+                        continue
                     dest_path = project_skills_path / source_path.relative_to(BUILTIN_SKILLS_PATH)
                     if not dest_path.exists():
-                        files_to_upload.append((str(dest_path), source_path.read_text().encode("utf-8")))
+                        files_to_upload.append((str(dest_path), source_path.read_bytes()))
 
             dest_path = project_skills_path / builtin_skill_dir.relative_to(BUILTIN_SKILLS_PATH)
             files_to_upload.append((str(dest_path / ".gitignore"), b"*"))
