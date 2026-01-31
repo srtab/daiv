@@ -6,12 +6,12 @@ import os
 import shlex
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from github import Auth, Consts, GithubIntegration
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.prompts import SystemMessagePromptTemplate
 
 from codebase.base import GitPlatform
+from codebase.clients.github.utils import get_github_cli_token
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -89,10 +89,10 @@ Tool to interact with GitHub API to retrieve information about issues, pull requ
 - Repository is automatically set (do NOT pass `--repo` or `-R`)
 
 **Common use cases:**
-- Get a specific issue by its number: `command: issue view <issue_number>, output_mode: 'detailed'`
-- Get a specific pull request by its number: `command: pr view <pr_number>, output_mode: 'detailed'`
-- List workflow runs: `command: run list --workflow <workflow_name>, output_mode: 'simplified'`
-- List issues: `command: issue list --state open --label bug --limit <n>, output_mode: 'simplified'`
+- Get a specific issue by its number: `command: issue view <issue_number>`
+- Get a specific pull request by its number: `command: pr view <pr_number>`
+- List workflow runs: `command: run list --workflow <workflow_name>`
+- List issues: `command: issue list --state open --label bug --limit <n>`
 
 **Bad Examples:**
 ✗ `gh issue view 42` (don't include 'gh' prefix)
@@ -101,9 +101,7 @@ Tool to interact with GitHub API to retrieve information about issues, pull requ
 
 **Important Notes:**
 - Do NOT attempt to fetch URLs from the output - they require authentication
-- Always quote text that contains spaces or multiline text with double quotes
-- For listing resources to discover IDs, use the default `output_mode='simplified'`
-"""  # noqa: E501
+- Always quote text that contains spaces or multiline text with double quotes"""  # noqa: E501
 
 
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
@@ -120,7 +118,8 @@ user: Draft a plan to fix issue #42.
 assistant:
   [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
 assistant:
-  [Use the issue title/description to draft a fix plan + checklist]
+  [Use the issue title/description to understand the problem and the user's request]
+  [Explore the codebase and draft a fix plan]
 </example>
 <example>
 user: Fix the failing pipeline for merge request #123.
@@ -143,8 +142,9 @@ assistant:
 <example>
 user: Draft a plan to fix issue #42.
 assistant:
-  [Call `{GITHUB_TOOL_NAME}("issue view 42 --json title,body,labels")`]
-  [Use the issue title/description to draft a fix plan + checklist]
+  [Call `{GITHUB_TOOL_NAME}("issue view 42")`]
+  [Use the issue title/description to understand the problem and the user's request]
+  [Explore the codebase and draft a fix plan]
 </example>
 <example>
 user: Investigate failing workflow/job/check for pull request #123.
@@ -233,97 +233,48 @@ GITLAB_CLI_DENY_RESOURCES = [
 ]
 
 GITHUB_CLI_DENY_COMMANDS = {
+    "repo": {"create", "delete", "rename", "fork", "archive", "unarchive", "edit", "set-default-branch", "sync"},
+    "browser": "*",
     # Token & credential minting
-    "auth",
-    "secret",
-    "variable",
+    "auth": "*",
+    "secret": "*",
+    "variable": "*",
     # Keys (SSH/GPG)  # noqa: ERA001
-    "ssh-key",
-    "gpg-key",
+    "ssh-key": "*",
+    "gpg-key": "*",
     # Extensions / config / local settings
-    "alias",
-    "config",
-    "extension",
+    "alias": "*",
+    "config": "*",
+    "extension": "*",
     # Codespaces and other remote access surfaces
-    "codespace",
+    "codespace": "*",
     # Copilot access
-    "copilot",
+    "copilot": "*",
 }
 
-GITHUB_CLI_DENY_ACTIONS = {
-    "repo": {"create", "delete", "rename", "fork", "archive", "unarchive", "edit", "set-default-branch", "sync"}
-}
 
-GITHUB_API_DENY_PATH_SEGMENTS = {"/hooks", "/keys", "/secrets", "/deploy_keys"}
-
-GITHUB_API_DISALLOWED_FLAGS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
-
-GITHUB_CLI_DISALLOWED_FLAGS = {"--repo", "-R", "--hostname"}
-
-
-def _get_github_cli_token() -> str | None:
-    base_url = Consts.DEFAULT_BASE_URL
-    if settings.GITHUB_URL:
-        base_url = str(settings.GITHUB_URL)
-
-    try:
-        integration = GithubIntegration(
-            auth=Auth.AppAuth(settings.GITHUB_APP_ID, settings.GITHUB_PRIVATE_KEY.get_secret_value()),
-            base_url=base_url,
-            user_agent=USER_AGENT,
-        )
-        return integration.get_access_token(settings.GITHUB_INSTALLATION_ID).token
-    except Exception:
-        logger.exception("[%s] Failed to generate GitHub token.", GITHUB_TOOL_NAME)
-        return None
-
-
-def _get_subcommand_action(args: list[str]) -> str | None:
-    for arg in args[1:]:
-        if arg.startswith("-"):
-            continue
-        return arg
-    return None
-
-
-def _has_disallowed_cli_flags(args: list[str]) -> bool:
+def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
     for arg in args:
-        if arg in GITHUB_CLI_DISALLOWED_FLAGS:
+        if arg in {"--output", "--verbose", "-v", "--fancy"}:
+            return True
+        if arg.startswith("--project-id="):
+            return True
+        if arg.startswith("-v") and arg != "-v":
+            return True
+        if arg.startswith("--fancy") and arg != "--fancy":
+            return True
+    return False
+
+
+def _gh_has_disallowed_cli_flags(args: list[str]) -> bool:
+    for arg in args:
+        if arg in {"--repo", "-R", "--hostname"}:
             return True
         if arg.startswith("--repo=") or arg.startswith("--hostname="):
             return True
         if arg.startswith("-R") and arg != "-R":
             return True
     return False
-
-
-def _validate_github_api_args(args: list[str]) -> str | None:
-    for arg in args:
-        if arg in GITHUB_API_DISALLOWED_FLAGS:
-            return (
-                "error: gh api only supports read-only GET requests. "
-                "Remove write flags like --method, -X, --field, or --input."
-            )
-        if arg.startswith("--method=") or arg.startswith("-X"):
-            return (
-                "error: gh api only supports read-only GET requests. "
-                "Remove write flags like --method, -X, --field, or --input."
-            )
-        if arg.startswith("--field=") or arg.startswith("--raw-field=") or arg.startswith("--input="):
-            return (
-                "error: gh api only supports read-only GET requests. "
-                "Remove write flags like --method, -X, --field, or --input."
-            )
-
-    endpoint = _get_subcommand_action(args)
-    if not endpoint:
-        return "error: gh api requires an endpoint, e.g. 'api repos/<owner>/<repo>/issues'."
-
-    normalized_endpoint = endpoint.lower()
-    if any(segment in normalized_endpoint for segment in GITHUB_API_DENY_PATH_SEGMENTS):
-        return "error: Access to hooks, keys, or secrets endpoints is not allowed."
-
-    return None
 
 
 @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
@@ -371,14 +322,8 @@ async def gitlab_tool(
     if resource in GITLAB_CLI_DENY_RESOURCES:
         return f"error: The resource '{resource}' is not allowed. Please use a different resource."
 
-    remaining_args = splitted_subcommand[2:]
-
-    if "--project-id" in remaining_args:
-        return "error: The project ID is automatically set."
-
-    disallowed_flags = {"--output", "--verbose", "-v", "--fancy"}
-    if any(flag in remaining_args for flag in disallowed_flags):
-        return "error: The output format is automatically set according to the `output_mode`."
+    if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
+        return "error: The project ID and output format are automatically set."
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -417,18 +362,6 @@ async def gitlab_tool(
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
-
-        if "404" in stderr_text or "not found" in stderr_text.lower():
-            return (
-                f"error: Resource not found. "
-                f"Please verify the IID/ID exists and you're using the correct argument type. "
-                f"Details: {stderr_text}"
-            )
-        elif "401" in stderr_text or "unauthorized" in stderr_text.lower():
-            return "error: Authentication failed. The GitLab token may be invalid or expired."
-        elif "403" in stderr_text or "forbidden" in stderr_text.lower():
-            return "error: Access denied. You may not have permission to access this resource."
-
         return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
 
     output = stdout.decode("utf-8").strip()
@@ -437,9 +370,7 @@ async def gitlab_tool(
 
     if resource == "project-job" and splitted_subcommand[1] == "trace":
         # TODO: evict the output to the file system if it's too long
-        cleaned_output = clean_job_logs(output, runtime.context.git_platform)
-
-        return "".join(cleaned_output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
+        output = clean_job_logs(output, runtime.context.git_platform)
 
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
@@ -448,7 +379,7 @@ async def gitlab_tool(
 async def github_tool(
     subcommand: Annotated[
         str,
-        "The complete subcommand string in format: '<object> <action> <arguments>'. "
+        "The complete subcommand string in format: '<object> <action> [arguments...]'. "
         "Examples: 'issue view 42', 'pr list --state open'. "
         "Do NOT include 'gh' command prefix or --repo argument - these are auto-added.",
     ],
@@ -462,7 +393,7 @@ async def github_tool(
     and truncating the output to avoid overwhelming the model with too much data.
     """
     if not subcommand or not subcommand.strip():
-        return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
+        return "error: Subcommand cannot be empty. Format: '<object> <action> [arguments...]'"
 
     try:
         splitted_subcommand = shlex.split(subcommand.strip())
@@ -470,38 +401,32 @@ async def github_tool(
         return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 
     if len(splitted_subcommand) < 2:
-        return f"error: Incomplete subcommand. Expected format: '<object> <action> <arguments>'. Got: '{subcommand}'"
+        return f"error: Incomplete subcommand. Expected format: '<object> <action> [arguments...]'. Got: '{subcommand}'"
 
-    resource = splitted_subcommand[0]
-    action = _get_subcommand_action(splitted_subcommand)
+    resource, action = splitted_subcommand[0:2]
 
     if resource == "gh":
         return "error: Do not include 'gh' command prefix. Start directly with the object. Example: 'issue view 123'"
 
     if not action:
-        return f"error: Incomplete subcommand. Expected format: '<object> <action> <arguments>'. Got: '{subcommand}'"
+        return f"error: Incomplete subcommand. Expected format: '<object> <action> [arguments...]'. Got: '{subcommand}'"
 
     if resource in GITHUB_CLI_DENY_COMMANDS:
-        return f"error: The command '{resource}' is not allowed. Please use a different command."
+        if action == "*":
+            return f"error: The command '{resource}' is not allowed. Please use a different command."
+        elif action in GITHUB_CLI_DENY_COMMANDS[resource]:
+            return f"error: The action '{action}' for command '{resource}' is not allowed."
 
-    if resource in GITHUB_CLI_DENY_ACTIONS and action in GITHUB_CLI_DENY_ACTIONS[resource]:
-        return f"error: The action '{action}' for command '{resource}' is not allowed."
-
-    if _has_disallowed_cli_flags(splitted_subcommand):
-        return "error: The repository and host are automatically set. Do not pass --repo, -R, or --hostname."
-
-    if resource == "api":
-        api_error = _validate_github_api_args(splitted_subcommand)
-        if api_error:
-            return api_error
+    if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
+        return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
-        "GH_TOKEN": _get_github_cli_token(),
-        "GH_PAGER": "cat",
         "GIT_TERMINAL_PROMPT": "0",
         "NO_COLOR": "1",
+        "GH_TOKEN": get_github_cli_token(),
+        "GH_PAGER": "cat",
     }
 
     args = ["gh"]
@@ -520,31 +445,24 @@ async def github_tool(
             await process.wait()
         except Exception as e:
             logger.warning("[%s] Failed to kill GitHub process: %s", github_tool.name, e)
+
         return "error: GitHub command timed out after 30 seconds. The operation may be too complex or the API is slow."
+
     except Exception as e:
         logger.exception("[%s] Failed to execute GitHub command.", github_tool.name)
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
-        stderr_lower = stderr_text.lower()
-
-        if "404" in stderr_lower or "not found" in stderr_lower:
-            return (
-                "error: Resource not found. "
-                "Please verify the number/ID exists and you're using the correct argument type. "
-                f"Details: {stderr_text}"
-            )
-        if "401" in stderr_lower or "unauthorized" in stderr_lower:
-            return "error: Authentication failed. The GitHub token may be invalid or expired."
-        if "403" in stderr_lower or "forbidden" in stderr_lower:
-            return "error: Access denied. You may not have permission to access this resource."
-
         return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
 
     output = stdout.decode("utf-8").strip()
     if not output:
         return "Command executed successfully but returned no data"
+
+    if resource == "run" and action == "view" and "--log" in splitted_subcommand:
+        # TODO: evict the output to the file system if it's too long
+        output = clean_job_logs(output, runtime.context.git_platform)
 
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
