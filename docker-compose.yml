@@ -153,16 +153,16 @@ services:
         condition: service_healthy
         restart: true
 
-  # smee:
-  #   build:
-  #     context: ./
-  #     dockerfile: ./docker/local/smee/Dockerfile
-  #   container_name: daiv-smee
-  #   restart: unless-stopped
-  #   command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
-  #   environment:
-  #     NODE_TLS_REJECT_UNAUTHORIZED: 0
-  #   depends_on:
-  #     app:
-  #       condition: service_healthy
-  #       restart: true
+  smee:
+    build:
+      context: ./
+      dockerfile: ./docker/local/smee/Dockerfile
+    container_name: daiv-smee
+    restart: unless-stopped
+    command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
+    environment:
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true

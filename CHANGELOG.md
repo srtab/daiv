@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
 - Added support for `gpt-5.2` model from OpenAI
 - Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
+- Added GitHub CLI (`gh`) tool support in Git platform middleware for GitHub operations.
 
 ### Changed
 

@@ -214,7 +214,7 @@ def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCt
             system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=runtime.config.sandbox.enabled)
         ),
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(),
+        GitPlatformMiddleware(git_platform=runtime.git_platform),
     ]
 
     if not offline:
@@ -254,7 +254,7 @@ def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx, off
     """
     Create the changelog subagent.
     """
-    middleware = [FilesystemMiddleware(backend=backend), GitPlatformMiddleware()]
+    middleware = [FilesystemMiddleware(backend=backend), GitPlatformMiddleware(git_platform=runtime.git_platform)]
 
     if not offline:
         middleware.append(WebSearchMiddleware())

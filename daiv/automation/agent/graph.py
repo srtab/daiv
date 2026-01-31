@@ -201,7 +201,7 @@ async def create_daiv_agent(
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
         GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(),
+        GitPlatformMiddleware(git_platform=ctx.git_platform),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),

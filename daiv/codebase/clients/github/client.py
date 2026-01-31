@@ -251,8 +251,9 @@ class GitHubClient(RepoClient):
             The discussion object.
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        comment = issue.get_comment(int(comment_id))
         # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=str(comment_id), notes=self._serialize_comments(issue.get_comments()))
+        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment]))
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
@@ -489,9 +490,9 @@ class GitHubClient(RepoClient):
             comment = pr.get_review_comment(int(comment_id))
 
         if comment is None:
-            return Discussion(id=comment_id, notes=[])
+            return Discussion(id=str(comment_id), notes=[])
 
-        return Discussion(id=comment_id, notes=self._serialize_comments([comment], from_merge_request=True))
+        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
 
     def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         """

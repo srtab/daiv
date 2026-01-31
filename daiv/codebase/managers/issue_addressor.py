@@ -63,12 +63,9 @@ class IssueAddressorManager(BaseManager):
         if self.mention_comment_id:
             # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
             mention_comment = self.client.get_issue_comment(self.ctx.repo_id, self.issue.iid, self.mention_comment_id)
+            latest_comment = mention_comment.notes[-1]
             messages.append(
-                HumanMessage(
-                    name=mention_comment.notes[0].author.username,
-                    id=mention_comment.notes[0].id,
-                    content=mention_comment.notes[0].body,
-                )
+                HumanMessage(name=latest_comment.author.username, id=latest_comment.id, content=latest_comment.body)
             )
         else:
             # The issue was triggered by the bot label, so we need to request the agent to address it.
