@@ -371,6 +371,7 @@ async def gitlab_tool(
     if resource == "project-job" and splitted_subcommand[1] == "trace":
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)
+        return "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
 
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
@@ -463,6 +464,7 @@ async def github_tool(
     if resource == "run" and action == "view" and "--log" in splitted_subcommand:
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)
+        return "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
 
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
