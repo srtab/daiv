@@ -261,7 +261,6 @@ class GitPlatformState(AgentState):
     github_token_cached_at: NotRequired[Annotated[float | None, OmitFromOutput]]
 
 
-
 def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
     for arg in args:
         if arg in {"--output", "--verbose", "-v", "--fancy"}:

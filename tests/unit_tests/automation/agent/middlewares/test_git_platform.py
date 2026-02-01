@@ -20,12 +20,9 @@ class TestGitHubToolTokenCaching:
 
         with (
             patch(
-                "automation.agent.middlewares.git_platform.get_github_cli_token",
-                side_effect=["tok_1"],
+                "automation.agent.middlewares.git_platform.get_github_cli_token", side_effect=["tok_1"]
             ) as get_token_mock,
-            patch(
-                "automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec",
-            ) as create_proc_mock,
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
             proc.communicate = Mock(return_value=(b"ok\n", b""))
@@ -40,7 +37,7 @@ class TestGitHubToolTokenCaching:
 
         # Cached token should avoid extra token generation.
         assert get_token_mock.call_count == 1
-        assert runtime.state["github_token"] == "tok_1"
+        assert runtime.state["github_token"] == "tok_1"  # noqa: S105
         assert runtime.state["github_token_cached_at"] is not None
 
     async def test_github_tool_refreshes_token_after_cache_ttl(self):
@@ -55,13 +52,10 @@ class TestGitHubToolTokenCaching:
 
         with (
             patch(
-                "automation.agent.middlewares.git_platform.get_github_cli_token",
-                side_effect=["tok_new"],
+                "automation.agent.middlewares.git_platform.get_github_cli_token", side_effect=["tok_new"]
             ) as get_token_mock,
             patch("automation.agent.middlewares.git_platform.time.time", return_value=56 * 60),
-            patch(
-                "automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec",
-            ) as create_proc_mock,
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
             proc.communicate = Mock(return_value=(b"ok\n", b""))
@@ -71,7 +65,7 @@ class TestGitHubToolTokenCaching:
             _ = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
 
         assert get_token_mock.call_count == 1
-        assert runtime.state["github_token"] == "tok_new"
+        assert runtime.state["github_token"] == "tok_new"  # noqa: S105
 
     async def test_token_not_in_tool_output(self):
         runtime = ToolRuntime(
@@ -85,9 +79,7 @@ class TestGitHubToolTokenCaching:
 
         with (
             patch("automation.agent.middlewares.git_platform.get_github_cli_token", return_value="tok_1"),
-            patch(
-                "automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec",
-            ) as create_proc_mock,
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
             proc.communicate = Mock(return_value=(b"ok\n", b""))
