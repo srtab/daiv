@@ -4,9 +4,12 @@ import asyncio
 import logging
 import os
 import shlex
-from typing import TYPE_CHECKING, Annotated, Literal
+import time
+from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime, tool
 from langchain_core.prompts import SystemMessagePromptTemplate
 
@@ -253,6 +256,12 @@ GITHUB_CLI_DENY_COMMANDS = {
 }
 
 
+class GitPlatformState(AgentState):
+    github_token: NotRequired[Annotated[str | None, OmitFromOutput]]
+    github_token_cached_at: NotRequired[Annotated[float | None, OmitFromOutput]]
+
+
+
 def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
     for arg in args:
         if arg in {"--output", "--verbose", "-v", "--fancy"}:
@@ -376,6 +385,26 @@ async def gitlab_tool(
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
 
+def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> str:
+    cached = runtime.state.get("github_token")
+    cached_at = runtime.state.get("github_token_cached_at")
+
+    if not cached or cached_at is None:
+        token = get_github_cli_token()
+        runtime.state["github_token"] = token
+        runtime.state["github_token_cached_at"] = time.time()
+        return token
+
+    # GitHub App installation tokens are valid for ~1 hour. Refresh a bit early.
+    if time.time() - float(cached_at) >= 55 * 60:
+        token = get_github_cli_token()
+        runtime.state["github_token"] = token
+        runtime.state["github_token_cached_at"] = time.time()
+        return token
+
+    return cached
+
+
 @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
 async def github_tool(
     subcommand: Annotated[
@@ -426,7 +455,7 @@ async def github_tool(
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         "GIT_TERMINAL_PROMPT": "0",
         "NO_COLOR": "1",
-        "GH_TOKEN": get_github_cli_token(),
+        "GH_TOKEN": _get_cached_github_cli_token(runtime),
         "GH_PAGER": "cat",
     }
 
@@ -470,6 +499,8 @@ async def github_tool(
 
 
 class GitPlatformMiddleware(AgentMiddleware):
+    state_schema = GitPlatformState
+
     """
     Middleware to add the git platform tools to the agent.
 
