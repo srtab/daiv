@@ -125,22 +125,44 @@ except GitCommandError as e:
 
 ```python
 from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 
 @tool("my_tool")
 async def my_tool(param: str, runtime: ToolRuntime) -> str | Command:
-    # To update state, return Command with update dict
-    state_update = {"key": "value"}
-    return Command(update=state_update)
+    # Simple case: just return output as string
+    if not needs_state_update:
+        return "output"
     
-    # Or return both output and state update
-    # The Command will be processed and the update applied to state
+    # When state update is needed: return Command with ToolMessage
+    output = "tool output"
+    state_update = {
+        "key": "value",
+        "messages": [ToolMessage(content=output, tool_call_id=runtime.tool_call_id)]
+    }
+    return Command(update=state_update)
 ```
 
 **Examples**:
 - ❌ `runtime.state["key"] = "value"` - WRONG! Direct state modification doesn't work
-- ✅ `return Command(update={"key": "value"})` - CORRECT! Returns Command with state update
+- ❌ `return Command(update={"key": "value"}, resume=output)` - WRONG! Output should be in ToolMessage
+- ✅ `return Command(update={"key": "value", "messages": [ToolMessage(content=output, tool_call_id=runtime.tool_call_id)]})` - CORRECT!
 
-**Note**: When a tool needs to both return output and update state, it should return a `Command` object. The output will be extracted from the Command automatically.
+**Note**: When a tool needs to both return output and update state, the output MUST be included as a `ToolMessage` in the `messages` key of the state update. The `tool_call_id` must match `runtime.tool_call_id`.
+
+**Testing Command returns**: In unit tests, when calling a tool directly (not through the agent framework), you must manually handle Command returns:
+```python
+result = await tool.coroutine(params, runtime=runtime)
+if isinstance(result, Command):
+    # Extract output from ToolMessage
+    messages = result.update.get("messages", [])
+    output = messages[0].content if messages else None
+    
+    # Apply state updates (excluding messages which are handled by framework)
+    state_updates = {k: v for k, v in result.update.items() if k != "messages"}
+    runtime.state.update(state_updates)
+else:
+    output = result
+```
 
 ## Dependency Management
 

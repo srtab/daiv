@@ -11,6 +11,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
@@ -502,7 +503,9 @@ async def github_tool(
 
     # Return Command with state update if token was cached/refreshed
     if state_update:
-        return Command(update=state_update, resume=output)
+        tool_message = ToolMessage(content=output, tool_call_id=runtime.tool_call_id)
+        state_update["messages"] = [tool_message]
+        return Command(update=state_update)
 
     return output
 

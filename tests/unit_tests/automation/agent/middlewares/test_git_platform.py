@@ -15,7 +15,7 @@ class TestGitHubToolTokenCaching:
             context=Mock(repo_id="owner/repo", git_platform=Mock()),
             config={},
             stream_writer=Mock(),
-            tool_call_id=None,
+            tool_call_id="test_call_1",
             store=None,
         )
 
@@ -34,8 +34,13 @@ class TestGitHubToolTokenCaching:
             # Handle Command return - extract output and apply state update
             if isinstance(result1, Command):
                 assert result1.update is not None
-                runtime.state.update(result1.update)
-                out1 = result1.resume
+                # Extract output from ToolMessage in messages
+                messages = result1.update.get("messages", [])
+                assert len(messages) == 1
+                out1 = messages[0].content
+                # Apply state updates (excluding messages)
+                state_updates = {k: v for k, v in result1.update.items() if k != "messages"}
+                runtime.state.update(state_updates)
             else:
                 out1 = result1
 
@@ -43,8 +48,13 @@ class TestGitHubToolTokenCaching:
             # Handle Command return - extract output and apply state update
             if isinstance(result2, Command):
                 assert result2.update is not None
-                runtime.state.update(result2.update)
-                out2 = result2.resume
+                # Extract output from ToolMessage in messages
+                messages = result2.update.get("messages", [])
+                assert len(messages) == 1
+                out2 = messages[0].content
+                # Apply state updates (excluding messages)
+                state_updates = {k: v for k, v in result2.update.items() if k != "messages"}
+                runtime.state.update(state_updates)
             else:
                 out2 = result2
 
@@ -62,7 +72,7 @@ class TestGitHubToolTokenCaching:
             context=Mock(repo_id="owner/repo", git_platform=Mock()),
             config={},
             stream_writer=Mock(),
-            tool_call_id=None,
+            tool_call_id="test_call_2",
             store=None,
         )
 
@@ -81,7 +91,9 @@ class TestGitHubToolTokenCaching:
             result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
             # Handle Command return - apply state update
             if isinstance(result, Command) and result.update is not None:
-                runtime.state.update(result.update)
+                # Apply state updates (excluding messages)
+                state_updates = {k: v for k, v in result.update.items() if k != "messages"}
+                runtime.state.update(state_updates)
 
         assert get_token_mock.call_count == 1
         assert runtime.state["github_token"] == "tok_new"  # noqa: S105
@@ -92,7 +104,7 @@ class TestGitHubToolTokenCaching:
             context=Mock(repo_id="owner/repo", git_platform=Mock()),
             config={},
             stream_writer=Mock(),
-            tool_call_id=None,
+            tool_call_id="test_call_3",
             store=None,
         )
 
@@ -107,7 +119,13 @@ class TestGitHubToolTokenCaching:
 
             result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
             # Handle Command return - extract output
-            out = result.resume if isinstance(result, Command) else result
+            if isinstance(result, Command):
+                # Extract output from ToolMessage in messages
+                messages = result.update.get("messages", [])
+                assert len(messages) == 1
+                out = messages[0].content
+            else:
+                out = result
 
         assert out == "ok"
         assert "tok_1" not in out
