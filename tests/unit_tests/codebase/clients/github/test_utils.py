@@ -24,6 +24,31 @@ def test_strip_iso_timestamps():
     assert "##[endgroup]" in result
 
 
+def test_strip_iso_timestamps_tab_prefixed():
+    """Test that strip_iso_timestamps cleans tab-prefixed GitHub logs."""
+    raw_log = (
+        "Analyze (actions)\tUNKNOWN STEP\t\ufeff2026-01-31T01:00:49.2161896Z "
+        "Current runner version: '2.331.0'\n"
+        "Analyze (actions)\tUNKNOWN STEP\t2026-01-31T01:00:49.2183140Z ##[group]Runner Image Provisioner\n"
+        "Analyze (actions)\tUNKNOWN STEP\t2026-01-31T01:00:49.2183949Z Hosted Compute Agent\n"
+        "Analyze (actions)\tUNKNOWN STEP\t2026-01-31T01:00:49.2184972Z Version: 20260123.484\n"
+        "Analyze (actions)\tUNKNOWN STEP\t2026-01-31T01:00:49.2185578Z Commit: "
+        "6bd6555ca37d84114959e1c76d2c01448ff61c5d\n"
+        "Analyze (actions)\tUNKNOWN STEP\t2026-01-31T01:00:49.2186311Z Build Date: 2026-01-23T19:41:17Z\n"
+    )
+
+    result = strip_iso_timestamps(raw_log)
+
+    assert "Analyze (actions)" not in result
+    assert "UNKNOWN STEP" not in result
+    assert "Current runner version: '2.331.0'" in result
+    assert "##[group]Runner Image Provisioner" in result
+    assert "Hosted Compute Agent" in result
+    assert "Version: 20260123.484" in result
+    assert "Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d" in result
+    assert "Build Date: 2026-01-23T19:41:17Z" in result
+
+
 def test_extract_last_command_from_github_logs():
     """Test that extract_last_command_from_github_logs extracts the last command correctly."""
     log = (

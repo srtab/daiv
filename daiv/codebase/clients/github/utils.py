@@ -10,12 +10,19 @@ from daiv import USER_AGENT
 # 2025-09-22T21:40:35.4116534Z
 # 2025-09-22T21:40:35+01:00
 # 2025-09-22T21:40:35.4116534+01:00
-_TS_PREFIX = re.compile(r"(?m).*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\s+")
+# Also supports lines prefixed by tab-separated columns, e.g.:
+# Analyze (actions)    UNKNOWN STEP    2026-01-31T01:00:49.2161896Z <message>
+_TS_PREFIX = re.compile(
+    r"(?m)^(?:[^\n]*\t+)?\s*\ufeff?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\s+"
+)
 
 
 def strip_iso_timestamps(text: str) -> str:
     """
     Remove the datetime prefix at the start of each log line.
+
+    This also supports "step logs" that include tab-separated prefixes before the timestamp
+    (e.g. GitHub UI "Analyze (actions)\tUNKNOWN STEP\t<timestamp> ...").
     """
     return _TS_PREFIX.sub("", text)
 
