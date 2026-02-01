@@ -58,7 +58,10 @@ Variables marked with:
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `SENTRY_DSN` :material-lock:            | Sentry DSN                         | *(none)*       |                 |
 | `SENTRY_DEBUG`          | Enable Sentry debug mode           | `False`        | `True`          |
-| `SENTRY_ENABLE_TRACING` | Enable Sentry tracing              | `False`        | `True`          |
+| `SENTRY_ENABLE_LOGS`    | Enable Sentry logs                 | `False`        | `True`          |
+| `SENTRY_TRACES_SAMPLE_RATE` | Sentry traces sample rate          | `0.0`          | `1.0`           |
+| `SENTRY_PROFILES_SAMPLE_RATE` | Sentry profiles sample rate        | `0.0`          | `1.0`           |
+| `SENTRY_SEND_DEFAULT_PII` | Enable Sentry default PII           | `False`        | `True`          |
 | `NODE_HOSTNAME`         | Node hostname for Sentry           | *(none)*       |                 |
 | `SERVICE_NAME`          | Service name for Sentry            | *(none)*       |                 |
 
