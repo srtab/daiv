@@ -119,6 +119,29 @@ except GitCommandError as e:
 - Use `async`/`await` for async functions
 - Use `asyncio.gather()` for concurrent operations
 
+## Tool State Updates
+
+**CRITICAL**: Tools CANNOT directly modify `runtime.state`. To update state, tools must return a `Command` object from `langgraph.types`:
+
+```python
+from langgraph.types import Command
+
+@tool("my_tool")
+async def my_tool(param: str, runtime: ToolRuntime) -> str | Command:
+    # To update state, return Command with update dict
+    state_update = {"key": "value"}
+    return Command(update=state_update)
+    
+    # Or return both output and state update
+    # The Command will be processed and the update applied to state
+```
+
+**Examples**:
+- ❌ `runtime.state["key"] = "value"` - WRONG! Direct state modification doesn't work
+- ✅ `return Command(update={"key": "value"})` - CORRECT! Returns Command with state update
+
+**Note**: When a tool needs to both return output and update state, it should return a `Command` object. The output will be extracted from the Command automatically.
+
 ## Dependency Management
 
 Use `uv` to manage dependencies. All dependencies are defined in `pyproject.toml`.

@@ -12,6 +12,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime, tool
 from langchain_core.prompts import SystemMessagePromptTemplate
+from langgraph.types import Command
 
 from codebase.base import GitPlatform
 from codebase.clients.github.utils import get_github_cli_token
@@ -384,24 +385,26 @@ async def gitlab_tool(
     return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
 
-def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> str:
+def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, dict[str, str | float] | None]:
+    """
+    Get the cached GitHub CLI token and return state updates if needed.
+
+    Returns:
+        A tuple of (token, state_updates). state_updates is None if no update is needed.
+    """
     cached = runtime.state.get("github_token")
     cached_at = runtime.state.get("github_token_cached_at")
 
     if not cached or cached_at is None:
         token = get_github_cli_token()
-        runtime.state["github_token"] = token
-        runtime.state["github_token_cached_at"] = time.time()
-        return token
+        return token, {"github_token": token, "github_token_cached_at": time.time()}
 
     # GitHub App installation tokens are valid for ~1 hour. Refresh a bit early.
     if time.time() - float(cached_at) >= 55 * 60:
         token = get_github_cli_token()
-        runtime.state["github_token"] = token
-        runtime.state["github_token_cached_at"] = time.time()
-        return token
+        return token, {"github_token": token, "github_token_cached_at": time.time()}
 
-    return cached
+    return cached, None
 
 
 @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
@@ -413,7 +416,7 @@ async def github_tool(
         "Do NOT include 'gh' command prefix or --repo argument - these are auto-added.",
     ],
     runtime: ToolRuntime[RuntimeCtx],
-) -> str:
+) -> str | Command:
     """
     Tool to interact with GitHub API using the `gh` command line interface.
 
@@ -449,12 +452,14 @@ async def github_tool(
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
 
+    token, state_update = _get_cached_github_cli_token(runtime)
+
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         "GIT_TERMINAL_PROMPT": "0",
         "NO_COLOR": "1",
-        "GH_TOKEN": _get_cached_github_cli_token(runtime),
+        "GH_TOKEN": token,
         "GH_PAGER": "cat",
     }
 
@@ -487,14 +492,19 @@ async def github_tool(
 
     output = stdout.decode("utf-8").strip()
     if not output:
-        return "Command executed successfully but returned no data"
-
-    if resource == "run" and action == "view" and "--log" in splitted_subcommand:
+        output = "Command executed successfully but returned no data"
+    elif resource == "run" and action == "view" and "--log" in splitted_subcommand:
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)
-        return "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
+        output = "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
+    else:
+        output = "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
 
-    return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
+    # Return Command with state update if token was cached/refreshed
+    if state_update:
+        return Command(update=state_update, resume=output)
+
+    return output
 
 
 class GitPlatformMiddleware(AgentMiddleware):

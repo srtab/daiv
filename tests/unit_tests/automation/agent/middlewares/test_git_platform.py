@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, Mock, patch
 
 from langchain.tools import ToolRuntime
+from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform import github_tool
 
@@ -29,8 +30,23 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            out1 = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
-            out2 = await github_tool.coroutine(subcommand="issue view 2", runtime=runtime)  # type: ignore[union-attr]
+            result1 = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            # Handle Command return - extract output and apply state update
+            if isinstance(result1, Command):
+                assert result1.update is not None
+                runtime.state.update(result1.update)
+                out1 = result1.resume
+            else:
+                out1 = result1
+
+            result2 = await github_tool.coroutine(subcommand="issue view 2", runtime=runtime)  # type: ignore[union-attr]
+            # Handle Command return - extract output and apply state update
+            if isinstance(result2, Command):
+                assert result2.update is not None
+                runtime.state.update(result2.update)
+                out2 = result2.resume
+            else:
+                out2 = result2
 
         assert out1 == "ok"
         assert out2 == "ok"
@@ -62,7 +78,10 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            _ = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            # Handle Command return - apply state update
+            if isinstance(result, Command) and result.update is not None:
+                runtime.state.update(result.update)
 
         assert get_token_mock.call_count == 1
         assert runtime.state["github_token"] == "tok_new"  # noqa: S105
@@ -86,7 +105,9 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            out = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            # Handle Command return - extract output
+            out = result.resume if isinstance(result, Command) else result
 
         assert out == "ok"
         assert "tok_1" not in out
