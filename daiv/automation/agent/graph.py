@@ -25,7 +25,7 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import DAIV_MEMORY_PATH, SKILLS_SOURCES
+from automation.agent.constants import DAIV_MEMORY_PATH, SKILLS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
@@ -50,8 +50,6 @@ from core.constants import BOT_NAME
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
-
-    from automation.agent.constants import ModelName
 
 
 DEFAULT_SUMMARIZATION_TRIGGER = ("tokens", 170000)
@@ -201,7 +199,7 @@ async def create_daiv_agent(
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
         GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(),
+        GitPlatformMiddleware(git_platform=ctx.git_platform),
         SummarizationMiddleware(
             model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
         ),
@@ -237,7 +235,7 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=["openrouter:z-ai/glm-4.7"], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx, model_names=[ModelName.MOONSHOTAI_KIMI_K2_5], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()

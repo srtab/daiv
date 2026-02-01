@@ -38,21 +38,8 @@ class ModelName(StrEnum):
     GPT_5_2 = "openrouter:openai/gpt-5.2"
     GPT_5_2_CODEX = "openrouter:openai/gpt-5.2-codex"
 
-    # DeepSeek models
-    DEEPSEEK_CHAT_V3_1_TERMINUS = "openrouter:deepseek/deepseek-v3.1-terminus:exacto"
-
     # z-ai models
     Z_AI_GLM_4_7 = "openrouter:z-ai/glm-4.7"
 
-    # Qwen models
-    QWEN_3_MAX = "openrouter:qwen/qwen3-max"
-    QWEN_3_CODER_PLUS = "openrouter:qwen/qwen3-coder-plus"
-
     # MoonshotAI models
-    MOONSHOTAI_KIMI_K2_THINKING = "openrouter:moonshotai/kimi-k2-thinking"
-
-    # Minimax models
-    MINIMAX_M2_1 = "openrouter:minimax/minimax-m2.1"
-
-    # Mistral models
-    MISTRAL_DEVSTRAL_2512 = "openrouter:mistralai/devstral-2512:free"
+    MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"

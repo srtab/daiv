@@ -27,7 +27,7 @@ class IssueCallback(GitHubCallback):
     GitHub Issue Webhook for automatically address the issue.
     """
 
-    action: Literal["opened", "edited", "reopened", "labeled"]
+    action: Literal["opened", "edited", "reopened", "labeled", "closed"]
     issue: Issue
 
     def model_post_init(self, __context: Any):
@@ -91,6 +91,7 @@ class IssueCommentCallback(GitHubCallback):
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
                 merge_request_source_branch=merge_request.source_branch,
+                mention_comment_id=self.comment.id,
             )
 
     @property
