@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from langchain.tools import ToolRuntime
 
@@ -25,7 +25,7 @@ class TestGitHubToolTokenCaching:
             patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
-            proc.communicate = Mock(return_value=(b"ok\n", b""))
+            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
@@ -58,7 +58,7 @@ class TestGitHubToolTokenCaching:
             patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
-            proc.communicate = Mock(return_value=(b"ok\n", b""))
+            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
@@ -82,7 +82,7 @@ class TestGitHubToolTokenCaching:
             patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc_mock,
         ):
             proc = Mock()
-            proc.communicate = Mock(return_value=(b"ok\n", b""))
+            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
             proc.returncode = 0
             create_proc_mock.return_value = proc
 

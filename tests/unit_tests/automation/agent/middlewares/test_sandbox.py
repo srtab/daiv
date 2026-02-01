@@ -38,6 +38,11 @@ class TestBashTool:
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
 
+        # Configure git identity for commits
+        with repo.config_writer() as writer:
+            writer.set_value("user", "name", "Test User")
+            writer.set_value("user", "email", "test@example.com")
+
         file_path = repo_dir / "hello.txt"
         file_path.write_text("old\n")
         repo.git.add("-A")
