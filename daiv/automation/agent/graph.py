@@ -177,6 +177,13 @@ async def create_daiv_agent(
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
+    # Create subagents list to be shared between middlewares
+    subagents = [
+        create_general_purpose_subagent(backend, ctx, offline=offline),
+        create_explore_subagent(backend, ctx),
+        create_changelog_subagent(backend, ctx),
+    ]
+
     agent_middleware = [
         TodoListMiddleware(
             system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=ctx.config.sandbox.enabled)
@@ -185,16 +192,14 @@ async def create_daiv_agent(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{DAIV_MEMORY_PATH}"],
         ),
-        SkillsMiddleware(backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]),
+        SkillsMiddleware(
+            backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
+        ),
         SubAgentMiddleware(
             default_model=model,
             default_middleware=subagent_default_middlewares,
             general_purpose_agent=False,
-            subagents=[
-                create_general_purpose_subagent(backend, ctx, offline=offline),
-                create_explore_subagent(backend, ctx),
-                create_changelog_subagent(backend, ctx),
-            ],
+            subagents=subagents,
         ),
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),

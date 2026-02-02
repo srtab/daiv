@@ -1,0 +1,4 @@
+### 🤖 Available Sub-Agents
+
+{% for agent in agents %} * **{{ agent.name }}** - {{ agent.description }}
+{% endfor %}
