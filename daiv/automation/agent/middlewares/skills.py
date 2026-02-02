@@ -19,6 +19,7 @@ from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
+    from deepagents.graph import SubAgent
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
@@ -84,10 +85,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     directory to make them available to the agent even if the project skills directory is not set up.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, subagents: list[SubAgent] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
+        self.subagents = subagents or []
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(
@@ -226,6 +228,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 issue_iid=context.issue.iid if context.issue else None,
                 merge_request_id=context.merge_request.merge_request_id if context.merge_request else None,
                 available_skills=skills,
+                available_subagents=self.subagents,
             )
         except Exception:
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
