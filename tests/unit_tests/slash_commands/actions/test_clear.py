@@ -51,9 +51,7 @@ async def test_clear_command_for_issue(mock_postgres_saver: Mock, clear_slash_co
 
 @override_settings(DB_URI="postgresql://test:test@localhost:5432/test")
 @patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_for_merge_request(
-    mock_postgres_saver: Mock, clear_slash_command_mr: ClearSlashCommand
-):
+async def test_clear_command_for_merge_request(mock_postgres_saver: Mock, clear_slash_command_mr: ClearSlashCommand):
     """Test that ClearSlashCommand deletes the thread for a merge request."""
     mock_checkpointer = MagicMock()
     mock_postgres_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
@@ -67,9 +65,7 @@ async def test_clear_command_for_merge_request(
 
 
 @patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_without_issue_iid(
-    mock_postgres_saver: Mock, clear_slash_command_issue: ClearSlashCommand
-):
+async def test_clear_command_without_issue_iid(mock_postgres_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand returns an error when issue_iid is missing."""
     message = await clear_slash_command_issue.execute_for_agent(args="")
 
