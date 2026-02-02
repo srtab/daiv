@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `/agents` slash command to list all available sub-agents with their names and descriptions.
+- Added `/clear` slash command to reset conversation context in issues and merge requests
 - Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
 - Added code review and security audit agent skills for structured review and security guidance.
 - Added support for issue labels to configure plan and execute agent behavior:
