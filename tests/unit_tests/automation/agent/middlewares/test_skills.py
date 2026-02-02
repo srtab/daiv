@@ -273,6 +273,7 @@ class TestSkillsMiddleware:
                 issue_iid: int | None = None,
                 merge_request_id: int | None = None,
                 available_skills: list | None = None,
+                available_subagents: list | None = None,
             ) -> str:
                 skill_name = available_skills[0]["name"] if available_skills else "none"
                 return f"{args}|{issue_iid}|{merge_request_id}|{skill_name}"
@@ -309,6 +310,7 @@ class TestSkillsMiddleware:
                 issue_iid: int | None = None,
                 merge_request_id: int | None = None,
                 available_skills: list | None = None,
+                available_subagents: list | None = None,
             ) -> str:
                 raise RuntimeError("boom")
 
