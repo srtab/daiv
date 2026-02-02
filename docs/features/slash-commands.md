@@ -56,9 +56,11 @@ graph TD
     I --> J["🛠️ Execute Specific Logic"]
 
     J --> K["📖 Help Command<br/>(show available commands)"]
+    J --> L["🧹 Clear Command<br/>(reset conversation)"]
     J --> R["📤 Clone to Topic<br/>(clone issue to repos)"]
 
     K --> N["💬 Posts Help Message"]
+    L --> O["🗑️ Deletes Thread<br/>(clears context)"]
     R --> S["📋 Creates Issues in<br/>Matching Repositories"]
 
     H --> Q["💬 Posts Error Message<br/>(suggests valid commands)"]
@@ -94,6 +96,32 @@ graph TD
 ```
 
 **Response**: DAIV replies with a formatted list of all available slash commands and their descriptions.
+
+---
+
+### 🧹 Clear command
+
+**Command**: `/clear`
+
+**Purpose**: Clear the conversation context and start a fresh conversation with DAIV.
+
+**Scopes**: Issues, Merge/Pull Requests
+
+**Usage**: When you want to reset the conversation history and start fresh, use this command. This deletes the thread associated with the current issue or merge request, effectively clearing DAIV's memory of the conversation.
+
+**Example**:
+```
+@daiv /clear
+```
+
+**Response**: DAIV replies with a confirmation that the context has been cleared successfully.
+
+**Behavior**:
+
+- Deletes the conversation thread for the current issue or merge request
+- Clears all conversation history and context
+- Allows starting a new conversation from scratch
+- Useful when previous context is no longer relevant or causing confusion
 
 ---
 
@@ -184,6 +212,7 @@ Slash commands log detailed information for troubleshooting:
 Comment one of the commands below on this issue to trigger the bot:
 
 - `@daiv /help` - Shows the help message with the available slash commands.
+- `@daiv /clear` - Clear the conversation context and start fresh.
 - `@daiv /clone-to-topic <topics>` - Clone this issue to all repositories matching the specified topics.
 ```
 
