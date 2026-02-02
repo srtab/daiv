@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.types import Command
 
 from automation.agent.middlewares.skills import SkillsMiddleware
 from codebase.base import Scope
@@ -403,11 +404,12 @@ class TestSkillsMiddleware:
         runtime.tool_call_id = "call_1"
 
         result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")  # type: ignore[union-attr]
-        assert isinstance(result, list)
-        assert isinstance(result[0], ToolMessage)
-        assert result[0].content == "Launching skill 'demo'..."
-        assert isinstance(result[1], HumanMessage)
-        assert result[1].content == "First alpha, second beta, all: alpha beta"
+        assert isinstance(result, Command)
+        messages = result.update["messages"]
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].content == "Launching skill 'demo'..."
+        assert isinstance(messages[1], HumanMessage)
+        assert messages[1].content == "First alpha, second beta, all: alpha beta"
 
     async def test_skill_tool_appends_named_arguments_when_missing_placeholder(self):
         backend = Mock()
@@ -422,5 +424,6 @@ class TestSkillsMiddleware:
         runtime.tool_call_id = "call_1"
 
         result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")  # type: ignore[union-attr]
-        assert isinstance(result, list)
-        assert result[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
+        assert isinstance(result, Command)
+        messages = result.update["messages"]
+        assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")

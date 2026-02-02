@@ -10,6 +10,7 @@ from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
+from langgraph.types import Command
 
 from automation.agent.constants import BUILTIN_SKILLS_PATH, DAIV_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
@@ -270,7 +271,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],
             runtime: ToolRuntime[RuntimeCtx, SkillsState],
             skill_args: Annotated[str | None, "Optional arguments to pass to the skill."] = None,
-        ) -> str:
+        ) -> str | Command:
             """
             Tool to execute a skill.
             """
@@ -302,9 +303,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
 
-            return [
-                ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
-                HumanMessage(content=body),
-            ]
+            return Command(
+                update={
+                    "messages": [
+                        ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
+                        HumanMessage(content=body),
+                    ]
+                }
+            )
 
         return tool(SKILLS_TOOL_NAME, description=SKILLS_TOOL_DESCRIPTION)(skill_tool)
