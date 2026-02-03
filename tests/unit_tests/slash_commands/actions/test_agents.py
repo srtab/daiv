@@ -1,9 +1,13 @@
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from pytest import fixture
 
 from codebase.base import Scope
 from slash_commands.actions.agents import AgentsSlashCommand
+
+if TYPE_CHECKING:
+    from deepagents.graph import SubAgent
 
 
 @fixture
@@ -15,21 +19,28 @@ def agents_slash_command() -> AgentsSlashCommand:
 
 
 @fixture
-def mock_subagents() -> list:
+def mock_subagents() -> list[SubAgent]:
     """Create mock subagents for testing."""
-    subagent1 = MagicMock()
-    subagent1.name = "general-purpose"
-    subagent1.description = "General-purpose agent for researching and executing tasks."
-
-    subagent2 = MagicMock()
-    subagent2.name = "explore"
-    subagent2.description = "Fast agent specialized for exploring codebases."
-
-    subagent3 = MagicMock()
-    subagent3.name = "changelog-curator"
-    subagent3.description = "Agent for updating changelogs."
-
-    return [subagent1, subagent2, subagent3]
+    return [
+        {
+            "name": "general-purpose",
+            "description": "General-purpose agent for researching and executing tasks.",
+            "system_prompt": "Test prompt",
+            "tools": [],
+        },
+        {
+            "name": "explore",
+            "description": "Fast agent specialized for exploring codebases.",
+            "system_prompt": "Test prompt",
+            "tools": [],
+        },
+        {
+            "name": "changelog-curator",
+            "description": "Agent for updating changelogs.",
+            "system_prompt": "Test prompt",
+            "tools": [],
+        },
+    ]
 
 
 def test_agents_command_has_correct_attributes():
@@ -48,7 +59,7 @@ async def test_agents_command_with_no_subagents(agents_slash_command: AgentsSlas
     assert message == "No sub-agents available."
 
 
-async def test_agents_command_with_subagents(agents_slash_command: AgentsSlashCommand, mock_subagents: list):
+async def test_agents_command_with_subagents(agents_slash_command: AgentsSlashCommand, mock_subagents: list[SubAgent]):
     """Test that AgentsSlashCommand returns the correct formatted message with subagents."""
     message = await agents_slash_command.execute_for_agent(args="", available_subagents=mock_subagents)
 
@@ -60,14 +71,3 @@ async def test_agents_command_with_subagents(agents_slash_command: AgentsSlashCo
     assert "General-purpose agent for researching and executing tasks." in message
     assert "Fast agent specialized for exploring codebases." in message
     assert "Agent for updating changelogs." in message
-
-
-def test_format_subagent(agents_slash_command: AgentsSlashCommand):
-    """Test that _format_subagent correctly formats a subagent."""
-    subagent = MagicMock()
-    subagent.name = "test-agent"
-    subagent.description = "Test agent description"
-
-    formatted = agents_slash_command._format_subagent(subagent)
-
-    assert formatted == {"name": "test-agent", "description": "Test agent description"}
