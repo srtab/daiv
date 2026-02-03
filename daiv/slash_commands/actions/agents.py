@@ -32,18 +32,8 @@ class AgentsSlashCommand(SlashCommand):
         if not available_subagents:
             return "No sub-agents available."
 
-        agents_list = [self._format_subagent(subagent) for subagent in available_subagents]
+        agents_list = [
+            {"name": subagent["name"], "description": subagent["description"]} for subagent in available_subagents
+        ]
 
         return render_to_string("slash_commands/agents_list.txt", {"agents": agents_list})
-
-    def _format_subagent(self, subagent: SubAgent) -> dict[str, str]:
-        """
-        Format the subagent information.
-
-        Args:
-            subagent: The subagent object.
-
-        Returns:
-            A dictionary with the subagent name and description.
-        """
-        return {"name": subagent.name, "description": subagent.description}
