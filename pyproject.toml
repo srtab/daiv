@@ -27,7 +27,7 @@ dependencies = [
   "get-docker-secret==2.0.0",
   "gitpython==3.1.46",
   "httpx==0.28.1",
-  "ipython==9.9.0",
+  "ipython==9.10.0",
   "jinja2==3.1.6",
   "langchain[anthropic,community,google-genai,openai]==1.2.8",
   "langchain-mcp-adapters==0.2.1",
