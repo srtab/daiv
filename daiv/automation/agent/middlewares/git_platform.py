@@ -398,7 +398,7 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     expires_at = runtime.state.get("github_token_expires_at")
 
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
-        access_token = get_github_integration().get_access_token(runtime.context.git_platform.installation_id)
+        access_token = get_github_integration().get_access_token(settings.GITHUB_INSTALLATION_ID)
         return access_token.token, {
             "github_token": access_token.token,
             "github_token_expires_at": access_token.expires_at.timestamp(),
