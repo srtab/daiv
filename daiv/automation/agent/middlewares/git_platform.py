@@ -4,8 +4,9 @@ import asyncio
 import logging
 import os
 import shlex
-import time
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
+
+from django.utils import timezone
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
@@ -16,7 +17,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
 from codebase.base import GitPlatform
-from codebase.clients.github.utils import get_github_cli_token
+from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -260,7 +261,7 @@ GITHUB_CLI_DENY_COMMANDS = {
 
 class GitPlatformState(AgentState):
     github_token: NotRequired[Annotated[str | None, OmitFromOutput]]
-    github_token_cached_at: NotRequired[Annotated[float | None, OmitFromOutput]]
+    github_token_expires_at: NotRequired[Annotated[float | None, OmitFromOutput]]
 
 
 def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
@@ -393,19 +394,17 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     Returns:
         A tuple of (token, state_updates). state_updates is None if no update is needed.
     """
-    cached = runtime.state.get("github_token")
-    cached_at = runtime.state.get("github_token_cached_at")
+    token = runtime.state.get("github_token")
+    expires_at = runtime.state.get("github_token_expires_at")
 
-    if not cached or cached_at is None:
-        token = get_github_cli_token()
-        return token, {"github_token": token, "github_token_cached_at": time.time()}
+    if not token or expires_at is None or timezone.now().timestamp() > expires_at:
+        access_token = get_github_integration().get_access_token(runtime.context.git_platform.installation_id)
+        return access_token.token, {
+            "github_token": access_token.token,
+            "github_token_expires_at": access_token.expires_at.timestamp(),
+        }
 
-    # GitHub App installation tokens are valid for ~1 hour. Refresh a bit early.
-    if time.time() - float(cached_at) >= 55 * 60:
-        token = get_github_cli_token()
-        return token, {"github_token": token, "github_token_cached_at": time.time()}
-
-    return cached, None
+    return token, None
 
 
 @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)

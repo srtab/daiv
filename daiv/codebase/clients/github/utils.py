@@ -61,17 +61,16 @@ def extract_last_command_from_github_logs(log: str) -> str:
     return log[start:end].rstrip()
 
 
-def get_github_cli_token() -> str:
+def get_github_integration() -> GithubIntegration:
     """
-    Get the GitHub CLI token for the current installation.
+    Get the GitHub integration for the current installation.
     """
     base_url = Consts.DEFAULT_BASE_URL
     if settings.GITHUB_URL:
         base_url = str(settings.GITHUB_URL)
 
-    integration = GithubIntegration(
+    return GithubIntegration(
         auth=Auth.AppAuth(settings.GITHUB_APP_ID, settings.GITHUB_PRIVATE_KEY.get_secret_value()),
         base_url=base_url,
         user_agent=USER_AGENT,
     )
-    return integration.get_access_token(settings.GITHUB_INSTALLATION_ID).token

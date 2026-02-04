@@ -193,6 +193,7 @@ class RepoClient(abc.ABC):
             The repository client instance.
         """
         from .github import GitHubClient
+        from .github.utils import get_github_integration
         from .gitlab import GitLabClient
         from .swe import SWERepoClient
 
@@ -211,11 +212,7 @@ class RepoClient(abc.ABC):
             assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
 
             return GitHubClient(
-                private_key=settings.GITHUB_PRIVATE_KEY.get_secret_value(),
-                app_id=settings.GITHUB_APP_ID,
-                installation_id=settings.GITHUB_INSTALLATION_ID,
-                url=settings.GITHUB_URL and str(settings.GITHUB_URL) or None,
-                **kwargs,
+                integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID, **kwargs
             )
 
         if git_platform == GitPlatform.SWE:
