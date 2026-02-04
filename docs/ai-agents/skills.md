@@ -58,7 +58,16 @@ This architecture ensures minimal context usage—agents only know Skills exist 
 
 ## Skills Directory Structure
 
-Skills live in the `.daiv/skills/` directory at the root of your repository:
+Skills can be placed in any of the following directories at the root of your repository:
+
+- `.daiv/skills/` (default)
+- `.agents/skills/`
+- `.cursor/skills/`
+- `.claude/skills/`
+
+DAIV automatically scans all these directories and loads skills from each.
+
+Example structure:
 
 ```
 your-repository/
@@ -68,11 +77,13 @@ your-repository/
 │       │   ├── SKILL.md        # Required: YAML frontmatter + instructions
 │       │   ├── checklist.md    # Optional: supporting documentation
 │       │   └── review.py       # Optional: helper script
-│       ├── web-research/
-│       │   ├── SKILL.md
-│       │   └── search_helper.py
 │       └── creating-agents-md-file/    # Builtin skill (auto-copied)
 │           └── SKILL.md
+├── .agents/
+│   └── skills/
+│       └── web-research/
+│           ├── SKILL.md
+│           └── search_helper.py
 ├── src/
 └── README.md
 ```
@@ -86,7 +97,7 @@ DAIV includes builtin Skills that are automatically loaded to the `.daiv/skills/
 | `generating-agents-md` | Generates or updates an AGENTS.md file reflecting repository structure and conventions | Issues |
 | `skills-creator` | Creates a new Skill in the `.daiv/skills/` directory | Issues |
 
-You can override builtin skills by creating a Skill with the same name in your project's `.daiv/skills/` directory.
+You can override builtin skills by creating a Skill with the same name in any of your project's skills directories.
 
 ---
 

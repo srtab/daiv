@@ -9,9 +9,10 @@ BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 DAIV_SKILLS_PATH = ".daiv/skills"
 CURSOR_SKILLS_PATH = ".cursor/skills"
 CLAUDE_CODER_SKILLS_PATH = ".claude/skills"
+AGENTS_SKILLS_PATH = ".agents/skills"
 
 # Paths where the skills are stored in repository.
-SKILLS_SOURCES = [DAIV_SKILLS_PATH, CURSOR_SKILLS_PATH, CLAUDE_CODER_SKILLS_PATH]
+SKILLS_SOURCES = [DAIV_SKILLS_PATH, CURSOR_SKILLS_PATH, CLAUDE_CODER_SKILLS_PATH, AGENTS_SKILLS_PATH]
 
 # Path where the memory is stored in repository.
 DAIV_MEMORY_PATH = ".daiv/AGENTS.md"

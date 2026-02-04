@@ -429,3 +429,50 @@ class TestSkillsMiddleware:
         assert isinstance(result, Command)
         messages = result.update["messages"]
         assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
+
+    async def test_discovers_skills_from_multiple_sources(self, tmp_path: Path):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        repo_name = "repoX"
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
+
+        # Create skills in different source directories
+        daiv_skill = tmp_path / repo_name / ".daiv" / "skills" / "daiv-skill"
+        daiv_skill.mkdir(parents=True)
+        (daiv_skill / "SKILL.md").write_text(_make_skill_md(name="daiv-skill", description="from daiv"))
+
+        agents_skill = tmp_path / repo_name / ".agents" / "skills" / "agents-skill"
+        agents_skill.mkdir(parents=True)
+        (agents_skill / "SKILL.md").write_text(_make_skill_md(name="agents-skill", description="from agents"))
+
+        cursor_skill = tmp_path / repo_name / ".cursor" / "skills" / "cursor-skill"
+        cursor_skill.mkdir(parents=True)
+        (cursor_skill / "SKILL.md").write_text(_make_skill_md(name="cursor-skill", description="from cursor"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(
+            backend=backend,
+            sources=[
+                f"/{repo_name}/.daiv/skills",
+                f"/{repo_name}/.agents/skills",
+                f"/{repo_name}/.cursor/skills",
+            ],
+        )
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+
+        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+            result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
+
+        assert result is not None
+        skills = {skill["name"]: skill for skill in result["skills_metadata"]}
+        assert set(skills) == {"skill-one", "daiv-skill", "agents-skill", "cursor-skill"}
+        assert skills["skill-one"]["description"] == "builtin one"
+        assert skills["skill-one"]["metadata"]["is_builtin"] is True
+        assert skills["daiv-skill"]["description"] == "from daiv"
+        assert "is_builtin" not in skills["daiv-skill"]["metadata"]
+        assert skills["agents-skill"]["description"] == "from agents"
+        assert "is_builtin" not in skills["agents-skill"]["metadata"]
+        assert skills["cursor-skill"]["description"] == "from cursor"
+        assert "is_builtin" not in skills["cursor-skill"]["metadata"]
