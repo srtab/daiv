@@ -1,31 +1,16 @@
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from codebase.base import Scope
 from slash_commands.base import SlashCommand
 from slash_commands.decorator import slash_command
 
-if TYPE_CHECKING:
-    from codebase.base import Discussion, Issue, MergeRequest, Note
-
 
 class TestSlashCommandDecorator:
     class TestCommand(SlashCommand):
         actions = [MagicMock()]
 
-        async def execute_action(
-            self,
-            repo_id: str,
-            *,
-            args: str,
-            scope: Scope,
-            discussion: Discussion,
-            note: Note,
-            issue: Issue | None = None,
-            merge_request: MergeRequest | None = None,
-            is_reply: bool = False,
-        ) -> None:
-            pass
+        async def execute_for_agent(self, *, args: str, **kwargs) -> str:
+            return "test_command"
 
     def test_decorator_with_valid_command(self):
         """Test that decorator properly registers a valid slash command."""
