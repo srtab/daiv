@@ -454,11 +454,7 @@ class TestSkillsMiddleware:
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(
             backend=backend,
-            sources=[
-                f"/{repo_name}/.daiv/skills",
-                f"/{repo_name}/.agents/skills",
-                f"/{repo_name}/.cursor/skills",
-            ],
+            sources=[f"/{repo_name}/.daiv/skills", f"/{repo_name}/.agents/skills", f"/{repo_name}/.cursor/skills"],
         )
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
