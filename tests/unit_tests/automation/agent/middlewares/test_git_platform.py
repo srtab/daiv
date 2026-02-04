@@ -6,13 +6,14 @@ from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform import github_tool
+from codebase.base import GitPlatform
 
 
 class TestGitHubToolTokenCaching:
     async def test_github_tool_caches_token_in_state_and_reuses_it(self):
         runtime = ToolRuntime(
             state={},
-            context=Mock(repo_id="owner/repo", git_platform=Mock(installation_id=123)),
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
             config={},
             stream_writer=Mock(),
             tool_call_id="test_call_1",
@@ -70,7 +71,7 @@ class TestGitHubToolTokenCaching:
     async def test_github_tool_refreshes_token_after_cache_ttl(self):
         runtime = ToolRuntime(
             state={"github_token": "tok_old", "github_token_expires_at": 0.0},
-            context=Mock(repo_id="owner/repo", git_platform=Mock(installation_id=123)),
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
             config={},
             stream_writer=Mock(),
             tool_call_id="test_call_2",
@@ -102,7 +103,7 @@ class TestGitHubToolTokenCaching:
     async def test_token_not_in_tool_output(self):
         runtime = ToolRuntime(
             state={},
-            context=Mock(repo_id="owner/repo", git_platform=Mock(installation_id=123)),
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
             config={},
             stream_writer=Mock(),
             tool_call_id="test_call_3",
