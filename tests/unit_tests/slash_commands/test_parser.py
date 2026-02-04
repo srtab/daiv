@@ -146,4 +146,4 @@ def test_parse_prioritizes_mention_over_bare() -> None:
 def test_parse_none_note_body() -> None:
     """Test parsing None note body."""
     with pytest.raises(TypeError):
-        parse_slash_command(None, "testbot")  # type: ignore
+        parse_slash_command(None, "testbot")

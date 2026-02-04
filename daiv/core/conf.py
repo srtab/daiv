@@ -29,4 +29,4 @@ class CoreSettings(BaseSettings):
     )
 
 
-settings = CoreSettings()  # type: ignore
+settings = CoreSettings()

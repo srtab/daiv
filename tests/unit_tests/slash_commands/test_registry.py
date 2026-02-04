@@ -55,14 +55,14 @@ class TestSlashCommandRegistry:
         registry = SlashCommandRegistry()
 
         with pytest.raises(AssertionError, match="must be a class that inherits from SlashCommand"):
-            registry.register(NotACommand, "invalid", [Scope.ISSUE])  # type: ignore
+            registry.register(NotACommand, "invalid", [Scope.ISSUE])
 
     def test_register_non_class_raises_assertion(self):
         """Test that registering non-class raises AssertionError."""
         registry = SlashCommandRegistry()
 
         with pytest.raises(AssertionError, match="must be a class that inherits from SlashCommand"):
-            registry.register("not_a_class", "invalid", [Scope.ISSUE])  # type: ignore
+            registry.register("not_a_class", "invalid", [Scope.ISSUE])
 
     def test_register_duplicate_command_class_raises_assertion(self):
         """Test that registering same command class twice raises AssertionError."""
@@ -205,8 +205,8 @@ class TestSlashCommandRegistry:
             scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
             registry.register(MockCommand1, "test_attributes", scopes)
 
-            assert hasattr(MockCommand1, "command") and MockCommand1.command == "test_attributes"  # type: ignore
-            assert hasattr(MockCommand1, "scopes") and MockCommand1.scopes == scopes  # type: ignore
+            assert hasattr(MockCommand1, "command") and MockCommand1.command == "test_attributes"
+            assert hasattr(MockCommand1, "scopes") and MockCommand1.scopes == scopes
         finally:
             # Clean up - restore original attributes if they existed
             if original_command is not None:

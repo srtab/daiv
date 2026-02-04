@@ -70,7 +70,7 @@ class TestBashTool:
         )
 
         with patch("automation.agent.middlewares.sandbox._run_bash_commands", new=AsyncMock(return_value=response)):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)  # type: ignore[union-attr]
+            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
         assert file_path.read_text() == "new\n"
         assert output == "[]"
@@ -92,7 +92,7 @@ class TestBashTool:
         )
 
         with patch("automation.agent.middlewares.sandbox._run_bash_commands", new=AsyncMock(return_value=None)):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)  # type: ignore[union-attr]
+            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
         assert output.startswith("error: Failed to run command.")
 

@@ -62,4 +62,4 @@ class AutomationSettings(BaseSettings):
     )
 
 
-settings = AutomationSettings()  # type: ignore
+settings = AutomationSettings()

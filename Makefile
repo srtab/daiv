@@ -9,7 +9,7 @@ help:
 	@echo "  make lint-check     - Run lint check only (ruff)"
 	@echo "  make lint-format    - Check code formatting"
 	@echo "  make lint-fix       - Fix linting and formatting issues"
-	@echo "  make lint-typing    - Run type checking with mypy"
+	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
 	@echo "  make evals          - Run evals"
 
@@ -31,7 +31,7 @@ lint-fix:
 	uv run --only-group=dev pyproject-fmt pyproject.toml
 
 lint-typing:
-	uv run --only-group=dev mypy daiv
+	uv run --only-group=dev ty check daiv
 
 lock:
 	uv lock
