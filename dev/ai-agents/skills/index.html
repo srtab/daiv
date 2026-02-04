@@ -1713,7 +1713,15 @@
 <p>This architecture ensures minimal context usage—agents only know Skills exist until they're actually needed.</p>
 <hr />
 <h2 id="skills-directory-structure">Skills Directory Structure</h2>
-<p>Skills live in the <code>.daiv/skills/</code> directory at the root of your repository:</p>
+<p>Skills can be placed in any of the following directories at the root of your repository:</p>
+<ul>
+<li><code>.daiv/skills/</code> (default)</li>
+<li><code>.agents/skills/</code></li>
+<li><code>.cursor/skills/</code></li>
+<li><code>.claude/skills/</code></li>
+</ul>
+<p>DAIV automatically scans all these directories and loads skills from each.</p>
+<p>Example structure:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
@@ -1727,20 +1735,24 @@
 <span class="normal"><a href="#__codelineno-0-11">11</a></span>
 <span class="normal"><a href="#__codelineno-0-12">12</a></span>
 <span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
+<span class="normal"><a href="#__codelineno-0-14">14</a></span>
+<span class="normal"><a href="#__codelineno-0-15">15</a></span>
+<span class="normal"><a href="#__codelineno-0-16">16</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
 <a id="__codelineno-0-2" name="__codelineno-0-2"></a>├── .daiv/
 <a id="__codelineno-0-3" name="__codelineno-0-3"></a>│   └── skills/
 <a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       ├── code-review/
 <a id="__codelineno-0-5" name="__codelineno-0-5"></a>│       │   ├── SKILL.md        # Required: YAML frontmatter + instructions
 <a id="__codelineno-0-6" name="__codelineno-0-6"></a>│       │   ├── checklist.md    # Optional: supporting documentation
 <a id="__codelineno-0-7" name="__codelineno-0-7"></a>│       │   └── review.py       # Optional: helper script
-<a id="__codelineno-0-8" name="__codelineno-0-8"></a>│       ├── web-research/
-<a id="__codelineno-0-9" name="__codelineno-0-9"></a>│       │   ├── SKILL.md
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a>│       │   └── search_helper.py
-<a id="__codelineno-0-11" name="__codelineno-0-11"></a>│       └── creating-agents-md-file/    # Builtin skill (auto-copied)
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a>│           └── SKILL.md
-<a id="__codelineno-0-13" name="__codelineno-0-13"></a>├── src/
-<a id="__codelineno-0-14" name="__codelineno-0-14"></a>└── README.md
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>│       └── creating-agents-md-file/    # Builtin skill (auto-copied)
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a>│           └── SKILL.md
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a>├── .agents/
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a>│   └── skills/
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a>│       └── web-research/
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a>│           ├── SKILL.md
+<a id="__codelineno-0-14" name="__codelineno-0-14"></a>│           └── search_helper.py
+<a id="__codelineno-0-15" name="__codelineno-0-15"></a>├── src/
+<a id="__codelineno-0-16" name="__codelineno-0-16"></a>└── README.md
 </code></pre></div></td></tr></table></div>
 <h3 id="builtin-skills">Builtin Skills</h3>
 <p>DAIV includes builtin Skills that are automatically loaded to the <code>.daiv/skills/</code> directory at agent startup:</p>
@@ -1765,7 +1777,7 @@
 </tr>
 </tbody>
 </table>
-<p>You can override builtin skills by creating a Skill with the same name in your project's <code>.daiv/skills/</code> directory.</p>
+<p>You can override builtin skills by creating a Skill with the same name in any of your project's skills directories.</p>
 <hr />
 <h2 id="creating-custom-skills">Creating Custom Skills</h2>
 <h3 id="skillmd-structure">SKILL.md Structure</h3>
@@ -2153,7 +2165,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 1, 2026 22:17:08 UTC">February 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 4, 2026 12:08:23 UTC">February 4, 2026</span>
   </span>
 
     
@@ -2163,7 +2175,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 1, 2026 22:17:08 UTC">February 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 4, 2026 12:08:23 UTC">February 4, 2026</span>
   </span>
 
     
