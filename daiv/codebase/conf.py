@@ -26,4 +26,4 @@ class CodebaseSettings(BaseSettings):
     )
 
 
-settings = CodebaseSettings()  # type: ignore
+settings = CodebaseSettings()

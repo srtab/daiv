@@ -60,7 +60,6 @@ urls.source = "https://github.com/srtab/daiv"
 dev = [
   "coverage==7.13.3",
   "datasets==4.5.0",
-  "mypy==1.19.1",
   "prek==0.3.1",
   "pyproject-fmt==2.12.1",
   "pytest==9.0.2",
@@ -73,6 +72,7 @@ dev = [
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.1",
   "ruff==0.14.14",
+  "ty==0.0.14",
   "types-pyyaml==6.0.12.20250915",
   "watchdog==6.0.0",
 ]
@@ -185,19 +185,7 @@ OPENROUTER_API_KEY = "openrouter-api-key"
 CODEBASE_GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 NINJA_SKIP_REGISTRY = true
 
-[tool.mypy]
-python_version = "3.14"
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = [
-  "appconf.*",
-  "chat.*",
-  "decouple.*",
-  "django.*",
-  "django_extensions.*",
-  "git.*",
-  "unidiff.*",
-  "redis.*",
-]
-ignore_missing_imports = true
+[tool.ty]
+environment.python-version = "3.14"
+src.exclude = [ "**/tests/**", "**/docs/**" ]
+rules.unresolved-import = "ignore"

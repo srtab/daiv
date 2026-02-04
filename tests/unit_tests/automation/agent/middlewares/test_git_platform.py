@@ -32,7 +32,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result1 = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            result1 = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
             # Handle Command return - extract output and apply state update
             if isinstance(result1, Command):
                 assert result1.update is not None
@@ -46,7 +46,7 @@ class TestGitHubToolTokenCaching:
             else:
                 out1 = result1
 
-            result2 = await github_tool.coroutine(subcommand="issue view 2", runtime=runtime)  # type: ignore[union-attr]
+            result2 = await github_tool.coroutine(subcommand="issue view 2", runtime=runtime)
             # Handle Command return - extract output and apply state update
             if isinstance(result2, Command):
                 assert result2.update is not None
@@ -90,7 +90,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
             # Handle Command return - apply state update
             if isinstance(result, Command) and result.update is not None:
                 # Apply state updates (excluding messages)
@@ -122,7 +122,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)  # type: ignore[union-attr]
+            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
             # Handle Command return - extract output
             if isinstance(result, Command):
                 assert result.update is not None

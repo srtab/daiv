@@ -19,4 +19,4 @@ class MCPSettings(BaseSettings):
     SENTRY_HOST: str | None = Field(default=None, description="The host of the Sentry MCP server")
 
 
-settings = MCPSettings()  # type: ignore
+settings = MCPSettings()

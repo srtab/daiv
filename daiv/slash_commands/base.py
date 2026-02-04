@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 
 from codebase.base import Scope
 
@@ -31,7 +31,7 @@ class SlashCommand(ABC):
         """
         Check if the command needs to be mentioned.
         """
-        return self.scope != Scope.GLOBAL and self.bot_username
+        return bool(self.scope != Scope.GLOBAL and self.bot_username)
 
     def help(self) -> str:
         """
@@ -39,9 +39,8 @@ class SlashCommand(ABC):
         """
         return f" * `{self.command_to_invoke}` - {self.description}"
 
-    async def execute_for_agent(
-        self, *, args: str, issue_iid: int | None = None, merge_request_id: int | None = None
-    ) -> str:
+    @abstractmethod
+    async def execute_for_agent(self, *, args: str, **kwargs) -> str:
         """
         Execute the slash command for agent middleware.
 
@@ -50,8 +49,7 @@ class SlashCommand(ABC):
 
         Args:
             args: Additional parameters from the command.
-            issue_iid: The issue IID (for Issue scope).
-            merge_request_id: The merge request ID (for Merge Request scope).
+            **kwargs: Additional keyword arguments.
 
         Returns:
             The result content.

@@ -33,8 +33,8 @@ class SlashCommandRegistry:
         assert command_cls not in self._registry.values(), f"{command_cls.__name__} is already registered."
         assert command not in self._registry, f"{command} is already registered."
 
-        command_cls.command = command  # type: ignore
-        command_cls.scopes = scopes  # type: ignore
+        command_cls.command = command
+        command_cls.scopes = scopes
 
         self._registry[command] = command_cls
         for scope in scopes:

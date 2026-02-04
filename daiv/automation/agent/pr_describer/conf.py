@@ -12,4 +12,4 @@ class PRDescriberSettings(BaseSettings):
     )
 
 
-settings = PRDescriberSettings()  # type: ignore
+settings = PRDescriberSettings()
