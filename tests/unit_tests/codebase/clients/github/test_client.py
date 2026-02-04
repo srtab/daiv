@@ -6,7 +6,7 @@ from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
 from codebase.clients.base import Emoji
-from codebase.clients.github import GitHubClient
+from codebase.clients.github.client import GitHubClient
 
 
 class TestGitHubClient:
@@ -15,20 +15,16 @@ class TestGitHubClient:
     @pytest.fixture
     def github_client(self):
         """Create a GitHubClient instance with mocked dependencies."""
-        with (
-            patch("codebase.clients.github.client.GithubIntegration") as mock_integration,
-            patch("codebase.clients.github.client.Auth"),
-        ):
-            mock_installation = Mock()
-            mock_github = Mock()
-            mock_github.requester.auth.token = "test-token-123"  # noqa: S105
+        integration = Mock()
+        mock_installation = Mock()
+        mock_github = Mock()
+        mock_github.requester.auth.token = "test-token-123"  # noqa: S105
 
-            mock_installation.get_github_for_installation.return_value = mock_github
-            mock_integration.return_value.get_app_installation.return_value = mock_installation
+        mock_installation.get_github_for_installation.return_value = mock_github
+        integration.get_app_installation.return_value = mock_installation
 
-            client = GitHubClient(private_key="test-private-key", app_id=12345, installation_id=67890)
-
-            yield client
+        client = GitHubClient(integration=integration, installation_id=67890)
+        yield client
 
     @patch("codebase.clients.github.client.async_download_url")
     async def test_get_project_uploaded_file_success(self, mock_download, github_client):

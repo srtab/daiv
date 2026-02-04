@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from asgiref.sync import async_to_sync
 from git import Repo
-from github import Auth, Consts, Github, GithubIntegration, Installation, UnknownObjectException
+from github import Github, GithubIntegration, Installation, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
@@ -37,7 +37,6 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from core.utils import async_download_url
-from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -57,13 +56,8 @@ class GitHubClient(RepoClient):
     client_installation: Installation.Installation
     git_platform = GitPlatform.GITHUB
 
-    def __init__(self, private_key: str, app_id: int, installation_id: int, url: str | None = None):
-        if url is None:
-            url = Consts.DEFAULT_BASE_URL
-
-        integration = GithubIntegration(
-            auth=Auth.AppAuth(app_id, private_key), base_url=url, user_agent=USER_AGENT, per_page=100
-        )
+    def __init__(self, integration: GithubIntegration, installation_id: int):
+        self._integration = integration
         self.client_installation = integration.get_app_installation(installation_id)
         self.client = self.client_installation.get_github_for_installation()
 
@@ -736,9 +730,10 @@ class GitHubClient(RepoClient):
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
-            token = self.client.requester.auth.token
+            # the access token is valid for 1 hour
+            access_token = self._integration.get_access_token(self.client_installation.id)
             parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
+            clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
             yield Repo.clone_from(clone_url, clone_dir, branch=sha)

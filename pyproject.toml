@@ -162,6 +162,16 @@ DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 pythonpath = "daiv"
 python_files = "test_*.py"
 python_classes = "Test *Test"
+testpaths = [ "tests" ]
+norecursedirs = [
+  ".venv",
+  "data",
+  "docker",
+  "docs",
+  "evals",
+  "node_modules",
+  "static",
+]
 addopts = "--cov --cov-config=.coveragerc -p no:warnings"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -171,6 +181,7 @@ DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 DJANGO_SECRET_KEY = "not-so-secret"
 ANTHROPIC_API_KEY = "anthropic-api-key"
 OPENAI_API_KEY = "openai-api-key"
+OPENROUTER_API_KEY = "openrouter-api-key"
 CODEBASE_GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 NINJA_SKIP_REGISTRY = true
 
