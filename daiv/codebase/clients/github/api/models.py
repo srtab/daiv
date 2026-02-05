@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic.fields import Field
 
-from core.constants import BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 
 class User(BaseModel):
@@ -41,11 +41,14 @@ class Issue(BaseModel):
 
     def is_daiv(self) -> bool:
         """
-        Check if the issue is a DAIV issue by checking for DAIV trigger labels (daiv, daiv-max).
+        Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
 
-        Note: daiv-auto is a modifier label, not a trigger label, so it's not included here.
+        All three labels are triggers that launch the agent:
+        - daiv: Standard mode
+        - daiv-auto: Triggers agent with auto-approval enabled
+        - daiv-max: High-performance mode
         """
-        daiv_labels = {BOT_LABEL.lower(), BOT_MAX_LABEL.lower()}
+        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label["name"].lower() in daiv_labels for label in self.labels)
 
     def is_pull_request(self) -> bool:
