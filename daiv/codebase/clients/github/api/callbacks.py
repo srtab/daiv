@@ -8,8 +8,9 @@ from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
 from codebase.utils import note_mentions_daiv
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, PullRequest, Repository, Review  # noqa: TC001
+from .models import Comment, Issue, Label, PullRequest, Repository, Review  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -29,18 +30,46 @@ class IssueCallback(GitHubCallback):
 
     action: Literal["opened", "edited", "reopened", "labeled", "closed"]
     issue: Issue
+    label: Label | None = None
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
         self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
-        return (
+        # Check basic conditions
+        if not (
             self._repo_config.issue_addressing.enabled
-            and self.issue.is_daiv()
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
-        )
+        ):
+            return False
+
+        # Check if DAIV has already reacted to the issue (prevents re-launching when label is removed and re-added)
+        if self._client.has_issue_reaction(self.repository.full_name, self.issue.number, Emoji.EYES):
+            logger.info(
+                "Skipping issue %s#%s: DAIV has already reacted to this issue",
+                self.repository.full_name,
+                self.issue.number,
+            )
+            return False
+
+        # For labeled action, verify that a DAIV label was added
+        if self.action == "labeled":
+            if self.label is None:
+                logger.warning("Labeled action received but no label field in payload")
+                return False
+
+            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
+            if self.label.name.lower() not in daiv_labels:
+                logger.debug("Label %s is not a DAIV label, ignoring", self.label.name)
+                return False
+
+        # For opened/reopened, check if issue has DAIV label
+        elif not self.issue.is_daiv():
+            return False
+
+        return True
 
     async def process_callback(self):
         self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)

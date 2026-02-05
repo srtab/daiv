@@ -9,8 +9,9 @@ from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
 from codebase.utils import note_mentions_daiv
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Issue, IssueAction, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from .models import Issue, IssueAction, IssueChanges, MergeRequest, Note, NoteableType, NoteAction, Project, User
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -23,23 +24,56 @@ class IssueCallback(BaseCallback):
     object_kind: Literal["issue", "work_item"]
     project: Project
     object_attributes: Issue
+    changes: IssueChanges | None = None
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
         self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
-        return (
+        # Check basic conditions
+        if not (
             self._repo_config.issue_addressing.enabled
-            and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
-            # Only accept if the issue is a DAIV issue.
-            and self.object_attributes.is_daiv()
-            # When work_item is created without the parent issue, the object_kind=issue.
-            # We need to check the type too to avoid processing work_items as issues.
             and self.object_kind == "issue"
             and self.object_attributes.type == "Issue"
             and self.object_attributes.state == "opened"
-        )
+            and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+        ):
+            return False
+
+        # Check if DAIV has already reacted to the issue (prevents re-launching when label is removed and re-added)
+        if self._client.has_issue_reaction(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES):
+            logger.info(
+                "Skipping issue %s#%s: DAIV has already reacted to this issue",
+                self.project.path_with_namespace,
+                self.object_attributes.iid,
+            )
+            return False
+
+        # For UPDATE action, only accept if labels were changed and a DAIV label was added
+        if self.object_attributes.action == IssueAction.UPDATE:
+            if self.changes is None or self.changes.labels is None:
+                logger.debug("Issue update without label changes, ignoring")
+                return False
+
+            # Check if a DAIV label was added
+            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
+            previous_labels = {label.title.lower() for label in self.changes.labels.previous}
+            current_labels = {label.title.lower() for label in self.changes.labels.current}
+
+            # Find labels that were added
+            added_labels = current_labels - previous_labels
+            daiv_label_added = bool(added_labels & daiv_labels)
+
+            if not daiv_label_added:
+                logger.debug("No DAIV label was added in this update, ignoring")
+                return False
+
+        # For OPEN action, check if issue has DAIV label
+        elif not self.object_attributes.is_daiv():
+            return False
+
+        return True
 
     async def process_callback(self):
         """

@@ -22,6 +22,23 @@ class Label(BaseModel):
     title: str
 
 
+class LabelChange(BaseModel):
+    """
+    GitLab Label Change - represents previous and current label lists
+    """
+
+    previous: list[Label] = Field(default_factory=list)
+    current: list[Label] = Field(default_factory=list)
+
+
+class IssueChanges(BaseModel):
+    """
+    GitLab Issue Changes - tracks what changed in an issue update event
+    """
+
+    labels: LabelChange | None = None
+
+
 class Issue(BaseModel):
     """
     Gitlab Issue

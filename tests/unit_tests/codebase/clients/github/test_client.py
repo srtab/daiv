@@ -77,6 +77,104 @@ class TestGitHubClient:
         mock_issue.get_comment.assert_called_once_with(3645723306)
         mock_comment.create_reaction.assert_called_once_with("+1")
 
+    def test_has_issue_reaction_returns_true_when_reaction_exists(self, github_client):
+        """Test that has_issue_reaction returns True when the current user has reacted with the specified emoji."""
+        from codebase.base import User
+
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_reaction1 = Mock()
+        mock_reaction2 = Mock()
+        mock_user1 = Mock()
+        mock_user2 = Mock()
+
+        # Mock current_user as a cached_property
+        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
+
+        # Set up reactions
+        mock_user1.id = 456  # Different user
+        mock_user2.id = 123  # Current user
+        mock_reaction1.content = "eyes"
+        mock_reaction1.user = mock_user1
+        mock_reaction2.content = "eyes"
+        mock_reaction2.user = mock_user2
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_reactions.return_value = [mock_reaction1, mock_reaction2]
+
+        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
+
+        assert result is True
+
+    def test_has_issue_reaction_returns_false_when_reaction_not_exists(self, github_client):
+        """Test that has_issue_reaction returns False when the current user has not reacted."""
+        from codebase.base import User
+
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_reaction = Mock()
+        mock_user = Mock()
+
+        # Mock current_user as a cached_property
+        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
+
+        # Set up reaction from different user
+        mock_user.id = 456
+        mock_reaction.content = "eyes"
+        mock_reaction.user = mock_user
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_reactions.return_value = [mock_reaction]
+
+        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
+
+        assert result is False
+
+    def test_has_issue_reaction_returns_false_when_different_emoji(self, github_client):
+        """Test that has_issue_reaction returns False when the current user reacted with a different emoji."""
+        from codebase.base import User
+
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_reaction = Mock()
+        mock_user = Mock()
+
+        # Mock current_user as a cached_property
+        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
+
+        # Set up reaction with different emoji
+        mock_user.id = 123  # Current user
+        mock_reaction.content = "+1"  # Different emoji
+        mock_reaction.user = mock_user
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_reactions.return_value = [mock_reaction]
+
+        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
+
+        assert result is False
+
+    def test_has_issue_reaction_returns_false_when_no_reactions(self, github_client):
+        """Test that has_issue_reaction returns False when there are no reactions."""
+        from codebase.base import User
+
+        mock_repo = Mock()
+        mock_issue = Mock()
+
+        # Mock current_user as a cached_property
+        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
+
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_reactions.return_value = []
+
+        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
+
+        assert result is False
+
     def test_create_merge_request_note_emoji_review_comment(self, github_client):
         """Test that create_merge_request_note_emoji converts string note_id to int for review comments."""
         mock_repo = Mock()

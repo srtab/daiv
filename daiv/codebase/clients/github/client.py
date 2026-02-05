@@ -230,6 +230,30 @@ class GitHubClient(RepoClient):
         else:
             issue.create_reaction(emoji_reaction)
 
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+        """
+        Check if an issue has a specific emoji reaction from the current user.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            emoji: The emoji to check for.
+
+        Returns:
+            True if the issue has the reaction, False otherwise.
+        """
+        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
+            raise ValueError(f"Unsupported emoji: {emoji}")
+
+        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        current_user_id = self.current_user.id
+
+        for reaction in issue.get_reactions():
+            if reaction.content == emoji_reaction and reaction.user.id == current_user_id:
+                return True
+
+        return False
+
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """
         Get a comment from an issue.

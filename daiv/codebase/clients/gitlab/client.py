@@ -457,6 +457,28 @@ class GitLabClient(RepoClient):
         else:
             issue.awardemojis.create({"name": emoji})
 
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+        """
+        Check if an issue has a specific emoji reaction from the current user.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            emoji: The emoji to check for.
+
+        Returns:
+            True if the issue has the reaction, False otherwise.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        issue = project.issues.get(issue_id, lazy=True)
+        current_user_id = self.current_user.id
+
+        for award_emoji in issue.awardemojis.list(iterator=True):
+            if award_emoji.name == emoji and award_emoji.user["id"] == current_user_id:
+                return True
+
+        return False
+
     def _get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
         """
         Get the notes of an issue.

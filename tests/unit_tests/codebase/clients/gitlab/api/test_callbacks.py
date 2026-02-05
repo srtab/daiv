@@ -3,8 +3,20 @@ import pytest
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
-from codebase.clients.gitlab.api.callbacks import NoteCallback
-from codebase.clients.gitlab.api.models import MergeRequest, Note, NoteableType, NoteAction, Project, User
+from codebase.clients.gitlab.api.callbacks import IssueCallback, NoteCallback
+from codebase.clients.gitlab.api.models import (
+    Issue,
+    IssueAction,
+    IssueChanges,
+    Label,
+    LabelChange,
+    MergeRequest,
+    Note,
+    NoteableType,
+    NoteAction,
+    Project,
+    User,
+)
 from codebase.repo_config import RepositoryConfig
 
 
@@ -12,12 +24,22 @@ class StubClient:
     def __init__(self):
         self.current_user = BaseUser(id=1, username="daiv", name="DAIV")
         self._discussion = None
+        self._has_reaction = False
 
     def get_merge_request_comment(self, *_a, **_kw):
         return self._discussion
 
     def set_discussion(self, discussion):
         self._discussion = discussion
+
+    def has_issue_reaction(self, *_a, **_kw):
+        return self._has_reaction
+
+    def set_has_reaction(self, value):
+        self._has_reaction = value
+
+    def create_issue_emoji(self, *_a, **_kw):
+        pass
 
 
 @pytest.fixture
@@ -200,3 +222,117 @@ def test_reject_when_system_note(monkeypatch_dependencies, stub_client):
     )
 
     assert callback.accept_callback() is False
+
+
+def create_issue_callback(
+    action: IssueAction, issue_labels: list[Label], issue_state: str = "opened", changes: IssueChanges | None = None
+) -> IssueCallback:
+    """Helper to create an IssueCallback instance."""
+    return IssueCallback(
+        object_kind="issue",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        object_attributes=Issue(
+            id=100,
+            iid=42,
+            title="Test Issue",
+            description="Test description",
+            state=issue_state,
+            assignee_id=None,
+            action=action,
+            labels=issue_labels,
+            type="Issue",
+        ),
+        changes=changes,
+    )
+
+
+class TestIssueCallback:
+    """Tests for GitLab IssueCallback."""
+
+    def test_accept_callback_opened_with_daiv_label(self, monkeypatch_dependencies):
+        """Test that callback is accepted when issue is opened with a DAIV label."""
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_update_with_daiv_label_added(self, monkeypatch_dependencies):
+        """Test that callback is accepted when a DAIV label is added in an update."""
+        changes = IssueChanges(
+            labels=LabelChange(previous=[Label(title="bug")], current=[Label(title="bug"), Label(title="daiv")])
+        )
+        callback = create_issue_callback(
+            action=IssueAction.UPDATE, issue_labels=[Label(title="bug"), Label(title="daiv")], changes=changes
+        )
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_update_with_daiv_auto_label_added(self, monkeypatch_dependencies):
+        """Test that callback is accepted when daiv-auto label is added."""
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="daiv-auto")]))
+        callback = create_issue_callback(
+            action=IssueAction.UPDATE, issue_labels=[Label(title="daiv-auto")], changes=changes
+        )
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_update_with_daiv_max_label_added(self, monkeypatch_dependencies):
+        """Test that callback is accepted when daiv-max label is added."""
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="daiv-max")]))
+        callback = create_issue_callback(
+            action=IssueAction.UPDATE, issue_labels=[Label(title="daiv-max")], changes=changes
+        )
+        assert callback.accept_callback() is True
+
+    def test_reject_callback_update_with_non_daiv_label_added(self, monkeypatch_dependencies):
+        """Test that callback is rejected when a non-DAIV label is added."""
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="bug")]))
+        callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="bug")], changes=changes)
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_update_with_daiv_label_removed(self, monkeypatch_dependencies):
+        """Test that callback is rejected when a DAIV label is removed."""
+        changes = IssueChanges(
+            labels=LabelChange(previous=[Label(title="daiv"), Label(title="bug")], current=[Label(title="bug")])
+        )
+        callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="bug")], changes=changes)
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_update_without_label_changes(self, monkeypatch_dependencies):
+        """Test that callback is rejected when update doesn't include label changes."""
+        callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="daiv")], changes=None)
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_when_already_reacted(self, monkeypatch_dependencies, stub_client):
+        """Test that callback is rejected when DAIV has already reacted to the issue."""
+        stub_client.set_has_reaction(True)
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_closed_issue(self, monkeypatch_dependencies):
+        """Test that callback is rejected for closed issues."""
+        callback = create_issue_callback(
+            action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], issue_state="closed"
+        )
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_work_item(self, monkeypatch_dependencies):
+        """Test that callback is rejected for work items."""
+        IssueCallback(
+            object_kind="work_item",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            object_attributes=Issue(
+                id=100,
+                iid=42,
+                title="Test Work Item",
+                description="Test description",
+                state="opened",
+                assignee_id=None,
+                action=IssueAction.OPEN,
+                labels=[Label(title="daiv")],
+                type="Task",
+            ),
+        )
+
+    def test_label_check_case_insensitive(self, monkeypatch_dependencies):
+        """Test that label checking is case-insensitive."""
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="DAIV")]))
+        callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="DAIV")], changes=changes)
+        assert callback.accept_callback() is True
