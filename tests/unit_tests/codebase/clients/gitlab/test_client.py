@@ -16,7 +16,7 @@ class TestGitLabClient:
 
         mock_gitlab = Mock()
         with patch("codebase.clients.gitlab.client.Gitlab", return_value=mock_gitlab):
-            client = GitLabClient(auth_token="test-token", url="https://gitlab.com")
+            client = GitLabClient(auth_token="test-token", url="https://gitlab.com")  # noqa: S106
             yield client
 
     def test_has_issue_reaction_returns_true_when_reaction_exists(self, gitlab_client):

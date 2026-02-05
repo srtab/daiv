@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
 - Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
-- Updated issue addressing to accept any DAIV label (`daiv`, `daiv-auto`, `daiv-max`) as a trigger. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
+- Updated issue addressing to accept DAIV trigger labels (`daiv`, `daiv-max`) to launch the agent. The `daiv-auto` label is a modifier that enables auto-approval when combined with a trigger label. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
 - Migrated pre-commit tooling to prek.
 - Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
   - Enhanced system prompt with explicit rules about factuality and convention handling
@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception when attempting to read files from empty repositories.
 - Fixed repeated generation of GitHub CLI installation tokens by caching the token in the agent session state for subsequent `gh` tool calls.
 - Fixed skill tool to properly return a `Command` object for state updates instead of returning messages directly.
+- Fixed `daiv-auto` label to work correctly as a modifier label (for auto-approval) rather than a trigger label. Only `daiv` and `daiv-max` labels trigger the agent on issues and merge requests.
 
 ### Removed
 
