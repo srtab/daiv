@@ -23,7 +23,7 @@ dependencies = [
   "django-extensions==4.1.0",
   "django-ninja==1.5.3",
   "django-split-settings==1.3.2",
-  "django-tasks==0.11.0",
+  "django-tasks==0.12.0",
   "get-docker-secret==2.0.0",
   "gitpython==3.1.46",
   "httpx==0.28.1",
