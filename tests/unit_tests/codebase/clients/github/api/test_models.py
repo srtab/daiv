@@ -15,8 +15,8 @@ class TestGitHubIssueIsDaiv:
         )
         assert issue.is_daiv() is True
 
-    def test_issue_is_not_daiv_with_daiv_auto_label(self):
-        """Test that is_daiv returns False when issue has 'daiv-auto' label."""
+    def test_issue_is_daiv_with_daiv_auto_label(self):
+        """Test that is_daiv returns True when issue has 'daiv-auto' label."""
         issue = Issue(
             id=1,
             number=1,
@@ -24,7 +24,7 @@ class TestGitHubIssueIsDaiv:
             state="open",
             labels=[{"name": "bug"}, {"name": "daiv-auto"}, {"name": "feature"}],
         )
-        assert issue.is_daiv() is False
+        assert issue.is_daiv() is True
 
     def test_issue_is_daiv_with_daiv_max_label(self):
         """Test that is_daiv returns True when issue has 'daiv-max' label."""

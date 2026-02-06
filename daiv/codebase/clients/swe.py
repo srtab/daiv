@@ -277,6 +277,10 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue emojis")
 
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue reactions")
+
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")

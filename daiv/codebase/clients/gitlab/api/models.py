@@ -22,6 +22,23 @@ class Label(BaseModel):
     title: str
 
 
+class LabelChange(BaseModel):
+    """
+    GitLab Label Change - represents previous and current label lists
+    """
+
+    previous: list[Label] = Field(default_factory=list)
+    current: list[Label] = Field(default_factory=list)
+
+
+class IssueChanges(BaseModel):
+    """
+    GitLab Issue Changes - tracks what changed in an issue update event
+    """
+
+    labels: LabelChange | None = None
+
+
 class Issue(BaseModel):
     """
     Gitlab Issue
@@ -40,6 +57,11 @@ class Issue(BaseModel):
     def is_daiv(self) -> bool:
         """
         Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
+
+        All three labels are triggers that launch the agent:
+        - daiv: Standard mode
+        - daiv-auto: Triggers agent with auto-approval enabled
+        - daiv-max: High-performance mode
         """
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
@@ -64,6 +86,11 @@ class MergeRequest(BaseModel):
     def is_daiv(self) -> bool:
         """
         Check if the merge request is a DAIV merge request by checking for any DAIV label (daiv, daiv-auto, daiv-max).
+
+        All three labels are triggers that launch the agent:
+        - daiv: Standard mode
+        - daiv-auto: Triggers agent with auto-approval enabled
+        - daiv-max: High-performance mode
         """
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
