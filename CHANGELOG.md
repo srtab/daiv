@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `/clear` slash command to reset conversation context in issues and merge requests
 - Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
 - Added code review and security audit agent skills for structured review and security guidance.
+- Added a deduplicating Django Tasks backend to prevent duplicate async task execution.
 - Added support for issue labels to configure plan and execute agent behavior:
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
 - Updated issue addressing to accept DAIV trigger labels (`daiv`, `daiv-auto`, `daiv-max`) to launch the agent. All three labels trigger the agent, with `daiv-auto` enabling auto-approval mode. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
 - Migrated pre-commit tooling to prek.
+- Replaced `locked_task` usage with task dedup keys for Django Tasks.
 - Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
   - Enhanced system prompt with explicit rules about factuality and convention handling
   - Improved guidance for branch naming and commit messages based on repository conventions
