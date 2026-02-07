@@ -27,7 +27,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
         call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
 
 
-@task
+@task(dedup=True)
 async def address_issue_task(
     repo_id: str, issue_iid: int, mention_comment_id: str | None = None, ref: str | None = None
 ):
@@ -48,7 +48,7 @@ async def address_issue_task(
         )
 
 
-@task
+@task(dedup=True)
 async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
     """
     Address a review feedback by applying the changes described or answering questions about the codebase.
@@ -62,7 +62,7 @@ async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_requ
     #     await ReviewAddressorManager.process_review_comments(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx) # noqa: E501 ERA001
 
 
-@task
+@task(dedup=True)
 async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_comment_id: str):
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.

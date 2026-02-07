@@ -32,7 +32,7 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 # TASKS
 
-TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+TASKS = {"default": {"BACKEND": "core.backends.immediate.ImmediateBackend"}}
 
 
 # LOGGING
