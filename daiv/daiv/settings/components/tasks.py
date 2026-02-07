@@ -1,1 +1,1 @@
-TASKS = {"default": {"BACKEND": "django_tasks.backends.database.DatabaseBackend", "QUEUES": ["default"]}}
+TASKS = {"default": {"BACKEND": "core.backends.deduplicating.DeduplicatingDatabaseBackend", "QUEUES": ["default"]}}

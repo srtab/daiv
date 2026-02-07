@@ -11,7 +11,7 @@ SITE_ID = 1
 
 LOCAL_APPS = ["accounts", "automation", "codebase", "core", "slash_commands"]
 
-THIRD_PARTY_APPS = ["crontask", "django_extensions", "django_tasks", "django_tasks.backends.database"]
+THIRD_PARTY_APPS = ["crontask", "django_extensions", "django_tasks", "django_tasks_db"]
 
 DJANGO_APPS = ["django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions"]
 
