@@ -4,7 +4,7 @@ from django_tasks.utils import normalize_json
 from django_tasks_db.models import DBTaskResult
 
 
-@task
+@task(dedup=True)
 def sample_issue_task(repo_id: str, issue_iid: int, *, priority: str = "normal") -> str:
     return f"{repo_id}:{issue_iid}:{priority}"
 

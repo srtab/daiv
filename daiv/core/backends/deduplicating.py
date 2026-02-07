@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from django.db import transaction
+from django.utils.version import PY311
 
 from django_tasks.base import Task, TaskResultStatus
 from django_tasks.utils import normalize_json
@@ -19,12 +21,26 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
+@dataclass(frozen=True, slots=PY311, kw_only=True)
+class DeduplicatingTask(Task[P, T]):
+    """
+    Task that skips enqueuing duplicate tasks based on module path, args, and kwargs.
+    """
+
+    dedup: bool = False
+    """
+    Whether to deduplicate tasks based on module path, args, and kwargs. Defaults to False.
+    """
+
+
 class DeduplicatingDatabaseBackend(DatabaseBackend):
     """
     Database backend that skips enqueuing duplicate tasks based on module path, args, and kwargs.
     """
 
-    def enqueue(self, task: Task[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+    task_class = DeduplicatingTask
+
+    def enqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
         """
         Enqueue a task unless a matching dedup key is already queued.
 
@@ -38,8 +54,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         Returns:
             The task result for the new or existing task.
         """
-        existing_result = self._get_existing_task_result(task.module_path, args, kwargs)
-        if existing_result:
+        if task.dedup and (existing_result := self._get_existing_task_result(task.module_path, args, kwargs)):
             logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
             return existing_result.task_result
 
