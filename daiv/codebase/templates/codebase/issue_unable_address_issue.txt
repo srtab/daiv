@@ -1,6 +1,6 @@
-An unexpected error occurred while working on this review.
+An unexpected error occurred while working on this issue.
 {% if changes_published %}
-To avoid losing progress, {{ bot_name }} committed the changes.
+To avoid losing progress, {{ bot_name }} created a draft {% if is_gitlab %}merge request{% else %}pull request{% endif %}.
 {% endif %}
 
 To have {{ bot_name }} resume, leave a new comment mentioning @{{ bot_username }}.
