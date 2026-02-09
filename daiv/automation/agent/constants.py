@@ -23,6 +23,8 @@ class ModelName(StrEnum):
 
     You can also use `anthropic`, `google` or `openai` model providers directly to use any model that is supported
     by Anthropic, Google or OpenAI.
+
+    Only models that have been tested and are working well are listed here for the sake of convenience.
     """
 
     # Anthropic models
@@ -31,9 +33,6 @@ class ModelName(StrEnum):
     CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
 
     # OpenAI models
-    GPT_5_1_CODEX_MINI = "openrouter:openai/gpt-5.1-codex-mini"
-    GPT_5_1_CODEX = "openrouter:openai/gpt-5.1-codex"
-    GPT_5_1_CODEX_MAX = "openrouter:openai/gpt-5.1-codex-max"
     GPT_5_2 = "openrouter:openai/gpt-5.2"
     GPT_5_2_CODEX = "openrouter:openai/gpt-5.2-codex"
 

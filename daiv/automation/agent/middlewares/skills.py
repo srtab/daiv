@@ -247,7 +247,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             The slash command command if found, otherwise None.
         """
         latest_message = messages[-1]
-        print("####################", latest_message)  # noqa: T201
+
         if not hasattr(latest_message, "type") or latest_message.type != "human":
             return None
 

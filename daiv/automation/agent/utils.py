@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,9 +19,6 @@ if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
 
     from codebase.repo_config import AgentModelConfig
-
-
-logger = logging.getLogger("daiv.tools")
 
 
 def extract_images_from_text(text: str) -> list[Image]:
