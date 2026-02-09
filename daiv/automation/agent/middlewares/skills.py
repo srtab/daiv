@@ -121,11 +121,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # If the super method returns None, it means that the skills metadata was already captured and registered in
         # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
-        messages = state.get("messages")
-        if not messages:
-            return skills_update
 
-        builtin_slash_commands = await self._apply_builtin_slash_commands(messages, runtime.context, skills_metadata)
+        builtin_slash_commands = await self._apply_builtin_slash_commands(
+            state["messages"], runtime.context, skills_metadata
+        )
 
         if builtin_slash_commands:
             return builtin_slash_commands
@@ -151,8 +150,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         builtin_skills = []
         files_to_upload = []
-        primary_source = self.sources[0] if self.sources else f"/{agent_path.name}/{AGENTS_SKILLS_PATH}"
-        project_skills_path = Path(primary_source)
+        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
 
         for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
             if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":
