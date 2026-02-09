@@ -1,0 +1,6 @@
+An unexpected error occurred while working on this {% if is_gitlab %}merge request{% else %}pull request{% endif %}.
+{% if changes_published %}
+To avoid losing progress, {{ bot_name }} committed the changes done so far.
+{% endif %}
+
+To have {{ bot_name }} resume, leave a new comment mentioning @{{ bot_username }}.

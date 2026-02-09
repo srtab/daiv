@@ -127,7 +127,7 @@ class IssueAddressorManager(BaseManager):
         """
         self._create_or_update_comment(
             render_to_string(
-                "codebase/issue_unable_address_issue.txt",
+                "codebase/unable_address_issue.txt",
                 {
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,

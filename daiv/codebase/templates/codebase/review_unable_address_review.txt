@@ -1,6 +1,0 @@
-An unexpected error occurred while working on this review.
-{% if changes_published %}
-To avoid losing progress, {{ bot_name }} committed the changes.
-{% endif %}
-
-To have {{ bot_name }} resume, leave a new comment mentioning @{{ bot_username }}.

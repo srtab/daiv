@@ -290,7 +290,7 @@ class CommentsAddressorManager(BaseManager):
         """
         self._leave_comment(
             render_to_string(
-                "codebase/review_unable_address_review.txt",
+                "codebase/unable_address_review.txt",
                 {
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
