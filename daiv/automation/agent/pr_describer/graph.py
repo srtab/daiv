@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.utils import timezone
 
@@ -12,7 +12,7 @@ from langchain.agents.middleware import dynamic_prompt
 from langchain_core.prompts import ChatPromptTemplate
 
 from automation.agent import BaseAgent
-from automation.agent.constants import DAIV_MEMORY_PATH
+from automation.agent.constants import AGENTS_MEMORY_PATH
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
 
@@ -31,9 +31,10 @@ def dynamic_pr_describer_system_prompt(request: ModelRequest) -> str:
     """
     Dynamic system prompt for the PR describer agent.
     """
-    return (
-        request.system_prompt + "\n\n" + system.format(current_date_time=timezone.now().strftime("%d %B, %Y")).content
-    )
+    system_prompt = ""
+    if request.system_prompt:
+        system_prompt = request.system_prompt + "\n\n"
+    return system_prompt + cast("str", system.format(current_date_time=timezone.now().strftime("%d %B, %Y")).content)
 
 
 def create_pr_describer_agent(model: ModelName | str, *, ctx: RuntimeCtx) -> Runnable:
@@ -58,7 +59,7 @@ def create_pr_describer_agent(model: ModelName | str, *, ctx: RuntimeCtx) -> Run
                 backend=backend,
                 sources=[
                     f"/{agent_path.name}/{ctx.config.context_file_name}",
-                    f"/{agent_path.name}/{DAIV_MEMORY_PATH}",
+                    f"/{agent_path.name}/{AGENTS_MEMORY_PATH}",
                 ],
             ),
             AnthropicPromptCachingMiddleware(),

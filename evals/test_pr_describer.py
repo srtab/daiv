@@ -53,7 +53,7 @@ async def test_pr_describer(inputs, reference_outputs):
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:
             (agent_path / ctx.config.context_file_name).unlink()
-        pr_describer = create_pr_describer_agent(model=ModelName.GPT_4_1_MINI, ctx=ctx)
+        pr_describer = create_pr_describer_agent(model=ModelName.CLAUDE_HAIKU_4_5, ctx=ctx)
         outputs = await pr_describer.ainvoke(inputs)
 
     assert "structured_response" in outputs, outputs

@@ -12,7 +12,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
-from automation.agent.constants import BUILTIN_SKILLS_PATH, DAIV_SKILLS_PATH
+from automation.agent.constants import AGENTS_SKILLS_PATH, BUILTIN_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -99,9 +99,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
         """
-        if "skills_metadata" in state:
-            return None
-
         builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
 
         skills_update = await super().abefore_agent(state, runtime, config)
@@ -115,8 +112,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 else:
                     skill["metadata"].pop("is_builtin", None)
 
+        skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
         builtin_slash_commands = await self._apply_builtin_slash_commands(
-            state["messages"], runtime.context, skills_update["skills_metadata"]
+            state["messages"], runtime.context, skills_metadata
         )
 
         if builtin_slash_commands:
@@ -143,7 +141,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         builtin_skills = []
         files_to_upload = []
-        project_skills_path = Path(f"/{agent_path.name}/{DAIV_SKILLS_PATH}")
+        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
 
         for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
             if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":
@@ -249,7 +247,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             The slash command command if found, otherwise None.
         """
         latest_message = messages[-1]
-
+        print("####################", latest_message)  # noqa: T201
         if not hasattr(latest_message, "type") or latest_message.type != "human":
             return None
 

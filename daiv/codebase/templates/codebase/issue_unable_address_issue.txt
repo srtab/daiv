@@ -1,7 +1,6 @@
-### ⚠️ Sorry, something went wrong while responding to your comment.
+An unexpected error occurred while working on this issue.
+{% if changes_published %}
+To avoid losing progress, {{ bot_name }} created a draft {% if is_gitlab %}merge request{% else %}pull request{% endif %}.
+{% endif %}
 
----
-
-💡 **Next Steps:**
-
-- 🔄 Leave a new comment mentioning @{{ bot_username }} to trigger a fresh response attempt.
+To have {{ bot_name }} resume, leave a new comment mentioning @{{ bot_username }}.

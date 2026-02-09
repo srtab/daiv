@@ -9,13 +9,16 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.publishers import GitChangePublisher
 from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
-from codebase.base import GitPlatform, Issue
+from codebase.base import GitPlatform
+from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from codebase.base import Issue
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.managers")
@@ -79,53 +82,60 @@ class IssueAddressorManager(BaseManager):
                 store=self.store,
                 **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()),
             )
-
-            result = await daiv_agent.ainvoke(
-                {"messages": messages},
-                config=RunnableConfig(
-                    tags=[daiv_agent.get_name(), self.client.git_platform.value],
-                    metadata={
-                        "author": self.issue.author.username,
-                        "issue_id": self.issue.iid,
-                        "scope": self.ctx.scope,
-                        "use_max_model": self.issue.has_max_label(),
-                    },
-                    configurable={"thread_id": self.thread_id},
-                ),
-                context=self.ctx,
+            agent_config = RunnableConfig(
+                configurable={"thread_id": self.thread_id},
+                tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                metadata={
+                    "author": self.issue.author.username,
+                    "issue_id": self.issue.iid,
+                    "labels": [label.lower() for label in self.issue.labels],
+                    "scope": self.ctx.scope,
+                },
             )
+            try:
+                result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
+            except Exception:
+                snapshot = await daiv_agent.aget_state(config=agent_config)
 
-            response = result and extract_text_content(result["messages"][-1].content)
+                # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
+                # losing the changes made by the agent.
+                publisher = GitChangePublisher(self.ctx)
+                publish_result = await publisher.publish(
+                    branch_name=snapshot.values.get("branch_name"),
+                    merge_request_id=snapshot.values.get("merge_request_id"),
+                    skip_ci=True,
+                    as_draft=True,
+                )
 
-            if merge_request_id := result.get("merge_request_id"):
-                self._add_issue_addressed_note(merge_request_id, response)
+                # If the draft merge request is created successfully, we update the state to reflect the new MR.
+                if publish_result:
+                    await daiv_agent.aupdate_state(
+                        config=agent_config,
+                        values={
+                            "branch_name": publish_result["branch_name"],
+                            "merge_request_id": publish_result["merge_request_id"],
+                        },
+                    )
+
+                self._add_unable_to_address_issue_note(changes_published=bool(publish_result))
             else:
-                self._create_or_update_comment(response)
+                self._create_or_update_comment(result and extract_text_content(result["messages"][-1].content))
 
-    def _add_unable_to_address_issue_note(self):
+    def _add_unable_to_address_issue_note(self, *, changes_published: bool = False):
         """
         Add a note to the issue to inform the user that the response could not be generated.
         """
         self._create_or_update_comment(
-            render_to_string("codebase/issue_unable_address_issue.txt", {"bot_username": self.ctx.bot_username}),
-            reply_to_id=self.mention_comment_id,
-        )
-
-    def _add_issue_addressed_note(self, merge_request_id: int, message: str):
-        """
-        Add a note to the issue to inform the user that the issue has been addressed.
-        """
-        self._create_or_update_comment(
             render_to_string(
-                "codebase/issue_addressed.txt",
+                "codebase/issue_unable_address_issue.txt",
                 {
-                    "source_repo_id": self.ctx.repo_id,
-                    "merge_request_id": merge_request_id,
-                    # GitHub already shows the merge request link right after the comment.
-                    "show_merge_request_link": self.client.git_platform == GitPlatform.GITLAB,
-                    "message": message,
+                    "bot_name": BOT_NAME,
+                    "bot_username": self.ctx.bot_username,
+                    "changes_published": changes_published,
+                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                 },
-            )
+            ),
+            reply_to_id=self.mention_comment_id,
         )
 
     def _create_or_update_comment(self, note_message: str, reply_to_id: str | None = None):

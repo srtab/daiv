@@ -295,7 +295,8 @@ class GitLabClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
     ) -> MergeRequest:
         """
         Create a merge request in a repository or update an existing one if it already exists.
@@ -308,6 +309,7 @@ class GitLabClient(RepoClient):
             description: The description of the merge request.
             labels: The list of labels.
             assignee_id: The assignee ID.
+            as_draft: Whether to create the merge request as a draft.
 
         Returns:
             The merge request data.
@@ -321,6 +323,7 @@ class GitLabClient(RepoClient):
                 "description": description,
                 "labels": labels or [],
                 "assignee_id": assignee_id,
+                "work_in_progress": as_draft,
             })
             return MergeRequest(
                 repo_id=repo_id,
@@ -337,6 +340,7 @@ class GitLabClient(RepoClient):
                     username=merge_request.author.get("username"),
                     name=merge_request.author.get("name"),
                 ),
+                draft=merge_request.work_in_progress,
             )
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -349,6 +353,7 @@ class GitLabClient(RepoClient):
                 merge_request.description = description
                 merge_request.labels = labels or []
                 merge_request.assignee_id = assignee_id
+                merge_request.work_in_progress = as_draft
                 merge_request.save()
                 return MergeRequest(
                     repo_id=repo_id,
@@ -365,6 +370,7 @@ class GitLabClient(RepoClient):
                         username=merge_request.author.get("username"),
                         name=merge_request.author.get("name"),
                     ),
+                    draft=merge_request.work_in_progress,
                 )
             raise e
 

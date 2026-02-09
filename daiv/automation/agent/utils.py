@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import base64
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -6,17 +9,20 @@ from urllib.parse import urlparse
 
 from langchain_core.messages.content import create_image_block
 
-from automation.agent.schemas import Image
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 from .conf import settings
+from .schemas import Image
 
 if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
 
     from codebase.repo_config import AgentModelConfig
+
+
+logger = logging.getLogger("daiv.tools")
 
 
 def extract_images_from_text(text: str) -> list[Image]:

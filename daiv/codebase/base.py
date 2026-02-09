@@ -78,6 +78,7 @@ class MergeRequest(BaseModel):
     web_url: str | None = None
     sha: str | None = None
     author: User
+    draft: bool = False
 
 
 class MergeRequestDiff(BaseModel):

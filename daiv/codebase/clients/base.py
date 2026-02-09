@@ -46,7 +46,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -73,7 +73,8 @@ class RepoClient(abc.ABC):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
     ) -> MergeRequest:
         pass
 

@@ -770,7 +770,8 @@ class GitHubClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
     ) -> MergeRequest:
         """
         Update or create a merge request.
@@ -783,6 +784,7 @@ class GitHubClient(RepoClient):
             description: The description.
             labels: The labels.
             assignee_id: The assignee ID.
+            as_draft: Whether to create the merge request as a draft.
 
         Returns:
             The merge request data.
@@ -790,7 +792,7 @@ class GitHubClient(RepoClient):
         repo = self.client.get_repo(repo_id, lazy=True)
 
         try:
-            pr = repo.create_pull(base=target_branch, head=source_branch, title=title, body=description)
+            pr = repo.create_pull(base=target_branch, head=source_branch, title=title, body=description, draft=as_draft)
         except GithubException as e:
             if e.status != 409:
                 raise e
@@ -802,6 +804,11 @@ class GitHubClient(RepoClient):
 
             pr = prs[0]
             pr.edit(title=title, body=description)
+
+            if pr.draft and not as_draft:
+                pr.mark_ready_for_review()
+            elif not pr.draft and as_draft:
+                pr.convert_to_draft()
 
         if labels is not None:
             pr.add_to_labels(*labels)
@@ -820,6 +827,7 @@ class GitHubClient(RepoClient):
             web_url=pr.html_url,
             sha=pr.head.sha,
             author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
         )
 
     def _serialize_comments(

@@ -25,7 +25,7 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import DAIV_MEMORY_PATH, SKILLS_SOURCES, ModelName
+from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
@@ -190,7 +190,7 @@ async def create_daiv_agent(
         ),
         MemoryMiddleware(
             backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{DAIV_MEMORY_PATH}"],
+            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
         ),
         SkillsMiddleware(
             backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
