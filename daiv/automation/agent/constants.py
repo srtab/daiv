@@ -7,11 +7,11 @@ BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
 # Path where the skills are stored in repository.
 CURSOR_SKILLS_PATH = ".cursor/skills"
-CLAUDE_CODER_SKILLS_PATH = ".claude/skills"
+CLAUDE_CODE_SKILLS_PATH = ".claude/skills"
 AGENTS_SKILLS_PATH = ".agents/skills"
 
 # Paths where the skills are stored in repository.
-SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODER_SKILLS_PATH, AGENTS_SKILLS_PATH]
+SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, AGENTS_SKILLS_PATH]
 
 # Path where the memory is stored in repository.
 AGENTS_MEMORY_PATH = ".agents/AGENTS.md"

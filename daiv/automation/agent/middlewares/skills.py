@@ -99,6 +99,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
         """
+        if "skills_metadata" in state:
+            return None
+
+        # We need to always copy builtin skills before calling the super method to make them available in the filesystem
+        # not just to be captured and registered in "skills_metadata" on first run, but also to be available in the
+        # filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error will be raised.
         builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
 
         skills_update = await super().abefore_agent(state, runtime, config)
@@ -112,10 +118,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 else:
                     skill["metadata"].pop("is_builtin", None)
 
+        # If the super method returns None, it means that the skills metadata was already captured and registered in
+        # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
-        builtin_slash_commands = await self._apply_builtin_slash_commands(
-            state["messages"], runtime.context, skills_metadata
-        )
+        messages = state.get("messages")
+        if not messages:
+            return skills_update
+
+        builtin_slash_commands = await self._apply_builtin_slash_commands(messages, runtime.context, skills_metadata)
 
         if builtin_slash_commands:
             return builtin_slash_commands
@@ -141,7 +151,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         builtin_skills = []
         files_to_upload = []
-        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
+        primary_source = self.sources[0] if self.sources else f"/{agent_path.name}/{AGENTS_SKILLS_PATH}"
+        project_skills_path = Path(primary_source)
 
         for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
             if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":

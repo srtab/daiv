@@ -7,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
+from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
 from automation.agent.middlewares.skills import SkillsMiddleware
 from codebase.base import Scope
 from slash_commands.base import SlashCommand
@@ -49,12 +50,12 @@ class TestSkillsMiddleware:
 
         repo_name = "repoX"
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
-        result = await middleware.abefore_agent({"skills_metadata": []}, runtime, Mock())
+        result = await middleware.abefore_agent({"skills_metadata": [], "messages": []}, runtime, Mock())
         assert result is None
-        assert not (tmp_path / repo_name / ".daiv" / "skills").exists()
+        assert not (tmp_path / repo_name / AGENTS_SKILLS_PATH).exists()
 
     async def test_copies_builtin_skills_then_delegates_to_super(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -72,7 +73,7 @@ class TestSkillsMiddleware:
         (builtin / "__pycache__" / "ignored.txt").write_text("ignored\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
@@ -83,8 +84,8 @@ class TestSkillsMiddleware:
         assert set(skills) == {"skill-one", "skill-two"}
         assert skills["skill-one"]["description"] == "does one"
         assert skills["skill-two"]["description"] == "does two"
-        assert skills["skill-one"]["path"] == f"/{repo_name}/.daiv/skills/skill-one/SKILL.md"
-        assert skills["skill-two"]["path"] == f"/{repo_name}/.daiv/skills/skill-two/SKILL.md"
+        assert skills["skill-one"]["path"] == f"/{repo_name}/{AGENTS_SKILLS_PATH}/skill-one/SKILL.md"
+        assert skills["skill-two"]["path"] == f"/{repo_name}/{AGENTS_SKILLS_PATH}/skill-two/SKILL.md"
         assert skills["skill-one"]["metadata"]["is_builtin"] is True
         assert skills["skill-two"]["metadata"]["is_builtin"] is True
 
@@ -98,7 +99,7 @@ class TestSkillsMiddleware:
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="does one"))
         (builtin / "skill-two" / "SKILL.md").write_text(_make_skill_md(name="skill-two", description="does two"))
 
-        custom_skill = tmp_path / repo_name / ".daiv" / "skills" / "custom-skill"
+        custom_skill = tmp_path / repo_name / AGENTS_SKILLS_PATH / "custom-skill"
         custom_skill.mkdir(parents=True)
         (custom_skill / "SKILL.md").write_text(
             _make_skill_md(
@@ -107,7 +108,7 @@ class TestSkillsMiddleware:
         )
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
@@ -136,12 +137,12 @@ class TestSkillsMiddleware:
         (builtin / "__pycache__" / "ignored.txt").write_text("ignored\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
             await middleware._copy_builtin_skills(agent_path=tmp_path / repo_name)
 
-        project_skills = tmp_path / repo_name / ".daiv" / "skills"
+        project_skills = tmp_path / repo_name / AGENTS_SKILLS_PATH
         assert (project_skills / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
             name="skill-one", description="does one"
         )
@@ -164,9 +165,9 @@ class TestSkillsMiddleware:
         (builtin / "skill-one" / "helpers" / "util.py").write_text("print('one')\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/.daiv/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
 
-        project_skill_md = tmp_path / repo_name / ".daiv" / "skills" / "skill-one" / "SKILL.md"
+        project_skill_md = tmp_path / repo_name / AGENTS_SKILLS_PATH / "skill-one" / "SKILL.md"
         project_skill_md.parent.mkdir(parents=True, exist_ok=True)
         project_skill_md.write_text(_make_skill_md(name="skill-one", description="existing"))
 
@@ -187,10 +188,10 @@ class TestSkillsMiddleware:
 
         # SKILL.md should not be overwritten, but other files should still be uploaded.
         assert project_skill_md.read_text() == _make_skill_md(name="skill-one", description="existing")
-        assert (tmp_path / repo_name / ".daiv" / "skills" / "skill-one" / "helpers" / "util.py").read_text() == (
+        assert (tmp_path / repo_name / AGENTS_SKILLS_PATH / "skill-one" / "helpers" / "util.py").read_text() == (
             "print('one')\n"
         )
-        assert (tmp_path / repo_name / ".daiv" / "skills" / "skill-one" / ".gitignore").read_text() == "*"
+        assert (tmp_path / repo_name / AGENTS_SKILLS_PATH / "skill-one" / ".gitignore").read_text() == "*"
 
     async def test_raises_when_backend_returns_error(self, tmp_path: Path):
         builtin = tmp_path / "builtin_skills"
@@ -439,23 +440,20 @@ class TestSkillsMiddleware:
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
 
         # Create skills in different source directories
-        daiv_skill = tmp_path / repo_name / ".daiv" / "skills" / "daiv-skill"
+        daiv_skill = tmp_path / repo_name / AGENTS_SKILLS_PATH / "daiv-skill"
         daiv_skill.mkdir(parents=True)
         (daiv_skill / "SKILL.md").write_text(_make_skill_md(name="daiv-skill", description="from daiv"))
 
-        agents_skill = tmp_path / repo_name / ".agents" / "skills" / "agents-skill"
+        agents_skill = tmp_path / repo_name / CLAUDE_CODE_SKILLS_PATH / "agents-skill"
         agents_skill.mkdir(parents=True)
         (agents_skill / "SKILL.md").write_text(_make_skill_md(name="agents-skill", description="from agents"))
 
-        cursor_skill = tmp_path / repo_name / ".cursor" / "skills" / "cursor-skill"
+        cursor_skill = tmp_path / repo_name / CURSOR_SKILLS_PATH / "cursor-skill"
         cursor_skill.mkdir(parents=True)
         (cursor_skill / "SKILL.md").write_text(_make_skill_md(name="cursor-skill", description="from cursor"))
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(
-            backend=backend,
-            sources=[f"/{repo_name}/.daiv/skills", f"/{repo_name}/.agents/skills", f"/{repo_name}/.cursor/skills"],
-        )
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{source}" for source in SKILLS_SOURCES])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
