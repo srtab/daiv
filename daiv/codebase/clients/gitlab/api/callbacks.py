@@ -120,7 +120,7 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        if self._is_issue_comment:
+        if self.issue and self._is_issue_comment:
             self._client.create_issue_emoji(
                 self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
             )
@@ -130,7 +130,10 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
             )
 
-        elif self._is_merge_request_review:
+        elif self.merge_request and self._is_merge_request_review:
+            self._client.create_merge_request_note_emoji(
+                self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
+            )
             if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
                 await address_mr_review_task.aenqueue(
                     repo_id=self.project.path_with_namespace,
@@ -141,7 +144,6 @@ class NoteCallback(BaseCallback):
                 await address_mr_comments_task.aenqueue(
                     repo_id=self.project.path_with_namespace,
                     merge_request_id=self.merge_request.iid,
-                    merge_request_source_branch=self.merge_request.source_branch,
                     mention_comment_id=self.object_attributes.discussion_id,
                 )
             else:

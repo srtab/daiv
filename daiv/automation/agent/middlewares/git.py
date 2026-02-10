@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.prompts import SystemMessagePromptTemplate
+from langsmith import get_current_run_tree
 
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import Scope
@@ -159,6 +160,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
 
         publisher = GitChangePublisher(runtime.context)
-        return await publisher.publish(
+        publish_result = await publisher.publish(
             branch_name=state.get("branch_name"), merge_request_id=state.get("merge_request_id"), skip_ci=self.skip_ci
         )
+
+        if publish_result:
+            if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
+                # If an issue resulted in a merge request, we send it to LangSmith for tracking.
+                rt.metadata["merge_request_id"] = publish_result["merge_request_id"]
+
+            return {
+                "branch_name": publish_result["branch_name"],
+                "merge_request_id": publish_result["merge_request_id"],
+            }
+
+        return None

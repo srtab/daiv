@@ -71,7 +71,7 @@ class TestGitHubClient:
         mock_issue.get_comment.return_value = mock_comment
 
         # Pass note_id as a string
-        github_client.create_issue_emoji("owner/repo", 123, Emoji.THUMBSUP, "3645723306")
+        github_client.create_issue_emoji("owner/repo", 123, Emoji.THUMBSUP, 3645723306)
 
         # Verify that get_comment was called with an integer
         mock_issue.get_comment.assert_called_once_with(3645723306)
@@ -186,7 +186,7 @@ class TestGitHubClient:
         mock_pr.get_review_comment.return_value = mock_comment
 
         # Pass note_id as a string
-        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, "3645723306")
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, 3645723306)
 
         # Verify that get_review_comment was called with an integer
         mock_pr.get_review_comment.assert_called_once_with(3645723306)
@@ -205,7 +205,7 @@ class TestGitHubClient:
         mock_pr.get_issue_comment.return_value = mock_comment
 
         # Pass note_id as a string
-        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, "3645723306")
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, 3645723306)
 
         # Verify that both methods were called with an integer
         mock_pr.get_review_comment.assert_called_once_with(3645723306)

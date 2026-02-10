@@ -451,7 +451,7 @@ class GitLabClient(RepoClient):
         issue = project.issues.create(issue_data)
         return issue.iid
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
         Create an emoji direclty on an issue or on an issue note.
         """
@@ -776,7 +776,7 @@ class GitLabClient(RepoClient):
 
         return to_return
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
         Create an emoji in a note of a merge request.
 

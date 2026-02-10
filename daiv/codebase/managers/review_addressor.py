@@ -210,8 +210,8 @@ class CommentsAddressorManager(BaseManager):
 
         try:
             await manager._address_comments()
-        except Exception as e:
-            logger.exception("Error addressing comments for merge request %d: %s", merge_request.merge_request_id, e)
+        except Exception:
+            logger.exception("Error addressing comments for merge request: %d", merge_request.merge_request_id)
             manager._add_unable_to_address_review_note()
 
     async def _address_comments(self):
@@ -257,17 +257,15 @@ class CommentsAddressorManager(BaseManager):
             except Exception:
                 snapshot = await daiv_agent.aget_state(config=agent_config)
 
-                # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
+                # If and unexpect error occurs while addressing the review, a draft merge request is created to avoid
                 # losing the changes made by the agent.
                 publisher = GitChangePublisher(self.ctx)
                 publish_result = await publisher.publish(
                     branch_name=snapshot.values.get("branch_name"),
                     merge_request_id=snapshot.values.get("merge_request_id"),
-                    skip_ci=True,
-                    as_draft=True,
+                    as_draft=snapshot.values.get("merge_request_id") is None,
                 )
 
-                # If the draft merge request is created successfully, we update the state to reflect the new MR.
                 if publish_result:
                     await daiv_agent.aupdate_state(
                         config=agent_config,
@@ -298,7 +296,8 @@ class CommentsAddressorManager(BaseManager):
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                 },
             ),
-            reply_to_id=self.mention_comment_id,
+            # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
+            reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
         )
 
     def _leave_comment(self, body: str, reply_to_id: str | None = None):

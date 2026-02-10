@@ -62,7 +62,7 @@ class GitChangePublisher(ChangePublisher):
                 generated based on the diff.
             merge_request_id: The merge request ID. If None, a new merge request will be created.
             skip_ci: Whether to skip the CI.
-            as_draft: Whether to create the merge request as a draft.
+            as_draft: Whether to create the merge request as a draft if merge request doesn't exist.
 
         Returns:
             The branch name and merge request ID.
@@ -70,25 +70,38 @@ class GitChangePublisher(ChangePublisher):
         git_manager = GitManager(self.ctx.repo)
 
         if not git_manager.is_dirty():
+            logger.info("No changes to publish.")
             return None
 
         pr_metadata = await self._get_mr_metadata(git_manager.get_diff())
-        branch_name = branch_name or pr_metadata.branch
-
-        logger.info("Committing and pushing changes to branch '%s'", branch_name)
 
         unique_branch_name = git_manager.commit_and_push_changes(
-            pr_metadata.commit_message, branch_name=branch_name, skip_ci=skip_ci, use_branch_if_exists=bool(branch_name)
+            pr_metadata.commit_message,
+            branch_name=branch_name or pr_metadata.branch,
+            skip_ci=skip_ci,
+            use_branch_if_exists=bool(branch_name),
         )
 
-        if self.ctx.scope != Scope.MERGE_REQUEST and not merge_request_id:
-            logger.info("Creating merge request: '%s' -> '%s'", unique_branch_name, self.ctx.config.default_branch)
-            merge_request = self._update_or_create_merge_request(
-                unique_branch_name, pr_metadata.title, pr_metadata.description
+        logger.info("Published changes to branch: '%s' [skip_ci: %s]", unique_branch_name, skip_ci)
+
+        merge_request = self._update_or_create_merge_request(
+            unique_branch_name, pr_metadata.title, pr_metadata.description, as_draft=as_draft
+        )
+
+        if merge_request_id:
+            logger.info(
+                "Updated merge request: %s [merge_request_id: %s]",
+                merge_request.web_url,
+                merge_request.merge_request_id,
             )
-            merge_request_id = merge_request.merge_request_id
-            logger.info("Merge request created: %s", merge_request.web_url)
-        return {"branch_name": unique_branch_name, "merge_request_id": merge_request_id}
+        else:
+            logger.info(
+                "Created merge request: %s [merge_request_id: %s]",
+                merge_request.web_url,
+                merge_request.merge_request_id,
+            )
+
+        return {"branch_name": unique_branch_name, "merge_request_id": merge_request.merge_request_id}
 
     async def _get_mr_metadata(self, diff: str) -> PullRequestMetadata:
         """

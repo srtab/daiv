@@ -127,7 +127,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         pass
 
     @abc.abstractmethod
@@ -181,7 +181,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         pass
 
     @abc.abstractmethod

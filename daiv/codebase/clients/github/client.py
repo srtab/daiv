@@ -217,7 +217,7 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
         Create an emoji in a note of an issue.
         """
@@ -226,7 +226,7 @@ class GitHubClient(RepoClient):
 
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
         if note_id is not None:
-            issue.get_comment(int(note_id)).create_reaction(emoji_reaction)
+            issue.get_comment(note_id).create_reaction(emoji_reaction)
         else:
             issue.create_reaction(emoji_reaction)
 
@@ -393,7 +393,7 @@ class GitHubClient(RepoClient):
             to_return = pr.create_issue_comment(body).id
         return to_return
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
         Create an emoji on a note of a merge request.
 
@@ -408,9 +408,9 @@ class GitHubClient(RepoClient):
 
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
         try:
-            pr.get_review_comment(int(note_id)).create_reaction(emoji_reaction)
+            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
         except UnknownObjectException:
-            pr.get_issue_comment(int(note_id)).create_reaction(emoji_reaction)
+            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
@@ -794,7 +794,10 @@ class GitHubClient(RepoClient):
         try:
             pr = repo.create_pull(base=target_branch, head=source_branch, title=title, body=description, draft=as_draft)
         except GithubException as e:
-            if e.status != 409:
+            if e.status != 422 or not any(
+                error.get("message").startswith("A pull request already exists for")
+                for error in e.data.get("errors", [])
+            ):
                 raise e
 
             prs = repo.get_pulls(base=target_branch, head=source_branch, state="open")

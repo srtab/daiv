@@ -45,18 +45,6 @@ class TestSkillsMiddleware:
     Test the SkillsMiddleware class.
     """
 
-    async def test_skips_when_skills_metadata_present(self, tmp_path: Path):
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        repo_name = "repoX"
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
-
-        result = await middleware.abefore_agent({"skills_metadata": [], "messages": []}, runtime, Mock())
-        assert result is None
-        assert not (tmp_path / repo_name / AGENTS_SKILLS_PATH).exists()
-
     async def test_copies_builtin_skills_then_delegates_to_super(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 

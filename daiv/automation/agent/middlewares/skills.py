@@ -99,9 +99,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
         """
-        if "skills_metadata" in state:
-            return None
-
         # We need to always copy builtin skills before calling the super method to make them available in the filesystem
         # not just to be captured and registered in "skills_metadata" on first run, but also to be available in the
         # filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error will be raised.

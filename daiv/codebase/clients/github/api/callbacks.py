@@ -113,8 +113,9 @@ class IssueCommentCallback(GitHubCallback):
             )
 
         elif self._is_merge_request_review:
-            # The webhook doesn't provide the source branch, so we need to fetch it from the merge request.
-
+            self._client.create_merge_request_note_emoji(
+                self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
+            )
             await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,

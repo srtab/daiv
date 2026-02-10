@@ -36,7 +36,7 @@ class IssueAddressorManager(BaseManager):
     def __init__(self, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue = issue
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope.value}/{issue.iid}")
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope}/{issue.iid}")
         self.mention_comment_id = mention_comment_id
 
     @classmethod
@@ -103,8 +103,7 @@ class IssueAddressorManager(BaseManager):
                 publish_result = await publisher.publish(
                     branch_name=snapshot.values.get("branch_name"),
                     merge_request_id=snapshot.values.get("merge_request_id"),
-                    skip_ci=True,
-                    as_draft=True,
+                    as_draft=snapshot.values.get("merge_request_id") is None,
                 )
 
                 # If the draft merge request is created successfully, we update the state to reflect the new MR.
