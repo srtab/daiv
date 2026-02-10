@@ -118,7 +118,7 @@ class RepositoryConfigTest:
           agent:
             model: "openrouter:anthropic/claude-haiku-4.5"
             thinking_level: "low"
-          pr_describer:
+          diff_to_metadata:
             model: "openrouter:openai/gpt-4.1-mini"
         """
 
@@ -126,7 +126,7 @@ class RepositoryConfigTest:
 
         assert config.models.agent.model == "openrouter:anthropic/claude-haiku-4.5"
         assert config.models.agent.thinking_level == "low"
-        assert config.models.pr_describer.model == "openrouter:openai/gpt-4.1-mini"
+        assert config.models.diff_to_metadata.model == "openrouter:openai/gpt-4.1-mini"
 
     @patch("codebase.repo_config.cache")
     def test_get_config_with_partial_models_section(self, mock_cache, mock_repo_client):

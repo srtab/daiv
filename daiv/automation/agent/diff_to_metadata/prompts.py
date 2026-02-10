@@ -16,13 +16,12 @@ You MUST follow these rules:
    - Use a sensible default:
      - branch: <type>/<short-kebab-summary> where type ∈ {feat, fix, chore, docs, refactor, test}
      - commit_message: Conventional Commits style "<type>: <short summary>" (subject only)
-5) Output MUST match the requested structured format exactly (no extra keys).
-""",
+5) Output MUST match the requested structured format exactly (no extra keys).""",
     "mustache",
 )
 
-human = HumanMessagePromptTemplate.from_template(
-    """Generate PR metadata from the repo instructions and code changes.
+human_pr_metadata = HumanMessagePromptTemplate.from_template(
+    """Generate PR metadata from the memory and code changes.
 
 Diff hunks (unified diff; may include multiple files):
 ~~~diff
@@ -56,7 +55,26 @@ Field rules:
 - branch:
   - If memory defines a naming convention, follow it.
   - Otherwise use: "<type>/<kebab-case-summary>".
-  - Keep it lowercase, ascii, no spaces, avoid > 50 chars.
-""",
+  - Keep it lowercase, ascii, no spaces, avoid > 50 chars.""",
+    "mustache",
+)
+
+
+human_commit_message = HumanMessagePromptTemplate.from_template(
+    """Generate a commit message from the memory and code changes.
+
+Diff hunks (unified diff; may include multiple files):
+~~~diff
+{{diff}}
+~~~
+
+Output requirements:
+- Return a single JSON object with EXACTLY this key:
+  - commit_message
+
+Field rules:
+- commit_message:
+  - If memory defines a format, follow it.
+  - Otherwise use: "<type>: <summary>" (Conventional Commits), single line.""",
     "mustache",
 )

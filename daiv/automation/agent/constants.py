@@ -33,6 +33,7 @@ class ModelName(StrEnum):
     CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
 
     # OpenAI models
+    GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
     GPT_5_2 = "openrouter:openai/gpt-5.2"
     GPT_5_2_CODEX = "openrouter:openai/gpt-5.2-codex"
 

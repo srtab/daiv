@@ -260,20 +260,12 @@ All the default models where chosen to be the most effective models. You can cha
 | `PLAN_AND_EXECUTE_MAX_EXECUTION_MODEL_NAME` | Model for execution tasks when `daiv-max` label is present. | `openrouter:anthropic/claude-opus-4.5` |
 | `PLAN_AND_EXECUTE_MAX_EXECUTION_THINKING_LEVEL` | Thinking level for execution tasks when `daiv-max` label is present. | `high` |
 
-### Review Addressor
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `REVIEW_ADDRESSOR_REVIEW_COMMENT_MODEL_NAME` | Model for review assessment. | `openrouter:openai/gpt-4.1-mini` |
-| `REVIEW_ADDRESSOR_REPLY_MODEL_NAME` | Model for reply to comments/questions. | `openrouter:anthropic/claude-haiku-4.5` |
-| `REVIEW_ADDRESSOR_REPLY_TEMPERATURE` | Temperature for the reply model. | `0.2` |
-| `REVIEW_ADDRESSOR_RECURSION_LIMIT` | Recursion limit for the agent to address all the review comments in a single run. | `100` |
-
-### Pull Request Describer
+### Diff to Metadata
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `PR_DESCRIBER_MODEL_NAME` | Model for PR describer. | `openrouter:openai/gpt-4.1-mini` |
+| `DIFF_TO_METADATA_MODEL_NAME` | Model for diff to metadata. | `openrouter:anthropic/claude-haiku-4.5` |
+| `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model for diff to metadata. | `openrouter:openai/gpt-4.1-mini` |
 
 ### Codebase Chat
 

@@ -12,12 +12,11 @@ from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
 from core.constants import BOT_LABEL, BOT_NAME
 
-from .pr_describer.graph import create_pr_describer_agent
+from .diff_to_metadata.graph import create_changes_metadata_graph
 
 if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
 
-    from .pr_describer.schemas import PullRequestMetadata
 
 logger = logging.getLogger("daiv.tools")
 
@@ -73,11 +72,11 @@ class GitChangePublisher(ChangePublisher):
             logger.info("No changes to publish.")
             return None
 
-        pr_metadata = await self._get_mr_metadata(git_manager.get_diff())
+        changes_metadata = await self._get_mr_metadata(git_manager.get_diff())
 
         unique_branch_name = git_manager.commit_and_push_changes(
-            pr_metadata.commit_message,
-            branch_name=branch_name or pr_metadata.branch,
+            changes_metadata["commit_message"],
+            branch_name=branch_name or changes_metadata["pr_metadata"].branch,
             skip_ci=skip_ci,
             use_branch_if_exists=bool(branch_name),
         )
@@ -85,7 +84,10 @@ class GitChangePublisher(ChangePublisher):
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", unique_branch_name, skip_ci)
 
         merge_request = self._update_or_create_merge_request(
-            unique_branch_name, pr_metadata.title, pr_metadata.description, as_draft=as_draft
+            unique_branch_name,
+            changes_metadata["pr_metadata"].title,
+            changes_metadata["pr_metadata"].description,
+            as_draft=as_draft,
         )
 
         if merge_request_id:
@@ -103,7 +105,7 @@ class GitChangePublisher(ChangePublisher):
 
         return {"branch_name": unique_branch_name, "merge_request_id": merge_request.merge_request_id}
 
-    async def _get_mr_metadata(self, diff: str) -> PullRequestMetadata:
+    async def _get_mr_metadata(self, diff: str) -> dict[str, Any]:
         """
         Get the PR metadata from the diff.
 
@@ -112,9 +114,9 @@ class GitChangePublisher(ChangePublisher):
             diff: The diff of the changes.
 
         Returns:
-            The pull request metadata.
+            The pull request metadata and commit message.
         """
-        pr_describer = create_pr_describer_agent(model=self.ctx.config.models.pr_describer.model, ctx=self.ctx)
+        changes_metadata_graph = create_changes_metadata_graph(ctx=self.ctx)
 
         extra_context = ""
         if self.ctx.scope == Scope.ISSUE:
@@ -128,15 +130,15 @@ class GitChangePublisher(ChangePublisher):
                 """
             ).format(issue=self.ctx.issue)
 
-        result = await pr_describer.ainvoke(
+        result = await changes_metadata_graph.ainvoke(
             {"diff": redact_diff_content(diff, self.ctx.config.omit_content_patterns), "extra_context": extra_context},
             config={
-                "tags": [pr_describer.get_name(), self.ctx.git_platform.value],
+                "tags": [self.ctx.git_platform.value],
                 "metadata": {"scope": self.ctx.scope, "repo_id": self.ctx.repo_id},
             },
         )
-        if result and "structured_response" in result:
-            return result["structured_response"]
+        if result and ("pr_metadata" in result or "commit_message" in result):
+            return result
 
         raise ValueError("Failed to get PR metadata from the diff.")
 
