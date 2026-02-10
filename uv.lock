@@ -501,7 +501,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
     { name = "langgraph", specifier = "==1.0.8" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.4" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.6.9" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.7.0" },
     { name = "langsmith-fetch", specifier = ">=0.3.1" },
     { name = "markdownify", specifier = "==1.2.2" },
     { name = "openevals", specifier = "==0.1.3" },
@@ -1516,7 +1516,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.6.9"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1529,9 +1529,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/e0/463a70b43d6755b01598bb59932eec8e2029afcab455b5312c318ac457b5/langsmith-0.6.9.tar.gz", hash = "sha256:aae04cec6e6d8e133f63ba71c332ce0fbd2cda95260db7746ff4c3b6a3c41db1", size = 973557, upload-time = "2026-02-05T20:10:55.629Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/69/ee6b8fd398b73f344349f69a8822b99dddfe0b685be39016642c86cdb49d/langsmith-0.7.0.tar.gz", hash = "sha256:d5368efe13632ce19f4e4a9e6f928a9cbb8492f9dd5b421e0601d547b8298656", size = 983114, upload-time = "2026-02-09T18:35:18.363Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/8e/063e09c5e8a3dcd77e2a8f0bff3f71c1c52a9d238da1bcafd2df3281da17/langsmith-0.6.9-py3-none-any.whl", hash = "sha256:86ba521e042397f6fbb79d63991df9d5f7b6a6dd6a6323d4f92131291478dcff", size = 319228, upload-time = "2026-02-05T20:10:54.248Z" },
+    { url = "https://files.pythonhosted.org/packages/80/31/027a5f2a653ebe703bb20429265c5fdfbf204688b4e97cd86b02910a3376/langsmith-0.7.0-py3-none-any.whl", hash = "sha256:a3832d880e6c02783a6d948b0fa887f562501f4505bd95216460fa50b4ecf634", size = 321485, upload-time = "2026-02-09T18:35:17.114Z" },
 ]
 
 [package.optional-dependencies]
@@ -2084,7 +2084,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
