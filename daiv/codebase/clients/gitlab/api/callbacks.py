@@ -3,11 +3,10 @@ from functools import cached_property
 from typing import Any, Literal
 
 from codebase.api.callbacks import BaseCallback
-from codebase.base import NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
+from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
@@ -112,7 +111,7 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_review)
+        return bool(self._is_issue_comment or self._is_merge_request_comment)
 
     async def process_callback(self):
         """
@@ -130,32 +129,24 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
             )
 
-        elif self.merge_request and self._is_merge_request_review:
+        elif self.merge_request and self._is_merge_request_comment:
             self._client.create_merge_request_note_emoji(
                 self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
             )
-            if self.object_attributes.type in [NoteType.DIFF_NOTE, NoteType.DISCUSSION_NOTE]:
-                await address_mr_review_task.aenqueue(
-                    repo_id=self.project.path_with_namespace,
-                    merge_request_id=self.merge_request.iid,
-                    merge_request_source_branch=self.merge_request.source_branch,
-                )
-            elif self.object_attributes.type is None:  # This is a comment note.
-                await address_mr_comments_task.aenqueue(
-                    repo_id=self.project.path_with_namespace,
-                    merge_request_id=self.merge_request.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                )
-            else:
-                logger.warning("Unsupported note type: %s", self.object_attributes.type)
+            await address_mr_comments_task.aenqueue(
+                repo_id=self.project.path_with_namespace,
+                merge_request_id=self.merge_request.iid,
+                mention_comment_id=self.object_attributes.discussion_id,
+            )
 
     @cached_property
-    def _is_merge_request_review(self) -> bool:
+    def _is_merge_request_comment(self) -> bool:
         """
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         return bool(
             self._repo_config.code_review.enabled
+            and self.object_attributes.type is None  # This is a comment note.
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
             and self.merge_request
@@ -192,13 +183,10 @@ class PushCallback(BaseCallback):
         """
         Accept the webhook if the push is to the default branch or to any branch with MR created.
         """
-        return self.ref.endswith(self.project.default_branch)
+        return bool(self.project.default_branch and self.ref.endswith(self.project.default_branch))
 
     async def process_callback(self):
         """
-        Process the push webhook to update the codebase index and invalidate the cache for the
-        repository configurations.
+        Process the push webhook to invalidate the cache for the repository configurations.
         """
-        if self.project.default_branch and self.ref.endswith(self.project.default_branch):
-            # Invalidate the cache for the repository configurations, they could have changed.
-            RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+        RepositoryConfig.invalidate_cache(self.project.path_with_namespace)

@@ -118,13 +118,13 @@ class IssueAddressorManager(BaseManager):
 
                 self._add_unable_to_address_issue_note(changes_published=bool(publish_result))
             else:
-                self._create_or_update_comment(result and extract_text_content(result["messages"][-1].content))
+                self._leave_comment(result and extract_text_content(result["messages"][-1].content))
 
     def _add_unable_to_address_issue_note(self, *, changes_published: bool = False):
         """
         Add a note to the issue to inform the user that the response could not be generated.
         """
-        self._create_or_update_comment(
+        self._leave_comment(
             render_to_string(
                 "codebase/unable_address_issue.txt",
                 {
@@ -134,22 +134,16 @@ class IssueAddressorManager(BaseManager):
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                 },
             ),
-            reply_to_id=self.mention_comment_id,
+            # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
+            reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
         )
 
-    def _create_or_update_comment(self, note_message: str, reply_to_id: str | None = None):
+    def _leave_comment(self, body: str, reply_to_id: str | None = None):
         """
-        Create or update a comment on the issue.
+        Leave a comment on the issue.
 
         Args:
-            note_message: The message to add to the comment.
-            reply_to_id: The ID of the comment to reply to.
+            body: The body of the comment.
+            reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
         """
-        if self._comment_id is not None:
-            self.client.update_issue_comment(
-                self.ctx.repo_id, self.issue.iid, self._comment_id, note_message, reply_to_id=reply_to_id
-            )
-        else:
-            self._comment_id = self.client.create_issue_comment(
-                self.ctx.repo_id, self.issue.iid, note_message, reply_to_id=reply_to_id
-            )
+        return self.client.create_issue_comment(self.ctx.repo_id, self.issue.iid, body, reply_to_id=reply_to_id)

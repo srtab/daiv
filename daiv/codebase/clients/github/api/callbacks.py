@@ -6,11 +6,11 @@ from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task, address_mr_review_task
+from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, Label, PullRequest, Repository, Review  # noqa: TC001
+from .models import Comment, Issue, Label, Repository  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -147,42 +147,6 @@ class IssueCommentCallback(GitHubCallback):
             and self.issue.state == "open"
             and self.action in ["created", "edited"]
             and note_mentions_daiv(self.comment.body, self._client.current_user)
-        )
-
-
-class PullRequestReviewCallback(GitHubCallback):
-    """
-    GitHub Pull Request Review Webhook for automatically address the review feedback.
-    """
-
-    action: Literal["submitted", "edited", "dismissed"]
-    pull_request: PullRequest
-    review: Review
-
-    def model_post_init(self, __context: Any):
-        self._client = RepoClient.create_instance()
-
-    def accept_callback(self) -> bool:
-        """
-        Check if the webhook is accepted.
-        """
-        return (
-            self.action in ["submitted", "edited"]
-            and self.pull_request.state == "open"
-            # Ignore the DAIV review itself
-            and self.review.user.id != self._client.current_user.id
-        )
-
-    async def process_callback(self):
-        """
-        Trigger the task to address the review feedback or issue comment like the plan approval use case.
-
-        GitLab Note Webhook is called multiple times, one per note/discussion.
-        """
-        await address_mr_review_task.aenqueue(
-            repo_id=self.repository.full_name,
-            merge_request_id=self.pull_request.number,
-            merge_request_source_branch=self.pull_request.head.ref,
         )
 
 
