@@ -42,16 +42,7 @@ def dynamic_system_prompt(request: ModelRequest) -> str:
     return system_prompt + cast("str", system.format(current_date_time=timezone.now().strftime("%d %B, %Y")).content)
 
 
-def output_selector(x: dict[str, Any]) -> dict[str, PullRequestMetadata | CommitMetadata]:
-    output: dict[str, PullRequestMetadata | CommitMetadata] = {}
-    if "pr_metadata" in x:
-        output["pr_metadata"] = x["pr_metadata"]["structured_response"]
-    if "commit_message" in x:
-        output["commit_message"] = x["commit_message"]["structured_response"]
-    return output
-
-
-def create_changes_metadata_graph(
+def create_diff_to_metadata_graph(
     model_names: Sequence[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
     *,
     ctx: RuntimeCtx,
@@ -103,7 +94,7 @@ def create_changes_metadata_graph(
                 response_format=PullRequestMetadata,
                 context_schema=RuntimeCtx,
             )
-        ).with_config(run_name="PR Metadata Agent")
+        ).with_config(run_name="PRMetadata")
 
     if include_commit_message:
         graphs["commit_message"] = (
@@ -115,10 +106,26 @@ def create_changes_metadata_graph(
                 response_format=CommitMetadata,
                 context_schema=RuntimeCtx,
             )
-        ).with_config(run_name="Commit Message Agent")
+        ).with_config(run_name="CommitMessage")
 
-    run_name = "Changes Metadata Generator"
-    return (RunnableParallel(graphs) | RunnableLambda(output_selector)).with_config(
+    def _input_selector(x: dict[str, Any]) -> dict[str, str]:
+        input_data = {}
+        if include_pr_metadata:
+            input_data["pr_metadata_diff"] = x.get("pr_metadata_diff", x.get("diff", ""))
+        if include_commit_message:
+            input_data["commit_message_diff"] = x.get("commit_message_diff", x.get("diff", ""))
+        return input_data
+
+    def _output_selector(x: dict[str, Any]) -> dict[str, PullRequestMetadata | CommitMetadata]:
+        output: dict[str, PullRequestMetadata | CommitMetadata] = {}
+        if include_pr_metadata and "pr_metadata" in x:
+            output["pr_metadata"] = x["pr_metadata"]["structured_response"]
+        if include_commit_message and "commit_message" in x:
+            output["commit_message"] = x["commit_message"]["structured_response"]
+        return output
+
+    run_name = "DiffToMetadata"
+    return (RunnableLambda(_input_selector) | RunnableParallel(graphs) | RunnableLambda(_output_selector)).with_config(
         run_name=run_name,
         tags=[run_name],
         metadata={"include_pr_metadata": include_pr_metadata, "include_commit_message": include_commit_message},
@@ -137,10 +144,10 @@ async def main():
         reserve_space_for_menu=7,  # Reserve space for completion menu to show 5-6 results
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
-        pr_metadata_graph = create_changes_metadata_graph(ctx=ctx, model_names=[ModelName.CLAUDE_HAIKU_4_5])
+        diff_to_metadata_graph = create_diff_to_metadata_graph(ctx=ctx, model_names=[ModelName.CLAUDE_HAIKU_4_5])
         while True:
             user_input = await session.prompt_async()
-            output = await pr_metadata_graph.ainvoke(
+            output = await diff_to_metadata_graph.ainvoke(
                 {"diff": redact_diff_content(user_input, ctx.config.omit_content_patterns)},
                 context=ctx,
                 config={"configurable": {"thread_id": "1"}},

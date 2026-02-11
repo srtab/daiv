@@ -1,5 +1,5 @@
 An unexpected error occurred while working on this {% if is_gitlab %}merge request{% else %}pull request{% endif %}.
-{% if changes_published %}
+{% if draft_published %}
 To avoid losing progress, {{ bot_name }} committed the changes done so far.
 {% endif %}
 

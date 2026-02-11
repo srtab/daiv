@@ -79,6 +79,19 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
+    ) -> MergeRequest:
+        pass
+
+    @abc.abstractmethod
     def create_merge_request_comment(
         self,
         repo_id: str,

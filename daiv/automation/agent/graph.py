@@ -239,7 +239,7 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=[ModelName.MOONSHOTAI_KIMI_K2_5], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx, model_names=["openrouter:z-ai/glm-5"], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()

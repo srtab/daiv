@@ -78,6 +78,7 @@ def mock_repo_client():
             author=mock_client.current_user,
         )
         mock_client.update_or_create_merge_request.return_value = merge_request
+        mock_client.update_merge_request.return_value = merge_request
         mock_client.get_merge_request.return_value = merge_request
         mock_client.get_merge_request_latest_pipelines.return_value = []
         mock_client.get_merge_request_review_comments.return_value = []

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.publishers import GitChangePublisher
-from codebase.base import Scope
+from codebase.base import MergeRequest, Scope
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager
 
@@ -52,14 +53,9 @@ class GitState(AgentState):
     State for the git middleware.
     """
 
-    branch_name: str
+    merge_request: Annotated[MergeRequest | None, PrivateStateAttr]
     """
-    The branch name used to commit the changes.
-    """
-
-    merge_request_id: int
-    """
-    The merge request ID used to commit the changes.
+    The merge request used to commit the changes.
     """
 
 
@@ -103,32 +99,29 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         Before the agent starts, set the branch name and merge request ID.
         """
-        branch_name = state.get("branch_name")
-        merge_request_id = state.get("merge_request_id")
+        merge_request = state.get("merge_request")
 
         if runtime.context.scope == Scope.MERGE_REQUEST:
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
-            branch_name = runtime.context.merge_request.source_branch
-            merge_request_id = runtime.context.merge_request.merge_request_id
+            merge_request = runtime.context.merge_request
 
-        if branch_name and branch_name != runtime.context.repo.active_branch.name:
+        if merge_request and merge_request.source_branch != runtime.context.repo.active_branch.name:
             git_manager = GitManager(runtime.context.repo)
 
-            logger.info("[%s] Checking out to branch '%s'", self.name, branch_name)
+            logger.info("[%s] Checking out to branch '%s'", self.name, merge_request.source_branch)
 
             try:
-                git_manager.checkout(branch_name)
+                git_manager.checkout(merge_request.source_branch)
             except ValueError as e:
                 # The branch does not exist in the repository, so we need to create it.
-                logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, branch_name, e)
-                branch_name = None
-                merge_request_id = None
+                logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
+                merge_request = None
 
-        return {"branch_name": branch_name, "merge_request_id": merge_request_id}
+        return {"merge_request": merge_request}
 
     async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+        self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         """
         Update the system prompt with the git system prompt.
@@ -160,18 +153,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
 
         publisher = GitChangePublisher(runtime.context)
-        publish_result = await publisher.publish(
-            branch_name=state.get("branch_name"), merge_request_id=state.get("merge_request_id"), skip_ci=self.skip_ci
-        )
+        merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
 
-        if publish_result:
+        if merge_request:
             if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
                 # If an issue resulted in a merge request, we send it to LangSmith for tracking.
-                rt.metadata["merge_request_id"] = publish_result["merge_request_id"]
+                rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
-            return {
-                "branch_name": publish_result["branch_name"],
-                "merge_request_id": publish_result["merge_request_id"],
-            }
+            return {"merge_request": merge_request}
 
         return None

@@ -260,31 +260,24 @@ class CommentsAddressorManager(BaseManager):
                 # If and unexpect error occurs while addressing the review, a draft merge request is created to avoid
                 # losing the changes made by the agent.
                 publisher = GitChangePublisher(self.ctx)
-                publish_result = await publisher.publish(
-                    branch_name=snapshot.values.get("branch_name"),
-                    merge_request_id=snapshot.values.get("merge_request_id"),
-                    as_draft=snapshot.values.get("merge_request_id") is None,
+                merge_request = snapshot.values.get("merge_request")
+                merge_request = await publisher.publish(
+                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
                 )
 
-                if publish_result:
-                    await daiv_agent.aupdate_state(
-                        config=agent_config,
-                        values={
-                            "branch_name": publish_result["branch_name"],
-                            "merge_request_id": publish_result["merge_request_id"],
-                        },
-                    )
+                if merge_request:
+                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
 
-                self._add_unable_to_address_review_note(changes_published=bool(publish_result))
+                self._add_unable_to_address_review_note(draft_published=bool(merge_request))
             else:
                 self._leave_comment(result and extract_text_content(result["messages"][-1].content))
 
-    def _add_unable_to_address_review_note(self, *, changes_published: bool = False):
+    def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
         """
         Add a note to the merge request to inform the user that the review could not be addressed.
 
         Args:
-            changes_published: Whether the changes were published to the repository.
+            draft_published: Whether the draft merge request was published to the repository.
         """
         self._leave_comment(
             render_to_string(
@@ -292,7 +285,7 @@ class CommentsAddressorManager(BaseManager):
                 {
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
-                    "changes_published": changes_published,
+                    "draft_published": draft_published,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                 },
             ),

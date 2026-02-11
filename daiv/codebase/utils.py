@@ -137,7 +137,7 @@ class GitManager:
         """
         self.repo = repo
 
-    def get_diff(self) -> str:
+    def get_diff(self, ref: str = "HEAD") -> str:
         """
         Get the diff of the repository's including unstaged changes.
 
@@ -145,7 +145,7 @@ class GitManager:
             The diff of the repository.
         """
         try:
-            diff = self.repo.git.diff("HEAD")
+            diff = self.repo.git.diff(ref)
         except GitCommandError:
             # No commits yet, get diff of all files
             diff = self.repo.git.diff("--cached", "--no-prefix")

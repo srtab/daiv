@@ -25,7 +25,7 @@ human_pr_metadata = HumanMessagePromptTemplate.from_template(
 
 Diff hunks (unified diff; may include multiple files):
 ~~~diff
-{{diff}}
+{{pr_metadata_diff}}
 ~~~
 
 {{#extra_context}}
@@ -65,7 +65,7 @@ human_commit_message = HumanMessagePromptTemplate.from_template(
 
 Diff hunks (unified diff; may include multiple files):
 ~~~diff
-{{diff}}
+{{commit_message_diff}}
 ~~~
 
 Output requirements:

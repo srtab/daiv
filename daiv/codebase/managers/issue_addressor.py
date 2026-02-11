@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.managers")
 
 
-PLAN_ISSUE_PROMPT = "Present a plan to address this issue and wait for approval before executing it."
+PLAN_ISSUE_PROMPT = "Present a detailed plan to address this issue and wait for approval before executing it."
 ADDRESS_ISSUE_PROMPT = "Address this issue."
 
 
@@ -99,28 +99,29 @@ class IssueAddressorManager(BaseManager):
 
                 # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
                 # losing the changes made by the agent.
+                merge_request = snapshot.values.get("merge_request")
                 publisher = GitChangePublisher(self.ctx)
-                publish_result = await publisher.publish(
-                    branch_name=snapshot.values.get("branch_name"),
-                    merge_request_id=snapshot.values.get("merge_request_id"),
-                    as_draft=snapshot.values.get("merge_request_id") is None,
+                merge_request = await publisher.publish(
+                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
                 )
 
                 # If the draft merge request is created successfully, we update the state to reflect the new MR.
-                if publish_result:
-                    await daiv_agent.aupdate_state(
-                        config=agent_config,
-                        values={
-                            "branch_name": publish_result["branch_name"],
-                            "merge_request_id": publish_result["merge_request_id"],
-                        },
-                    )
+                if merge_request:
+                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
 
-                self._add_unable_to_address_issue_note(changes_published=bool(publish_result))
+                self._add_unable_to_address_issue_note(draft_published=bool(merge_request))
             else:
-                self._leave_comment(result and extract_text_content(result["messages"][-1].content))
+                if (
+                    result
+                    and "messages" in result
+                    and result["messages"]
+                    and (response_text := extract_text_content(result["messages"][-1].content).strip())
+                ):
+                    self._leave_comment(response_text)
+                else:
+                    self._add_unable_to_address_issue_note()
 
-    def _add_unable_to_address_issue_note(self, *, changes_published: bool = False):
+    def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """
         Add a note to the issue to inform the user that the response could not be generated.
         """
@@ -130,7 +131,7 @@ class IssueAddressorManager(BaseManager):
                 {
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
-                    "changes_published": changes_published,
+                    "draft_published": draft_published,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                 },
             ),

@@ -774,7 +774,7 @@ class GitHubClient(RepoClient):
         as_draft: bool = False,
     ) -> MergeRequest:
         """
-        Update or create a merge request.
+        Create a merge request or update an existing one if it already exists based on the source and target branches.
 
         Args:
             repo_id: The repository ID.
@@ -813,10 +813,73 @@ class GitHubClient(RepoClient):
             elif not pr.draft and as_draft:
                 pr.convert_to_draft()
 
-        if labels is not None:
+        if labels is not None and not any(label.name in labels for label in pr.labels):
             pr.add_to_labels(*labels)
 
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
+            pr.add_to_assignees(assignee_id)
+
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+        )
+
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
+    ) -> MergeRequest:
+        """
+        Update an existing merge request if it has changes.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            as_draft: Whether to set the merge request as a draft.
+            title: The title of the merge request.
+            description: The description of the merge request.
+            labels: The labels of the merge request.
+            assignee_id: The assignee ID of the merge request.
+
+        Returns:
+            The merge request.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+
+        if as_draft is not None and pr.draft and not as_draft:
+            pr.mark_ready_for_review()
+        elif as_draft is not None and not pr.draft and as_draft:
+            pr.convert_to_draft()
+
+        edit_fields = {}
+        if title is not None:
+            edit_fields["title"] = title
+
+        if description is not None:
+            edit_fields["body"] = description
+
+        if edit_fields:
+            pr.edit(**edit_fields)
+
+        if labels is not None and not any(label.name in labels for label in pr.labels):
+            pr.add_to_labels(*labels)
+
+        if assignee_id is not None and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
         return MergeRequest(

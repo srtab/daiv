@@ -236,7 +236,21 @@ class SWERepoClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
+    ) -> MergeRequest:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge requests")
+
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
     ) -> MergeRequest:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
