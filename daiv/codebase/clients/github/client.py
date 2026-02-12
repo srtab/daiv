@@ -61,6 +61,18 @@ class GitHubClient(RepoClient):
         self.client_installation = integration.get_app_installation(installation_id)
         self.client = self.client_installation.get_github_for_installation()
 
+    def _configure_commit_identity(self, repo: Repo) -> None:
+        """
+        Configure repository-local git identity to match the GitHub App bot user.
+        """
+        bot_login = f"{self.client_installation.app_slug}[bot]"
+        bot_user_id = self.current_user.id
+        bot_email = f"{bot_user_id}+{bot_login}@users.noreply.github.com"
+
+        with repo.config_writer() as writer:
+            writer.set_value("user", "name", bot_login)
+            writer.set_value("user", "email", bot_email)
+
     def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
@@ -104,6 +116,7 @@ class GitHubClient(RepoClient):
                 default_branch=repo.default_branch,
                 git_platform=self.git_platform,
                 topics=repo.topics,
+                clone_url=repo.clone_url,
             )
             for repo in self.client_installation.get_repos()
             if topics is None or any(topic in repo.topics for topic in topics)
@@ -762,7 +775,9 @@ class GitHubClient(RepoClient):
             clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            self._configure_commit_identity(repo)
+            yield repo
 
     def update_or_create_merge_request(
         self,

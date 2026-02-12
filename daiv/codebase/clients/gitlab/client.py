@@ -59,6 +59,30 @@ class GitLabClient(RepoClient):
             user_agent=USER_AGENT,
         )
 
+    def _get_commit_email(self) -> str:
+        """
+        Resolve the best available email for commit attribution.
+        """
+        self.client.auth()
+        if user := self.client.user:
+            for email_attr in ("commit_email", "public_email", "email"):
+                if (email := getattr(user, email_attr, None)) and isinstance(email, str) and email.strip():
+                    return email
+            return f"{user.username}@users.noreply.gitlab.com"
+
+        return f"{self.current_user.username}@users.noreply.gitlab.com"
+
+    def _configure_commit_identity(self, repo: Repo) -> None:
+        """
+        Configure repository-local git identity to match the GitLab bot user.
+        """
+        bot_username = self.current_user.username
+        bot_email = self._get_commit_email()
+
+        with repo.config_writer() as writer:
+            writer.set_value("user", "name", bot_username)
+            writer.set_value("user", "email", bot_email)
+
     @property
     def _codebase_url(self) -> str:
         return self.client.url
@@ -434,7 +458,9 @@ class GitLabClient(RepoClient):
 
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            self._configure_commit_identity(repo)
+            yield repo
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """

@@ -5,6 +5,7 @@ from github import UnknownObjectException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
+from codebase.base import GitPlatform, Repository, User
 from codebase.clients.base import Emoji
 from codebase.clients.github.client import GitHubClient
 
@@ -48,18 +49,6 @@ class TestGitHubClient:
         assert result is None
         mock_download.assert_called_once_with(url, headers={"Authorization": "Bearer test-token-123"})
 
-    @patch("codebase.clients.github.client.async_download_url")
-    async def test_get_project_uploaded_file_uses_bearer_token(self, mock_download, github_client):
-        """Test that the method uses Bearer token authentication."""
-        mock_download.return_value = b"content"
-
-        url = "https://github.com/user-attachments/assets/test.jpg"
-        await github_client.get_project_uploaded_file("owner/repo", url)
-
-        # Verify the Authorization header format
-        call_args = mock_download.call_args
-        assert call_args[1]["headers"]["Authorization"] == "Bearer test-token-123"
-
     def test_create_issue_emoji_converts_note_id_to_int(self, github_client):
         """Test that create_issue_emoji converts string note_id to int."""
         mock_repo = Mock()
@@ -77,103 +66,33 @@ class TestGitHubClient:
         mock_issue.get_comment.assert_called_once_with(3645723306)
         mock_comment.create_reaction.assert_called_once_with("+1")
 
-    def test_has_issue_reaction_returns_true_when_reaction_exists(self, github_client):
-        """Test that has_issue_reaction returns True when the current user has reacted with the specified emoji."""
-        from codebase.base import User
-
+    @pytest.mark.parametrize(
+        ("reactions", "emoji", "expected"),
+        [
+            pytest.param([("eyes", 456), ("eyes", 123)], Emoji.EYES, True, id="reaction-exists-for-current-user"),
+            pytest.param([("eyes", 456)], Emoji.EYES, False, id="reaction-from-different-user"),
+            pytest.param([("+1", 123)], Emoji.EYES, False, id="different-emoji"),
+            pytest.param([], Emoji.EYES, False, id="no-reactions"),
+        ],
+    )
+    def test_has_issue_reaction(self, github_client, monkeypatch, reactions, emoji, expected):
+        """Test issue reaction matching for user and emoji combinations."""
         mock_repo = Mock()
         mock_issue = Mock()
-        mock_reaction1 = Mock()
-        mock_reaction2 = Mock()
-        mock_user1 = Mock()
-        mock_user2 = Mock()
+        mock_reactions = []
+        for content, user_id in reactions:
+            reaction = Mock()
+            reaction.content = content
+            reaction.user = Mock(id=user_id)
+            mock_reactions.append(reaction)
 
-        # Mock current_user as a cached_property
-        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
-
-        # Set up reactions
-        mock_user1.id = 456  # Different user
-        mock_user2.id = 123  # Current user
-        mock_reaction1.content = "eyes"
-        mock_reaction1.user = mock_user1
-        mock_reaction2.content = "eyes"
-        mock_reaction2.user = mock_user2
-
+        monkeypatch.setattr(type(github_client), "current_user", User(id=123, username="daiv", name="DAIV"))
         github_client.client.get_repo.return_value = mock_repo
         mock_repo.get_issue.return_value = mock_issue
-        mock_issue.get_reactions.return_value = [mock_reaction1, mock_reaction2]
+        mock_issue.get_reactions.return_value = mock_reactions
 
-        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
-
-        assert result is True
-
-    def test_has_issue_reaction_returns_false_when_reaction_not_exists(self, github_client):
-        """Test that has_issue_reaction returns False when the current user has not reacted."""
-        from codebase.base import User
-
-        mock_repo = Mock()
-        mock_issue = Mock()
-        mock_reaction = Mock()
-        mock_user = Mock()
-
-        # Mock current_user as a cached_property
-        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
-
-        # Set up reaction from different user
-        mock_user.id = 456
-        mock_reaction.content = "eyes"
-        mock_reaction.user = mock_user
-
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_issue.return_value = mock_issue
-        mock_issue.get_reactions.return_value = [mock_reaction]
-
-        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
-
-        assert result is False
-
-    def test_has_issue_reaction_returns_false_when_different_emoji(self, github_client):
-        """Test that has_issue_reaction returns False when the current user reacted with a different emoji."""
-        from codebase.base import User
-
-        mock_repo = Mock()
-        mock_issue = Mock()
-        mock_reaction = Mock()
-        mock_user = Mock()
-
-        # Mock current_user as a cached_property
-        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
-
-        # Set up reaction with different emoji
-        mock_user.id = 123  # Current user
-        mock_reaction.content = "+1"  # Different emoji
-        mock_reaction.user = mock_user
-
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_issue.return_value = mock_issue
-        mock_issue.get_reactions.return_value = [mock_reaction]
-
-        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
-
-        assert result is False
-
-    def test_has_issue_reaction_returns_false_when_no_reactions(self, github_client):
-        """Test that has_issue_reaction returns False when there are no reactions."""
-        from codebase.base import User
-
-        mock_repo = Mock()
-        mock_issue = Mock()
-
-        # Mock current_user as a cached_property
-        type(github_client).current_user = User(id=123, username="daiv", name="DAIV")
-
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_issue.return_value = mock_issue
-        mock_issue.get_reactions.return_value = []
-
-        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES)
-
-        assert result is False
+        result = github_client.has_issue_reaction("owner/repo", 123, emoji)
+        assert result is expected
 
     def test_create_merge_request_note_emoji_review_comment(self, github_client):
         """Test that create_merge_request_note_emoji converts string note_id to int for review comments."""
@@ -273,3 +192,39 @@ class TestGitHubClient:
         mock_pr.get_review_comment.assert_called_once_with(3645723306)
         assert result.id == "3645723306"
         assert len(result.notes) == 1
+
+    @patch("codebase.clients.github.client.Repo.clone_from")
+    def test_load_repo_configures_git_identity_with_app_bot(self, mock_clone_from, github_client, monkeypatch):
+        """Test load_repo configures local git identity to the app bot user."""
+        mock_repo = Mock()
+        mock_writer = Mock()
+        mock_repo.config_writer.return_value.__enter__ = Mock(return_value=mock_writer)
+        mock_repo.config_writer.return_value.__exit__ = Mock(return_value=None)
+        mock_clone_from.return_value = mock_repo
+
+        github_client.client_installation.id = 67890
+        github_client.client_installation.app_slug = "daiv-agent-test"
+        github_client._integration.get_access_token.return_value = Mock(token="token")  # noqa: S106
+        monkeypatch.setattr(
+            type(github_client), "current_user", User(id=123456, username="daiv-agent-test", name="DAIV Agent Test")
+        )
+
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+        with github_client.load_repo(repository, "main") as loaded_repo:
+            assert loaded_repo == mock_repo
+
+        clone_url, clone_dir = mock_clone_from.call_args.args[:2]
+        branch = mock_clone_from.call_args.kwargs["branch"]
+        assert clone_url == "https://oauth2:token@github.com/owner/repo.git"
+        assert clone_dir.name == "repo"
+        assert branch == "main"
+        mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test[bot]")
+        mock_writer.set_value.assert_any_call("user", "email", "123456+daiv-agent-test[bot]@users.noreply.github.com")
