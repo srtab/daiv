@@ -700,10 +700,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pr-describer-agent" class="md-nav__link">
+  <a href="#diff-to-metadata-agent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PR Describer Agent
+        Diff to Metadata Agent
       
     </span>
   </a>
@@ -1267,10 +1267,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pr-describer-agent" class="md-nav__link">
+  <a href="#diff-to-metadata-agent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PR Describer Agent
+        Diff to Metadata Agent
       
     </span>
   </a>
@@ -1844,8 +1844,8 @@ Therefore, the review addressor agent uses the same model configuration defined 
 </tr>
 </tbody>
 </table>
-<h3 id="pr-describer-agent">PR Describer Agent</h3>
-<p>Configure models for the PR describer agent.</p>
+<h3 id="diff-to-metadata-agent">Diff to Metadata Agent</h3>
+<p>Configure models for the diff to metadata agent.</p>
 <table>
 <thead>
 <tr>
@@ -1860,7 +1860,13 @@ Therefore, the review addressor agent uses the same model configuration defined 
 <td><code>model</code></td>
 <td><code>str \| null</code></td>
 <td><code>null</code></td>
-<td>Model name for PR description. Overrides <code>PR_DESCRIBER_MODEL_NAME</code> environment variable.</td>
+<td>Model name to transform a diff into metadata for a pull request/commit message. Overrides <code>DIFF_TO_METADATA_MODEL_NAME</code> environment variable.</td>
+</tr>
+<tr>
+<td><code>fallback_model</code></td>
+<td><code>str \| null</code></td>
+<td><code>null</code></td>
+<td>Fallback model name for diff to metadata. Overrides <code>DIFF_TO_METADATA_FALLBACK_MODEL_NAME</code> environment variable.</td>
 </tr>
 </tbody>
 </table>
@@ -1868,12 +1874,12 @@ Therefore, the review addressor agent uses the same model configuration defined 
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
 <span class="normal"><a href="#__codelineno-6-2">2</a></span>
 <span class="normal"><a href="#__codelineno-6-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">pr_describer</span><span class="p">:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">diff_to_metadata</span><span class="p">:</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:openai/gpt-4.1-mini&quot;</span>
 </code></pre></div></td></tr></table></div></p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The PR describer agent automatically reads your <code>AGENTS.md</code> context file to understand branch naming and commit message conventions. See <a href="#branch-naming-and-commit-message-conventions">Branch Naming and Commit Message Conventions</a> for details.</p>
+<p>The diff to metadata agent automatically reads your <code>AGENTS.md</code> context file to understand branch naming and commit message conventions. See <a href="#branch-naming-and-commit-message-conventions">Branch Naming and Commit Message Conventions</a> for details.</p>
 </div>
 
 
@@ -1897,7 +1903,7 @@ Therefore, the review addressor agent uses the same model configuration defined 
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 4, 2026 12:08:23 UTC">February 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 12, 2026 01:34:54 UTC">February 12, 2026</span>
   </span>
 
     
@@ -1907,7 +1913,7 @@ Therefore, the review addressor agent uses the same model configuration defined 
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 4, 2026 12:08:23 UTC">February 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 12, 2026 01:34:54 UTC">February 12, 2026</span>
   </span>
 
     
