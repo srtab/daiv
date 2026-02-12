@@ -13,7 +13,7 @@ from yaml.parser import ParserError
 from automation.agent.base import ThinkingLevel  # noqa: TC001
 from automation.agent.conf import settings as deepagent_settings
 from automation.agent.constants import ModelName  # noqa: TC001
-from automation.agent.pr_describer.conf import settings as pr_describer_settings
+from automation.agent.diff_to_metadata.conf import settings as diff_to_metadata_settings
 from core.conf import settings as core_settings
 
 if TYPE_CHECKING:
@@ -112,14 +112,24 @@ class AgentModelConfig(BaseModel):
     )
 
 
-class PRDescriberModelConfig(BaseModel):
+class DiffToMetadataModelConfig(BaseModel):
     """
-    Model configuration for the PR describer agent.
+    Model configuration for the diff to metadata agent.
     """
 
     model: ModelName | str = Field(
-        default=pr_describer_settings.MODEL_NAME,
-        description="Model name for PR description. Overrides PR_DESCRIBER_MODEL_NAME environment variable.",
+        default=diff_to_metadata_settings.MODEL_NAME,
+        description=(
+            "Model name to transform a diff into metadata for a pull request/commit message. "
+            "Overrides DIFF_TO_METADATA_MODEL_NAME environment variable."
+        ),
+    )
+    fallback_model: ModelName | str = Field(
+        default=diff_to_metadata_settings.FALLBACK_MODEL_NAME,
+        description=(
+            "Fallback model name for diff to metadata. "
+            "Overrides DIFF_TO_METADATA_FALLBACK_MODEL_NAME environment variable."
+        ),
     )
 
 
@@ -129,8 +139,8 @@ class Models(BaseModel):
     """
 
     agent: AgentModelConfig = Field(default_factory=AgentModelConfig, description="Configuration for the DAIV agent.")
-    pr_describer: PRDescriberModelConfig = Field(
-        default_factory=PRDescriberModelConfig, description="Configuration for the PR describer agent."
+    diff_to_metadata: DiffToMetadataModelConfig = Field(
+        default_factory=DiffToMetadataModelConfig, description="Configuration for the diff to metadata agent."
     )
 
 

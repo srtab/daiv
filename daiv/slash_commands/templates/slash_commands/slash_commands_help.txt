@@ -1,5 +1,7 @@
 ### 🤖 {{ bot_name }} Slash Commands
 
+| Command | Description |
+|---------|-------------|
 {% for action in actions %}{{ action }}
 {% endfor -%}
 

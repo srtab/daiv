@@ -34,7 +34,7 @@ from daiv import USER_AGENT
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from gitlab.v4.objects import ProjectHook
+    from gitlab.v4.objects import ProjectHook, ProjectMergeRequest
 
     from codebase.clients.base import Emoji
 
@@ -58,6 +58,30 @@ class GitLabClient(RepoClient):
             retry_transient_errors=True,
             user_agent=USER_AGENT,
         )
+
+    def _get_commit_email(self) -> str:
+        """
+        Resolve the best available email for commit attribution.
+        """
+        self.client.auth()
+        if user := self.client.user:
+            for email_attr in ("commit_email", "public_email", "email"):
+                if (email := getattr(user, email_attr, None)) and isinstance(email, str) and email.strip():
+                    return email
+            return f"{user.username}@users.noreply.gitlab.com"
+
+        return f"{self.current_user.username}@users.noreply.gitlab.com"
+
+    def _configure_commit_identity(self, repo: Repo) -> None:
+        """
+        Configure repository-local git identity to match the GitLab bot user.
+        """
+        bot_username = self.current_user.username
+        bot_email = self._get_commit_email()
+
+        with repo.config_writer() as writer:
+            writer.set_value("user", "name", bot_username)
+            writer.set_value("user", "email", bot_email)
 
     @property
     def _codebase_url(self) -> str:
@@ -295,7 +319,8 @@ class GitLabClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
     ) -> MergeRequest:
         """
         Create a merge request in a repository or update an existing one if it already exists.
@@ -308,6 +333,7 @@ class GitLabClient(RepoClient):
             description: The description of the merge request.
             labels: The list of labels.
             assignee_id: The assignee ID.
+            as_draft: Whether to create the merge request as a draft.
 
         Returns:
             The merge request data.
@@ -321,23 +347,9 @@ class GitLabClient(RepoClient):
                 "description": description,
                 "labels": labels or [],
                 "assignee_id": assignee_id,
+                "work_in_progress": as_draft,
             })
-            return MergeRequest(
-                repo_id=repo_id,
-                merge_request_id=cast("int", merge_request.get_id()),
-                source_branch=merge_request.source_branch,
-                target_branch=merge_request.target_branch,
-                title=merge_request.title,
-                description=merge_request.description,
-                labels=merge_request.labels,
-                web_url=merge_request.web_url,
-                sha=merge_request.sha,
-                author=User(
-                    id=merge_request.author.get("id"),
-                    username=merge_request.author.get("username"),
-                    name=merge_request.author.get("name"),
-                ),
-            )
+            return self._serialize_merge_request(repo_id, merge_request)
         except GitlabCreateError as e:
             if e.response_code != 409:
                 raise e
@@ -349,24 +361,80 @@ class GitLabClient(RepoClient):
                 merge_request.description = description
                 merge_request.labels = labels or []
                 merge_request.assignee_id = assignee_id
+                merge_request.work_in_progress = as_draft
                 merge_request.save()
-                return MergeRequest(
-                    repo_id=repo_id,
-                    merge_request_id=cast("int", merge_request.get_id()),
-                    source_branch=merge_request.source_branch,
-                    target_branch=merge_request.target_branch,
-                    title=merge_request.title,
-                    description=merge_request.description,
-                    labels=merge_request.labels,
-                    web_url=merge_request.web_url,
-                    sha=merge_request.sha,
-                    author=User(
-                        id=merge_request.author.get("id"),
-                        username=merge_request.author.get("username"),
-                        name=merge_request.author.get("name"),
-                    ),
-                )
+                return self._serialize_merge_request(repo_id, merge_request)
             raise e
+
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
+    ) -> MergeRequest:
+        """
+        Update an existing merge request if it has changes.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            as_draft: Whether to set the merge request as a draft.
+            title: The title of the merge request.
+            description: The description of the merge request.
+            labels: The labels of the merge request.
+            assignee_id: The assignee ID of the merge request.
+
+        Returns:
+            The merge request.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id)
+
+        has_changes = False
+        if as_draft is not None and merge_request.work_in_progress != as_draft:
+            merge_request.work_in_progress = as_draft
+            has_changes = True
+        if title is not None and merge_request.title != title:
+            merge_request.title = title
+            has_changes = True
+        if description is not None and merge_request.description != description:
+            merge_request.description = description
+            has_changes = True
+        if labels is not None and any(label.title not in labels for label in merge_request.labels):
+            mr_label_titles = [label.title for label in merge_request.labels]
+            merge_request.labels += [label for label in labels if label not in mr_label_titles]
+            has_changes = True
+        if assignee_id is not None and merge_request.assignee_id != assignee_id:
+            merge_request.assignee_id = assignee_id
+            has_changes = True
+
+        if has_changes:
+            merge_request.save()
+
+        return self._serialize_merge_request(repo_id, merge_request)
+
+    def _serialize_merge_request(self, repo_id: str, merge_request: ProjectMergeRequest) -> MergeRequest:
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=cast("int", merge_request.get_id()),
+            source_branch=merge_request.source_branch,
+            target_branch=merge_request.target_branch,
+            title=merge_request.title,
+            description=merge_request.description,
+            labels=merge_request.labels,
+            web_url=merge_request.web_url,
+            sha=merge_request.sha,
+            author=User(
+                id=merge_request.author.get("id"),
+                username=merge_request.author.get("username"),
+                name=merge_request.author.get("name"),
+            ),
+            draft=merge_request.work_in_progress,
+        )
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
@@ -390,7 +458,9 @@ class GitLabClient(RepoClient):
 
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            self._configure_commit_identity(repo)
+            yield repo
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
@@ -445,7 +515,7 @@ class GitLabClient(RepoClient):
         issue = project.issues.create(issue_data)
         return issue.iid
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
         Create an emoji direclty on an issue or on an issue note.
         """
@@ -770,7 +840,7 @@ class GitLabClient(RepoClient):
 
         return to_return
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
         Create an emoji in a note of a merge request.
 

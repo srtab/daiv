@@ -236,7 +236,21 @@ class SWERepoClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
+    ) -> MergeRequest:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge requests")
+
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
     ) -> MergeRequest:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
@@ -273,7 +287,7 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue emojis")
 
@@ -311,7 +325,7 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request emojis")
 

@@ -465,7 +465,8 @@ async def github_tool(
 
     args = ["gh"]
     args += splitted_subcommand
-    args += ["--repo", runtime.context.repo_id]
+    if resource != "api":
+        args += ["--repo", runtime.context.repo_id]
 
     try:
         process = await asyncio.create_subprocess_exec(

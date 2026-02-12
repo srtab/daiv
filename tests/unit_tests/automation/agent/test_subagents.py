@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import SecretStr
 
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -63,6 +64,7 @@ class TestGeneralPurposeSubagent:
         assert not any(isinstance(m, SandboxMiddleware) for m in result["middleware"])
 
 
+@patch("automation.agent.base.settings.OPENROUTER_API_KEY", SecretStr("test-key"))
 class TestExploreSubagent:
     """Tests for create_explore_subagent."""
 

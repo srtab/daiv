@@ -11,7 +11,7 @@ help:
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
-	@echo "  make evals          - Run evals"
+	@echo "  make integration-tests          - Run integration tests"
 
 test:
 	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests
@@ -42,8 +42,8 @@ makemessages:
 compilemessages:
 	uv run django-admin compilemessages
 
-evals:
-	LANGSMITH_TEST_SUITE="DAIV: PR Describer" uv run pytest --reuse-db evals --no-cov --log-level=INFO -k test_pr_describer -n 2
+integration-tests:
+	LANGSMITH_TEST_SUITE="DAIV: Diff to Metadata" uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -k test_diff_to_metadata -n 2
 
 swebench:
 	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --output-path predictions.json --num-samples 1

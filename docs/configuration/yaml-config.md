@@ -242,20 +242,21 @@ Configure models for the codebase chat agent.
 | `model`       | `str \| null`  | `null`  | Model name for codebase chat. Overrides `CODEBASE_CHAT_MODEL_NAME` environment variable. |
 | `temperature` | `float \| null` | `null`  | Temperature for codebase chat. Overrides `CODEBASE_CHAT_TEMPERATURE` environment variable. |
 
-### PR Describer Agent
+### Diff to Metadata Agent
 
-Configure models for the PR describer agent.
+Configure models for the diff to metadata agent.
 
 | Option            | Type                                                      | Default | Description                                                                 |
 |-------------------|-----------------------------------------------------------|---------|-----------------------------------------------------------------------------|
-| `model`           | `str \| null`                                             | `null`  | Model name for PR description. Overrides `PR_DESCRIBER_MODEL_NAME` environment variable. |
+| `model`           | `str \| null`                                             | `null`  | Model name to transform a diff into metadata for a pull request/commit message. Overrides `DIFF_TO_METADATA_MODEL_NAME` environment variable. |
+| `fallback_model`  | `str \| null`                                             | `null`  | Fallback model name for diff to metadata. Overrides `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` environment variable. |
 
 **Example configuration:**
 ```yaml
 models:
-  pr_describer:
+  diff_to_metadata:
     model: "openrouter:openai/gpt-4.1-mini"
 ```
 
 !!! note
-    The PR describer agent automatically reads your `AGENTS.md` context file to understand branch naming and commit message conventions. See [Branch Naming and Commit Message Conventions](#branch-naming-and-commit-message-conventions) for details.
+    The diff to metadata agent automatically reads your `AGENTS.md` context file to understand branch naming and commit message conventions. See [Branch Naming and Commit Message Conventions](#branch-naming-and-commit-message-conventions) for details.

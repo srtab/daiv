@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed repeated generation of GitHub CLI installation tokens by caching the token in the agent session state for subsequent `gh` tool calls.
 - Fixed skill tool to properly return a `Command` object for state updates instead of returning messages directly.
 - Fixed `daiv-auto` label to work as a trigger label that both launches the agent and enables auto-approval mode, eliminating the need to add two separate labels.
+- Fixed agent post-run failures when git push returns authentication/permission errors by handling push permission failures gracefully in git middleware and adding regression tests.
 
 ### Removed
 

@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING
 from deepagents.graph import SubAgent
 from langchain.agents.middleware import TodoListMiddleware
 
+from automation.agent import BaseAgent
+from automation.agent.conf import settings
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -247,6 +249,7 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
         description=EXPLORE_SUBAGENT_DESCRIPTION,
         system_prompt=EXPLORE_SYSTEM_PROMPT,
         middleware=middleware,
+        model=BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME),
     )
 
 

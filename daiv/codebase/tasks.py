@@ -20,7 +20,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 
     @cron("*/5 * * * *")  # every 5 minute
     @task
-    async def setup_webhooks_cron_task():
+    def setup_webhooks_cron_task():
         """
         Setup webhooks for all repositories every 5 minutes.
         """
@@ -46,20 +46,6 @@ async def address_issue_task(
         await IssueAddressorManager.address_issue(
             issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
         )
-
-
-@task(dedup=True)
-async def address_mr_review_task(repo_id: str, merge_request_id: int, merge_request_source_branch: str):
-    """
-    Address a review feedback by applying the changes described or answering questions about the codebase.
-
-    Args:
-        repo_id (str): The repository id.
-        merge_request_id (int): The merge request id.
-        merge_request_source_branch (str): The merge request source branch.
-    """
-    # async with set_runtime_ctx(repo_id, ref=merge_request_source_branch, scope="merge_request") as runtime_ctx:
-    #     await ReviewAddressorManager.process_review_comments(merge_request_id=merge_request_id, runtime_ctx=runtime_ctx) # noqa: E501 ERA001
 
 
 @task(dedup=True)

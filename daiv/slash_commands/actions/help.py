@@ -61,4 +61,4 @@ class HelpSlashCommand(SlashCommand):
         Returns:
             The help message for the skill.
         """
-        return f" * `/{skill['name']}` - {skill['description']}"
+        return f"| `/{skill['name']}` | {skill['description']} |"

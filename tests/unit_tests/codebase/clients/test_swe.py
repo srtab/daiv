@@ -199,6 +199,7 @@ class TestSWERepoClient:
         unsupported_methods = [
             ("set_repository_webhooks", ("repo", "url")),
             ("update_or_create_merge_request", ("repo", "source", "target", "title", "desc")),
+            ("update_merge_request", ("repo", 1, "as_draft", "title", "description", "labels", "assignee_id")),
             ("create_merge_request_comment", ("repo", 1, "body")),
             ("get_issue", ("repo", 1)),
             ("create_issue_comment", ("repo", 1, "body")),

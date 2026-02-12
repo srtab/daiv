@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
+from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -12,8 +13,10 @@ from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.publishers import GitChangePublisher
 from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
-from codebase.base import MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
+from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
+from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
 from .base import BaseManager
@@ -191,9 +194,7 @@ class CommentsAddressorManager(BaseManager):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(
-            f"{self.ctx.repo_id}:{self.ctx.scope.value}/{self.merge_request.merge_request_id}"
-        )
+        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope}/{self.merge_request.merge_request_id}")
 
     @classmethod
     async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
@@ -207,7 +208,11 @@ class CommentsAddressorManager(BaseManager):
         """
         manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
-        await manager._address_comments()
+        try:
+            await manager._address_comments()
+        except Exception:
+            logger.exception("Error addressing comments for merge request: %d", merge_request.merge_request_id)
+            manager._add_unable_to_address_review_note()
 
     async def _address_comments(self):
         """
@@ -224,28 +229,86 @@ class CommentsAddressorManager(BaseManager):
                 store=self.store,
                 **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent),
             )
-
-            result = await daiv_agent.ainvoke(
-                {
-                    "messages": [
-                        HumanMessage(
-                            name=mention_comment.notes[0].author.username,
-                            id=mention_comment.notes[0].id,
-                            content=mention_comment.notes[0].body,
-                        )
-                    ]
+            agent_config = RunnableConfig(
+                configurable={"thread_id": self.thread_id},
+                tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                metadata={
+                    "author": self.merge_request.author.username,
+                    "merge_request_id": self.merge_request.merge_request_id,
+                    "scope": self.ctx.scope,
                 },
-                config=RunnableConfig(
-                    tags=[daiv_agent.get_name(), self.client.git_platform.value],
-                    metadata={
-                        "author": self.merge_request.author.username,
-                        "merge_request_id": self.merge_request.merge_request_id,
-                        "scope": self.ctx.scope,
-                    },
-                    configurable={"thread_id": self.thread_id},
-                ),
-                context=self.ctx,
             )
 
-            response = result and extract_text_content(result["messages"][-1].content)
-            self.client.create_merge_request_comment(self.ctx.repo_id, self.merge_request.merge_request_id, response)
+            try:
+                result = await daiv_agent.ainvoke(
+                    {
+                        "messages": [
+                            HumanMessage(
+                                name=mention_comment.notes[0].author.username,
+                                id=mention_comment.notes[0].id,
+                                content=mention_comment.notes[0].body,
+                            )
+                        ]
+                    },
+                    config=agent_config,
+                    context=self.ctx,
+                )
+            except Exception:
+                snapshot = await daiv_agent.aget_state(config=agent_config)
+
+                # If and unexpect error occurs while addressing the review, a draft merge request is created to avoid
+                # losing the changes made by the agent.
+                publisher = GitChangePublisher(self.ctx)
+                merge_request = snapshot.values.get("merge_request")
+                merge_request = await publisher.publish(
+                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
+                )
+
+                if merge_request:
+                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
+
+                self._add_unable_to_address_review_note(draft_published=bool(merge_request))
+            else:
+                if (
+                    result
+                    and "messages" in result
+                    and result["messages"]
+                    and (response_text := extract_text_content(result["messages"][-1].content).strip())
+                ):
+                    self._leave_comment(response_text)
+                else:
+                    self._add_unable_to_address_issue_note()
+                self._leave_comment(result and extract_text_content(result["messages"][-1].content))
+
+    def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
+        """
+        Add a note to the merge request to inform the user that the review could not be addressed.
+
+        Args:
+            draft_published: Whether the draft merge request was published to the repository.
+        """
+        self._leave_comment(
+            render_to_string(
+                "codebase/unable_address_review.txt",
+                {
+                    "bot_name": BOT_NAME,
+                    "bot_username": self.ctx.bot_username,
+                    "draft_published": draft_published,
+                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                },
+            ),
+            # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
+            reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
+        )
+
+    def _leave_comment(self, body: str, reply_to_id: str | None = None):
+        """
+        Create a comment on the merge request.
+
+        Args:
+            body: The body of the comment.
+            reply_to_id: The ID of the comment to reply to.
+        """
+        return self.client.create_merge_request_comment(
+            self.ctx.repo_id, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
+        )

@@ -25,7 +25,7 @@ class DAIVAgentSettings(BaseSettings):
         description="Thinking level to be used for tasks. Set as `None` to disable thinking.",
     )
     MAX_MODEL_NAME: ModelName | str = Field(
-        default=ModelName.CLAUDE_OPUS_4_5,
+        default=ModelName.CLAUDE_OPUS_4_6,
         description=(
             "Model for tasks when daiv-max label is present, a multi-modal (image and text) model with "
             "capabilities to call tools."
@@ -36,6 +36,10 @@ class DAIVAgentSettings(BaseSettings):
         description=(
             "Thinking level to be used for tasks when daiv-max label is present. Set as `None` to disable thinking."
         ),
+    )
+    EXPLORE_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.CLAUDE_HAIKU_4_5,
+        description="Model for the explore subagent, a fast model with capabilities to call tools.",
     )
 
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from git import Repo
+from git import GitCommandError, Repo
 
-from codebase.utils import GitManager
+from codebase.utils import GitManager, GitPushPermissionError
 
 
 def _configure_repo_identity(repo: Repo) -> None:
@@ -130,6 +131,26 @@ def test_git_manager_commit_and_push_generates_unique_branch_name(tmp_path: Path
 
     assert branch_name == "feature-1"
     assert repo.active_branch.name == "feature-1"
+
+
+def test_git_manager_commit_and_push_raises_permission_error_on_auth_failure(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = _repo_path(repo)
+    (repo_dir / "feature-auth.txt").write_text("feature-auth\n")
+
+    auth_error = GitCommandError(
+        command="git push",
+        status=128,
+        stderr=(
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 403"
+        ),
+    )
+
+    with (
+        patch("git.remote.Remote.push", side_effect=auth_error),
+        pytest.raises(GitPushPermissionError, match="authentication or permission issues"),
+    ):
+        GitManager(repo).commit_and_push_changes("Add auth protected feature", branch_name="feature/auth-fail")
 
 
 def test_git_manager_checkout_raises_for_missing_branch(tmp_path: Path) -> None:

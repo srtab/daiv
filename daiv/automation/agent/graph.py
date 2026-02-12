@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.conf import django
 from django.utils import timezone
@@ -25,7 +25,7 @@ from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import DAIV_MEMORY_PATH, SKILLS_SOURCES, ModelName
+from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
@@ -48,6 +48,8 @@ from codebase.context import RuntimeCtx, set_runtime_ctx
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
@@ -106,11 +108,11 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
     """
     Dynamic prompt for the write todos system.
     """
-    return WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content
+    return cast("str", WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content)
 
 
 async def create_daiv_agent(
-    model_names: list[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
+    model_names: Sequence[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
     ctx: RuntimeCtx,
@@ -118,7 +120,6 @@ async def create_daiv_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
-    cache: bool = False,
     offline: bool = False,
 ):
     """
@@ -132,7 +133,6 @@ async def create_daiv_agent(
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
-        cache: Whether to enable cache for the agent.
         offline: Whether to enable offline mode for the agent.
 
     Returns:
@@ -190,7 +190,7 @@ async def create_daiv_agent(
         ),
         MemoryMiddleware(
             backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{DAIV_MEMORY_PATH}"],
+            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
         ),
         SkillsMiddleware(
             backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
@@ -223,7 +223,6 @@ async def create_daiv_agent(
         store=store,
         debug=debug,
         name="DAIV Agent",
-        cache=cache,
     ).with_config({"recursion_limit": settings.RECURSION_LIMIT})
 
 
@@ -240,7 +239,7 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=[ModelName.MOONSHOTAI_KIMI_K2_5], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx, model_names=["openrouter:z-ai/glm-5"], store=InMemoryStore(), checkpointer=InMemorySaver()
         )
         while True:
             user_input = await session.prompt_async()

@@ -4,14 +4,13 @@ from pathlib import Path
 import pytest
 from langsmith import testing as t
 
-from automation.agent.constants import ModelName
-from automation.agent.pr_describer.graph import create_pr_describer_agent
+from automation.agent.diff_to_metadata.graph import create_changes_metadata_graph
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
 from .evaluators import correctness_evaluator
 
-DATA_DIR = Path(__file__).parent / "data" / "pr_describer"
+DATA_DIR = Path(__file__).parent / "data" / "diff_to_metadata"
 
 
 def _read_text(rel_path: str) -> str:
@@ -41,7 +40,7 @@ def load_cases() -> list[pytest.param]:
 
 @pytest.mark.langsmith(output_keys=["reference_outputs"])
 @pytest.mark.parametrize("inputs,reference_outputs", load_cases())
-async def test_pr_describer(inputs, reference_outputs):
+async def test_diff_to_metadata(inputs, reference_outputs):
     t.log_inputs(inputs)
     t.log_reference_outputs(reference_outputs)
 
@@ -53,16 +52,18 @@ async def test_pr_describer(inputs, reference_outputs):
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:
             (agent_path / ctx.config.context_file_name).unlink()
-        pr_describer = create_pr_describer_agent(model=ModelName.GPT_4_1_MINI, ctx=ctx)
-        outputs = await pr_describer.ainvoke(inputs)
+        changes_metadata_graph = create_changes_metadata_graph(ctx=ctx)
+        outputs = await changes_metadata_graph.ainvoke(inputs)
+        outputs = {
+            "pr_metadata": outputs["pr_metadata"].model_dump(mode="json") if "pr_metadata" in outputs else None,
+            "commit_message": outputs["commit_message"].model_dump(mode="json")
+            if "commit_message" in outputs
+            else None,
+        }
 
-    assert "structured_response" in outputs, outputs
+    assert "pr_metadata" in outputs or "commit_message" in outputs, outputs
 
-    t.log_outputs(outputs["structured_response"].model_dump(mode="json"))
+    t.log_outputs(outputs)
 
-    result = correctness_evaluator(
-        inputs=inputs,
-        outputs=outputs["structured_response"].model_dump(mode="json"),
-        reference_outputs=reference_outputs,
-    )
+    result = correctness_evaluator(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
     assert result["score"] is True, result["comment"]

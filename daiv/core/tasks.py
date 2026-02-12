@@ -6,7 +6,7 @@ from crontask import cron
 
 @cron("0 0 * * *")  # every day at midnight
 @task
-async def prune_db_task_results_cron_task():
+def prune_db_task_results_cron_task():
     """
     Prune database task results every day at midnight.
     """

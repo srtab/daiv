@@ -61,6 +61,18 @@ class GitHubClient(RepoClient):
         self.client_installation = integration.get_app_installation(installation_id)
         self.client = self.client_installation.get_github_for_installation()
 
+    def _configure_commit_identity(self, repo: Repo) -> None:
+        """
+        Configure repository-local git identity to match the GitHub App bot user.
+        """
+        bot_login = f"{self.client_installation.app_slug}[bot]"
+        bot_user_id = self.current_user.id
+        bot_email = f"{bot_user_id}+{bot_login}@users.noreply.github.com"
+
+        with repo.config_writer() as writer:
+            writer.set_value("user", "name", bot_login)
+            writer.set_value("user", "email", bot_email)
+
     def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
@@ -104,6 +116,7 @@ class GitHubClient(RepoClient):
                 default_branch=repo.default_branch,
                 git_platform=self.git_platform,
                 topics=repo.topics,
+                clone_url=repo.clone_url,
             )
             for repo in self.client_installation.get_repos()
             if topics is None or any(topic in repo.topics for topic in topics)
@@ -217,7 +230,7 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str | None = None):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
         Create an emoji in a note of an issue.
         """
@@ -226,7 +239,7 @@ class GitHubClient(RepoClient):
 
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
         if note_id is not None:
-            issue.get_comment(int(note_id)).create_reaction(emoji_reaction)
+            issue.get_comment(note_id).create_reaction(emoji_reaction)
         else:
             issue.create_reaction(emoji_reaction)
 
@@ -393,7 +406,7 @@ class GitHubClient(RepoClient):
             to_return = pr.create_issue_comment(body).id
         return to_return
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
         Create an emoji on a note of a merge request.
 
@@ -408,9 +421,9 @@ class GitHubClient(RepoClient):
 
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
         try:
-            pr.get_review_comment(int(note_id)).create_reaction(emoji_reaction)
+            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
         except UnknownObjectException:
-            pr.get_issue_comment(int(note_id)).create_reaction(emoji_reaction)
+            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
 
     def get_issue_related_merge_requests(
         self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
@@ -755,12 +768,16 @@ class GitHubClient(RepoClient):
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
             # the access token is valid for 1 hour
-            access_token = self._integration.get_access_token(self.client_installation.id)
+            access_token = self._integration.get_access_token(
+                self.client_installation.id, permissions={"contents": "write"}
+            )
             parsed = urlparse(repository.clone_url)
             clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            yield Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            self._configure_commit_identity(repo)
+            yield repo
 
     def update_or_create_merge_request(
         self,
@@ -770,10 +787,11 @@ class GitHubClient(RepoClient):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
     ) -> MergeRequest:
         """
-        Update or create a merge request.
+        Create a merge request or update an existing one if it already exists based on the source and target branches.
 
         Args:
             repo_id: The repository ID.
@@ -783,6 +801,7 @@ class GitHubClient(RepoClient):
             description: The description.
             labels: The labels.
             assignee_id: The assignee ID.
+            as_draft: Whether to create the merge request as a draft.
 
         Returns:
             The merge request data.
@@ -790,9 +809,12 @@ class GitHubClient(RepoClient):
         repo = self.client.get_repo(repo_id, lazy=True)
 
         try:
-            pr = repo.create_pull(base=target_branch, head=source_branch, title=title, body=description)
+            pr = repo.create_pull(base=target_branch, head=source_branch, title=title, body=description, draft=as_draft)
         except GithubException as e:
-            if e.status != 409:
+            if e.status != 422 or not any(
+                error.get("message").startswith("A pull request already exists for")
+                for error in e.data.get("errors", [])
+            ):
                 raise e
 
             prs = repo.get_pulls(base=target_branch, head=source_branch, state="open")
@@ -803,7 +825,12 @@ class GitHubClient(RepoClient):
             pr = prs[0]
             pr.edit(title=title, body=description)
 
-        if labels is not None:
+            if pr.draft and not as_draft:
+                pr.mark_ready_for_review()
+            elif not pr.draft and as_draft:
+                pr.convert_to_draft()
+
+        if labels is not None and not any(label.name in labels for label in pr.labels):
             pr.add_to_labels(*labels)
 
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
@@ -820,6 +847,70 @@ class GitHubClient(RepoClient):
             web_url=pr.html_url,
             sha=pr.head.sha,
             author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+        )
+
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
+    ) -> MergeRequest:
+        """
+        Update an existing merge request if it has changes.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            as_draft: Whether to set the merge request as a draft.
+            title: The title of the merge request.
+            description: The description of the merge request.
+            labels: The labels of the merge request.
+            assignee_id: The assignee ID of the merge request.
+
+        Returns:
+            The merge request.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+
+        if as_draft is not None and pr.draft and not as_draft:
+            pr.mark_ready_for_review()
+        elif as_draft is not None and not pr.draft and as_draft:
+            pr.convert_to_draft()
+
+        edit_fields = {}
+        if title is not None:
+            edit_fields["title"] = title
+
+        if description is not None:
+            edit_fields["body"] = description
+
+        if edit_fields:
+            pr.edit(**edit_fields)
+
+        if labels is not None and not any(label.name in labels for label in pr.labels):
+            pr.add_to_labels(*labels)
+
+        if assignee_id is not None and not any(assignee.id == assignee_id for assignee in pr.assignees):
+            pr.add_to_assignees(assignee_id)
+
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
         )
 
     def _serialize_comments(

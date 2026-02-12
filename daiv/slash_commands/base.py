@@ -37,7 +37,7 @@ class SlashCommand(ABC):
         """
         Get the help message for the command.
         """
-        return f" * `{self.command_to_invoke}` - {self.description}"
+        return f"| `{self.command_to_invoke}` | {self.description} |"
 
     @abstractmethod
     async def execute_for_agent(self, *, args: str, **kwargs) -> str:

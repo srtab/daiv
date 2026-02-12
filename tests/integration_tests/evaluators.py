@@ -7,5 +7,5 @@ from automation.agent.constants import ModelName
 correctness_evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=BaseAgent.get_model(model=ModelName.GPT_5_1_CODEX, thinking_level=ThinkingLevel.HIGH),
+    judge=BaseAgent.get_model(model=ModelName.GPT_5_2_CODEX, thinking_level=ThinkingLevel.MEDIUM),
 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 import logging
+from contextlib import contextmanager
 from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -46,7 +47,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -73,7 +74,21 @@ class RepoClient(abc.ABC):
         title: str,
         description: str,
         labels: list[str] | None = None,
-        assignee_id: int | None = None,
+        assignee_id: str | int | None = None,
+        as_draft: bool = False,
+    ) -> MergeRequest:
+        pass
+
+    @abc.abstractmethod
+    def update_merge_request(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        as_draft: bool | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        assignee_id: str | int | None = None,
     ) -> MergeRequest:
         pass
 
@@ -90,6 +105,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         pass
 
@@ -126,7 +142,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: str):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         pass
 
     @abc.abstractmethod
@@ -180,7 +196,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: str):
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         pass
 
     @abc.abstractmethod

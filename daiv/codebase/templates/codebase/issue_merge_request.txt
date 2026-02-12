@@ -9,10 +9,4 @@ Closes: {{ source_repo_id }}#{{ issue_id|unlocalize }}{% if is_gitlab %}+{% endi
 ---
 
 #### 💡 Instructions for the reviewer:
- - 💬 {{ bot_name }} will address comments for you in the following ways:
-   - Open a discussion on the merge request overview and mention @{{ bot_username }};
-   - Leave comments on the files and mention @{{ bot_username }};
-   - Leave comments on specific lines of the file and mention @{{ bot_username }}.
-{% if issue_id %}
- - 📝 Edit the original issue ({{ source_repo_id }}#{{ issue_id|unlocalize }}) to get {{ bot_name }} to recreate the MR from scratch.
-{% endif %}
+ - 💬 Just leave comments/reviews mentioning @{{ bot_username }} to get {{ bot_name }} to address them for you.
