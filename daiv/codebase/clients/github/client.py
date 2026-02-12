@@ -755,7 +755,9 @@ class GitHubClient(RepoClient):
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
             # the access token is valid for 1 hour
-            access_token = self._integration.get_access_token(self.client_installation.id)
+            access_token = self._integration.get_access_token(
+                self.client_installation.id, permissions={"contents": "write"}
+            )
             parsed = urlparse(repository.clone_url)
             clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
             clone_dir = Path(tmpdir) / "repo"

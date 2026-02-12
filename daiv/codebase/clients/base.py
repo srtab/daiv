@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 import logging
+from contextlib import contextmanager
 from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -104,6 +105,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         pass
 
