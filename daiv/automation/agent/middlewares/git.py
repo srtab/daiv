@@ -12,7 +12,7 @@ from langsmith import get_current_run_tree
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager
+from codebase.utils import GitManager, GitPushPermissionError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -153,7 +153,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
 
         publisher = GitChangePublisher(runtime.context)
-        merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
+        try:
+            merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
+        except GitPushPermissionError as e:
+            logger.warning("[%s] Failed to publish changes due to git push permissions: %s", self.name, e)
+            return None
 
         if merge_request:
             if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):

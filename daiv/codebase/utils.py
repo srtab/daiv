@@ -234,7 +234,14 @@ class GitManager:
 
         self.repo.git.add("-A")
         self.repo.index.commit(commit_message if not skip_ci else f"[skip ci] {commit_message}")
-        self.repo.remotes.origin.push(branch_name, force=override_commits)
+        try:
+            self.repo.remotes.origin.push(branch_name, force=override_commits)
+        except GitCommandError as e:
+            if _is_push_auth_error(e):
+                raise GitPushPermissionError(
+                    "Failed to push changes to the remote repository due to authentication or permission issues."
+                ) from e
+            raise
         return branch_name
 
     def checkout(self, branch_name: str):
@@ -315,3 +322,28 @@ class GitManager:
         finally:
             with contextlib.suppress(OSError):
                 Path(tmp_path).unlink()
+
+
+class GitPushPermissionError(RuntimeError):
+    """
+    Raised when pushing changes fails due to authentication or permission issues.
+    """
+
+
+def _is_push_auth_error(error: GitCommandError) -> bool:
+    """
+    Check if a git push error is likely caused by authentication or permission issues.
+    """
+    error_text = str(error).lower()
+    return any(
+        marker in error_text
+        for marker in (
+            "returned error: 403",
+            "authentication failed",
+            "permission denied",
+            "access denied",
+            "http basic: access denied",
+            "could not read username",
+            "not authorized",
+        )
+    )
