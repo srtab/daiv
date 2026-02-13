@@ -60,8 +60,7 @@ This architecture ensures minimal context usage—agents only know Skills exist 
 
 Skills can be placed in any of the following directories at the root of your repository:
 
-- `.daiv/skills/` (default)
-- `.agents/skills/`
+- `.agents/skills/` (default)
 - `.cursor/skills/`
 - `.claude/skills/`
 
@@ -71,7 +70,7 @@ Example structure:
 
 ```
 your-repository/
-├── .daiv/
+├── .agents/
 │   └── skills/
 │       ├── code-review/
 │       │   ├── SKILL.md        # Required: YAML frontmatter + instructions
@@ -79,7 +78,7 @@ your-repository/
 │       │   └── review.py       # Optional: helper script
 │       └── creating-agents-md-file/    # Builtin skill (auto-copied)
 │           └── SKILL.md
-├── .agents/
+├── .cursor/
 │   └── skills/
 │       └── web-research/
 │           ├── SKILL.md
@@ -90,12 +89,12 @@ your-repository/
 
 ### Builtin Skills
 
-DAIV includes builtin Skills that are automatically loaded to the `.daiv/skills/` directory at agent startup:
+DAIV includes builtin Skills that are automatically loaded to the `.agents/skills/` directory at agent startup:
 
 | Skill | Description | Scope |
 |-------|-------------|-------|
 | `generating-agents-md` | Generates or updates an AGENTS.md file reflecting repository structure and conventions | Issues |
-| `skills-creator` | Creates a new Skill in the `.daiv/skills/` directory | Issues |
+| `skills-creator` | Creates a new Skill in the `.agents/skills/` directory | Issues |
 
 You can override builtin skills by creating a Skill with the same name in any of your project's skills directories.
 
@@ -336,7 +335,7 @@ result = function_name("value1", "value2")
 
 ### Skill Not Loading
 
-**Check file location**: Ensure the Skill is in `.daiv/skills/<skill-name>/SKILL.md`
+**Check file location**: Ensure the Skill is in `.agents/skills/<skill-name>/SKILL.md`
 
 **Verify YAML frontmatter**: The frontmatter must be valid YAML between `---` delimiters:
 

@@ -6,12 +6,14 @@ from django.conf import django
 from django.utils import timezone
 
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.graph import BASE_AGENT_PROMPT
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
+from deepagents.middleware.summarization import _compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware,
+    InterruptOnConfig,
     ModelFallbackMiddleware,
     ModelRequest,
     SummarizationMiddleware,
@@ -54,10 +56,6 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-DEFAULT_SUMMARIZATION_TRIGGER = ("tokens", 170000)
-DEFAULT_SUMMARIZATION_KEEP = ("messages", 6)
-
-
 OUTPUT_INVARIANTS_SYSTEM_PROMPT = """\
 <output_invariants>
 Applies to ALL user-visible text:
@@ -93,15 +91,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
         working_directory=f"/{agent_path.name}/",
     )
-    return (
-        BASE_AGENT_PROMPT
-        + "\n\n"
-        + OUTPUT_INVARIANTS_SYSTEM_PROMPT
-        + "\n\n"
-        + request.system_prompt
-        + "\n\n"
-        + system_prompt.content.strip()
-    )
+    return OUTPUT_INVARIANTS_SYSTEM_PROMPT + "\n\n" + request.system_prompt + "\n\n" + system_prompt.content.strip()
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -121,6 +111,7 @@ async def create_daiv_agent(
     store: BaseStore | None = None,
     debug: bool = False,
     offline: bool = False,
+    interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
 ):
     """
     Create the DAIV agent.
@@ -138,33 +129,23 @@ async def create_daiv_agent(
     Returns:
         The DAIV agent.
     """
-    agent_path = Path(ctx.repo.working_dir)
 
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
     fallback_models = [
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    summarization_trigger = DEFAULT_SUMMARIZATION_TRIGGER
-    summarization_keep = DEFAULT_SUMMARIZATION_KEEP
+    summarization_defaults = _compute_summarization_defaults(model)
 
-    if isinstance(model.profile, dict) and isinstance(model.profile.get("max_input_tokens"), int):
-        summarization_trigger = ("fraction", 0.85)
-        summarization_keep = ("fraction", 0.10)
-
+    agent_path = Path(ctx.repo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
-    subagent_default_middlewares = [
-        SummarizationMiddleware(
-            model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+    # Create subagents list to be shared between middlewares
+    subagents = [
+        create_general_purpose_subagent(model, backend, ctx, offline=offline),
+        create_explore_subagent(backend, ctx),
+        create_changelog_subagent(model, backend, ctx, offline=offline),
     ]
-
-    if fallback_models:
-        subagent_default_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
     agent_conditional_middlewares = []
 
@@ -176,13 +157,8 @@ async def create_daiv_agent(
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
-
-    # Create subagents list to be shared between middlewares
-    subagents = [
-        create_general_purpose_subagent(backend, ctx, offline=offline),
-        create_explore_subagent(backend, ctx),
-        create_changelog_subagent(backend, ctx),
-    ]
+    if interrupt_on is not None:
+        agent_conditional_middlewares.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
     agent_middleware = [
         TodoListMiddleware(
@@ -195,18 +171,18 @@ async def create_daiv_agent(
         SkillsMiddleware(
             backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
         ),
-        SubAgentMiddleware(
-            default_model=model,
-            default_middleware=subagent_default_middlewares,
-            general_purpose_agent=False,
-            subagents=subagents,
-        ),
+        SubAgentMiddleware(backend=backend, subagents=subagents),
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
         GitMiddleware(auto_commit_changes=auto_commit_changes),
         GitPlatformMiddleware(git_platform=ctx.git_platform),
         SummarizationMiddleware(
-            model=model, trigger=summarization_trigger, keep=summarization_keep, trim_tokens_to_summarize=None
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
@@ -239,7 +215,10 @@ async def main():
     )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
-            ctx=ctx, model_names=["openrouter:z-ai/glm-5"], store=InMemoryStore(), checkpointer=InMemorySaver()
+            ctx=ctx,
+            model_names=["openrouter:minimax/minimax-m2.5"],
+            store=InMemoryStore(),
+            checkpointer=InMemorySaver(),
         )
         while True:
             user_input = await session.prompt_async()

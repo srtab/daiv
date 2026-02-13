@@ -39,6 +39,10 @@ class ModelName(StrEnum):
 
     # z-ai models
     Z_AI_GLM_4_7 = "openrouter:z-ai/glm-4.7"
+    Z_AI_GLM_5 = "openrouter:z-ai/glm-5"
+
+    # minimax models
+    MINIMAX_M2_5 = "openrouter:minimax/minimax-m2.5"
 
     # MoonshotAI models
     MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"
