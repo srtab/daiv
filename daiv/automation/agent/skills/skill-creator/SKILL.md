@@ -23,10 +23,10 @@ equipped with procedural knowledge and domain expertise.
 
 ### Skill Location for DAIV
 
-In DAIV, skills are stored in `~/.daiv/skills/` directory. For example, with the default configuration, skills live at:
+In DAIV, skills are stored in `~/.agents/skills/` directory. For example, with the default configuration, skills live at:
 
 ```
-~/.daiv/skills/
+~/.agents/skills/
 ├── skill-name-1/
 │   └── SKILL.md
 ├── skill-name-2/
@@ -282,7 +282,7 @@ scripts/init_skill.py <skill-name> --path <output-directory>
 For DAIV, use the DAIV's skills directory:
 
 ```bash
-scripts/init_skill.py <skill-name> --path ~/.daiv/skills
+scripts/init_skill.py <skill-name> --path ~/.agents/skills
 ```
 
 The script:

@@ -1,17 +1,23 @@
 from typing import TYPE_CHECKING
 
 from deepagents.graph import SubAgent
+from deepagents.middleware import SummarizationMiddleware
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.summarization import _compute_summarization_defaults
 from langchain.agents.middleware import TodoListMiddleware
 
 from automation.agent import BaseAgent
 from automation.agent.conf import settings
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
+from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
+from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
 if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
+    from langchain.chat_models import BaseChatModel
 
     from codebase.context import RuntimeCtx
 
@@ -205,11 +211,15 @@ When calling this agent, specify:
 Do NOT specify WHAT to write—let the agent examine the diffs and infer user-facing changes. The agent will handle the entire changelog update workflow and return confirmation when complete."""  # noqa: E501
 
 
-def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False) -> SubAgent:
+def create_general_purpose_subagent(
+    model: BaseChatModel, backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False
+) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
+
+    summarization_defaults = _compute_summarization_defaults(model)
 
     middleware = [
         TodoListMiddleware(
@@ -217,6 +227,17 @@ def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCt
         ),
         FilesystemMiddleware(backend=backend),
         GitPlatformMiddleware(git_platform=runtime.git_platform),
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
     ]
 
     if not offline:
@@ -230,6 +251,8 @@ def create_general_purpose_subagent(backend: BackendProtocol, runtime: RuntimeCt
         description=GENERAL_PURPOSE_DESCRIPTION,
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
         middleware=middleware,
+        model=model,
+        tools=[],
     )
 
 
@@ -239,9 +262,23 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
+    model = BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME)
+    summarization_defaults = _compute_summarization_defaults(model)
+
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         FilesystemMiddleware(backend=backend, read_only=True),
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
     ]
 
     return SubAgent(
@@ -249,15 +286,34 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
         description=EXPLORE_SUBAGENT_DESCRIPTION,
         system_prompt=EXPLORE_SYSTEM_PROMPT,
         middleware=middleware,
-        model=BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME),
+        model=model,
+        tools=[],
     )
 
 
-def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False) -> SubAgent:
+def create_changelog_subagent(
+    model: BaseChatModel, backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False
+) -> SubAgent:
     """
     Create the changelog subagent.
     """
-    middleware = [FilesystemMiddleware(backend=backend), GitPlatformMiddleware(git_platform=runtime.git_platform)]
+    summarization_defaults = _compute_summarization_defaults(model)
+
+    middleware = [
+        FilesystemMiddleware(backend=backend),
+        GitPlatformMiddleware(git_platform=runtime.git_platform),
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
+    ]
 
     if not offline:
         middleware.append(WebSearchMiddleware())
@@ -270,4 +326,6 @@ def create_changelog_subagent(backend: BackendProtocol, runtime: RuntimeCtx, off
         description=CHANGELOG_SUBAGENT_DESCRIPTION,
         system_prompt=CHANGELOG_SYSTEM_PROMPT,
         middleware=middleware,
+        model=model,
+        tools=[],
     )

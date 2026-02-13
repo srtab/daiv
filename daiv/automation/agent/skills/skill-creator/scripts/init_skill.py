@@ -11,7 +11,7 @@ Examples:
  init_skill.py custom-skill --path /custom/location
 
 For DAIV:
- init_skill.py my-skill --path ~/.daiv/skills
+ init_skill.py my-skill --path ~/.agents/skills
 """
 # ruff: NOQA: T201,E501
 
@@ -283,7 +283,7 @@ def main():
         print(" init_skill.py my-api-helper --path skills/private")
         print(" init_skill.py custom-skill --path /custom/location")
         print("\nFor DAIV:")
-        print(" init_skill.py my-skill --path ~/.daiv/skills")
+        print(" init_skill.py my-skill --path ~/.agents/skills")
         sys.exit(1)
 
     skill_name = sys.argv[1]

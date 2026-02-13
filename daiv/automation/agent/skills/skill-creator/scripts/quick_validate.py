@@ -3,10 +3,10 @@
 Quick validation script for skills - minimal version
 
 For DAIV, skills are located at:
-~/.daiv/skills/<skill-name>/
+~/.agents/skills/<skill-name>/
 
 Example:
- python quick_validate.py ~/.daiv/skills/my-skill
+ python quick_validate.py ~/.agents/skills/my-skill
 """
 # ruff: NOQA: T201
 

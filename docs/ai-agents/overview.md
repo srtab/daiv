@@ -112,7 +112,7 @@ Agents can execute commands in isolated sandbox environments using [daiv-sandbox
 Agents can leverage [Agent Skills](skills.md) for specialized domain knowledge:
 
 - **Progressive Disclosure**: Skills metadata loads at startup, full instructions load on-demand
-- **Custom Skills**: Create repository-specific Skills in `.daiv/skills/`
+- **Custom Skills**: Create repository-specific Skills in `.agents/skills/`
 - **Builtin Skills**: Pre-packaged Skills for common tasks (e.g. AGENTS.md generation)
 - **Scoped Skills**: Target Skills to specific contexts (issues or merge requests)
 
