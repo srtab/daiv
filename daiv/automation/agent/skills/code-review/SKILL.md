@@ -8,12 +8,12 @@ description: Review code changes and provide structured feedback for merge/pull 
 ## Establish scope and inputs
 
 - Identify whether the request targets a merge/pull request, a local diff, or specific files.
-- If a merge/pull request is referenced and the git platform tool is available, fetch context and diffs before reviewing:
-  - `gitlab("project-merge-request get --iid <merge_request_iid>", output_mode="detailed")`
-  - `gitlab("project-merge-request-diff list --mr-iid <merge_request_iid>")`
-  - `gitlab("project-merge-request-diff get --mr-iid <merge_request_iid> --id <diff_id>")`
+- If a merge/pull request is referenced:
+  1. fetch merge/pull request to determine the source branch and target branch;
+  2. fetch the diffs between source branch and target branch to review the changes;
 - If a diff is already provided, review that directly without re-fetching.
 - If the scope is ambiguous, infer it from the conversation history and available artifacts.
+- Otherwise, ask the user to provide more context.
 
 ## Review checklist
 

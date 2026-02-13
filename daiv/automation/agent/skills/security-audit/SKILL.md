@@ -7,12 +7,12 @@ description: Perform a security audit of code changes or related code paths. Use
 
 ## Establish scope and inputs
 
-- Determine whether the audit targets a merge/pull request, specific files, or a broader codebase area.
-- If a merge/pull request is referenced and the git platform tool is available, fetch context and diffs before auditing:
-  - `gitlab("project-merge-request get --iid <merge_request_iid>", output_mode="detailed")`
-  - `gitlab("project-merge-request-diff list --mr-iid <merge_request_iid>")`
-  - `gitlab("project-merge-request-diff get --mr-iid <merge_request_iid> --id <diff_id>")`
+- Determine whether the audit targets a merge/pull request, local diff, specific files, or a broader codebase area.
+- If a merge/pull request is referenced:
+  1. fetch merge/pull request to determine the source branch and target branch;
+  2. fetch the diffs between source branch and target branch to audit the changes;
 - If a diff or file list is already provided, proceed without re-fetching.
+- If the scope is ambiguous, infer it from the conversation history and available artifacts.
 - Scope the audit to the affected code paths and any critical adjacent components.
 
 ## Audit checklist
