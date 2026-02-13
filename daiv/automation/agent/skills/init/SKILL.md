@@ -1,9 +1,9 @@
 ---
-name: agentsmd-creation
-description: Generate or update an AGENTS.md file by analyzing a repository's structure, commands, tests, and conventions. Use when asked to create or improve `AGENTS.md`.
+name: init
+description: Generate or update an AGENTS.md file by analyzing a repository's structure, commands, tests, and conventions. Use when asked to create or improve `AGENTS.md` or initialize a new repository.
 ---
 
-Please analyze this codebase and create an `AGENTS.md` file, which will be given to future
+Analyze this codebase and create an `AGENTS.md` file, which will be given to future
 instances of DAIV and other AI agents to operate in this repository.
 
 Output:
