@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
@@ -9,6 +9,7 @@ from automation.agent.middlewares.git_platform import github_tool
 from codebase.base import GitPlatform
 
 
+@patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
 class TestGitHubToolTokenCaching:
     async def test_github_tool_caches_token_in_state_and_reuses_it(self):
         runtime = ToolRuntime(
