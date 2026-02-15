@@ -1,3 +1,4 @@
+from django.core.cache.backends.locmem import LocMemCache as DJLocMemCache
 from django.core.cache.backends.redis import RedisCache as DJRedisCache
 from django.core.cache.backends.redis import RedisCacheClient as DJRedisCacheClient
 
@@ -53,3 +54,19 @@ class RedisCache(DJRedisCache):
         return await sync_to_async(self.lock)(
             key, timeout=timeout, sleep=sleep, blocking=blocking, blocking_timeout=blocking_timeout
         )
+
+
+class LocMemCache(DJLocMemCache):
+    """
+    LocMem cache with lock method.
+    """
+
+    def lock(
+        self,
+        key,
+        timeout: Number | None = None,
+        sleep: Number = 0.1,
+        blocking: bool = True,
+        blocking_timeout: Number | None = None,
+    ):
+        return self._lock
