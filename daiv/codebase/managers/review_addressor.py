@@ -277,8 +277,7 @@ class CommentsAddressorManager(BaseManager):
                 ):
                     self._leave_comment(response_text)
                 else:
-                    self._add_unable_to_address_issue_note()
-                self._leave_comment(result and extract_text_content(result["messages"][-1].content))
+                    self._add_unable_to_address_review_note()
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
         """

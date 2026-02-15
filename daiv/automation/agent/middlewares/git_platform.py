@@ -6,6 +6,7 @@ import os
 import shlex
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from langchain.agents import AgentState
@@ -391,18 +392,33 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     """
     Get the cached GitHub CLI token and return state updates if needed.
 
+    The token is cached using a lock to prevent concurrent state updates from parallel tool calls.
+
     Returns:
         A tuple of (token, state_updates). state_updates is None if no update is needed.
     """
+    assert settings.GITHUB_INSTALLATION_ID is not None, "GITHUB_INSTALLATION_ID is not set"
+
     token = runtime.state.get("github_token")
     expires_at = runtime.state.get("github_token_expires_at")
 
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
-        access_token = get_github_integration().get_access_token(settings.GITHUB_INSTALLATION_ID)
-        return access_token.token, {
-            "github_token": access_token.token,
-            "github_token_expires_at": access_token.expires_at.timestamp(),
-        }
+        thread_id = runtime.context.config.get("configurable", {}).get("thread_id", runtime.context.repo_id)
+
+        with cache.lock(f"github_lock_{thread_id}", blocking=True):
+            cache_key = f"github_token_{thread_id}"
+
+            if data := cache.get(cache_key):
+                # this means a parallel tool call already acquired the lock and cached the token
+                return data["github_token"], None
+
+            # no token in cache, so we need to get a new one and cache it
+            access_token = get_github_integration().get_access_token(settings.GITHUB_INSTALLATION_ID)
+
+            ttl = access_token.expires_at.timestamp() - timezone.now().timestamp()
+            data = {"github_token": access_token.token, "github_token_expires_at": access_token.expires_at.timestamp()}
+            cache.set(cache_key, data, timeout=ttl)
+            return access_token.token, data
 
     return token, None
 
