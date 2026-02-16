@@ -1,5 +1,8 @@
 # DAIV: Development AI Assistant
 
+[![Run in Smithery](https://smithery.ai/badge/skills/srtab)](https://smithery.ai/skills?ns=srtab&utm_source=github&utm_medium=badge)
+
+
 ![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml)
 [![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
 [![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
