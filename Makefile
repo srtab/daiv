@@ -43,7 +43,7 @@ compilemessages:
 	uv run django-admin compilemessages
 
 integration-tests:
-	LANGSMITH_TEST_SUITE="DAIV: Diff to Metadata" uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -k test_diff_to_metadata -n 2
+	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -k test_skill_activated -n 2
 
 swebench:
 	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --output-path predictions.json --num-samples 1

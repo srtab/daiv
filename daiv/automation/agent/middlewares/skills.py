@@ -51,13 +51,19 @@ SKILLS_SYSTEM_PROMPT = f"""\
 <example>
   User: "run /code-review"
   Assistant: [Calls `{SKILLS_TOOL_NAME}` tool with skill name: "code-review"]
+  ...
+</example>
+<example>
+  User: "Plan to fix issue #42."
+  Assistant: [Calls `{SKILLS_TOOL_NAME}` tool with skill name: "plan"]
+  ...
 </example>
 
 **Important:**
 - When a skill is relevant, you must invoke the `{SKILLS_TOOL_NAME}` tool IMMEDIATELY as your first action.
 - NEVER just announce or mention a skill in your text response without actually calling the `{SKILLS_TOOL_NAME}` tool.
 - This is a BLOCKING REQUIREMENT: invoke the relevant `{SKILLS_TOOL_NAME}` tool BEFORE generating any other response about the task.
-- Invocation is limited to listed skills in <available_skills>, but creation is possible.
+- Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
 {{skills_list}}"""  # noqa: E501
