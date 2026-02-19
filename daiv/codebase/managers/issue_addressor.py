@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.managers")
 
 
-PLAN_ISSUE_PROMPT = "Present a detailed plan to address this issue and wait for approval before executing it."
-ADDRESS_ISSUE_PROMPT = "Address this issue."
+PLAN_ISSUE_PROMPT = "/plan address the issue #{issue_iid}"
+ADDRESS_ISSUE_PROMPT = "Address the issue #{issue_iid}."
 
 
 class IssueAddressorManager(BaseManager):
@@ -72,8 +72,14 @@ class IssueAddressorManager(BaseManager):
             )
         else:
             # The issue was triggered by the bot label, so we need to request the agent to address it.
-            message_content = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
-            messages.append(HumanMessage(name=self.issue.author.username, id=self.issue.id, content=message_content))
+            message_content = (
+                ADDRESS_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
+                if self.issue.has_auto_label()
+                else PLAN_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
+            )
+            messages.append(
+                HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
+            )
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             daiv_agent = await create_daiv_agent(

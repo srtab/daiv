@@ -57,7 +57,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - When a skill is relevant, you must invoke the `{SKILLS_TOOL_NAME}` tool IMMEDIATELY as your first action.
 - NEVER just announce or mention a skill in your text response without actually calling the `{SKILLS_TOOL_NAME}` tool.
 - This is a BLOCKING REQUIREMENT: invoke the relevant `{SKILLS_TOOL_NAME}` tool BEFORE generating any other response about the task.
-- Only use skills listed in <available_skills> below.
+- Invocation is limited to listed skills in <available_skills>, but creation is possible.
 - Do not invoke a skill that is already running.
 
 {{skills_list}}"""  # noqa: E501

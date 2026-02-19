@@ -47,7 +47,7 @@ IMPORTANT - Use the correct year in search queries:
   - Example: If today is 2025-07-15 and the user asks for "latest React docs", search for "React documentation 2025", NOT "React documentation 2024".
 
 CRITICAL REQUIREMENT - You MUST follow this when using web search:
-  - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response
+  - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response when the answer primarily derives from search results.
   - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)
   - This is MANDATORY - never skip including sources in your response
   - Example format:

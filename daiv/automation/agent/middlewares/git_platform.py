@@ -121,12 +121,13 @@ You have access to the following tools to interact with the Git platform:
 - `{GITLAB_TOOL_NAME}`: Interact with GitLab API to retrieve issues, merge requests, pipelines, jobs, and other resources. Wraps the `python-gitlab` CLI.
 
 <example>
-user: Draft a plan to fix issue #42.
+user: Fix issue #42.
 assistant:
   [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
 assistant:
   [Use the issue title/description to understand the problem and the user's request]
-  [Explore the codebase and draft a fix plan]
+  [Explore the codebase to understand the problem and the user's request]
+  [Apply corrective actions to fix the issue]
 </example>
 <example>
 user: Fix the failing pipeline for merge request #123.
@@ -147,11 +148,12 @@ assistant:
 {{{{#github_platform}}}}
 - `{GITHUB_TOOL_NAME}`: Interact with GitHub API to retrieve issues, pull requests, workflows, runs, and other resources. Wraps the `gh` CLI.
 <example>
-user: Draft a plan to fix issue #42.
+user: Fix issue #42.
 assistant:
   [Call `{GITHUB_TOOL_NAME}("issue view 42")`]
   [Use the issue title/description to understand the problem and the user's request]
-  [Explore the codebase and draft a fix plan]
+  [Explore the codebase to understand the problem and the user's request]
+  [Apply corrective actions to fix the issue]
 </example>
 <example>
 user: Investigate failing workflow/job/check for pull request #123.

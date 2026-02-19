@@ -12,7 +12,7 @@ from langsmith import get_current_run_tree
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, GitPushPermissionError
+from codebase.utils import GitManager, GitPushPermissionError, get_repo_ref
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -106,7 +106,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
 
-        if merge_request and merge_request.source_branch != runtime.context.repo.active_branch.name:
+        if merge_request and merge_request.source_branch != get_repo_ref(runtime.context.repo):
             git_manager = GitManager(runtime.context.repo)
 
             logger.info("[%s] Checking out to branch '%s'", self.name, merge_request.source_branch)
@@ -129,7 +129,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         context = {
             "git_platform": request.runtime.context.git_platform.value,
             "repository": request.runtime.context.repo_id,
-            "current_branch": request.runtime.context.repo.active_branch.name,
+            "current_branch": get_repo_ref(request.runtime.context.repo),
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
             "merge_request_iid": request.runtime.context.merge_request.merge_request_id
