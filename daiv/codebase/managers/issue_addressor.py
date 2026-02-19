@@ -105,17 +105,18 @@ class IssueAddressorManager(BaseManager):
 
                 # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
                 # losing the changes made by the agent.
-                merge_request = snapshot.values.get("merge_request")
+                snapshot_mr = snapshot.values.get("merge_request")
+
                 publisher = GitChangePublisher(self.ctx)
-                merge_request = await publisher.publish(
-                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
+                published_mr = await publisher.publish(
+                    merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
                 )
 
                 # If the draft merge request is created successfully, we update the state to reflect the new MR.
-                if merge_request:
-                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
+                if published_mr:
+                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": published_mr})
 
-                self._add_unable_to_address_issue_note(draft_published=bool(merge_request))
+                self._add_unable_to_address_issue_note(draft_published=bool(published_mr))
             else:
                 if (
                     result
@@ -139,6 +140,7 @@ class IssueAddressorManager(BaseManager):
                     "bot_username": self.ctx.bot_username,
                     "draft_published": draft_published,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                    "is_github": self.ctx.git_platform == GitPlatform.GITHUB,
                 },
             ),
             # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
