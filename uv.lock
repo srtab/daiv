@@ -497,7 +497,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "ddgs", specifier = "==9.10.0" },
-    { name = "deepagents", specifier = "==0.4.2" },
+    { name = "deepagents", specifier = "==0.4.3" },
     { name = "django", specifier = "==6.0.2" },
     { name = "django-crontask", specifier = "==1.1.3" },
     { name = "django-extensions", specifier = "==4.1.0" },
@@ -624,7 +624,7 @@ wheels = [
 
 [[package]]
 name = "deepagents"
-version = "0.4.2"
+version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain" },
@@ -633,9 +633,9 @@ dependencies = [
     { name = "langchain-google-genai" },
     { name = "wcmatch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/2f/46668b426bc9d383e7b9dd0e4c4cf7b4e550b62c82c5217293fd71d14f65/deepagents-0.4.2.tar.gz", hash = "sha256:9b266b4f936bc3a953132183ab75d1ba191f15220c9a70930fe651fca4d9913e", size = 79300, upload-time = "2026-02-12T21:01:42.179Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/30/5bba09d1c196a9e6e2e3a3406cd131bdf01e84ec67c4b6233f68a903978f/deepagents-0.4.3.tar.gz", hash = "sha256:88033c616c5ea481f2620dbb2d05533bc8fdcd48f376d713f9dba49a8157b6f8", size = 83210, upload-time = "2026-02-20T21:40:45.467Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/da/80c7b9b7899b30c16a91d29a19d76622ede008a5f0297a0f52f3c129bb29/deepagents-0.4.2-py3-none-any.whl", hash = "sha256:5eff263bf9ba962727caeee052545e1ad329282446bc1bcd9a629a903cf45da2", size = 89260, upload-time = "2026-02-12T21:01:41.161Z" },
+    { url = "https://files.pythonhosted.org/packages/58/f8/c076a841b68cc13d89c395cc97965b37751ed008691a304119efa0f5717e/deepagents-0.4.3-py3-none-any.whl", hash = "sha256:298d19c5c0b4c6fc6a74b68049a7bfea0ba481aece7201ab21e7172b71ee61b9", size = 94882, upload-time = "2026-02-20T21:40:44.368Z" },
 ]
 
 [[package]]
@@ -2097,7 +2097,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
