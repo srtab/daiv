@@ -49,7 +49,7 @@ dependencies = [
   "python-decouple==3.8.0",
   "python-gitlab==8.0.0",
   "pyyaml==6.0.3",
-  "redis==5.2.1",
+  "redis==7.2.0",
   "sentry-sdk==2.53.0",
   "unidiff==0.7.5",
   "uvicorn[standard]==0.41.0",
