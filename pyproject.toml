@@ -37,12 +37,12 @@ dependencies = [
   "langchain-mcp-adapters==0.2.1",
   "langgraph==1.0.8",
   "langgraph-checkpoint-postgres==3.0.4",
-  "langsmith[pytest]==0.7.3",
+  "langsmith[pytest]==0.7.4",
   "langsmith-fetch==0.3.1",
   "markdownify==1.2.2",
   "openevals==0.1.3",
   "prompt-toolkit==3.0.52",
-  "psycopg[pool]==3.3.2",
+  "psycopg[pool]==3.3.3",
   "pydantic==2.12.5",
   "pydantic-settings==2.13.0",
   "pygithub==2.8.1",
@@ -52,7 +52,7 @@ dependencies = [
   "redis==5.2.1",
   "sentry-sdk==2.53.0",
   "unidiff==0.7.5",
-  "uvicorn[standard]==0.40.0",
+  "uvicorn[standard]==0.41.0",
 ]
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
 urls.issues = "https://github.com/srtab/daiv/issues"
@@ -63,12 +63,12 @@ dev = [
   "coverage==7.13.4",
   "datasets==4.5.0",
   "prek==0.3.3",
-  "pyproject-fmt==2.16.0",
+  "pyproject-fmt==2.16.1",
   "pytest==9.0.2",
   "pytest-asyncio==1.3.0",
   "pytest-cov==7.0.0",
   "pytest-django==4.12.0",
-  "pytest-env==1.3.2",
+  "pytest-env==1.5.0",
   "pytest-httpx==0.36.0",
   "pytest-mock==3.15.1",
   "pytest-xdist==3.8.0",
@@ -82,7 +82,7 @@ docs = [
   "mike==2.1.3",
   "mkdocs==1.6.1",
   "mkdocs-git-revision-date-localized-plugin==1.5.1",
-  "mkdocs-material==9.7.1",
+  "mkdocs-material==9.7.2",
 ]
 
 [tool.uv]

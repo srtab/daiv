@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.managers")
 
 
-PLAN_ISSUE_PROMPT = "Present a detailed plan to address this issue and wait for approval before executing it."
-ADDRESS_ISSUE_PROMPT = "Address this issue."
+PLAN_ISSUE_PROMPT = "/plan address the issue #{issue_iid}"
+ADDRESS_ISSUE_PROMPT = "Address the issue #{issue_iid}."
 
 
 class IssueAddressorManager(BaseManager):
@@ -72,8 +72,14 @@ class IssueAddressorManager(BaseManager):
             )
         else:
             # The issue was triggered by the bot label, so we need to request the agent to address it.
-            message_content = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
-            messages.append(HumanMessage(name=self.issue.author.username, id=self.issue.id, content=message_content))
+            message_content = (
+                ADDRESS_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
+                if self.issue.has_auto_label()
+                else PLAN_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
+            )
+            messages.append(
+                HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
+            )
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
             daiv_agent = await create_daiv_agent(
@@ -99,17 +105,18 @@ class IssueAddressorManager(BaseManager):
 
                 # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
                 # losing the changes made by the agent.
-                merge_request = snapshot.values.get("merge_request")
+                snapshot_mr = snapshot.values.get("merge_request")
+
                 publisher = GitChangePublisher(self.ctx)
-                merge_request = await publisher.publish(
-                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
+                published_mr = await publisher.publish(
+                    merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
                 )
 
                 # If the draft merge request is created successfully, we update the state to reflect the new MR.
-                if merge_request:
-                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
+                if published_mr:
+                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": published_mr})
 
-                self._add_unable_to_address_issue_note(draft_published=bool(merge_request))
+                self._add_unable_to_address_issue_note(draft_published=bool(published_mr))
             else:
                 if (
                     result
@@ -133,6 +140,7 @@ class IssueAddressorManager(BaseManager):
                     "bot_username": self.ctx.bot_username,
                     "draft_published": draft_published,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                    "is_github": self.ctx.git_platform == GitPlatform.GITHUB,
                 },
             ),
             # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.

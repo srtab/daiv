@@ -21,19 +21,6 @@ equipped with procedural knowledge and domain expertise.
 3. Domain expertise - Company-specific knowledge, schemas, business logic
 4. Bundled resources - Scripts, references, and assets for complex and repetitive tasks
 
-### Skill Location for DAIV
-
-In DAIV, skills are stored in `~/.agents/skills/` directory. For example, with the default configuration, skills live at:
-
-```
-~/.agents/skills/
-├── skill-name-1/
-│   └── SKILL.md
-├── skill-name-2/
-│   └── SKILL.md
-└── ...
-```
-
 ## Core Principles
 
 ### Concise is Key

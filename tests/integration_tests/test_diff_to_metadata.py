@@ -4,13 +4,14 @@ from pathlib import Path
 import pytest
 from langsmith import testing as t
 
-from automation.agent.diff_to_metadata.graph import create_changes_metadata_graph
+from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
 from .evaluators import correctness_evaluator
 
 DATA_DIR = Path(__file__).parent / "data" / "diff_to_metadata"
+TEST_SUITE = "DAIV: Diff to Metadata"
 
 
 def _read_text(rel_path: str) -> str:
@@ -38,7 +39,7 @@ def load_cases() -> list[pytest.param]:
         yield pytest.param(inputs, reference_outputs, id=case_id)
 
 
-@pytest.mark.langsmith(output_keys=["reference_outputs"])
+@pytest.mark.langsmith(test_suite_name=TEST_SUITE, output_keys=["reference_outputs"])
 @pytest.mark.parametrize("inputs,reference_outputs", load_cases())
 async def test_diff_to_metadata(inputs, reference_outputs):
     t.log_inputs(inputs)
@@ -52,7 +53,7 @@ async def test_diff_to_metadata(inputs, reference_outputs):
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:
             (agent_path / ctx.config.context_file_name).unlink()
-        changes_metadata_graph = create_changes_metadata_graph(ctx=ctx)
+        changes_metadata_graph = create_diff_to_metadata_graph(ctx=ctx)
         outputs = await changes_metadata_graph.ainvoke(inputs)
         outputs = {
             "pr_metadata": outputs["pr_metadata"].model_dump(mode="json") if "pr_metadata" in outputs else None,

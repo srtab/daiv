@@ -28,8 +28,10 @@ class ModelName(StrEnum):
     """
 
     # Anthropic models
+    CLAUDE_OPUS_4_5 = "openrouter:anthropic/claude-opus-4.5"
     CLAUDE_OPUS_4_6 = "openrouter:anthropic/claude-opus-4.6"
     CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
+    CLAUDE_SONNET_4_6 = "openrouter:anthropic/claude-sonnet-4.6"
     CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
 
     # OpenAI models

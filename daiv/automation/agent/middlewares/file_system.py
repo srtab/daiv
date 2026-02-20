@@ -34,17 +34,7 @@ DAIV_FILESYSTEM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 
 You have access to a filesystem which you can interact with using these tools.
 Tool-call arguments (ls/read_file{{^read_only}}/edit_file{{/read_only}}/etc.) MUST use absolute paths (start with "/").
-User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths.
-
- - ls: list files in a directory
- - read_file: read a file from the filesystem
-{{^read_only}}
- - write_file: write to a file in the filesystem
- - edit_file: edit a file in the filesystem
-{{/read_only}}
- - glob: find files matching a pattern (e.g., "**/*.py")
- - grep: search for text within files
-""",
+User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths (e.g. daiv/core/utils.py).""",
     "mustache",
 )
 

@@ -234,14 +234,17 @@ class GitManager:
 
         self.repo.git.add("-A")
         self.repo.index.commit(commit_message if not skip_ci else f"[skip ci] {commit_message}")
+
         try:
-            self.repo.remotes.origin.push(branch_name, force=override_commits)
+            push_info = self.repo.remotes.origin.push(branch_name, force=override_commits)
+            push_info.raise_if_error()
         except GitCommandError as e:
             if _is_push_auth_error(e):
                 raise GitPushPermissionError(
                     "Failed to push changes to the remote repository due to authentication or permission issues."
                 ) from e
             raise
+
         return branch_name
 
     def checkout(self, branch_name: str):

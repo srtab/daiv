@@ -45,8 +45,9 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
 )
 from automation.conf import settings as automation_settings
-from codebase.base import Scope
+from codebase.base import GitPlatform, Scope
 from codebase.context import RuntimeCtx, set_runtime_ctx
+from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
@@ -63,8 +64,8 @@ Applies to ALL user-visible text:
 - NEVER include "/repo/" anywhere in user-visible output.
 - Any repository file path shown to the user MUST be repo-relative (no leading "/").
   <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code references MUST use repo-relative paths: [path:line](path#Lline)
-- Pre-send check: if your draft contains "/repo/", rewrite before sending.
+- Code references MUST use repo-relative paths (e.g. [daiv/core/utils.py:42](daiv/core/utils.py#L42)).
+- Before emitting any user-visible text, check for "/repo/" and rewrite to repo-relative form.
 </output_invariants>"""
 
 
@@ -87,9 +88,11 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
         repository=request.runtime.context.repo_id,
-        git_platform=request.runtime.context.git_platform.value,
+        gitlab_platform=request.runtime.context.git_platform == GitPlatform.GITLAB,
+        github_platform=request.runtime.context.git_platform == GitPlatform.GITHUB,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
         working_directory=f"/{agent_path.name}/",
+        current_branch=get_repo_ref(request.runtime.context.repo),
     )
     return OUTPUT_INVARIANTS_SYSTEM_PROMPT + "\n\n" + request.system_prompt + "\n\n" + system_prompt.content.strip()
 
