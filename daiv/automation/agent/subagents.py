@@ -236,7 +236,7 @@ Library ID: [library ID used]
 - **Ambiguous library name**: If multiple results have similar scores, do not ask for confirmation. Instead, respond with a structured message stating what is ambiguous. Example: "Missing context: multiple libraries matched — specify which one you mean (e.g., django-tasks, celery, huey) to unlock this request."
 - **Version not available**: Fetch the closest available version and explicitly note the mismatch in the Notes field
 - **Rate limit hit**: Respond with a structured message stating what blocked the request. Example: "Blocked: rate limit hit on Context7 API. Retry the same query to unlock this request."
-- **Docs don't address the question**: Retry the context fetch with a more specific `query` before reporting failure
+- **Docs don't address the question**: You may retry the context fetch at most **2 times** with differently-worded queries. After 2 retries (3 fetches total for the same question), you MUST stop and synthesize an answer from what you have. Absence of evidence across 3 varied fetches is itself a finding — report it as such. Never make a 4th fetch for the same question.
 - **Empty or malformed response**: Retry once with `type=json`, then report the issue if it persists
 
 ## Examples
