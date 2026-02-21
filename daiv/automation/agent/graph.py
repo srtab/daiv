@@ -40,7 +40,7 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
-    create_changelog_subagent,
+    create_docs_research_subagent,
     create_explore_subagent,
     create_general_purpose_subagent,
 )
@@ -146,8 +146,8 @@ async def create_daiv_agent(
     # Create subagents list to be shared between middlewares
     subagents = [
         create_general_purpose_subagent(model, backend, ctx, offline=offline),
-        create_explore_subagent(backend, ctx),
-        create_changelog_subagent(model, backend, ctx, offline=offline),
+        create_explore_subagent(backend),
+        create_docs_research_subagent(backend),
     ]
 
     agent_conditional_middlewares = []

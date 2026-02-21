@@ -187,5 +187,9 @@ class WebFetchMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + WEB_FETCH_SYSTEM_PROMPT)
-        return await handler(request)
+        system_prompt = ""
+        if request.system_prompt:
+            system_prompt = request.system_prompt + "\n\n"
+        system_prompt += WEB_FETCH_SYSTEM_PROMPT
+
+        return await handler(request.override(system_prompt=system_prompt))

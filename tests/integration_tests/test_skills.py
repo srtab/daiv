@@ -15,24 +15,17 @@ TEST_SUITE = "DAIV: Skills"
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 @pytest.mark.parametrize("model_name", CODING_MODEL_NAMES)
 @pytest.mark.parametrize(
-    "inputs",
+    "user_message, skill",
     [
+        pytest.param("Plan an implementation for echo slash command", "plan", id="plan-skill-triggered-by-user-intent"),
+        pytest.param("/plan implement echo slash command", "plan", id="plan-skill-triggered-by-slash-command"),
         pytest.param(
-            {"user_message": "Plan an implementation for echo slash command", "skill": "plan"},
-            id="plan-skill-triggered-by-user-intent",
-        ),
-        pytest.param(
-            {"user_message": "/plan implement echo slash command", "skill": "plan"},
-            id="plan-skill-triggered-by-slash-command",
-        ),
-        pytest.param(
-            {"user_message": "/plan address the issue #123", "skill": "plan"},
-            id="plan-skill-triggered-by-slash-command-with-issue-reference",
+            "/plan address the issue #123", "plan", id="plan-skill-triggered-by-slash-command-with-issue-reference"
         ),
     ],
 )
-async def test_skill_activated(model_name, inputs):
-    t.log_inputs({"model_name": model_name, "inputs": inputs})
+async def test_skill_activated(model_name, user_message, skill):
+    t.log_inputs({"model_name": model_name, "user_message": user_message, "skill": skill})
 
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
@@ -43,7 +36,7 @@ async def test_skill_activated(model_name, inputs):
             checkpointer=InMemorySaver(),
         )
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": inputs["user_message"]}]},
+            {"messages": [{"role": "user", "content": user_message}]},
             context=ctx,
             config={"configurable": {"thread_id": "1"}},
         )
@@ -55,7 +48,7 @@ async def test_skill_activated(model_name, inputs):
             -1
         ].pretty_print()
         assert any(
-            tool_call["args"]["skill"] == inputs["skill"]
+            tool_call["args"]["skill"] == skill
             for tool_call in result["messages"][-1].tool_calls
             if tool_call["name"] == "skill"
-        ), result["messages"][-1].pretty_print()
+        ), result["messages"][-1].pretty_repr()
