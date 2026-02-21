@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed unit tests that still referenced the removed `create_changelog_subagent` by migrating them to `create_docs_research_subagent` expectations and `/agents` output assertions.
 - Fixed duplicate agent launches when issue labels are added, removed, and re-added by checking if DAIV has already reacted to the issue before processing label events.
 - Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
 - Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception when attempting to read files from empty repositories.
