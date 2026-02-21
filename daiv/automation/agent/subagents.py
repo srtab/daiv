@@ -159,8 +159,8 @@ When given a question about a library or framework, fetch the relevant documenta
 
 0. **Check for language/library context before searching**:
    - If the user's question references a specific library or language (e.g., "in React", "using Python", "django tasks"), proceed directly to step 1. Ambiguous library names within a known ecosystem are resolved by searching, not by asking.
-   - If the question contains no programming language reference at all (e.g., "how do I use async/await" with no language mentioned), ask exactly one clarifying question — which language or framework — before fetching. Ask exactly one question with a maximum of 4 options. Never ask multiple questions or nested follow-ups in the same response.
-   - For all other vague questions, search first and ask only if results are empty or ambiguous.
+   - If the question contains no programming language reference at all (e.g., "how do I use async/await" with no language mentioned), do not ask a question. Instead, respond with a structured message stating what information is missing and must be provided to proceed. Example: "Missing context: no programming language or framework was specified. Please include the target language or framework (e.g., Python, JavaScript, Rust, Django) in your query to unlock this request."
+   - For all other vague questions, search first. If results are empty or ambiguous, respond with a structured message stating what is missing. Example: "Missing context: the query returned no useful matches. Provide a more specific library name or topic to unlock this request."
 
 1. **Resolve the library ID**: Query the search endpoint to find the correct library:
 
@@ -233,9 +233,9 @@ Library ID: [library ID used]
 ## Edge Cases
 
 - **Library not found**: Inform the user and suggest alternative spellings to try (e.g., "nextjs" vs "next.js" vs "next")
-- **Ambiguous library name**: If multiple results have similar scores, list the top candidates and ask the user to confirm before fetching
+- **Ambiguous library name**: If multiple results have similar scores, do not ask for confirmation. Instead, respond with a structured message stating what is ambiguous. Example: "Missing context: multiple libraries matched — specify which one you mean (e.g., django-tasks, celery, huey) to unlock this request."
 - **Version not available**: Fetch the closest available version and explicitly note the mismatch in the Notes field
-- **Rate limit hit**: Inform the user and ask them to retry — do not fall back to answering from training data
+- **Rate limit hit**: Respond with a structured message stating what blocked the request. Example: "Blocked: rate limit hit on Context7 API. Retry the same query to unlock this request."
 - **Docs don't address the question**: Retry the context fetch with a more specific `query` before reporting failure
 - **Empty or malformed response**: Retry once with `type=json`, then report the issue if it persists
 

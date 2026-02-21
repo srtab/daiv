@@ -7,6 +7,7 @@ from langsmith import testing as t
 
 from automation.agent import BaseAgent
 from automation.agent.subagents import create_docs_research_subagent
+from automation.agent.utils import extract_text_content
 
 from .utils import FAST_MODEL_NAMES, extract_tool_calls
 
@@ -31,13 +32,14 @@ async def run_subagent(model_name: str, query: str) -> dict:
 
 def _assert_typical_execution_result(result: dict):
     tool_calls = extract_tool_calls(result)
+    text_content = extract_text_content(result["messages"][-1].content)
     assert len(tool_calls) >= 2
     assert all(tool_call["name"] == "web_fetch" for tool_call in tool_calls)
     assert all(tool_call["args"]["prompt"] == "" for tool_call in tool_calls)
-    assert "### Answer" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-    assert "### Code Example" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-    assert "### Notes" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-    assert "### Source" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
+    assert "### Answer" in text_content
+    assert "### Code Example" in text_content
+    assert "### Notes" in text_content
+    assert "### Source" in text_content
 
 
 @pytest.mark.subagents
@@ -96,15 +98,17 @@ async def test_docs_research_subagent_ask_clarifying_questions(model_name, query
     assert all(tool_call["name"] == "web_fetch" for tool_call in tool_calls)
     assert all(tool_call["args"]["prompt"] == "" for tool_call in tool_calls)
 
+    text_content = extract_text_content(result["messages"][-1].content)
+
     if expected_tool_calls == 0:
         # This means that the model did not fetch any documentation and asked a clarifying question instead.
-        assert "### Answer" not in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Code Example" not in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Notes" not in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Source" not in result["messages"][-1].content, result["messages"][-1].pretty_repr()
+        assert "### Answer" not in text_content
+        assert "### Code Example" not in text_content
+        assert "### Notes" not in text_content
+        assert "### Source" not in text_content
     elif expected_tool_calls is None:
         # This means that the model fetched documentation and answered the question directly.
-        assert "### Answer" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Code Example" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Notes" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
-        assert "### Source" in result["messages"][-1].content, result["messages"][-1].pretty_repr()
+        assert "### Answer" in text_content
+        assert "### Code Example" in text_content
+        assert "### Notes" in text_content
+        assert "### Source" in text_content
