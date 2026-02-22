@@ -405,7 +405,7 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     expires_at = runtime.state.get("github_token_expires_at")
 
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
-        thread_id = runtime.context.config.get("configurable", {}).get("thread_id", runtime.context.repo_id)
+        thread_id = runtime.config.get("configurable", {}).get("thread_id", runtime.context.repo_id)
 
         with cache.lock(f"github_lock_{thread_id}", blocking=True):
             cache_key = f"github_token_{thread_id}"
