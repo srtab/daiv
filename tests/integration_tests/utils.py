@@ -1,3 +1,5 @@
+from langchain.messages import AIMessage
+
 from automation.agent.constants import ModelName
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
@@ -37,3 +39,14 @@ CODING_MODEL_NAMES = [
     ModelName.MINIMAX_M2_5,
     ModelName.MOONSHOTAI_KIMI_K2_5,
 ]
+
+FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_5_1_CODEX_MINI]
+
+
+def extract_tool_calls(result: dict) -> list[dict]:
+    return [
+        tool_call
+        for message in result["messages"]
+        if isinstance(message, AIMessage)
+        for tool_call in message.tool_calls
+    ]
