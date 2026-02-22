@@ -128,17 +128,17 @@ then logged by the `ErrorReporter` class at
 </example>
 {{/gitlab_platform}}
 {{#github_platform}}
-Single line: `[{path}:{line}](blob/{{ current_branch }}/{path}#L{line})`
-Line range: `[{path}:{start}-{end}](blob/{{ current_branch }}/{path}#L{start}-L{end})`
+Single line: `[{path}:{line}](/blob/{{ current_branch }}/{path}#L{line})`
+Line range: `[{path}:{start}-{end}](/blob/{{ current_branch }}/{path}#L{start}-L{end})`
 
 <example>
 user: Where are errors from the client handled?
 assistant: Clients are marked as failed in the `connectToServer` function at
-[src/services/process.ts:712](blob/{{ current_branch }}/src/services/process.ts#L712).
+[src/services/process.ts:712](/blob/{{ current_branch }}/src/services/process.ts#L712).
 The error is caught and wrapped in a `ClientError` at
-[src/services/process.ts:715-723](blob/{{ current_branch }}/src/services/process.ts#L715-L723),
+[src/services/process.ts:715-723](/blob/{{ current_branch }}/src/services/process.ts#L715-L723),
 then logged by the `ErrorReporter` class at
-[src/utils/error_reporter.ts:38](blob/{{ current_branch }}/src/utils/error_reporter.ts#L38).
+[src/utils/error_reporter.ts:38](/blob/{{ current_branch }}/src/utils/error_reporter.ts#L38).
 </example>
 {{/github_platform}}
 
