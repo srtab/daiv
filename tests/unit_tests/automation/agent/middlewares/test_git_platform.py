@@ -15,7 +15,7 @@ class TestGitHubToolTokenCaching:
         runtime = ToolRuntime(
             state={},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
-            config={},
+            config={"configurable": {"thread_id": "test-thread-1"}},
             stream_writer=Mock(),
             tool_call_id="test_call_1",
             store=None,
@@ -73,7 +73,7 @@ class TestGitHubToolTokenCaching:
         runtime = ToolRuntime(
             state={"github_token": "tok_old", "github_token_expires_at": 0.0},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
-            config={},
+            config={"configurable": {"thread_id": "test-thread-2"}},
             stream_writer=Mock(),
             tool_call_id="test_call_2",
             store=None,
@@ -105,7 +105,7 @@ class TestGitHubToolTokenCaching:
         runtime = ToolRuntime(
             state={},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
-            config={},
+            config={"configurable": {"thread_id": "test-thread-3"}},
             stream_writer=Mock(),
             tool_call_id="test_call_3",
             store=None,
