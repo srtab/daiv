@@ -84,6 +84,8 @@ If the request references a platform issue or merge request (for example `#123`,
 
 Use the format that matches complexity. See `examples/` for worked samples.
 
+> **Output the plan directly — no preamble, no transition sentences.** Start immediately with the plan heading.
+
 ### Simple Format
 
 ```markdown

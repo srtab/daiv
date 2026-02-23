@@ -304,9 +304,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
             body = extract_body_from_frontmatter(responses[0].content.decode("utf-8").strip())
 
-            # Positional args like $1, $2
-            for i, a in enumerate(shlex.split(skill_args or ""), start=1):
-                body = body.replace(f"${i}", a).replace(f"{SKILL_ARGUMENTS_PLACEHOLDER}[{i}]", a)
+            try:
+                # Positional args like $1, $2
+                for i, a in enumerate(shlex.split(skill_args or ""), start=1):
+                    body = body.replace(f"${i}", a).replace(f"{SKILL_ARGUMENTS_PLACEHOLDER}[{i}]", a)
+            except ValueError:
+                logger.warning(
+                    "[%s] Failed to apply positional arguments, falling back to named arguments",
+                    self.name,
+                    exc_info=True,
+                )
 
             # Named args, only $ARGUMENTS supported
             if skill_args and (arg_str := skill_args.strip()):
