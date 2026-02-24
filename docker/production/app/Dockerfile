@@ -87,7 +87,6 @@ USER daiv
 WORKDIR /home/daiv
 
 RUN chmod +x entrypoint start-app start-worker start-crontask \
-  && gh extension install agynio/gh-pr-review \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
   && mkdir -p data/media data/static data/mcp-proxy
