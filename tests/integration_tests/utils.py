@@ -1,4 +1,12 @@
+from typing import TYPE_CHECKING
+
+from langchain.messages import AIMessage
+
 from automation.agent.constants import ModelName
+
+if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
+    from langchain_core.tools import ToolCall
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
     # SkillMiddleware
@@ -37,3 +45,7 @@ CODING_MODEL_NAMES = [
     ModelName.MINIMAX_M2_5,
     ModelName.MOONSHOTAI_KIMI_K2_5,
 ]
+
+
+def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
+    return [tool_call for message in messages if isinstance(message, AIMessage) for tool_call in message.tool_calls]

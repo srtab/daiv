@@ -31,67 +31,82 @@ logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
 
-BASH_TOOL_DESCRIPTION = f"""\
-Executes a given bash command in a persistent shell session. Working directory doesn't persist between commands.
+BASH_TOOL_DESCRIPTION = """\
+Executes a bash command in a persistent shell session.
 
-**CRITICAL**: Maintain your current working directory throughout the session by using absolute paths instead of cd.
-  <good-example>pytest /foo/bar/tests/</good-example>
-  <bad-example>cd /foo/bar && pytest tests/</bad-example>
+Session behavior:
+- Environment persists across invocations (e.g., exported variables remain).
+- Working directory does NOT persist: each invocation starts in the workspace root (PWD resets).
 
-IMPORTANT: This tool is for terminal operations like tests, linters, formatters, npm, docker, git, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
+**CRITICAL (PWD resets):** Do NOT rely on `cd`. Maintain context using absolute paths.
+  <good-example>pytest tests</good-example>
+  <bad-example>cd tests && pytest</bad-example>
 
-Before executing the command, please follow these steps:
+Intended use:
+- Terminal operations: running tests, builds, linters/formatters, package managers, and git inspection.
+- Network access may be disabled depending on installation; assume offline unless explicitly required by the user.
+- Docker is often unavailable; do not use it unless explicitly requested by the user (and never build/push/run containers or images).
 
-1. Directory Verification:
-   - If the command will create new directories or files, first use the ls tool to verify the parent directory exists and is the correct location
-   - For example, before running "mkdir foo/bar", first use ls to check that "foo" exists and is the intended parent directory
+Do NOT use bash for file operations when dedicated tools exist:
+- File listing: use `ls` tool (not shell ls)
+- File search: use `glob` (not find)
+- Content search: use dedicated `grep` tool (not shell grep/rg)
+- Read files: use `read_file` (not cat/head/tail)
+- Edit files: use `edit_file` (not sed/awk)
+- Write files: use `write_file` (not echo/heredocs)
 
-2. Command Execution:
-   - Always quote file paths that contain spaces with double quotes (e.g., cd "path with spaces/file.txt")
-   - Examples of proper quoting:
-     - cd "/Users/name/My Documents" (correct)
-     - cd /Users/name/My Documents (incorrect - will fail)
-     - python "/path/with spaces/script.py" (correct)
-     - python /path/with spaces/script.py (incorrect - will fail)
-   - After ensuring proper quoting, execute the command
-   - Capture the output of the command
+Before executing commands that create new files/directories:
+1) Verify the parent directory with the `ls` tool (to ensure the target location is correct).
+2) Then run the command.
 
-Usage notes:
-  - The command parameter is required
-  - Commands run in an isolated sandbox environment
-  - Returns combined stdout/stderr output with exit code
-  - If the output is very large, it may be truncated
-  - Avoid using {BASH_TOOL_NAME} with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
-    - File search: Use `glob` (NOT find or ls)
-    - Content search: Use `grep` (NOT grep or rg)
-    - Read files: Use `read_file` (NOT cat/head/tail)
-    - Edit files: Use `edit_file` (NOT sed/awk)
-    - Write files: Use `write_file` (NOT echo >/cat <<EOF)
-    - Communication: Output text directly (NOT echo/printf)
-  - When issuing multiple commands:
-    - If the commands are independent and can run in parallel, make multiple `bash` tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two `bash` tool calls in parallel.
-    - If the commands depend on each other and must run sequentially, use a single `bash` call with '&&' to chain them together (e.g., `python -m venv .venv && source .venv/bin/activate && pip install -r reqs.txt`). For instance, if one operation must complete before another starts (like mkdir before cp, write_file before bash for tests, or git add before git commit), run these operations sequentially instead.
-    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
-    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
+Command rules:
+- Quote paths with spaces using double quotes.
+- Prefer single-purpose commands.
+- For dependent steps that must run in one invocation, chain with `&&`.
+- Use `;` only when later steps should run even if earlier ones fail.
+- Avoid interactive commands and background processes.
+- Do not use newlines to separate commands (newlines are OK inside quoted strings).
 
-Write scope and boundaries:
-  - Writes must stay strictly within the working directory; do not touch parent directories, `$HOME`, or follow symlinks that exit the repo.
-  - Avoid high-impact/system-level actions.
-  - No Docker builds/pushes or container/image manipulation.
-  - No unscoped destructive operations.
-  - No DB schema changes/migrations/seeds.
-  - Do not edit secrets/credentials (e.g., `.env`) or CI settings.
-  - VERY IMPORTANT: Never commit/push changes to git, even if the user asks you to. Only use git for inspection.
+Safety boundaries:
+- Writes must stay strictly within the workspace; do not touch parent directories or $HOME, and do not follow symlinks that exit the workspace.
+- Avoid high-impact/system-level actions or unscoped destructive operations.
+- Do not access or print secrets/credentials (e.g., `.env`, tokens, SSH keys).
+- No DB schema changes/migrations/seeds.
+- No Docker image/container build/push/run actions.
 
-REMEMBER: You should use absolute paths instead of cd to change directories.
+Git safety protocol:
+- NEVER update git config (no `git config --global/--local/--system` changes).
+- Git is for inspection only (e.g., status/diff/log/show) unless explicitly instructed otherwise.
+- VERY IMPORTANT: Never commit or push (or rewrite git history), even if the user asks.
+- NEVER run destructive git commands, even if the user asks:
+  - Examples: `git push --force/--force-with-lease`, `git reset --hard`, `git checkout .`, `git restore .`, `git clean -f/-fd/-fx`, `git branch -D`
 """  # noqa: E501
 
 SANDBOX_SYSTEM_PROMPT = f"""\
 ## Bash tool
 
-You have access to a `{BASH_TOOL_NAME}` tool to execute bash commands on your working directory. Use this tool to run commands, scripts, tests, builds, and other shell operations.
+You can use `{BASH_TOOL_NAME}` to execute shell commands in the workspace for verification and tooling (tests/builds/linters/package managers) and for git INSPECTION (status/diff/log/show).
 
-IMPORTANT: Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it."""  # noqa: E501
+Key constraint:
+- The shell session persists, but the working directory resets each invocation. Avoid `cd` and use absolute paths.
+
+Decision rules:
+- If you can verify something quickly by running a command, do so instead of guessing.
+- Prefer small, targeted commands; avoid “decorative” command output or extra commands used only for formatting.
+
+Use dedicated tools when available:
+- Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
+
+Safety / boundaries (never do these):
+- Do not access or print secrets/credentials.
+- Do not run destructive or system-level commands.
+- Assume offline unless the user explicitly asks for network-dependent actions.
+
+Git safety (highest priority):
+- NEVER update git config.
+- NEVER commit or push, even if the user asks.
+- NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
+- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash."""  # noqa: E501
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)

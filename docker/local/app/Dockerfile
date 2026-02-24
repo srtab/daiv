@@ -59,4 +59,6 @@ COPY --chown=app:app pyproject.toml uv.lock ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN uv sync \
+    # Install GitHub PR review extension for terminal inline review workflows.
+    && gh extension install agynio/gh-pr-review \
     && mkdir -p /home/app/data
