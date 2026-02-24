@@ -113,8 +113,11 @@ async def create_daiv_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
-    offline: bool = False,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    # Flags to override the default settings
+    sandbox_enabled: bool | None = None,
+    web_fetch_enabled: bool | None = None,
+    web_search_enabled: bool = True,
 ):
     """
     Create the DAIV agent.
@@ -127,7 +130,10 @@ async def create_daiv_agent(
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
-        offline: Whether to enable offline mode for the agent.
+        interrupt_on: The interrupt on configuration for the agent.
+        sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
+        web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
+        web_search_enabled: Whether to enable web search for the agent.
 
     Returns:
         The DAIV agent.
@@ -138,25 +144,36 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = _compute_summarization_defaults(model)
+    _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
+    _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
 
     agent_path = Path(ctx.repo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     # Create subagents list to be shared between middlewares
     subagents = [
-        create_general_purpose_subagent(model, backend, ctx, offline=offline),
+        create_general_purpose_subagent(
+            model,
+            backend,
+            ctx,
+            sandbox_enabled=_sandbox_enabled,
+            web_search_enabled=web_search_enabled,
+            web_fetch_enabled=_web_fetch_enabled,
+        ),
         create_explore_subagent(backend, ctx),
-        create_changelog_subagent(model, backend, ctx, offline=offline),
+        create_changelog_subagent(
+            model, backend, ctx, sandbox_enabled=_sandbox_enabled, web_search_enabled=web_search_enabled
+        ),
     ]
 
     agent_conditional_middlewares = []
 
-    if not offline:
+    if web_search_enabled:
         agent_conditional_middlewares.append(WebSearchMiddleware())
-    if not offline and automation_settings.WEB_FETCH_ENABLED:
+    if _web_fetch_enabled:
         agent_conditional_middlewares.append(WebFetchMiddleware())
-    if ctx.config.sandbox.enabled:
+    if _sandbox_enabled:
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
@@ -164,9 +181,7 @@ async def create_daiv_agent(
         agent_conditional_middlewares.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
     agent_middleware = [
-        TodoListMiddleware(
-            system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=ctx.config.sandbox.enabled)
-        ),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         MemoryMiddleware(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
@@ -182,10 +197,10 @@ async def create_daiv_agent(
         SummarizationMiddleware(
             model=model,
             backend=backend,
-            trigger=summarization_defaults["trigger"],
-            keep=summarization_defaults["keep"],
+            trigger=_summarization_defaults["trigger"],
+            keep=_summarization_defaults["keep"],
             trim_tokens_to_summarize=None,
-            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),

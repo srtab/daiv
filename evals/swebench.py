@@ -49,7 +49,8 @@ async def main(
                     store=store,
                     # checkpointer=checkpointer,  # noqa: ERA001
                     auto_commit_changes=False,
-                    offline=True,
+                    web_search_enabled=False,
+                    web_fetch_enabled=False,
                 )
                 human_message = dedent(
                     """\

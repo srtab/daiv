@@ -13,6 +13,7 @@ from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
 if TYPE_CHECKING:
@@ -212,38 +213,44 @@ Do NOT specify WHAT to write—let the agent examine the diffs and infer user-fa
 
 
 def create_general_purpose_subagent(
-    model: BaseChatModel, backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    sandbox_enabled: bool = True,
+    web_search_enabled: bool = True,
+    web_fetch_enabled: bool = True,
 ) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = _compute_summarization_defaults(model)
 
     middleware = [
-        TodoListMiddleware(
-            system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=runtime.config.sandbox.enabled)
-        ),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend),
         GitPlatformMiddleware(git_platform=runtime.git_platform),
         SummarizationMiddleware(
             model=model,
             backend=backend,
-            trigger=summarization_defaults["trigger"],
-            keep=summarization_defaults["keep"],
+            trigger=_summarization_defaults["trigger"],
+            keep=_summarization_defaults["keep"],
             trim_tokens_to_summarize=None,
-            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
     ]
 
-    if not offline:
+    if web_search_enabled:
         middleware.append(WebSearchMiddleware())
 
-    if runtime.config.sandbox.enabled:
+    if web_fetch_enabled:
+        middleware.append(WebFetchMiddleware())
+
+    if sandbox_enabled:
         middleware.append(SandboxMiddleware(close_session=False))
 
     return SubAgent(
@@ -263,7 +270,7 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     model = BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME)
-    summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = _compute_summarization_defaults(model)
 
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -271,10 +278,10 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
         SummarizationMiddleware(
             model=model,
             backend=backend,
-            trigger=summarization_defaults["trigger"],
-            keep=summarization_defaults["keep"],
+            trigger=_summarization_defaults["trigger"],
+            keep=_summarization_defaults["keep"],
             trim_tokens_to_summarize=None,
-            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
@@ -292,12 +299,16 @@ def create_explore_subagent(backend: BackendProtocol, runtime: RuntimeCtx) -> Su
 
 
 def create_changelog_subagent(
-    model: BaseChatModel, backend: BackendProtocol, runtime: RuntimeCtx, offline: bool = False
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    sandbox_enabled: bool = True,
+    web_search_enabled: bool = True,
 ) -> SubAgent:
     """
     Create the changelog subagent.
     """
-    summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = _compute_summarization_defaults(model)
 
     middleware = [
         FilesystemMiddleware(backend=backend),
@@ -305,20 +316,20 @@ def create_changelog_subagent(
         SummarizationMiddleware(
             model=model,
             backend=backend,
-            trigger=summarization_defaults["trigger"],
-            keep=summarization_defaults["keep"],
+            trigger=_summarization_defaults["trigger"],
+            keep=_summarization_defaults["keep"],
             trim_tokens_to_summarize=None,
-            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
     ]
 
-    if not offline:
+    if web_search_enabled:
         middleware.append(WebSearchMiddleware())
 
-    if runtime.config.sandbox.enabled:
+    if sandbox_enabled:
         middleware.append(SandboxMiddleware(close_session=False))
 
     return SubAgent(
