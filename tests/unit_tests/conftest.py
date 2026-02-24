@@ -6,20 +6,24 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pydantic import SecretStr
 
+from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
-from codebase.conf import settings
+from codebase.conf import settings as codebase_settings
+from core.conf import settings as core_settings
 
 
 @pytest.fixture(autouse=True)
 def mock_settings():
     """Fixture to mock the secret token for testing."""
     with (
-        patch.object(settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(settings, "CLIENT", GitPlatform.GITLAB),
+        patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test-key")),
+        patch.object(automation_settings, "OPENROUTER_API_KEY", SecretStr("test-key")),
+        patch.object(codebase_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(codebase_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
     ):
-        yield settings
+        yield codebase_settings
 
 
 @pytest.fixture(autouse=True)
