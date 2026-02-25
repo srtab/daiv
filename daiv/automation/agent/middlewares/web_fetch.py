@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -83,6 +84,23 @@ def _upgrade_http_to_https(url: str) -> str:
     return url
 
 
+def _is_private_or_local(hostname: str) -> bool:
+    """
+    Check if a hostname is a private/local IP address or localhost.
+    """
+    # Check hostname literals first
+    if hostname.lower() in {"localhost", "localhost.localdomain"}:
+        return True
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except ValueError:
+        # Not a valid IP address, could be a hostname
+        # Check for localhost-like patterns
+        return bool(hostname.lower().endswith(".local") or hostname.lower().endswith(".localhost"))
+
+
 def _is_valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -95,6 +113,12 @@ async def _fetch_url_text(
     Returns (final_url, content_type, page_raw).
     """
     from httpx import AsyncClient, HTTPError
+
+    # SSRF protection: block private/local addresses
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if _is_private_or_local(hostname):
+        raise ValueError(f"Requests to private/local addresses are blocked: {url}")
 
     request_headers = {"User-Agent": USER_AGENT, **(extra_headers or {})}
 

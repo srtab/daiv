@@ -64,8 +64,8 @@ class AutomationSettings(BaseSettings):
         default_factory=dict,
         description=(
             "Domain-to-headers mapping for web_fetch authentication. "
-            "Keys are domain names (matched as suffix, e.g. 'context7.com' also matches 'api.context7.com'), "
-            "values are dicts of header name to header value. "
+            "Keys are domain names (exact match only, e.g. 'context7.com' matches only 'context7.com' "
+            "and not 'api.context7.com'), values are dicts of header name to header value. "
             'Example: \'{"context7.com": {"X-API-Key": "sk-abc"}}\''
         ),
     )
