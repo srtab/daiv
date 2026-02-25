@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -18,6 +19,8 @@ from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.tools")
 
@@ -54,6 +57,26 @@ Usage notes:
 """
 
 
+def _get_auth_headers_for_url(url: str) -> dict[str, str]:
+    """
+    Return authentication headers configured for the given URL's domain.
+
+    Matching is exact: a configured domain of ``context7.com`` matches
+    only ``context7.com`` and not ``api.context7.com`` or ``notcontext7.com``.
+    """
+    hostname = urlparse(url).hostname or ""
+    matched: list[tuple[str, dict[str, SecretStr]]] = []
+    for domain, headers in settings.WEB_FETCH_AUTH_HEADERS.items():
+        if hostname == domain:
+            matched.append((domain, headers))
+    # Merge from least-specific to most-specific so longer domains win.
+    matched.sort(key=lambda item: len(item[0]))
+    result: dict[str, str] = {}
+    for _domain, headers in matched:
+        result.update({key: value.get_secret_value() for key, value in headers.items()})
+    return result
+
+
 def _upgrade_http_to_https(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme == "http":
@@ -61,20 +84,47 @@ def _upgrade_http_to_https(url: str) -> str:
     return url
 
 
+def _is_private_or_local(hostname: str) -> bool:
+    """
+    Check if a hostname is a private/local IP address or localhost.
+    """
+    # Check hostname literals first
+    if hostname.lower() in {"localhost", "localhost.localdomain"}:
+        return True
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    except ValueError:
+        # Not a valid IP address, could be a hostname
+        # Check for localhost-like patterns
+        return hostname.lower().endswith(".local") or hostname.lower().endswith(".localhost")
+
+
 def _is_valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-async def _fetch_url_text(url: str, *, timeout_seconds: int, proxy_url: str | None) -> tuple[str, str, str]:
+async def _fetch_url_text(
+    url: str, *, timeout_seconds: int, proxy_url: str | None, extra_headers: dict[str, str] | None = None
+) -> tuple[str, str, str]:
     """
     Returns (final_url, content_type, page_raw).
     """
     from httpx import AsyncClient, HTTPError
 
+    # SSRF protection: block private/local addresses
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if _is_private_or_local(hostname):
+        raise ValueError(f"Requests to private/local addresses are blocked: {url}")
+
+    request_headers = {"User-Agent": USER_AGENT, **(extra_headers or {})}
+
     async with AsyncClient(proxy=proxy_url, follow_redirects=False) as client:
         try:
-            response = await client.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout_seconds)
+            response = await client.get(url, headers=request_headers, timeout=timeout_seconds)
         except HTTPError as e:
             raise ValueError(f"Failed to fetch {url}: {e!r}") from e
 
@@ -86,7 +136,9 @@ async def _fetch_url_text(url: str, *, timeout_seconds: int, proxy_url: str | No
             raise RuntimeError(f"<redirect_url>{redirect_url}</redirect_url>")
 
         # Same-host redirects are fine to follow automatically (e.g., path normalization).
-        return await _fetch_url_text(redirect_url, timeout_seconds=timeout_seconds, proxy_url=proxy_url)
+        return await _fetch_url_text(
+            redirect_url, timeout_seconds=timeout_seconds, proxy_url=proxy_url, extra_headers=extra_headers
+        )
 
     if response.status_code >= 400:
         raise ValueError(f"Failed to fetch {url} - status code {response.status_code}")
@@ -111,8 +163,12 @@ async def _fetch_markdown_for_url(url: str) -> str:
     """
     Fetch the URL and return markdown content.
     """
+    auth_headers = _get_auth_headers_for_url(url)
     final_url, content_type, page_raw = await _fetch_url_text(
-        url, timeout_seconds=settings.WEB_FETCH_TIMEOUT_SECONDS, proxy_url=settings.WEB_FETCH_PROXY_URL
+        url,
+        timeout_seconds=settings.WEB_FETCH_TIMEOUT_SECONDS,
+        proxy_url=settings.WEB_FETCH_PROXY_URL,
+        extra_headers=auth_headers or None,
     )
 
     is_html = "<html" in page_raw[:200].lower() or ("text/html" in content_type) or not content_type
@@ -187,5 +243,9 @@ class WebFetchMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + WEB_FETCH_SYSTEM_PROMPT)
-        return await handler(request)
+        system_prompt = ""
+        if request.system_prompt:
+            system_prompt = request.system_prompt + "\n\n"
+        system_prompt += WEB_FETCH_SYSTEM_PROMPT
+
+        return await handler(request.override(system_prompt=system_prompt))

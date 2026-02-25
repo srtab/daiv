@@ -66,5 +66,5 @@ async def test_diff_to_metadata(inputs, reference_outputs):
 
     t.log_outputs(outputs)
 
-    result = correctness_evaluator(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
+    result = await correctness_evaluator(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
     assert result["score"] is True, result["comment"]

@@ -40,7 +40,7 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
-    create_changelog_subagent,
+    create_docs_research_subagent,
     create_explore_subagent,
     create_general_purpose_subagent,
 )
@@ -161,11 +161,12 @@ async def create_daiv_agent(
             web_search_enabled=web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
         ),
-        create_explore_subagent(backend, ctx),
-        create_changelog_subagent(
-            model, backend, ctx, sandbox_enabled=_sandbox_enabled, web_search_enabled=web_search_enabled
-        ),
+        create_explore_subagent(backend),
     ]
+
+    if _web_fetch_enabled:
+        # only create the docs research subagent if web fetch is enabled as it requires web fetch to be enabled
+        subagents.append(create_docs_research_subagent(backend))
 
     agent_conditional_middlewares = []
 

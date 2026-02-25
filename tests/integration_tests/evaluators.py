@@ -1,11 +1,11 @@
-from openevals.llm import create_llm_as_judge
+from openevals.llm import create_async_llm_as_judge
 from openevals.prompts import CORRECTNESS_PROMPT
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import ModelName
 
-correctness_evaluator = create_llm_as_judge(
+correctness_evaluator = create_async_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=BaseAgent.get_model(model=ModelName.GPT_5_2_CODEX, thinking_level=ThinkingLevel.MEDIUM),
+    judge=BaseAgent.get_model(model=ModelName.GPT_5_3_CODEX, thinking_level=ThinkingLevel.MEDIUM),
 )

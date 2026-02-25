@@ -35,8 +35,8 @@ def mock_subagents() -> list[SubAgent]:
             "tools": [],
         },
         {
-            "name": "changelog-curator",
-            "description": "Agent for updating changelogs.",
+            "name": "docs-research",
+            "description": "Agent for fetching up-to-date documentation.",
             "system_prompt": "Test prompt",
             "tools": [],
         },
@@ -67,7 +67,7 @@ async def test_agents_command_with_subagents(agents_slash_command: AgentsSlashCo
     assert "Available Sub-Agents" in message
     assert "general-purpose" in message
     assert "explore" in message
-    assert "changelog-curator" in message
+    assert "docs-research" in message
     assert "General-purpose agent for researching and executing tasks." in message
     assert "Fast agent specialized for exploring codebases." in message
-    assert "Agent for updating changelogs." in message
+    assert "Agent for fetching up-to-date documentation." in message

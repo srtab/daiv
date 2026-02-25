@@ -41,6 +41,10 @@ class DAIVAgentSettings(BaseSettings):
         default=ModelName.CLAUDE_HAIKU_4_5,
         description="Model for the explore subagent, a fast model with capabilities to call tools.",
     )
+    DOCS_RESEARCH_MODEL_NAME: ModelName | str = Field(
+        default=ModelName.GPT_5_1_CODEX_MINI,
+        description="Model for the docs research subagent, a fast model with capabilities to call tools.",
+    )
 
 
 settings = DAIVAgentSettings()
