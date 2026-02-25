@@ -28,6 +28,15 @@ from automation.agent.middlewares import web_fetch as web_fetch_module
         ("::1", True),
         # IPv6 link-local
         ("fe80::1", True),
+        ("FE80::1", True),
+        # IPv4-mapped IPv6 addresses
+        ("::ffff:127.0.0.1", True),
+        ("::ffff:192.168.1.1", True),
+        ("::ffff:10.0.0.1", True),
+        ("::ffff:c0a8:0101", True),
+        # Multicast addresses
+        ("224.0.0.1", True),
+        ("ff02::1", True),
         # Local domain suffixes
         ("service.local", True),
         ("test.localhost", True),

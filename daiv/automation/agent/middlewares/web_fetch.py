@@ -94,11 +94,11 @@ def _is_private_or_local(hostname: str) -> bool:
 
     try:
         ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
     except ValueError:
         # Not a valid IP address, could be a hostname
         # Check for localhost-like patterns
-        return bool(hostname.lower().endswith(".local") or hostname.lower().endswith(".localhost"))
+        return hostname.lower().endswith(".local") or hostname.lower().endswith(".localhost")
 
 
 def _is_valid_http_url(url: str) -> bool:

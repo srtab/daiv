@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from pydantic import SecretStr
+
 from automation.agent.middlewares import web_fetch as web_fetch_module
 
 
@@ -216,8 +218,6 @@ async def test_rejects_large_content(httpx_mock):
 
 
 async def test_get_auth_headers_exact_domain_match():
-    from pydantic import SecretStr
-
     with patch.object(web_fetch_module, "settings") as mock_settings:
         mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://context7.com/api/v1/context")
@@ -225,8 +225,6 @@ async def test_get_auth_headers_exact_domain_match():
 
 
 async def test_get_auth_headers_subdomain_match():
-    from pydantic import SecretStr
-
     with patch.object(web_fetch_module, "settings") as mock_settings:
         mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://api.context7.com/endpoint")
@@ -234,8 +232,6 @@ async def test_get_auth_headers_subdomain_match():
 
 
 async def test_get_auth_headers_no_match():
-    from pydantic import SecretStr
-
     with patch.object(web_fetch_module, "settings") as mock_settings:
         mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://example.com/page")
@@ -243,8 +239,6 @@ async def test_get_auth_headers_no_match():
 
 
 async def test_get_auth_headers_rejects_false_suffix():
-    from pydantic import SecretStr
-
     with patch.object(web_fetch_module, "settings") as mock_settings:
         mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://notcontext7.com/page")
@@ -252,8 +246,6 @@ async def test_get_auth_headers_rejects_false_suffix():
 
 
 async def test_get_auth_headers_more_specific_domain_wins():
-    from pydantic import SecretStr
-
     with patch.object(web_fetch_module, "settings") as mock_settings:
         mock_settings.WEB_FETCH_AUTH_HEADERS = {
             "example.com": {"X-API-Key": SecretStr("generic")},
@@ -264,8 +256,6 @@ async def test_get_auth_headers_more_specific_domain_wins():
 
 
 async def test_fetch_url_text_injects_auth_headers(httpx_mock):
-    from pydantic import SecretStr
-
     httpx_mock.add_response(
         url="https://example.com/api/v1/context",
         status_code=200,
