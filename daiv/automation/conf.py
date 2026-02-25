@@ -60,6 +60,15 @@ class AutomationSettings(BaseSettings):
             "Maximum page content size (in characters) to analyze in one pass. Larger pages return a guidance message."
         ),
     )
+    WEB_FETCH_AUTH_HEADERS: dict[str, dict[str, SecretStr]] = Field(
+        default_factory=dict,
+        description=(
+            "Domain-to-headers mapping for web_fetch authentication. "
+            "Keys are domain names (matched as suffix, e.g. 'context7.com' also matches 'api.context7.com'), "
+            "values are dicts of header name to header value. "
+            'Example: \'{"context7.com": {"X-API-Key": "sk-abc"}}\''
+        ),
+    )
 
 
 settings = AutomationSettings()

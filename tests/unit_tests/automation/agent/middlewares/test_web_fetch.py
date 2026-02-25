@@ -215,6 +215,68 @@ async def test_rejects_large_content(httpx_mock):
     assert "Page content is too large to safely analyze in one pass." in result
 
 
+async def test_get_auth_headers_exact_domain_match():
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": "sk-abc"}}
+        result = web_fetch_module._get_auth_headers_for_url("https://context7.com/api/v1/context")
+    assert result == {"X-API-Key": "sk-abc"}
+
+
+async def test_get_auth_headers_subdomain_match():
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": "sk-abc"}}
+        result = web_fetch_module._get_auth_headers_for_url("https://api.context7.com/endpoint")
+    assert result == {}
+
+
+async def test_get_auth_headers_no_match():
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": "sk-abc"}}
+        result = web_fetch_module._get_auth_headers_for_url("https://example.com/page")
+    assert result == {}
+
+
+async def test_get_auth_headers_rejects_false_suffix():
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": "sk-abc"}}
+        result = web_fetch_module._get_auth_headers_for_url("https://notcontext7.com/page")
+    assert result == {}
+
+
+async def test_get_auth_headers_more_specific_domain_wins():
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {
+            "example.com": {"X-API-Key": "generic"},
+            "api.example.com": {"X-API-Key": "specific"},
+        }
+        result = web_fetch_module._get_auth_headers_for_url("https://api.example.com/v1")
+    assert result == {"X-API-Key": "specific"}
+
+
+async def test_fetch_url_text_injects_auth_headers(httpx_mock):
+    httpx_mock.add_response(
+        url="https://context7.com/api/v1/context",
+        status_code=200,
+        headers={"content-type": "application/json"},
+        text='{"result": "ok"}',
+    )
+    with patch.object(web_fetch_module, "settings") as mock_settings:
+        mock_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": "sk-abc"}}
+        mock_settings.WEB_FETCH_TIMEOUT_SECONDS = 1
+        mock_settings.WEB_FETCH_PROXY_URL = None
+        mock_settings.WEB_FETCH_MAX_CONTENT_CHARS = 999_999
+        mock_settings.WEB_FETCH_MODEL_NAME = None
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://context7.com/api/v1/context",
+            "prompt": "",
+        })
+
+    sent_requests = httpx_mock.get_requests()
+    assert len(sent_requests) == 1
+    assert sent_requests[0].headers["X-API-Key"] == "sk-abc"
+    assert "context7.com" in result
+
+
 async def test_model_failure_returns_contents(httpx_mock):
     class _FailingModel:
         async def ainvoke(self, _messages):

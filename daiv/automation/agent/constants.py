@@ -36,12 +36,12 @@ class ModelName(StrEnum):
 
     # OpenAI models
     GPT_4_1_MINI = "openrouter:openai/gpt-4.1-mini"
+    GPT_4_1 = "openrouter:openai/gpt-4.1"
     GPT_5_1_CODEX_MINI = "openrouter:openai/gpt-5.1-codex-mini"
     GPT_5_2 = "openrouter:openai/gpt-5.2"
-    GPT_5_2_CODEX = "openrouter:openai/gpt-5.2-codex"
+    GPT_5_3_CODEX = "openrouter:openai/gpt-5.3-codex"
 
     # z-ai models
-    Z_AI_GLM_4_7 = "openrouter:z-ai/glm-4.7"
     Z_AI_GLM_5 = "openrouter:z-ai/glm-5"
 
     # minimax models

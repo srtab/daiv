@@ -15,22 +15,16 @@ TEST_SUITE = "DAIV: Skills"
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 @pytest.mark.parametrize("model_name", CODING_MODEL_NAMES)
 @pytest.mark.parametrize(
-    "user_message, skill",
+    "user_message,skill",
     [
         pytest.param("Plan an implementation for echo slash command", "plan", id="plan-skill-triggered-by-user-intent"),
         pytest.param("/plan implement echo slash command", "plan", id="plan-skill-triggered-by-slash-command"),
         pytest.param(
             "/plan address the issue #123", "plan", id="plan-skill-triggered-by-slash-command-with-issue-reference"
         ),
-        pytest.param(
-            {"user_message": "Create an AGENTS.md for this repository", "skill": "init"},
-            id="init-skill-triggered-by-user-intent",
-        ),
-        pytest.param({"user_message": "/init", "skill": "init"}, id="init-skill-triggered-by-slash-command"),
-        pytest.param(
-            {"user_message": "Analyze this repo and generate agent docs", "skill": "init"},
-            id="init-skill-triggered-by-analyze-phrase",
-        ),
+        pytest.param("Create an AGENTS.md for this repository", "init", id="init-skill-triggered-by-user-intent"),
+        pytest.param("/init", "init", id="init-skill-triggered-by-slash-command"),
+        pytest.param("Analyze this repo and generate agent docs", "init", id="init-skill-triggered-by-analyze-phrase"),
     ],
 )
 async def test_skill_activated(model_name, user_message, skill):
