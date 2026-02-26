@@ -12,6 +12,7 @@ from deepagents.middleware.subagents import SubAgentMiddleware
 from deepagents.middleware.summarization import _compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
+    AgentMiddleware,
     HumanInTheLoopMiddleware,
     InterruptOnConfig,
     ModelFallbackMiddleware,
@@ -114,6 +115,7 @@ async def create_daiv_agent(
     store: BaseStore | None = None,
     debug: bool = False,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    middleware: list[AgentMiddleware] | None = None,
     # Flags to override the default settings
     sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
@@ -131,6 +133,7 @@ async def create_daiv_agent(
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
         interrupt_on: The interrupt on configuration for the agent.
+        middleware: The middleware to use for the agent.
         sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
         web_search_enabled: Whether to enable web search for the agent.
@@ -178,6 +181,8 @@ async def create_daiv_agent(
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
+    if middleware:
+        agent_conditional_middlewares += middleware
     if interrupt_on is not None:
         agent_conditional_middlewares.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 

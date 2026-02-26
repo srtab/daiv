@@ -19,6 +19,8 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+  "ag-ui-langgraph==0.0.25",
+  "copilotkit==0.1.78",
   "ddgs==9.10.0",
   "deepagents==0.4.3",
   "django==6.0.2",
