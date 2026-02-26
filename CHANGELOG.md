@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed chat streaming crashes caused by AG-UI `messages_in_process` state transitions where a `None` sentinel was merged as a mapping, preventing `TypeError: 'NoneType' object is not a mapping` during ASGI responses.
 - Fixed unit tests that still referenced the removed `create_changelog_subagent` by migrating them to `create_docs_research_subagent` expectations and `/agents` output assertions.
 - Fixed duplicate agent launches when issue labels are added, removed, and re-added by checking if DAIV has already reacted to the issue before processing label events.
 - Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
