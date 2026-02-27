@@ -175,3 +175,29 @@ class TestPolicyResultAttributes:
         policy = CommandPolicy()
         result = evaluate_command_policy([_seg(("git",))], policy)
         assert result.allowed
+
+
+class TestFlagNormalization:
+    """Policy matching should normalize short-flag order for bundled flags."""
+
+    def test_short_flag_bundle_order_is_normalized(self):
+        policy = CommandPolicy(disallow=[("rm", "-rf", "/")])
+        result = evaluate_command_policy([_seg(("rm", "-fr", "/"))], policy)
+        assert not result.allowed
+        assert result.denial_reason == DenialReason.REPO_DISALLOW
+
+    def test_short_flag_bundle_order_is_normalized_with_case(self):
+        policy = CommandPolicy(disallow=[("mycmd", "-ab")])
+        result = evaluate_command_policy([_seg(("mycmd", "-Ba"))], policy)
+        assert not result.allowed
+        assert result.denial_reason == DenialReason.REPO_DISALLOW
+
+    def test_long_options_are_not_reordered(self):
+        policy = CommandPolicy(disallow=[("mycmd", "--ab")])
+        result = evaluate_command_policy([_seg(("mycmd", "--ba"))], policy)
+        assert result.allowed
+
+    def test_non_alpha_short_tokens_are_not_reordered(self):
+        policy = CommandPolicy(disallow=[("mycmd", "-a1")])
+        result = evaluate_command_policy([_seg(("mycmd", "-1a"))], policy)
+        assert result.allowed

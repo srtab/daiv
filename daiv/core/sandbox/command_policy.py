@@ -105,18 +105,42 @@ def parse_rule(rule: str) -> tuple[str, ...]:
     return tuple(t.lower() for t in rule.split() if t)
 
 
+def _normalize_flag_token(token: str) -> str:
+    """
+    Canonicalize a token for policy matching.
+
+    For short flag bundles (e.g. ``-rf``), normalize by sorting letters so
+    equivalent permutations compare equal (``-rf`` == ``-fr``).
+
+    Notes:
+    - Only applies to tokens that look like ``-[A-Za-z]{2,}``.
+    - Long options (``--force``), single short options (``-f``), and tokens
+      containing non-letters are left unchanged.
+    """
+    if len(token) >= 3 and token.startswith("-") and not token.startswith("--"):
+        short_flags = token[1:]
+        if short_flags.isalpha():
+            return "-" + "".join(sorted(short_flags))
+    return token
+
+
+def _normalize_argv_for_match(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Lowercase + canonical-flag normalization used for prefix matching."""
+    return tuple(_normalize_flag_token(token.lower()) for token in argv)
+
+
 def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     """
     Return ``True`` when *argv* starts with the tokens in *rule* (prefix match).
 
-    Comparison is case-insensitive on both sides, so rules need not anticipate
-    flag casing (e.g. ``-D`` and ``-d`` both match a rule containing ``-D``).
+    Comparison is case-insensitive and performs short-flag normalization for
+    bundled short options. Example: ``-rf`` and ``-fr`` are considered equal.
     """
     if not rule or len(argv) < len(rule):
         return False
-    argv_lower = tuple(t.lower() for t in argv)
-    rule_lower = tuple(t.lower() for t in rule)
-    return argv_lower[: len(rule_lower)] == rule_lower
+    argv_normalized = _normalize_argv_for_match(argv)
+    rule_normalized = _normalize_argv_for_match(rule)
+    return argv_normalized[: len(rule_normalized)] == rule_normalized
 
 
 def _rule_repr(rule: tuple[str, ...]) -> str:
