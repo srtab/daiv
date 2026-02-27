@@ -123,7 +123,10 @@ class TestBashToolPolicyEnforcement:
             store=None,
         )
         with (
-            patch("automation.agent.middlewares.sandbox._run_bash_commands", new=AsyncMock()) as run_mock,
+            patch(
+                "automation.agent.middlewares.sandbox._run_bash_commands",
+                new=AsyncMock(return_value=RunCommandsResponse(results=[], patch=None)),
+            ) as run_mock,
             patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", ()),
             patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", ()),
         ):
@@ -172,9 +175,8 @@ class TestBashToolPolicyEnforcement:
     # --- Safe commands pass through ---
 
     async def test_pytest_is_allowed(self, tmp_path: Path):
-        RunCommandsResponse(results=[], patch=None)
         output, run_mock = await self._invoke("pytest tests/", tmp_path)
-        # Policy should not block; the command reaches sandbox (None response → error from sandbox)
+        # Policy should not block; the command reaches sandbox.
         run_mock.assert_awaited_once()
 
     async def test_git_status_is_allowed(self, tmp_path: Path):
