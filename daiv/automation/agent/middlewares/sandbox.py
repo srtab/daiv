@@ -19,6 +19,8 @@ from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
+from core.sandbox.command_parser import CommandParseError, parse_command
+from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
 if TYPE_CHECKING:
@@ -114,6 +116,10 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     """
     Tool to run a list of Bash commands in a persistent shell session.
     """
+    denial_error = _check_command_policy(command, runtime)
+    if denial_error:
+        return denial_error
+
     repo_working_dir = Path(runtime.context.repo.working_dir)
 
     response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
@@ -131,6 +137,82 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
     return json.dumps([result.model_dump(mode="json") for result in response.results])
+
+
+def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
+    """
+    Parse *command* with Parable and evaluate it against the effective policy.
+
+    Returns an ``error:`` string if the command is denied, or ``None`` if it may
+    proceed to sandbox execution.
+
+    Failure mode: if parsing fails, the command is rejected (fail-closed).
+    """
+    tool_call_id = getattr(runtime, "tool_call_id", None)
+
+    # Build effective policy from global settings + repo config.
+    repo_config = runtime.context.config
+    repo_policy = repo_config.sandbox.command_policy
+
+    policy = CommandPolicy(
+        disallow=[
+            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_DISALLOW],
+            *[parse_rule(r) for r in repo_policy.disallow],
+        ],
+        allow=[
+            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_ALLOW],
+            *[parse_rule(r) for r in repo_policy.allow],
+        ],
+    )
+
+    # Parse the command string.
+    try:
+        segments = parse_command(command)
+    except CommandParseError as exc:
+        logger.warning(
+            "[%s] bash_policy_parse_failed: command could not be parsed (id=%s, reason=%r)",
+            BASH_TOOL_NAME,
+            tool_call_id,
+            exc.reason,
+            extra={
+                "event": "bash_policy_parse_failed",
+                "reason_category": DenialReason.PARSE_FAILURE,
+                "tool_call_id": tool_call_id,
+            },
+        )
+        return (
+            f"error: Command blocked — could not parse command safely (reason: {exc.reason}). "
+            "Verify that the command is well-formed and retry."
+        )
+
+    # Evaluate policy.
+    result = evaluate_command_policy(segments, policy)
+    if result.allowed:
+        return None
+
+    logger.warning(
+        "[%s] bash_policy_denied: command denied (id=%s, reason=%s, rule=%r, segment=%r)",
+        BASH_TOOL_NAME,
+        tool_call_id,
+        result.denial_reason,
+        result.matched_rule,
+        result.denied_segment,
+        extra={
+            "event": "bash_policy_denied",
+            "reason_category": result.denial_reason,
+            "matched_rule": result.matched_rule,
+            "denied_segment": result.denied_segment,
+            "tool_call_id": tool_call_id,
+        },
+    )
+
+    reason_label = result.denial_reason.value if result.denial_reason else "policy"
+    matched = result.matched_rule or "unknown"
+    return (
+        f"error: Command blocked by policy ({reason_label}): "
+        f"the command or one of its sub-commands matches the rule '{matched}'. "
+        "Remove or replace the disallowed command segment and retry."
+    )
 
 
 async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:

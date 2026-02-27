@@ -1,6 +1,11 @@
 from unittest.mock import patch
 
-from codebase.repo_config import CONFIGURATION_CACHE_KEY_PREFIX, CONFIGURATION_CACHE_TIMEOUT, RepositoryConfig
+from codebase.repo_config import (
+    CONFIGURATION_CACHE_KEY_PREFIX,
+    CONFIGURATION_CACHE_TIMEOUT,
+    RepositoryConfig,
+    SandboxCommandPolicy,
+)
 
 
 class RepositoryConfigTest:
@@ -144,3 +149,67 @@ class RepositoryConfigTest:
 
         assert config.models.agent.model == "openrouter:anthropic/claude-haiku-4.5"
         assert config.models.agent.thinking_level is not None
+
+    @patch("codebase.repo_config.cache")
+    def test_sandbox_command_policy_defaults(self, mock_cache, mock_repo_client):
+        """Test that sandbox.command_policy defaults to empty allow/disallow lists."""
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = None
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert config.sandbox.command_policy.disallow == ()
+        assert config.sandbox.command_policy.allow == ()
+
+    @patch("codebase.repo_config.cache")
+    def test_sandbox_command_policy_parses_from_yaml(self, mock_cache, mock_repo_client):
+        """Test that sandbox.command_policy is parsed from YAML correctly."""
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
+        sandbox:
+          command_policy:
+            disallow:
+              - "rm -rf"
+              - "curl"
+            allow:
+              - "my-safe-cmd"
+        """
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert "rm -rf" in config.sandbox.command_policy.disallow
+        assert "curl" in config.sandbox.command_policy.disallow
+        assert "my-safe-cmd" in config.sandbox.command_policy.allow
+
+    @patch("codebase.repo_config.cache")
+    def test_sandbox_command_policy_partial_yaml_uses_defaults(self, mock_cache, mock_repo_client):
+        """Test that a partial command_policy section merges with defaults."""
+        repo_id = "test_repo"
+        mock_cache.get.return_value = None
+        mock_repo_client.get_repository.return_value.default_branch = "main"
+        mock_repo_client.get_repository_file.return_value = """
+        sandbox:
+          command_policy:
+            disallow:
+              - "danger-cmd"
+        """
+
+        config = RepositoryConfig.get_config(repo_id)
+
+        assert "danger-cmd" in config.sandbox.command_policy.disallow
+        assert config.sandbox.command_policy.allow == ()
+
+    def test_sandbox_command_policy_model_direct(self):
+        """Unit test for SandboxCommandPolicy model defaults."""
+        policy = SandboxCommandPolicy()
+        assert policy.disallow == ()
+        assert policy.allow == ()
+
+    def test_sandbox_command_policy_model_with_values(self):
+        policy = SandboxCommandPolicy(disallow=("rm -rf", "curl"), allow=("safe-cmd",))
+        assert "rm -rf" in policy.disallow
+        assert "safe-cmd" in policy.allow

@@ -27,6 +27,21 @@ class CoreSettings(BaseSettings):
     SANDBOX_MEMORY: int | None = Field(
         default=None, description="Memory limit (bytes) to allocate to sandbox sessions by default."
     )
+    SANDBOX_COMMAND_POLICY_DISALLOW: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Global list of additional bash command prefixes to block before sandbox execution. "
+            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
+            "Built-in safety rules always apply and cannot be removed via this setting."
+        ),
+    )
+    SANDBOX_COMMAND_POLICY_ALLOW: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Global list of bash command prefixes that override the default disallow policy. "
+            "Repository-level disallow rules and built-in rules still take precedence."
+        ),
+    )
 
 
 settings = CoreSettings()
