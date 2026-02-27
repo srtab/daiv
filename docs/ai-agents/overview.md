@@ -106,6 +106,7 @@ Agents can execute commands in isolated sandbox environments using [daiv-sandbox
 
 - **Code Formatting**: Apply repository-specific formatting rules (e.g. ruff, black, isort, etc.)
 - **Custom Commands**: Execute repository-specific commands (e.g. install dependencies, etc.)
+- **Command Policy Enforcement**: Every bash command is parsed and evaluated against configurable allow/disallow rules before reaching the sandbox. High-risk operations (`git commit`, `git push`, `git reset`, etc.) are blocked by default. See [Command Security Policy](../configuration/yaml-config.md#command-security-policy) for customization options.
 
 ### 🧠 Agent Skills
 

@@ -99,9 +99,14 @@ Variables marked with:
 | `DAIV_SANDBOX_NETWORK_ENABLED` | Default network setting for sandbox sessions | `False` | `True` |
 | `DAIV_SANDBOX_CPU` | Default CPU limit for sandbox sessions (CPUs) | `None` | `1.0` |
 | `DAIV_SANDBOX_MEMORY` | Default memory limit for sandbox sessions (bytes) | `None` | `1073741824` |
+| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`) | `""` (none) | `"curl wget npm publish"` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none) | `"my-safe-tool"` |
 
 !!! info
     Check the [daiv-sandbox](https://github.com/daiv/daiv-sandbox) repository for server-side configuration of the sandbox service.
+
+!!! note "Global policy vs. repository policy"
+    `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` set global defaults. Per-repository overrides are defined in the `.daiv.yml` `sandbox.command_policy` section and are merged at evaluation time. Built-in safety rules (blocking `git commit`, `git push`, etc.) cannot be overridden by either mechanism.
 
 ### Other
 

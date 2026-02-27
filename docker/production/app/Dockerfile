@@ -10,7 +10,9 @@ RUN apt-get update \
     # dependencies for building Python packages
     build-essential \
     # psycopg dependencies
-    libpq-dev
+    libpq-dev \
+    # git for fetching git dependencies
+    git
 
 # Install uv
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#installing-uv

@@ -39,6 +39,9 @@ sandbox:
   network_enabled: false
   cpu: null
   memory: null
+  command_policy:
+    disallow: []
+    allow: []
 
 # Model configuration
 models:
@@ -176,6 +179,47 @@ sandbox:
 !!! tip
     - Use specific image versions for reproducibility.
     - The sandbox is only enabled when `base_image` is specified and `daiv-sandbox` is running.
+
+### Command Security Policy
+
+DAIV enforces a mandatory bash command policy before any command reaches the sandbox. Built-in safety rules block high-risk git operations by default. You can add custom rules per repository using the `command_policy` subsection.
+
+| Option                            | Type           | Default | Description |
+|-----------------------------------|----------------|---------|-------------|
+| `command_policy.disallow`         | `list[str]`    | `[]`    | Space-separated command prefixes to block. Takes precedence over `allow`. |
+| `command_policy.allow`            | `list[str]`    | `[]`    | Space-separated command prefixes to explicitly permit, overriding the default policy (but not `disallow` or built-in rules). |
+
+**How policy precedence works:**
+
+Priority (highest to lowest):
+1. **Built-in rules** (always enforced, cannot be overridden): `git commit`, `git push`, `git reset`, `git rebase`, `git clean`, `git config`, and more.
+2. **`disallow` list**: your repo-level additional blocks.
+3. **`allow` list**: your repo-level explicit permits (exempts from default-policy only).
+4. **Default policy**: all other commands are permitted.
+
+If any segment of a compound command (`&&`, `||`, `;`, `|`) is blocked, the entire invocation is rejected before sandbox execution.
+
+If the command cannot be parsed safely, execution is also rejected (fail-closed).
+
+**Example configuration:**
+
+```yaml
+sandbox:
+  base_image: "python:3.12-alpine"
+  command_policy:
+    disallow:
+      - "curl"          # block all curl invocations
+      - "wget"          # block wget
+      - "rm -rf /"      # block recursive root deletion specifically
+    allow:
+      - "curl --dry-run"  # this has no effect: disallow takes precedence
+```
+
+!!! warning "Allow rules cannot override built-in safety rules"
+    Adding `git commit` or `git push` to `allow` will **not** permit those commands — the built-in disallow rules always take precedence.
+
+!!! tip
+    Use `disallow` to harden repositories where certain commands should never run, such as `curl` in an air-gapped environment or `npm publish` in a read-only mirror.
 
 ## Configure Model Settings
 

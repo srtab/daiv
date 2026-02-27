@@ -40,6 +40,7 @@ dependencies = [
   "langsmith[pytest]==0.7.7",
   "langsmith-fetch==0.3.1",
   "markdownify==1.2.2",
+  "parable",
   "prompt-toolkit==3.0.52",
   "psycopg[pool]==3.3.3",
   "pydantic==2.12.5",
@@ -87,6 +88,7 @@ docs = [
 
 [tool.uv]
 default-groups = [ "docs", "dev" ]
+sources.parable = { git = "https://github.com/ldayton/Parable.git", rev = "9f7e15734bd3e5bb9fe252d2491d6f61572f0e57" }
 
 [tool.ruff]
 line-length = 120

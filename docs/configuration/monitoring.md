@@ -270,6 +270,42 @@ LANGCHAIN_TRACING_SAMPLE_RATE=0.5
 
 ---
 
+## Bash Command Policy Denials
+
+DAIV emits structured warning logs whenever the bash tool blocks a command due to policy evaluation or a parse failure. These logs are written to the `daiv.tools` logger and appear in your container/application logs.
+
+### Denial log events
+
+**`bash_policy_denied`** — emitted when a command segment matches a disallow rule:
+
+```
+[bash] bash_policy_denied: command denied (id=<call_id>, reason=default_disallow, rule='git push', segment='git push origin main')
+```
+
+**`bash_policy_parse_failed`** — emitted when Parable cannot parse the command string (fail-closed behavior):
+
+```
+[bash] bash_policy_parse_failed: command could not be parsed (id=<call_id>, reason='Parse error: ...')
+```
+
+### Log fields
+
+| Field | Description |
+|-------|-------------|
+| `event` | `bash_policy_denied` or `bash_policy_parse_failed` |
+| `reason_category` | `default_disallow`, `repo_disallow`, or `parse_failure` |
+| `matched_rule` | The rule prefix that triggered denial (e.g. `"git push"`) |
+| `denied_segment` | The specific argv segment that was blocked |
+| `tool_call_id` | The agent tool-call ID for correlation with LangSmith traces |
+
+### Monitoring recommendations
+
+- **Alert on high denial rates**: a spike in `bash_policy_denied` events may indicate an agent is repeatedly attempting prohibited operations.
+- **Tune policy rules**: use `reason_category` to distinguish built-in denials from custom repo-level denials and adjust `.daiv.yml` accordingly.
+- **Correlate with LangSmith**: the `tool_call_id` field links each denial to the full agent trace in LangSmith for deeper investigation.
+
+---
+
 ## ⏭️ Next Steps
 
 For more detailed information about LangSmith features, visit the [LangSmith documentation](https://docs.smith.langchain.com/).

@@ -452,6 +452,7 @@ dependencies = [
     { name = "langsmith", extra = ["pytest"] },
     { name = "langsmith-fetch" },
     { name = "markdownify" },
+    { name = "parable" },
     { name = "prompt-toolkit" },
     { name = "psycopg", extra = ["pool"] },
     { name = "pydantic" },
@@ -517,6 +518,7 @@ requires-dist = [
     { name = "langsmith", extras = ["pytest"], specifier = "==0.7.7" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdownify", specifier = "==1.2.2" },
+    { name = "parable", git = "https://github.com/ldayton/Parable.git?rev=9f7e15734bd3e5bb9fe252d2491d6f61572f0e57" },
     { name = "prompt-toolkit", specifier = "==3.0.52" },
     { name = "psycopg", extras = ["pool"], specifier = "==3.3.3" },
     { name = "pydantic", specifier = "==2.12.5" },
@@ -2076,6 +2078,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/89/41/d7dfb63d2407f12055215070c42fc6ac41b66e90a2946cdc5e759058398b/pandas-3.0.1-cp314-cp314t-win_amd64.whl", hash = "sha256:44f1364411d5670efa692b146c748f4ed013df91ee91e9bec5677fb1fd58b937", size = 10884622, upload-time = "2026-02-17T22:20:11.711Z" },
     { url = "https://files.pythonhosted.org/packages/68/b0/34937815889fa982613775e4b97fddd13250f11012d769949c5465af2150/pandas-3.0.1-cp314-cp314t-win_arm64.whl", hash = "sha256:108dd1790337a494aa80e38def654ca3f0968cf4f362c85f44c15e471667102d", size = 9452085, upload-time = "2026-02-17T22:20:14.331Z" },
 ]
+
+[[package]]
+name = "parable"
+version = "0.1.0"
+source = { git = "https://github.com/ldayton/Parable.git?rev=9f7e15734bd3e5bb9fe252d2491d6f61572f0e57#9f7e15734bd3e5bb9fe252d2491d6f61572f0e57" }
 
 [[package]]
 name = "parso"
