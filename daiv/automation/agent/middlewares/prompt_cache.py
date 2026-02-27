@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
@@ -35,12 +35,12 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         ```
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, ttl: Literal["5m", "1h"] = "1h", **kwargs):
         """
         Initialize the middleware.
         """
         unsupported_model_behavior = kwargs.pop("unsupported_model_behavior", "ignore")
-        super().__init__(*args, unsupported_model_behavior=unsupported_model_behavior, **kwargs)
+        super().__init__(*args, unsupported_model_behavior=unsupported_model_behavior, ttl=ttl, **kwargs)
 
     def _should_apply_caching(self, request: ModelRequest) -> bool:
         """
@@ -62,10 +62,18 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
                 if message.content_blocks and "cache_control" in message.content_blocks[-1]:
                     del message.content_blocks[-1]["cache_control"]
 
-            if isinstance(request.messages[-1].content, str):
-                request.messages[-1].content = [create_text_block(request.messages[-1].content)]
+            cache_target_message = next(
+                (message for message in reversed(request.messages) if message.type != "tool"), None
+            )
+            if cache_target_message is None:
+                return await handler(request)
 
-            request.messages[-1].content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
+            if isinstance(cache_target_message.content, str):
+                cache_target_message.content = [create_text_block(cache_target_message.content)]
+            elif not cache_target_message.content:
+                cache_target_message.content = [create_text_block("")]
+
+            cache_target_message.content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
             return await handler(request)
         return await super().awrap_model_call(request, handler)
 
