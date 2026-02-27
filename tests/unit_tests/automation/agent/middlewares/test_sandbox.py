@@ -15,32 +15,37 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _make_sandbox_config_mock(disallow=(), allow=()):
+    """Create a mock sandbox config with command policy."""
+    config = Mock()
+    config.sandbox = Mock()
+    config.sandbox.base_image = "python:3.12"
+    config.sandbox.ephemeral = False
+    config.sandbox.network_enabled = False
+    config.sandbox.memory_bytes = None
+    config.sandbox.cpus = None
+    config.sandbox.command_policy = Mock()
+    config.sandbox.command_policy.disallow = disallow
+    config.sandbox.command_policy.allow = allow
+    return config
+
+
 def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.repo = Mock()
     runtime.context.repo.working_dir = repo_working_dir
-    runtime.context.config = Mock()
-    runtime.context.config.sandbox = Mock()
-    runtime.context.config.sandbox.base_image = "python:3.12"
-    runtime.context.config.sandbox.ephemeral = False
-    runtime.context.config.sandbox.network_enabled = False
-    runtime.context.config.sandbox.memory_bytes = None
-    runtime.context.config.sandbox.cpus = None
-    # Command policy: default empty (built-in rules still apply via engine)
-    runtime.context.config.sandbox.command_policy = Mock()
-    runtime.context.config.sandbox.command_policy.disallow = ()
-    runtime.context.config.sandbox.command_policy.allow = ()
+    runtime.context.config = _make_sandbox_config_mock()
     return runtime
 
 
-def _make_bash_runtime(repo: Repo) -> Mock:
+def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
     """Build a ToolRuntime-compatible mock for bash_tool tests."""
     from langchain.tools import ToolRuntime
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(repo=repo, config=Mock(sandbox=Mock(command_policy=Mock(disallow=(), allow=())))),
+        context=Mock(repo=repo, config=_make_sandbox_config_mock(disallow=disallow, allow=allow)),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",
@@ -110,18 +115,10 @@ class TestBashToolPolicyEnforcement:
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
 
-        from langchain.tools import ToolRuntime
+        runtime = _make_bash_runtime(repo, disallow=extra_disallow, allow=extra_allow)
+        runtime.tool_call_id = "call_policy"
+        runtime.state["session_id"] = "sess_policy"
 
-        runtime = ToolRuntime(
-            state={"session_id": "sess_policy"},
-            context=Mock(
-                repo=repo, config=Mock(sandbox=Mock(command_policy=Mock(disallow=extra_disallow, allow=extra_allow)))
-            ),
-            config={},
-            stream_writer=Mock(),
-            tool_call_id="call_policy",
-            store=None,
-        )
         with (
             patch(
                 "automation.agent.middlewares.sandbox._run_bash_commands",

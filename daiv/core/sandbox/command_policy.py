@@ -109,18 +109,19 @@ def _normalize_flag_token(token: str) -> str:
     """
     Canonicalize a token for policy matching.
 
-    For short flag bundles (e.g. ``-rf``), normalize by sorting letters so
-    equivalent permutations compare equal (``-rf`` == ``-fr``).
+    For short flag bundles (e.g. ``-rf``), normalize by sorting and deduplicating
+    letters so equivalent permutations compare equal (``-rf`` == ``-fr`` == ``-rrf``).
 
     Notes:
     - Only applies to tokens that look like ``-[A-Za-z]{2,}``.
     - Long options (``--force``), single short options (``-f``), and tokens
       containing non-letters are left unchanged.
+    - Duplicate letters are removed: ``-rrf`` → ``-fr``.
     """
     if len(token) >= 3 and token.startswith("-") and not token.startswith("--"):
         short_flags = token[1:]
         if short_flags.isalpha():
-            return "-" + "".join(sorted(short_flags))
+            return "-" + "".join(sorted(set(short_flags)))
     return token
 
 

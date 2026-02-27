@@ -201,3 +201,17 @@ class TestFlagNormalization:
         policy = CommandPolicy(disallow=[("mycmd", "-a1")])
         result = evaluate_command_policy([_seg(("mycmd", "-1a"))], policy)
         assert result.allowed
+
+    def test_duplicate_flags_are_deduplicated(self):
+        """Verify that -rrf is normalized to -fr (sorted + deduplicated)."""
+        policy = CommandPolicy(disallow=[("rm", "-rf")])
+        result = evaluate_command_policy([_seg(("rm", "-rrf", "/"))], policy)
+        assert not result.allowed
+        assert result.denial_reason == DenialReason.REPO_DISALLOW
+
+    def test_duplicate_flags_in_rule_matches_single_occurrence(self):
+        """Verify that rule -rrf matches command -rf."""
+        policy = CommandPolicy(disallow=[("rm", "-rrf")])
+        result = evaluate_command_policy([_seg(("rm", "-rf", "/"))], policy)
+        assert not result.allowed
+        assert result.denial_reason == DenialReason.REPO_DISALLOW

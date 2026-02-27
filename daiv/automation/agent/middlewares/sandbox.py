@@ -190,18 +190,22 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     if result.allowed:
         return None
 
+    # Sanitize log fields to prevent injection of newlines/control characters
+    sanitized_rule = (result.matched_rule or "").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    sanitized_segment = (result.denied_segment or "").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
     logger.warning(
         "[%s] bash_policy_denied: command denied (id=%s, reason=%s, rule=%r, segment=%r)",
         BASH_TOOL_NAME,
         tool_call_id,
         result.denial_reason,
-        result.matched_rule,
-        result.denied_segment,
+        sanitized_rule,
+        sanitized_segment,
         extra={
             "event": "bash_policy_denied",
             "reason_category": result.denial_reason,
-            "matched_rule": result.matched_rule,
-            "denied_segment": result.denied_segment,
+            "matched_rule": sanitized_rule,
+            "denied_segment": sanitized_segment,
             "tool_call_id": tool_call_id,
         },
     )
