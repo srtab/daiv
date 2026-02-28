@@ -89,6 +89,7 @@ class GitHubClient(RepoClient):
             slug=repo.full_name,
             name=repo.name,
             clone_url=repo.clone_url,
+            html_url=repo.html_url,
             default_branch=repo.default_branch,
             git_platform=self.git_platform,
             topics=repo.topics,
@@ -117,6 +118,7 @@ class GitHubClient(RepoClient):
                 git_platform=self.git_platform,
                 topics=repo.topics,
                 clone_url=repo.clone_url,
+                html_url=repo.html_url,
             )
             for repo in self.client_installation.get_repos()
             if topics is None or any(topic in repo.topics for topic in topics)

@@ -19,11 +19,10 @@ def _make_runtime(
 ) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
-    runtime.context.repo = Mock()
-    runtime.context.repo.working_dir = repo_working_dir
+    runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.bot_username = bot_username
     runtime.context.scope = scope
-    runtime.context.repo_id = repo_id
+    runtime.context.repository = Mock(slug=repo_id)
     runtime.context.issue = None
     runtime.context.merge_request = None
     return runtime
@@ -274,7 +273,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = Mock(iid=101)
         context.merge_request = Mock(merge_request_id=202)
 
@@ -310,7 +309,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = None
         context.merge_request = None
 
@@ -341,7 +340,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = None
         context.merge_request = None
 

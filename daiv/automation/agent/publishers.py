@@ -60,7 +60,7 @@ class GitChangePublisher(ChangePublisher):
         Returns:
             The merge request if it was created or updated, otherwise None.
         """
-        git_manager = GitManager(self.ctx.repo)
+        git_manager = GitManager(self.ctx.gitrepo)
 
         if not git_manager.is_dirty():
             logger.info("No changes to publish.")

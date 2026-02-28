@@ -33,8 +33,7 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
 def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
-    runtime.context.repo = Mock()
-    runtime.context.repo.working_dir = repo_working_dir
+    runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.config = _make_sandbox_config_mock()
     return runtime
 
@@ -45,7 +44,7 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(repo=repo, config=_make_sandbox_config_mock(disallow=disallow, allow=allow)),
+        context=Mock(gitrepo=repo, config=_make_sandbox_config_mock(disallow=disallow, allow=allow)),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",

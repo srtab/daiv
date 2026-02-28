@@ -64,9 +64,9 @@ Applies to ALL user-visible text:
 - NEVER include "/repo/" anywhere in user-visible output.
 - Any repository file path shown to the user MUST be repo-relative (no leading "/").
   <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code references MUST use repo-relative paths (e.g. [daiv/core/utils.py:42](daiv/core/utils.py#L42)).
+- Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
 - Before emitting any user-visible text, check for "/repo/" and rewrite to repo-relative form.
-</output_invariants>"""
+</output_invariants>"""  # noqa: E501
 
 
 @dynamic_prompt
@@ -81,18 +81,19 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     tool_names = [tool.name for tool in request.tools]
-    agent_path = Path(request.runtime.context.repo.working_dir)
+    agent_path = Path(request.runtime.context.gitrepo.working_dir)
 
     system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date_time=timezone.now().strftime("%d %B, %Y"),
         bot_name=BOT_NAME,
         bot_username=request.runtime.context.bot_username,
-        repository=request.runtime.context.repo_id,
+        repository=request.runtime.context.repository.slug,
+        repository_url=request.runtime.context.repository.html_url,
         gitlab_platform=request.runtime.context.git_platform == GitPlatform.GITLAB,
         github_platform=request.runtime.context.git_platform == GitPlatform.GITHUB,
         bash_tool_enabled=BASH_TOOL_NAME in tool_names,
         working_directory=f"/{agent_path.name}/",
-        current_branch=get_repo_ref(request.runtime.context.repo),
+        current_branch=get_repo_ref(request.runtime.context.gitrepo),
     )
     return OUTPUT_INVARIANTS_SYSTEM_PROMPT + "\n\n" + request.system_prompt + "\n\n" + system_prompt.content.strip()
 
@@ -148,7 +149,7 @@ async def create_daiv_agent(
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
 
-    agent_path = Path(ctx.repo.working_dir)
+    agent_path = Path(ctx.gitrepo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     # Create subagents list to be shared between middlewares

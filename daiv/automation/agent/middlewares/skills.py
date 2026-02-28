@@ -108,7 +108,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # We need to always copy builtin skills before calling the super method to make them available in the filesystem
         # not just to be captured and registered in "skills_metadata" on first run, but also to be available in the
         # filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error will be raised.
-        builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.repo.working_dir))
+        builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.gitrepo.working_dir))
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -229,7 +229,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
             return None
 
-        command = command_classes[0](scope=context.scope, repo_id=context.repo_id, bot_username=context.bot_username)
+        command = command_classes[0](
+            scope=context.scope, repo_id=context.repository.slug, bot_username=context.bot_username
+        )
         logger.info("[%s] Executing `%s` slash command", self.name, slash_command.raw)
 
         try:

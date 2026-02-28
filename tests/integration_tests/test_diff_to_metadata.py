@@ -48,7 +48,7 @@ async def test_diff_to_metadata(inputs, reference_outputs):
     async with set_runtime_ctx(
         "srtab/daiv", scope=Scope.GLOBAL, ref="main", offline=True, git_platform=GitPlatform.GITLAB
     ) as ctx:
-        agent_path = Path(ctx.repo.working_dir)
+        agent_path = Path(ctx.gitrepo.working_dir)
         if "context_file_content" in inputs:
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:

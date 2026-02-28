@@ -58,12 +58,14 @@ class SWERepoClient(RepoClient):
 
         owner, name = repo_id.split("/", 1)
         clone_url = f"https://{self.repo_host}/{repo_id}.git"
+        html_url = f"https://{self.repo_host}/{repo_id}"
 
         return Repository(
             pk=hash(repo_id) % (2**31),  # Generate a deterministic pseudo-ID
             slug=repo_id,
             name=name,
             clone_url=clone_url,
+            html_url=html_url,
             default_branch="main",  # Default assumption, can be overridden
             git_platform=self.git_platform,
             topics=[],

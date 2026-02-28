@@ -21,4 +21,4 @@ class BaseManager:
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
-        self.git_manager = GitManager(self.ctx.repo)
+        self.git_manager = GitManager(self.ctx.gitrepo)
