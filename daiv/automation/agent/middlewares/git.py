@@ -106,8 +106,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
 
-        if merge_request and merge_request.source_branch != get_repo_ref(runtime.context.repo):
-            git_manager = GitManager(runtime.context.repo)
+        if merge_request and merge_request.source_branch != get_repo_ref(runtime.context.gitrepo):
+            git_manager = GitManager(runtime.context.gitrepo)
 
             logger.info("[%s] Checking out to branch '%s'", self.name, merge_request.source_branch)
 
@@ -128,8 +128,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         context = {
             "git_platform": request.runtime.context.git_platform.value,
-            "repository": request.runtime.context.repo_id,
-            "current_branch": get_repo_ref(request.runtime.context.repo),
+            "repository": request.runtime.context.repository.slug,
+            "current_branch": get_repo_ref(request.runtime.context.gitrepo),
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
             "merge_request_iid": request.runtime.context.merge_request.merge_request_id

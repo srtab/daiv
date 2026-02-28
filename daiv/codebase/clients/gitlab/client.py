@@ -83,10 +83,6 @@ class GitLabClient(RepoClient):
             writer.set_value("user", "name", bot_username)
             writer.set_value("user", "email", bot_email)
 
-    @property
-    def _codebase_url(self) -> str:
-        return self.client.url
-
     def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
@@ -102,7 +98,8 @@ class GitLabClient(RepoClient):
             pk=cast("int", project.get_id()),
             slug=project.path_with_namespace,
             name=project.name,
-            clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
+            clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
+            html_url=project.web_url,
             default_branch=project.default_branch,
             git_platform=self.git_platform,
             topics=project.topics,
@@ -129,7 +126,8 @@ class GitLabClient(RepoClient):
                 pk=cast("int", project.get_id()),
                 slug=project.path_with_namespace,
                 name=project.name,
-                clone_url=f"{self._codebase_url}/{project.path_with_namespace}.git",
+                clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
+                html_url=project.web_url,
                 default_branch=project.default_branch,
                 git_platform=self.git_platform,
                 topics=project.topics,
@@ -174,7 +172,7 @@ class GitLabClient(RepoClient):
         Download a markdown uploaded file from a repository.
         """
         project = self.client.projects.get(repo_id, lazy=True)
-        url = build_uri(self._codebase_url, f"/api/v4/projects/{project.get_id()}/{file_path}")
+        url = build_uri(self.client.url, f"/api/v4/projects/{project.get_id()}/{file_path}")
         return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def repository_branch_exists(self, repo_id: str, branch: str) -> bool:

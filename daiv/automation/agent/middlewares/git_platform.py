@@ -355,7 +355,7 @@ async def gitlab_tool(
         args.append("--verbose")
 
     args += splitted_subcommand
-    args += ["--project-id", runtime.context.repo_id]
+    args += ["--project-id", runtime.context.repository.slug]
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -405,7 +405,7 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     expires_at = runtime.state.get("github_token_expires_at")
 
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
-        thread_id = runtime.config.get("configurable", {}).get("thread_id", runtime.context.repo_id)
+        thread_id = runtime.config.get("configurable", {}).get("thread_id", runtime.context.repository.slug)
 
         with cache.lock(f"github_lock_{thread_id}", blocking=True):
             cache_key = f"github_token_{thread_id}"
@@ -484,7 +484,7 @@ async def github_tool(
     args = ["gh"]
     args += splitted_subcommand
     if resource != "api":
-        args += ["--repo", runtime.context.repo_id]
+        args += ["--repo", runtime.context.repository.slug]
 
     try:
         process = await asyncio.create_subprocess_exec(

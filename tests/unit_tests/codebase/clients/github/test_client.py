@@ -214,6 +214,7 @@ class TestGitHubClient:
             slug="owner/repo",
             name="repo",
             clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
             default_branch="main",
             git_platform=GitPlatform.GITHUB,
         )

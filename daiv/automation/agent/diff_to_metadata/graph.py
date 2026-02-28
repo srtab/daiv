@@ -63,7 +63,7 @@ def create_diff_to_metadata_graph(
         "At least one of include_pr_metadata or include_commit_message must be True"
     )
 
-    agent_path = Path(ctx.repo.working_dir)
+    agent_path = Path(ctx.gitrepo.working_dir)
 
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 

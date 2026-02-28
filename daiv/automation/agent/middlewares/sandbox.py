@@ -120,7 +120,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     if denial_error:
         return denial_error
 
-    repo_working_dir = Path(runtime.context.repo.working_dir)
+    repo_working_dir = Path(runtime.context.gitrepo.working_dir)
 
     response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
     if response is None:
@@ -131,7 +131,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
 
     if response.patch:
         try:
-            GitManager(runtime.context.repo).apply_patch(response.patch)
+            GitManager(runtime.context.gitrepo).apply_patch(response.patch)
         except Exception:
             logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
             return "error: Failed to persist the changes. The bash tool is not working properly."

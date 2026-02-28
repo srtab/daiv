@@ -85,7 +85,7 @@ async def main(
                     continue
                 finally:
                     predictions.append({
-                        "model_patch": GitManager(ctx.repo).get_diff(),
+                        "model_patch": GitManager(ctx.gitrepo).get_diff(),
                         "model_name_or_path": ", ".join(model_names),
                         "instance_id": item["instance_id"],
                     })

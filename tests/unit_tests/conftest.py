@@ -51,6 +51,7 @@ def mock_repo_client():
             default_branch="main",
             git_platform=GitPlatform.GITLAB,
             clone_url="https://test-repo.com",
+            html_url="https://test-repo.com",
         )
         mock_client.list_repositories.return_value = []
         mock_client.get_repository_file.return_value = None

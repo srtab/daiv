@@ -71,6 +71,7 @@ class TestGitLabClient:
             slug="group/repo",
             name="repo",
             clone_url="https://gitlab.com/group/repo.git",
+            html_url="https://gitlab.com/group/repo",
             default_branch="main",
             git_platform=GitPlatform.GITLAB,
         )
