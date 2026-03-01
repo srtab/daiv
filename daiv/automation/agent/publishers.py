@@ -152,7 +152,7 @@ class GitChangePublisher(ChangePublisher):
             input_data,
             config={
                 "tags": [self.ctx.git_platform.value],
-                "metadata": {"scope": self.ctx.scope, "repo_id": self.ctx.repo_id},
+                "metadata": {"scope": self.ctx.scope, "repo_id": self.ctx.repository.slug},
             },
         )
         if result and ("pr_metadata" in result or "commit_message" in result):
@@ -185,7 +185,7 @@ class GitChangePublisher(ChangePublisher):
             )
 
         return self.client.update_or_create_merge_request(
-            repo_id=self.ctx.repo_id,
+            repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
             target_branch=cast("str", self.ctx.config.default_branch),
             labels=[BOT_LABEL],
@@ -196,7 +196,7 @@ class GitChangePublisher(ChangePublisher):
                 "codebase/issue_merge_request.txt",
                 {
                     "description": description,
-                    "source_repo_id": self.ctx.repo_id,
+                    "source_repo_id": self.ctx.repository.slug,
                     "issue_id": self.ctx.issue.iid if self.ctx.issue else None,
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
