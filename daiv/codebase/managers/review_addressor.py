@@ -194,7 +194,9 @@ class CommentsAddressorManager(BaseManager):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope}/{self.merge_request.merge_request_id}")
+        self.thread_id = generate_uuid(
+            f"{self.ctx.repository.slug}:{self.ctx.scope}/{self.merge_request.merge_request_id}"
+        )
 
     @classmethod
     async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
@@ -219,7 +221,7 @@ class CommentsAddressorManager(BaseManager):
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
         mention_comment = self.client.get_merge_request_comment(
-            self.ctx.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
+            self.ctx.repository.slug, self.merge_request.merge_request_id, self.mention_comment_id
         )
 
         async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
@@ -309,5 +311,5 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.ctx.repo_id, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
+            self.ctx.repository.slug, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
         )
