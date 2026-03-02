@@ -42,7 +42,10 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "tag", "--delete"),
     # Git configuration changes
     ("git", "config"),
-    # Force-push variants covered by ("git", "push") prefix above
+    # Git platform tools
+    ("gitlab",),
+    ("gh",),
+    ("python", "-m", "gitlab"),
 )
 
 
