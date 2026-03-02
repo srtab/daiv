@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
 - Added GitHub CLI (`gh`) tool support in Git platform middleware for GitHub operations.
 - Added support for `.agents/skills` directory as an additional location for project-specific skills, providing more flexibility in organizing skills alongside existing `.daiv/skills`, `.cursor/skills`, and `.claude/skills` directories.
+- Added an Ansible hardening playbook under `ansible/` to codify the `daivagent` server baseline (UFW, nginx TLS policy, fail2ban, package upgrades, and conditional reboot).
 
 ### Changed
 
