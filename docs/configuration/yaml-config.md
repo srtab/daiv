@@ -238,12 +238,12 @@ Configure models for the plan and execute agent used in issue addressing.
 |-------------------------------|-----------------------------------------------------------|---------|-----------------------------------------------------------------------------|
 | `planning_model`              | `str \| null`                                             | `null`  | Model name for planning tasks. Overrides `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` environment variable. |
 | `planning_fallback_model`     | `str \| null`                                             | `null`  | Fallback model name for planning tasks. Overrides `PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME` environment variable. |
-| `planning_thinking_level`      | `"minimal" \| "low" \| "medium" \| "high" \| null`        | `null`  | Thinking level for planning tasks. Overrides `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` environment variable. |
+| `planning_thinking_level`      | `"low" \| "medium" \| "high" \| "max" \| null`        | `null`  | Thinking level for planning tasks. Overrides `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` environment variable. |
 | `execution_model`             | `str \| null`                                             | `null`  | Model name for execution tasks. Overrides `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME` environment variable. |
 | `execution_fallback_model`     | `str \| null`                                             | `null`  | Fallback model name for execution tasks. Overrides `PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME` environment variable. |
-| `execution_thinking_level`     | `"minimal" \| "low" \| "medium" \| "high" \| null`        | `null`  | Thinking level for execution tasks. Overrides `PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL` environment variable. |
+| `execution_thinking_level`     | `"low" \| "medium" \| "high" \| "max" \| null`        | `null`  | Thinking level for execution tasks. Overrides `PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL` environment variable. |
 | `code_review_model`           | `str \| null`                                             | `null`  | Model name for code review tasks. Overrides `PLAN_AND_EXECUTE_CODE_REVIEW_MODEL_NAME` environment variable. |
-| `code_review_thinking_level`  | `"minimal" \| "low" \| "medium" \| "high" \| null`        | `null`  | Thinking level for code review tasks. Overrides `PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL` environment variable. |
+| `code_review_thinking_level`  | `"low" \| "medium" \| "high" \| "max" \| null`        | `null`  | Thinking level for code review tasks. Overrides `PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL` environment variable. |
 
 **Example configuration:**
 ```yaml

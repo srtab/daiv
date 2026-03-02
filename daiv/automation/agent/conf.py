@@ -32,7 +32,7 @@ class DAIVAgentSettings(BaseSettings):
         ),
     )
     MAX_THINKING_LEVEL: ThinkingLevel | None = Field(
-        default=ThinkingLevel.HIGH,
+        default=ThinkingLevel.MAX,
         description=(
             "Thinking level to be used for tasks when daiv-max label is present. Set as `None` to disable thinking."
         ),

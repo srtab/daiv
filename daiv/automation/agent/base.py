@@ -20,8 +20,10 @@ if TYPE_CHECKING:
 
 
 CLAUDE_MAX_TOKENS = 4_096
+CLAUDE_ADAPTIVE_MAX_TOKENS = 16_000
 
-CLAUDE_THINKING_MODELS = (
+# 4.5-generation models: require thinking.type="enabled" with explicit budget_tokens
+CLAUDE_THINKING_MODELS_LEGACY = (
     "claude-sonnet-4-5",
     "claude-opus-4-5",
     "claude-haiku-4-5",
@@ -30,17 +32,23 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-haiku-4.5",
 )
 
+# 4.6-generation models: use adaptive thinking (thinking.type="adaptive") with effort
+CLAUDE_ADAPTIVE_THINKING_MODELS = (
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+    "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-opus-4.6",
+)
+
+CLAUDE_THINKING_MODELS = CLAUDE_THINKING_MODELS_LEGACY + CLAUDE_ADAPTIVE_THINKING_MODELS
+
 OPENAI_THINKING_MODELS = (
-    "gpt-5.2",
-    "gpt-5.2-codex",
-    "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-max",
-    "openai/gpt-5.2",
-    "openai/gpt-5.2-codex",
-    "openai/gpt-5.1-codex",
+    "gpt-5.2",
+    "gpt-5.3-codex",
     "openai/gpt-5.1-codex-mini",
-    "openai/gpt-5.1-codex-max",
+    "openai/gpt-5.2",
+    "openai/gpt-5.3-codex",
 )
 
 
@@ -52,10 +60,20 @@ class ModelProvider(StrEnum):
 
 
 class ThinkingLevel(StrEnum):
-    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    MAX = "max"
+
+
+# Maps ThinkingLevel to OpenRouter's reasoning effort vocabulary.
+# OpenRouter uses "xhigh" where Anthropic's native API uses "max".
+OPENROUTER_REASONING_EFFORT: dict[ThinkingLevel, str] = {
+    ThinkingLevel.LOW: "low",
+    ThinkingLevel.MEDIUM: "medium",
+    ThinkingLevel.HIGH: "high",
+    ThinkingLevel.MAX: "xhigh",
+}
 
 
 T = TypeVar("T", bound=Runnable)
@@ -101,9 +119,17 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             BaseChatModel: The model instance
         """
+        model_provider = BaseAgent.get_model_provider(model)
         model_kwargs = BaseAgent.get_model_kwargs(
-            model=model, model_provider=BaseAgent.get_model_provider(model), thinking_level=thinking_level, **kwargs
+            model=model, model_provider=model_provider, thinking_level=thinking_level, **kwargs
         )
+        if model_provider == ModelProvider.OPENROUTER:
+            # langchain-openrouter is not in langchain's built-in provider registry,
+            # so we instantiate ChatOpenRouter directly instead of using init_chat_model.
+            from langchain_openrouter import ChatOpenRouter
+
+            model_kwargs.pop("model_provider")
+            return ChatOpenRouter(**model_kwargs)
         return init_chat_model(**model_kwargs)
 
     @staticmethod
@@ -125,13 +151,21 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                )
                 # When using thinking the temperature need to be set to 1 for Anthropic models
                 _kwargs["temperature"] = 1
-                _kwargs["max_tokens"] = max_tokens
-                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
+                if _kwargs["model"].startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
+                    # 4.6+ models: adaptive thinking — Claude decides when and how much to think
+                    _kwargs["thinking"] = {"type": "adaptive"}
+                    _kwargs["effort"] = thinking_level.value
+                    if "max_tokens" not in _kwargs:
+                        _kwargs["max_tokens"] = CLAUDE_ADAPTIVE_MAX_TOKENS
+                else:
+                    # 4.5 models: explicit token budget required
+                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
+                        thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
+                    )
+                    _kwargs["max_tokens"] = max_tokens
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
             elif "max_tokens" not in _kwargs:
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
@@ -149,31 +183,19 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENROUTER:
             assert settings.OPENROUTER_API_KEY is not None, "OpenRouter API key is not set"
             _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
-            # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
-            _kwargs["model_provider"] = ModelProvider.OPENAI
-            _kwargs["model_kwargs"]["extra_headers"] = {
-                "HTTP-Referer": "https://srtab.github.io/daiv",
-                "X-Title": BOT_NAME,
-            }
-            _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
-            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["app_url"] = "https://srtab.github.io/daiv"
+            _kwargs["app_title"] = BOT_NAME
 
             if thinking_level:
+                _kwargs["reasoning"] = {"effort": OPENROUTER_REASONING_EFFORT[thinking_level]}
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                    )
-                    _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
-                    # When using thinking the temperature need to be set to 1 for Anthropic models
+                    # Anthropic models via OpenRouter require temperature=1 when reasoning is active
                     _kwargs["temperature"] = 1
-                else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
                 _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
-                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
@@ -185,13 +207,17 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
     @staticmethod
     def _get_anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
         """
-        Get the thinking tokens and max tokens for the model.
+        Get the thinking tokens and max tokens for legacy Claude 4.5 models.
+
+        ThinkingLevel.MAX is treated as HIGH because 4.5 models do not support the
+        Anthropic "max" effort level — that requires adaptive thinking on 4.6+ models.
         """
         if thinking_level == ThinkingLevel.LOW:
             return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
             return max_tokens + 25_600, 25_600
-        elif thinking_level == ThinkingLevel.HIGH:
+        else:
+            # HIGH and MAX both use the maximum budget for 4.5 models
             return 64_000, 64_000 - max_tokens
 
     async def draw_mermaid(self) -> str:
