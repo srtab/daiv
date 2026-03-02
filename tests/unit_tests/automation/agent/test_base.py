@@ -4,7 +4,8 @@ import pytest
 from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from automation.agent.base import BaseAgent, ModelProvider
+from automation.agent.base import CLAUDE_ADAPTIVE_MAX_TOKENS, CLAUDE_MAX_TOKENS, BaseAgent, ModelProvider, ThinkingLevel
+from core.constants import BOT_NAME
 
 
 class ConcreteAgent(BaseAgent):
@@ -31,12 +32,42 @@ class TestBaseAgent:
 
         assert agent.checkpointer == checkpointer
 
-    def test_get_model_kwargs_anthropic(self):
+    def test_get_model_kwargs_anthropic_no_thinking(self):
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(model_provider=ModelProvider.ANTHROPIC, model="claude-3-5-sonnet-20240229")
 
         assert kwargs["temperature"] == 0
-        assert kwargs["max_tokens"] == 4_096
+        assert kwargs["max_tokens"] == CLAUDE_MAX_TOKENS
+
+    def test_get_model_kwargs_anthropic_adaptive_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6", thinking_level=ThinkingLevel.MEDIUM
+        )
+
+        assert kwargs["temperature"] == 1
+        assert kwargs["thinking"] == {"type": "adaptive"}
+        assert kwargs["effort"] == "medium"
+        assert kwargs["max_tokens"] == CLAUDE_ADAPTIVE_MAX_TOKENS
+
+    def test_get_model_kwargs_anthropic_adaptive_thinking_max(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.ANTHROPIC, model="claude-opus-4-6", thinking_level=ThinkingLevel.MAX
+        )
+
+        assert kwargs["thinking"] == {"type": "adaptive"}
+        assert kwargs["effort"] == "max"
+
+    def test_get_model_kwargs_anthropic_legacy_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-5", thinking_level=ThinkingLevel.LOW
+        )
+
+        assert kwargs["temperature"] == 1
+        assert kwargs["thinking"]["type"] == "enabled"
+        assert "budget_tokens" in kwargs["thinking"]
 
     def test_get_model_kwargs_openai(self):
         agent = ConcreteAgent()
@@ -45,6 +76,51 @@ class TestBaseAgent:
         assert kwargs["temperature"] == 0
         assert "max_tokens" not in kwargs
         assert not kwargs["model_kwargs"]
+
+    def test_get_model_kwargs_openrouter_no_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(model_provider=ModelProvider.OPENROUTER, model="openrouter:openai/gpt-4.1-mini")
+
+        assert kwargs["model"] == "openai/gpt-4.1-mini"
+        assert kwargs["model_provider"] == ModelProvider.OPENROUTER
+        assert kwargs["app_url"] == "https://srtab.github.io/daiv"
+        assert kwargs["app_title"] == BOT_NAME
+        assert "openai_api_base" not in kwargs
+        assert "extra_body" not in kwargs
+        assert "reasoning" not in kwargs
+
+    def test_get_model_kwargs_openrouter_with_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.OPENROUTER,
+            model="openrouter:anthropic/claude-sonnet-4.6",
+            thinking_level=ThinkingLevel.HIGH,
+        )
+
+        assert kwargs["model"] == "anthropic/claude-sonnet-4.6"
+        assert kwargs["reasoning"] == {"effort": "high"}
+        assert kwargs["temperature"] == 1
+
+    def test_get_model_kwargs_openrouter_max_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.OPENROUTER,
+            model="openrouter:anthropic/claude-opus-4.6",
+            thinking_level=ThinkingLevel.MAX,
+        )
+
+        assert kwargs["reasoning"] == {"effort": "xhigh"}
+
+    def test_get_model_kwargs_openrouter_non_claude_with_thinking(self):
+        agent = ConcreteAgent()
+        kwargs = agent.get_model_kwargs(
+            model_provider=ModelProvider.OPENROUTER,
+            model="openrouter:openai/gpt-5.2",
+            thinking_level=ThinkingLevel.MEDIUM,
+        )
+
+        assert kwargs["reasoning"] == {"effort": "medium"}
+        assert kwargs["temperature"] == 0
 
     def test_get_max_token_value(self):
         agent = ConcreteAgent()

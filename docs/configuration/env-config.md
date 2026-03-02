@@ -173,7 +173,6 @@ This section documents the environment variables for each LLM provider.
 | Variable                        | Description                | Default                        | Example |
 |---------------------------------|----------------------------|:------------------------------:|---------|
 | `OPENROUTER_API_KEY` :material-lock: | OpenRouter API key         | *(none)*                       |         |
-| `OPENROUTER_API_BASE`| OpenRouter API base URL    | `https://openrouter.ai/api/v1` |         |
 
 ### Anthropic
 

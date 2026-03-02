@@ -6,7 +6,7 @@ from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
 )
 from langchain_core.messages.content import create_text_block
-from langchain_openai.chat_models import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 
 from automation.agent.base import ModelProvider
 
@@ -64,7 +64,7 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
                     content[-1].pop("cache_control", None)
 
             cache_target_message = next(
-                (message for message in reversed(request.messages) if message.type == "human"), None
+                (message for message in reversed(request.messages) if message.type in ("human", "ai")), None
             )
             if cache_target_message is None:
                 return await handler(request)
@@ -93,4 +93,4 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         """
         Check if the model is an OpenRouter Anthropic model.
         """
-        return isinstance(model, ChatOpenAI) and model.model_name.startswith(ModelProvider.ANTHROPIC.value)
+        return isinstance(model, ChatOpenRouter) and model.model_name.startswith(ModelProvider.ANTHROPIC.value)

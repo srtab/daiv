@@ -236,7 +236,8 @@ async def main():
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
             ctx=ctx,
-            model_names=["openrouter:minimax/minimax-m2.5"],
+            model_names=["openrouter:anthropic/claude-sonnet-4.6"],
+            thinking_level=ThinkingLevel.MAX,
             store=InMemoryStore(),
             checkpointer=InMemorySaver(),
         )
