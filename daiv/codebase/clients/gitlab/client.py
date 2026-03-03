@@ -5,7 +5,7 @@ import tempfile
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 from git import Repo
@@ -866,6 +866,30 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         merge_request.discussions.update(discussion_id, {"resolved": True})
+
+    def create_merge_request_inline_discussion(
+        self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]
+    ) -> str:
+        """
+        Create an inline diff discussion on a merge request via the Python API.
+
+        Uses python-gitlab's dict-based payload rather than the CLI so that the
+        nested `position` hash (position_type, base_sha, start_sha, head_sha,
+        old_path, new_path, line anchors) is serialised correctly by the library.
+
+        Args:
+            repo_id: The repository ID (slug).
+            merge_request_id: The merge request IID.
+            body: The discussion body text.
+            position: The diff position dict accepted by the GitLab Discussions API.
+
+        Returns:
+            The created discussion ID string.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        discussion = merge_request.discussions.create({"body": body, "position": position})
+        return discussion.id
 
     def get_job(self, repo_id: str, job_id: int):
         """

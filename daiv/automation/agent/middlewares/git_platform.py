@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shlex
@@ -18,6 +19,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
 from codebase.base import GitPlatform
+from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
@@ -90,10 +92,11 @@ This tool is best for retrieving the current state of:
 - For a new inline comment on an MR diff, use `project-merge-request-discussion create`, not `project-merge-request-note create`.
 - Inline comments require `--position`. Without `--position`, the discussion is created on the MR overview, not on a diff line.
 - Before creating an inline comment, first inspect the latest MR diff/version to get the correct SHA triplet (`base_sha`, `start_sha`, `head_sha`).
-- For text diff comments, `--position` must include: `position_type="text"`, `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line anchor:
-  - use `new_line` for an added line
-  - use `old_line` for a removed line
+- For text diff comments, `--position` must be a **JSON object string** containing: `position_type` ("text"), `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line anchor:
+  - use `new_line` (int) for an added line
+  - use `old_line` (int) for a removed line
   - use both `old_line` and `new_line` for an unchanged line
+  - Example: `--position '{{"position_type": "text", "base_sha": "abc", "start_sha": "def", "head_sha": "ghi", "old_path": "src/foo.py", "new_path": "src/foo.py", "new_line": 42}}'`
 - To reply to an existing inline thread, use `project-merge-request-discussion-note create --discussion-id <discussion_id>`.
 - Never guess an inline position. If the exact diff anchor cannot be determined reliably, prefer a regular MR note instead of posting a misplaced inline comment.
 
@@ -243,8 +246,8 @@ assistant:
   [Call `gitlab("project-merge-request-diff list --mr-iid 123", output_mode="detailed")`]
   [Select the latest diff/version and extract the SHA fields needed for anchoring]
   [If needed, inspect the diff details to confirm the file path and whether the target line is added, removed, or unchanged]
-  [Construct the position payload with `position_type="text"`, `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line field(s)]
-  [Call `gitlab("project-merge-request-discussion create --mr-iid 123 --body \\"<comment>\\" --position \\"<position payload>\\"", output_mode="detailed")`]
+  [Construct the position as a JSON object with `position_type`, `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line field(s)]
+  [Call `gitlab("project-merge-request-discussion create --mr-iid 123 --body \\"<comment>\\" --position \\"<json position object>\\"", output_mode="detailed")`]
 assistant:
   [Confirm the comment was created at the intended diff location]
 </example>
@@ -429,6 +432,70 @@ def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
     return False
 
 
+def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
+    """
+    Extract a single flag value from a shlex-split args list.
+
+    Supports both `--flag value` and `--flag=value` forms.
+    """
+    for i, arg in enumerate(args):
+        if arg == flag and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith(f"{flag}="):
+            return arg[len(flag) + 1 :]
+    return None
+
+
+async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+    """
+    Create an inline MR diff discussion via the python-gitlab Python API.
+
+    This is the fallback path used when `project-merge-request-discussion create`
+    includes `--position`, because the python-gitlab CLI cannot encode nested hash
+    parameters (position[base_sha], position[position_type], etc.) correctly.
+
+    Args:
+        args: Parsed subcommand arguments after `project-merge-request-discussion create`.
+        runtime: The tool runtime carrying the repository context.
+
+    Returns:
+        A string suitable for returning from the gitlab tool.
+    """
+    mr_iid_str = _parse_gitlab_flag(args, "--mr-iid")
+    body = _parse_gitlab_flag(args, "--body")
+    position_str = _parse_gitlab_flag(args, "--position")
+
+    if not mr_iid_str:
+        return "error: --mr-iid is required for inline discussion creation"
+    if not body:
+        return "error: --body is required for inline discussion creation"
+    if not position_str:
+        return "error: --position is required for inline discussion creation"
+
+    try:
+        mr_iid = int(mr_iid_str)
+    except ValueError:
+        return f"error: --mr-iid must be an integer, got '{mr_iid_str}'"
+
+    try:
+        position = json.loads(position_str)
+    except json.JSONDecodeError as e:
+        return f"error: --position must be a valid JSON object. Parse error: {e}"
+
+    if not isinstance(position, dict):
+        return "error: --position must be a JSON object (dict), not a scalar or list"
+
+    try:
+        repo_client = RepoClient.create_instance()
+        discussion_id = await asyncio.to_thread(
+            repo_client.create_merge_request_inline_discussion, runtime.context.repository.slug, mr_iid, body, position
+        )
+        return json.dumps({"id": discussion_id, "status": "created"})
+    except Exception as e:
+        logger.exception("[%s] Failed to create inline MR diff discussion.", GITLAB_TOOL_NAME)
+        return f"error: Failed to create inline discussion. Details: {e}"
+
+
 @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
 async def gitlab_tool(
     subcommand: Annotated[
@@ -479,6 +546,13 @@ async def gitlab_tool(
 
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The project ID and output format are automatically set."
+
+    # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
+    # hash params (position[base_sha], position[position_type], …) via the CLI.
+    if resource == "project-merge-request-discussion" and action == "create":
+        rest_args = splitted_subcommand[2:]
+        if any(arg == "--position" or arg.startswith("--position=") for arg in rest_args):
+            return await _create_gitlab_inline_discussion(rest_args, runtime)
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
