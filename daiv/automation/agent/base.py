@@ -23,24 +23,24 @@ CLAUDE_MAX_TOKENS = 4_096
 
 CLAUDE_THINKING_MODELS = (
     "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
     "claude-opus-4-5",
+    "claude-opus-4-6",
     "claude-haiku-4-5",
     "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-sonnet-4.6",
     "anthropic/claude-opus-4.5",
+    "anthropic/claude-opus-4.6",
     "anthropic/claude-haiku-4.5",
 )
 
 OPENAI_THINKING_MODELS = (
-    "gpt-5.2",
-    "gpt-5.2-codex",
-    "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-max",
-    "openai/gpt-5.2",
-    "openai/gpt-5.2-codex",
-    "openai/gpt-5.1-codex",
+    "gpt-5.2",
+    "gpt-5.3-codex",
     "openai/gpt-5.1-codex-mini",
-    "openai/gpt-5.1-codex-max",
+    "openai/gpt-5.2",
+    "openai/gpt-5.3-codex",
 )
 
 
