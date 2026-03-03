@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from asgiref.sync import async_to_sync
 from git import Repo
 from github import Github, GithubIntegration, Installation, UnknownObjectException
 from github.GithubException import GithubException
@@ -20,7 +18,6 @@ from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
-    Job,
     MergeRequest,
     Note,
     NoteableType,
@@ -30,7 +27,6 @@ from codebase.base import (
     NotePositionLineRange,
     NotePositionType,
     NoteType,
-    Pipeline,
     Repository,
     User,
 )
@@ -73,6 +69,7 @@ class GitHubClient(RepoClient):
             writer.set_value("user", "name", bot_login)
             writer.set_value("user", "email", bot_email)
 
+    # Repository
     def get_repository(self, repo_id: str) -> Repository:
         """
         Get a repository.
@@ -149,16 +146,19 @@ class GitHubClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
+    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         """
-        Check if a branch exists in a repository.
+        Download a user-attachments file from GitHub.
+
+        Args:
+            repo_id: The repository ID (not used for GitHub, as file_path contains full URL).
+            file_path: The full URL to the GitHub user-attachments file.
+
+        Returns:
+            The file content as bytes, or None if the download fails.
         """
-        repo = self.client.get_repo(repo_id, lazy=True)
-        try:
-            repo.get_branch(branch)
-            return True
-        except UnknownObjectException:
-            return False
+        token = self.client.requester.auth.token
+        return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
 
     def set_repository_webhooks(
         self,
@@ -188,6 +188,35 @@ class GitHubClient(RepoClient):
         repo.create_hook("web", config, events, active=True)
         return True
 
+    @contextmanager
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+        """
+        Clone a repository to a temporary directory.
+
+        Args:
+            repository: The repository.
+            sha: The commit sha.
+
+        Yields:
+            The repository object cloned to the temporary directory.
+        """
+        from codebase.clients.utils import safe_slug
+
+        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
+            logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
+            # the access token is valid for 1 hour
+            access_token = self._integration.get_access_token(
+                self.client_installation.id, permissions={"contents": "write"}
+            )
+            parsed = urlparse(repository.clone_url)
+            clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
+            clone_dir = Path(tmpdir) / "repo"
+            clone_dir.mkdir(exist_ok=True)
+            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            self._configure_commit_identity(repo)
+            yield repo
+
+    # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
         Get an issue.
@@ -232,43 +261,6 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        """
-        Create an emoji in a note of an issue.
-        """
-        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
-            raise ValueError(f"Unsupported emoji: {emoji}")
-
-        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
-        if note_id is not None:
-            issue.get_comment(note_id).create_reaction(emoji_reaction)
-        else:
-            issue.create_reaction(emoji_reaction)
-
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
-        """
-        Check if an issue has a specific emoji reaction from the current user.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-            emoji: The emoji to check for.
-
-        Returns:
-            True if the issue has the reaction, False otherwise.
-        """
-        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
-            raise ValueError(f"Unsupported emoji: {emoji}")
-
-        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
-        current_user_id = self.current_user.id
-
-        for reaction in issue.get_reactions():
-            if reaction.content == emoji_reaction and reaction.user.id == current_user_id:
-                return True
-
-        return False
-
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
         """
         Get a comment from an issue.
@@ -306,481 +298,44 @@ class GitHubClient(RepoClient):
         """
         return self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).create_comment(body).id
 
-    def update_issue_comment(
-        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
-    ):
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
-        Update a comment on an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
-            body: The comment body.
-            reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
-        """
-        self.client.get_repo(repo_id, lazy=True).get_issue(issue_id).get_comment(comment_id).edit(body)
-
-    @cached_property
-    def current_user(self) -> User:
-        """
-        Get the current user.
-        """
-        # GitHub name the bot with the app slug and [bot] suffix.
-        # Maybe there's a better way to get the bot user, but this is the only way I found so far.
-
-        user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
-        return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
-
-    def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
-        """
-        Get a pull request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-
-        Returns:
-            The pull request.
-        """
-        repo = self.client.get_repo(repo_id, lazy=True)
-        mr = repo.get_pull(merge_request_id)
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=merge_request_id,
-            source_branch=mr.head.ref,
-            target_branch=mr.base.ref,
-            title=mr.title,
-            description=mr.body or "",
-            labels=[label.name for label in mr.labels],
-            web_url=mr.html_url,
-            sha=mr.head.sha,
-            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
-        )
-
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Mark a review as resolved.
-        """
-        _, result = self.client.requester.graphql_named_mutation(
-            "resolveReviewThread", {"threadId": discussion_id}, "thread { id isResolved resolvedBy { login } }"
-        )
-
-        if result["thread"]["isResolved"]:
-            return
-
-    def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
-    ) -> str | None:
-        """
-        Comment on a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            body: The comment body.
-            reply_to_id: The ID of the comment to reply to.
-            as_thread: Whether to create a thread.
-            mark_as_resolved: Whether to mark the comment as resolved.
-
-        Returns:
-            The ID of the comment.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        to_return = None
-
-        if reply_to_id:
-            to_return = pr.create_review_comment_reply(int(reply_to_id), body).id
-
-            if mark_as_resolved:
-                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
-
-        elif as_thread:
-            # The only threadable comments are review comments.
-            raise NotImplementedError("Not implemented for GitHub")
-        else:
-            to_return = pr.create_issue_comment(body).id
-        return to_return
-
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
-        """
-        Create an emoji on a note of a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            emoji: The emoji name.
-            note_id: The note ID.
+        Create an emoji in a note of an issue.
         """
         if not (emoji_reaction := EMOJI_MAP.get(emoji)):
             raise ValueError(f"Unsupported emoji: {emoji}")
 
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        try:
-            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
-        except UnknownObjectException:
-            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
-
-    def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
-    ) -> list[MergeRequest]:
-        """
-        Get the related merge requests of an issue.
-        """
-        query = """
-            query($owner: String!, $repo: String!, $issue: Int!) {
-                repository(owner: $owner, name: $repo) {
-                    issue(number: $issue) {
-                        number
-                        timelineItems(itemTypes: [CONNECTED_EVENT], first: 20) {
-                            nodes {
-                                ... on ConnectedEvent {
-                                    subject {
-                                        ... on PullRequest {
-                                            number
-                                            state
-                                            title
-                                            body
-                                            url
-                                            labels(first: 10) {
-                                                nodes {
-                                                    name
-                                                }
-                                            }
-                                            headRefName
-                                            baseRefName
-                                            author {
-                                                id
-                                                login
-                                                name
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        """
-        repo = self.client.get_repo(repo_id)
-
-        _, result = self.client.requester.graphql_query(
-            query, {"owner": repo.owner.login, "repo": repo.name, "issue": issue_id}
-        )
-
-        linked_prs = []
-
-        for item in result["data"]["repository"]["issue"]["timelineItems"]["nodes"]:
-            if (node := item.get("subject")) and (
-                label is None or (labels := node.get("labels")) and any(mr_label.name == label for mr_label in labels)
-            ):
-                linked_prs.append(
-                    MergeRequest(
-                        repo_id=repo_id,
-                        merge_request_id=node["number"],
-                        source_branch=node["headRefName"],
-                        target_branch=node["baseRefName"],
-                        title=node["title"],
-                        description=node["body"],
-                        labels=[mr_label.name for mr_label in labels] if labels else [],
-                        web_url=node.get("url"),
-                        state=node["state"],
-                        author=User(
-                            id=node["author"].get("id"),
-                            username=node["author"].get("login"),
-                            name=node["author"].get("name"),
-                        ),
-                    )
-                )
-
-        return linked_prs
-
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
-        """
-        Get a comment from a merge request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            comment_id: The comment ID.
-
-        Returns:
-            The discussion object.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-
-        comment = None
-        try:
-            comment = pr.get_issue_comment(int(comment_id))
-        except UnknownObjectException:
-            comment = pr.get_review_comment(int(comment_id))
-
-        if comment is None:
-            return Discussion(id=str(comment_id), notes=[])
-
-        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
-
-    def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
-        """
-        Get the review comments left on the merge request diff.
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        # For review comments, we need to group them by comment ID because GitHub supports nested comments.
-        unresolved_comment_ids, comment_to_thread_id = self._unresolved_comment_ids(repo_id, merge_request_id)
-
-        comments = defaultdict(list)
-        thread_ids = {}  # Map comment_id to thread_id
-
-        for comment in pr.get_review_comments():
-            if comment.id not in unresolved_comment_ids:
-                # Skip resolved comments
-                continue
-
-            comment_id = comment.in_reply_to_id or comment.id
-            comments[comment_id] += self._serialize_comments([comment], from_merge_request=True)
-
-            # Store the thread ID for this comment group (use the first comment's thread ID we find)
-            if comment_id not in thread_ids and comment.id in comment_to_thread_id:
-                thread_ids[comment_id] = comment_to_thread_id[comment.id]
-
-        return [
-            Discussion(
-                id=str(comment_id),
-                notes=notes,
-                is_thread=True,
-                is_resolvable=True,
-                resolve_id=thread_ids.get(comment_id),
-            )
-            for comment_id, notes in comments.items()
-        ]
-
-    def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
-        """
-        Get the comments done directly on a merge request (not in a review thread).
-        """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        return [
-            Discussion(id=str(comment.id), notes=self._serialize_comments([comment], from_merge_request=True))
-            for comment in pr.get_issue_comments()
-        ]
-
-    def _unresolved_comment_ids(self, repo_id: str, merge_request_id: int) -> tuple[set[int], dict[int, str]]:
-        """
-        Get the threads resolution of a merge request.
-
-        Returns:
-            A tuple of (unresolved_comment_ids, comment_to_thread_id_map)
-        """
-        query = """
-            query($owner: String!, $repo: String!, $pullRequest: Int!) {
-                repository(owner: $owner, name: $repo) {
-                    pullRequest(number: $pullRequest) {
-                        reviewThreads(first: 100) {
-                            nodes {
-                                id
-                                isResolved
-                                comments(first: 100) {
-                                    nodes {
-                                        databaseId
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        """
-        repo = self.client.get_repo(repo_id)
-
-        _, result = self.client.requester.graphql_query(
-            query, {"owner": repo.owner.login, "repo": repo.name, "pullRequest": merge_request_id}
-        )
-        unresolved_comment_ids = set()
-        comment_to_thread_id = {}
-
-        for thread in result["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
-            thread_id = thread["id"]
-
-            if thread["isResolved"]:
-                continue
-
-            for comment in thread["comments"]["nodes"]:
-                comment_db_id = comment["databaseId"]
-                unresolved_comment_ids.add(comment_db_id)
-                # Map each comment to its thread ID
-                comment_to_thread_id[comment_db_id] = thread_id
-
-        return unresolved_comment_ids, comment_to_thread_id
-
-    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
-        """
-        Get the latest pipeline (workflow run) of a pull request.
-
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The pull request number.
-
-        Returns:
-            List of Pipeline objects with workflow run information, or empty list if no runs found.
-        """
-        repo = self.client.get_repo(repo_id, lazy=True)
-        pr = repo.get_pull(merge_request_id)
-
-        pipelines = []
-        for run in repo.get_workflow_runs(head_sha=pr.head.sha, event="pull_request"):
-            jobs_list = []
-            for job in run.jobs():
-                if job.status == "completed":
-                    # Map GitHub conclusion to our status
-                    conclusion_mapping = {
-                        "success": "success",
-                        "failure": "failed",
-                        "cancelled": "canceled",
-                        "skipped": "skipped",
-                    }
-                    status = conclusion_mapping.get(job.conclusion, "success")
-                else:
-                    # Map GitHub status to our status
-                    status_mapping = {"queued": "pending", "in_progress": "running", "waiting": "pending"}
-                    status = status_mapping.get(job.status, "pending")
-
-                jobs_list.append(
-                    Job(
-                        id=job.id,
-                        name=job.name,
-                        status=status,
-                        stage=job.name,  # GitHub doesn't have stages, use job name
-                        allow_failure=False,  # GitHub doesn't have this concept natively
-                        failure_reason=job.conclusion if job.conclusion in ["failure", "cancelled"] else None,
-                    )
-                )
-
-            pipelines.append(
-                Pipeline(
-                    id=run.id,
-                    iid=run.run_number,
-                    status=run.status if run.status != "completed" else (run.conclusion or "success"),
-                    sha=run.head_sha,
-                    web_url=run.html_url,
-                    jobs=jobs_list,
-                )
-            )
-        return pipelines
-
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Download a user-attachments file from GitHub.
-
-        Args:
-            repo_id: The repository ID (not used for GitHub, as file_path contains full URL).
-            file_path: The full URL to the GitHub user-attachments file.
-
-        Returns:
-            The file content as bytes, or None if the download fails.
-        """
-        token = self.client.requester.auth.token
-        return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
-
-    def get_job(self, repo_id: str, job_id: int):
-        """
-        Get a GitHub Actions job by its ID.
-
-        Args:
-            repo_id: The repository ID.
-            job_id: The job ID.
-
-        Returns:
-            Job object with job details.
-        """
-        # Get the workflow job using the API
-        # We need to use the REST API directly as PyGithub doesn't have direct job access
-        _headers, data = self.client.requester.requestJsonAndCheck("GET", f"/repos/{repo_id}/actions/jobs/{job_id}")
-
-        # Map GitHub Actions job status/conclusion to our status format
-        if data["status"] == "completed":
-            conclusion_mapping = {
-                "success": "success",
-                "failure": "failed",
-                "cancelled": "canceled",
-                "skipped": "skipped",
-            }
-            status = conclusion_mapping.get(data["conclusion"], "success")
+        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        if note_id is not None:
+            issue.get_comment(note_id).create_reaction(emoji_reaction)
         else:
-            status_mapping = {"queued": "pending", "in_progress": "running", "waiting": "pending"}
-            status = status_mapping.get(data["status"], "pending")
+            issue.create_reaction(emoji_reaction)
 
-        return Job(
-            id=data["id"],
-            name=data["name"],
-            status=status,
-            stage=data["name"],  # GitHub doesn't have stages, use job name
-            allow_failure=False,  # GitHub doesn't have this concept natively
-            failure_reason=data["conclusion"] if data["conclusion"] in ["failure", "cancelled"] else None,
-        )
-
-    @async_to_sync
-    async def job_log_trace(self, repo_id: str, job_id: int) -> str:
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
         """
-        Get the log trace of a GitHub Actions job.
+        Check if an issue has a specific emoji reaction from the current user.
 
         Args:
             repo_id: The repository ID.
-            job_id: The job ID.
+            issue_id: The issue ID.
+            emoji: The emoji to check for.
 
         Returns:
-            The log trace of the job as a string.
+            True if the issue has the reaction, False otherwise.
         """
-        try:
-            # Use the requester to make a direct API call for job logs
-            # The logs endpoint returns a 302 redirect to the actual log content
-            headers, _ = self.client.requester.requestBlobAndCheck(
-                "GET", f"/repos/{repo_id}/actions/jobs/{job_id}/logs"
-            )
-        except GithubException:
-            return None
+        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
+            raise ValueError(f"Unsupported emoji: {emoji}")
 
-        # GitHub responds with a 302 Location -> temporary plain-text log URL
-        if "location" in headers:
-            response = await async_download_url(headers["location"])
-            return response.decode("utf-8")
+        issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        current_user_id = self.current_user.id
 
-        return None
+        for reaction in issue.get_reactions():
+            if reaction.content == emoji_reaction and reaction.user.id == current_user_id:
+                return True
 
-    @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
-        """
-        Clone a repository to a temporary directory.
+        return False
 
-        Args:
-            repository: The repository.
-            sha: The commit sha.
-
-        Yields:
-            The repository object cloned to the temporary directory.
-        """
-        from codebase.clients.utils import safe_slug
-
-        with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
-            logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
-            # the access token is valid for 1 hour
-            access_token = self._integration.get_access_token(
-                self.client_installation.id, permissions={"contents": "write"}
-            )
-            parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
-            clone_dir = Path(tmpdir) / "repo"
-            clone_dir.mkdir(exist_ok=True)
-            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
-            self._configure_commit_identity(repo)
-            yield repo
-
+    # Merge request
     def update_or_create_merge_request(
         self,
         repo_id: str,
@@ -914,6 +469,138 @@ class GitHubClient(RepoClient):
             author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
             draft=pr.draft,
         )
+
+    def create_merge_request_comment(
+        self,
+        repo_id: str,
+        merge_request_id: int,
+        body: str,
+        reply_to_id: str | None = None,
+        as_thread: bool = False,
+        mark_as_resolved: bool = False,
+    ) -> str | None:
+        """
+        Comment on a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            body: The comment body.
+            reply_to_id: The ID of the comment to reply to.
+            as_thread: Whether to create a thread.
+            mark_as_resolved: Whether to mark the comment as resolved.
+
+        Returns:
+            The ID of the comment.
+        """
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        to_return = None
+
+        if reply_to_id:
+            to_return = pr.create_review_comment_reply(int(reply_to_id), body).id
+
+            if mark_as_resolved:
+                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
+
+        elif as_thread:
+            # The only threadable comments are review comments.
+            raise NotImplementedError("Not implemented for GitHub")
+        else:
+            to_return = pr.create_issue_comment(body).id
+        return to_return
+
+    def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        """
+        Get a pull request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+
+        Returns:
+            The pull request.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        mr = repo.get_pull(merge_request_id)
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=merge_request_id,
+            source_branch=mr.head.ref,
+            target_branch=mr.base.ref,
+            title=mr.title,
+            description=mr.body or "",
+            labels=[label.name for label in mr.labels],
+            web_url=mr.html_url,
+            sha=mr.head.sha,
+            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
+        )
+
+    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+        """
+        Get a comment from a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            comment_id: The comment ID.
+
+        Returns:
+            The discussion object.
+        """
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+
+        comment = None
+        try:
+            comment = pr.get_issue_comment(int(comment_id))
+        except UnknownObjectException:
+            comment = pr.get_review_comment(int(comment_id))
+
+        if comment is None:
+            return Discussion(id=str(comment_id), notes=[])
+
+        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
+
+    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+        """
+        Create an emoji on a note of a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request ID.
+            emoji: The emoji name.
+            note_id: The note ID.
+        """
+        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
+            raise ValueError(f"Unsupported emoji: {emoji}")
+
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        try:
+            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
+        except UnknownObjectException:
+            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
+
+    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
+        """
+        Mark a review as resolved.
+        """
+        _, result = self.client.requester.graphql_named_mutation(
+            "resolveReviewThread", {"threadId": discussion_id}, "thread { id isResolved resolvedBy { login } }"
+        )
+
+        if result["thread"]["isResolved"]:
+            return
+
+    # User
+    @cached_property
+    def current_user(self) -> User:
+        """
+        Get the current user.
+        """
+        # GitHub name the bot with the app slug and [bot] suffix.
+        # Maybe there's a better way to get the bot user, but this is the only way I found so far.
+
+        user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
+        return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
 
     def _serialize_comments(
         self, comments: list[IssueComment | PullRequestComment], from_merge_request: bool = False

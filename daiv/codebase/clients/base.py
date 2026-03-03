@@ -8,7 +8,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import Discussion, GitPlatform, Issue, Job, MergeRequest, Pipeline, Repository, User
+from codebase.base import Discussion, GitPlatform, Issue, MergeRequest, Repository, User
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -34,6 +34,7 @@ class RepoClient(abc.ABC):
     client: Github | Gitlab
     git_platform: GitPlatform
 
+    # Repository
     @abc.abstractmethod
     def get_repository(self, repo_id: str) -> Repository:
         pass
@@ -51,10 +52,6 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
-        pass
-
-    @abc.abstractmethod
     def set_repository_webhooks(
         self,
         repo_id: str,
@@ -65,6 +62,62 @@ class RepoClient(abc.ABC):
     ) -> bool:
         pass
 
+    @abc.abstractmethod
+    @contextmanager
+    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+        pass
+
+    # Issue
+    @abc.abstractmethod
+    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
+        pass
+
+    @abc.abstractmethod
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """
+        Create an issue in a repository.
+
+        Args:
+            repo_id: The repository ID.
+            title: The issue title.
+            description: The issue description.
+            labels: Optional list of labels to apply to the issue.
+
+        Returns:
+            The created issue IID (GitLab) or number (GitHub).
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+        pass
+
+    @abc.abstractmethod
+    def create_issue_comment(
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+    ) -> str | None:
+        pass
+
+    @abc.abstractmethod
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
+        pass
+
+    @abc.abstractmethod
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+        """
+        Check if an issue has a specific emoji reaction from the current user.
+
+        Args:
+            repo_id: The repository ID.
+            issue_id: The issue ID.
+            emoji: The emoji to check for.
+
+        Returns:
+            True if the issue has the reaction, False otherwise.
+        """
+        pass
+
+    # Merge request
     @abc.abstractmethod
     def update_or_create_merge_request(
         self,
@@ -105,90 +158,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
-        pass
-
-    @abc.abstractmethod
-    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
-        pass
-
-    @abc.abstractmethod
-    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
-        """
-        Create an issue in a repository.
-
-        Args:
-            repo_id: The repository ID.
-            title: The issue title.
-            description: The issue description.
-            labels: Optional list of labels to apply to the issue.
-
-        Returns:
-            The created issue IID (GitLab) or number (GitHub).
-        """
-        pass
-
-    @abc.abstractmethod
-    def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
-    ) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    def update_issue_comment(
-        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
-    ) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        pass
-
-    @abc.abstractmethod
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
-        """
-        Check if an issue has a specific emoji reaction from the current user.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-            emoji: The emoji to check for.
-
-        Returns:
-            True if the issue has the reaction, False otherwise.
-        """
-        pass
-
-    @abc.abstractmethod
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
-        pass
-
-    @abc.abstractmethod
-    def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
-    ) -> list[MergeRequest]:
-        pass
-
-    @abc.abstractmethod
-    @cached_property
-    def current_user(self) -> User:
-        pass
-
-    @abc.abstractmethod
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
-        pass
-
-    @abc.abstractmethod
-    def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
         pass
 
     @abc.abstractmethod
@@ -203,6 +173,7 @@ class RepoClient(abc.ABC):
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
+    # Implemented only on GitLab for now.
     def create_merge_request_inline_discussion(
         self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]
     ) -> str:
@@ -227,14 +198,13 @@ class RepoClient(abc.ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} does not support inline MR diff discussions")
 
+    # User
     @abc.abstractmethod
-    def get_job(self, repo_id: str, job_id: int) -> Job:
+    @cached_property
+    def current_user(self) -> User:
         pass
 
-    @abc.abstractmethod
-    def job_log_trace(self, repo_id: str, job_id: int) -> str:
-        pass
-
+    # Factory
     @staticmethod
     @functools.cache
     def create_instance(*, git_platform: GitPlatform = settings.CLIENT, **kwargs: Any) -> RepoClient:

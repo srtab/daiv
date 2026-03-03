@@ -56,7 +56,6 @@ def mock_repo_client():
         mock_client.list_repositories.return_value = []
         mock_client.get_repository_file.return_value = None
         mock_client.get_project_uploaded_file = AsyncMock(return_value=b"image content")
-        mock_client.repository_branch_exists.return_value = True
 
         # Mock repository modification operations
         mock_client.set_repository_webhooks.return_value = True
@@ -64,10 +63,8 @@ def mock_repo_client():
         # Mock issue operations
         mock_client.get_issue.return_value = Mock()
         mock_client.create_issue_comment.return_value = None
-        mock_client.update_issue_comment.return_value = None
         mock_client.create_issue_emoji.return_value = None
         mock_client.get_issue_comment.return_value = Mock()
-        mock_client.get_issue_related_merge_requests.return_value = []
 
         # Mock merge request operations
         merge_request = MergeRequest(
@@ -85,14 +82,10 @@ def mock_repo_client():
         mock_client.update_or_create_merge_request.return_value = merge_request
         mock_client.update_merge_request.return_value = merge_request
         mock_client.get_merge_request.return_value = merge_request
-        mock_client.get_merge_request_latest_pipelines.return_value = []
-        mock_client.get_merge_request_review_comments.return_value = []
-        mock_client.get_merge_request_comments.return_value = []
         mock_client.get_merge_request_comment.return_value = Mock()
         mock_client.create_merge_request_comment.return_value = None
         mock_client.create_merge_request_note_emoji.return_value = None
         mock_client.mark_merge_request_comment_as_resolved.return_value = None
-        mock_client.job_log_trace.return_value = "trace"
 
         # Mock load_repo to return a temporary directory context manager
         @contextmanager
