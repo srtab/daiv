@@ -64,7 +64,7 @@ dev = [
   "datasets==4.6.1",
   "openevals==0.1.3",
   "prek==0.3.4",
-  "pyproject-fmt==2.16.2",
+  "pyproject-fmt==2.18.0",
   "pytest==9.0.2",
   "pytest-asyncio==1.3.0",
   "pytest-cov==7.0.0",
@@ -154,7 +154,7 @@ lint.isort.section-order = [
   "first-party",
   "local-folder",
 ]
-lint.isort.sections."django" = [ "django" ]
+lint.isort.sections.django = [ "django" ]
 lint.isort.split-on-trailing-comma = false
 
 [tool.pyproject-fmt]
