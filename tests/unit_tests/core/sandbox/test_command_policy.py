@@ -215,3 +215,46 @@ class TestFlagNormalization:
         result = evaluate_command_policy([_seg(("rm", "-rf", "/"))], policy)
         assert not result.allowed
         assert result.denial_reason == DenialReason.REPO_DISALLOW
+
+
+class TestGlobalFlagsBeforeSubcommand:
+    """Disallow rules must match even when global flags precede the subcommand."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            # git -C <path> places a flag+value before the subcommand
+            ("git", "-C", "/repo", "commit", "-m", "msg"),
+            ("git", "-C", "/repo", "push", "origin", "main"),
+            ("git", "-C", "/repo", "reset", "--hard"),
+            ("git", "-C", "/repo", "rebase", "-i", "HEAD~3"),
+            ("git", "-C", "/repo", "clean", "-fd"),
+            ("git", "-C", "/repo", "config", "user.email", "x@y.com"),
+            # git -c key=val sets a config value before the subcommand
+            ("git", "-c", "user.name=test", "commit", "-m", "msg"),
+            ("git", "-c", "user.name=test", "push", "origin", "main"),
+            # branch/tag deletion rules still match with global flags
+            ("git", "-C", "/repo", "branch", "-D", "feature"),
+            ("git", "-C", "/repo", "branch", "--delete", "feature"),
+            ("git", "-C", "/repo", "tag", "-d", "v1.0"),
+            ("git", "-C", "/repo", "tag", "--delete", "v1.0"),
+        ],
+    )
+    def test_global_flags_do_not_bypass_disallow(self, argv):
+        result = evaluate_command_policy([_seg(argv)], CommandPolicy())
+        assert not result.allowed
+        assert result.denial_reason == DenialReason.DEFAULT_DISALLOW
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ("git", "-C", "/repo", "status"),
+            ("git", "-C", "/repo", "diff"),
+            ("git", "-C", "/repo", "log", "--oneline"),
+            ("git", "-C", "/repo", "show", "HEAD"),
+            ("git", "-c", "color.ui=always", "status"),
+        ],
+    )
+    def test_safe_commands_with_global_flags_still_allowed(self, argv):
+        result = evaluate_command_policy([_seg(argv)], CommandPolicy())
+        assert result.allowed

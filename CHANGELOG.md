@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed skill tool to properly return a `Command` object for state updates instead of returning messages directly.
 - Fixed `daiv-auto` label to work as a trigger label that both launches the agent and enables auto-approval mode, eliminating the need to add two separate labels.
 - Fixed Anthropic prompt caching for OpenRouter multi-turn runs by avoiding `cache_control` markers on trailing tool messages and applying the marker to the latest human message instead.
+- Fixed bash command policy rule checker not matching disallowed commands when global flags (e.g. `git -C /repo commit`) appear before the subcommand. The `_argv_matches_rule()` function in `daiv/core/sandbox/command_policy.py` now uses in-order subsequence matching instead of strict positional prefix matching, so flags between the executable name and subcommand are transparently skipped. ([#883](../../issues/883))
 
 ### Removed
 
