@@ -203,6 +203,30 @@ class RepoClient(abc.ABC):
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         pass
 
+    def create_merge_request_inline_discussion(
+        self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]
+    ) -> str:
+        """
+        Create an inline diff discussion on a merge request anchored to a specific diff position.
+
+        This is a separate method from `create_merge_request_comment` because the `position` hash
+        requires nested key encoding that the python-gitlab CLI does not support.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID.
+            body: The discussion body text.
+            position: The diff position dict with keys such as position_type, base_sha, start_sha,
+                head_sha, old_path, new_path, old_line, new_line.
+
+        Returns:
+            The created discussion ID.
+
+        Raises:
+            NotImplementedError: If the platform does not support inline MR diff discussions.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support inline MR diff discussions")
+
     @abc.abstractmethod
     def get_job(self, repo_id: str, job_id: int) -> Job:
         pass

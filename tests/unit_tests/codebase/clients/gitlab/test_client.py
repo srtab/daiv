@@ -6,6 +6,16 @@ from codebase.base import GitPlatform, Repository, User
 from codebase.clients.base import Emoji
 from codebase.clients.gitlab.client import GitLabClient
 
+_POSITION = {
+    "position_type": "text",
+    "base_sha": "aaa",
+    "start_sha": "bbb",
+    "head_sha": "ccc",
+    "old_path": "src/foo.py",
+    "new_path": "src/foo.py",
+    "new_line": 42,
+}
+
 
 class TestGitLabClient:
     """Tests for GitLabClient."""
@@ -86,3 +96,35 @@ class TestGitLabClient:
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test")
         mock_writer.set_value.assert_any_call("user", "email", "daiv-agent-test@users.noreply.gitlab.com")
+
+    def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
+        """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_discussion = Mock()
+        mock_discussion.id = "disc-abc"
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_mr.discussions.create.return_value = mock_discussion
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.create_merge_request_inline_discussion(
+            repo_id="group/repo", merge_request_id=5, body="This looks wrong.", position=_POSITION
+        )
+
+        assert result == "disc-abc"
+        mock_project.mergerequests.get.assert_called_once_with(5, lazy=True)
+        mock_mr.discussions.create.assert_called_once_with({"body": "This looks wrong.", "position": _POSITION})
+
+    def test_create_merge_request_inline_discussion_returns_discussion_id(self, gitlab_client):
+        """The returned value must be the discussion ID string from GitLab."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_discussion = Mock()
+        mock_discussion.id = "unique-id-xyz"
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_mr.discussions.create.return_value = mock_discussion
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.create_merge_request_inline_discussion("ns/proj", 99, "body text", _POSITION)
+
+        assert result == "unique-id-xyz"
