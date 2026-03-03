@@ -154,7 +154,7 @@ lint.isort.section-order = [
   "first-party",
   "local-folder",
 ]
-lint.isort.sections."django" = [ "django" ]
+lint.isort.sections.django = [ "django" ]
 lint.isort.split-on-trailing-comma = false
 
 [tool.pyproject-fmt]
