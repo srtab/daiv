@@ -1,101 +1,65 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 
 
 class TestAnthropicPromptCachingMiddleware:
-    async def test_awrap_model_call_uses_latest_human_message_for_cache_control(self):
-        middleware = AnthropicPromptCachingMiddleware()
+    def test_should_apply_caching_counts_system_prompt_for_openrouter_models(self):
+        middleware = AnthropicPromptCachingMiddleware(min_messages_to_cache=2)
         middleware._is_openrouter_anthropic_model = Mock(return_value=True)
 
-        human_message = HumanMessage(
-            content=[{"type": "text", "text": "user", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
-        )
-        ai_message = AIMessage(
-            content=[{"type": "text", "text": "assistant", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
-        )
-        tool_message = ToolMessage(
-            content=[{"type": "text", "text": "tool output", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
-            tool_call_id="call_1",
-        )
         request = ModelRequest(
             model=Mock(),
-            messages=[human_message, ai_message, tool_message],
+            messages=[HumanMessage(content="user")],
             system_prompt="system prompt",
             state=Mock(),
             runtime=Mock(),
         )
 
-        async def handler(_request: ModelRequest) -> ModelResponse:
-            return ModelResponse(result=[])
+        assert middleware._should_apply_caching(request) is True
 
-        await middleware.awrap_model_call(request, handler)
-
-        assert human_message.content[-1]["cache_control"] == {"type": middleware.type, "ttl": middleware.ttl}
-        assert "cache_control" not in ai_message.content[-1]
-        assert "cache_control" not in tool_message.content[-1]
-
-    async def test_awrap_model_call_converts_string_content_for_cache_target(self):
+    async def test_awrap_model_call_adds_cache_control_to_extra_body_for_openrouter_models(self):
         middleware = AnthropicPromptCachingMiddleware()
         middleware._is_openrouter_anthropic_model = Mock(return_value=True)
 
-        human_message = HumanMessage(content="user")
-        tool_message = ToolMessage(content=[{"type": "text", "text": "tool output"}], tool_call_id="call_1")
         request = ModelRequest(
             model=Mock(),
-            messages=[human_message, tool_message],
+            messages=[HumanMessage(content="user")],
             system_prompt="system prompt",
             state=Mock(),
             runtime=Mock(),
+            model_settings={"temperature": 0.3},
         )
-
-        async def handler(_request: ModelRequest) -> ModelResponse:
-            return ModelResponse(result=[])
+        handler = AsyncMock(return_value=ModelResponse(result=[]))
 
         await middleware.awrap_model_call(request, handler)
 
-        assert isinstance(human_message.content, list)
-        assert human_message.content[-1]["cache_control"] == {"type": middleware.type, "ttl": middleware.ttl}
-        assert "cache_control" not in tool_message.content[-1]
+        wrapped_request = handler.await_args.args[0]
 
-    async def test_awrap_model_call_converts_string_block_in_human_content_list(self):
+        assert wrapped_request is not request
+        assert wrapped_request.model_settings == {
+            "temperature": 0.3,
+            "extra_body": {"cache_control": {"type": middleware.type, "ttl": middleware.ttl}},
+        }
+        assert request.model_settings == {"temperature": 0.3}
+
+    async def test_awrap_model_call_passes_through_non_openrouter_models(self):
         middleware = AnthropicPromptCachingMiddleware()
-        middleware._is_openrouter_anthropic_model = Mock(return_value=True)
+        middleware._is_openrouter_anthropic_model = Mock(return_value=False)
 
-        human_message = HumanMessage(content=["user"])
-        tool_message = ToolMessage(content=[{"type": "text", "text": "tool output"}], tool_call_id="call_1")
         request = ModelRequest(
             model=Mock(),
-            messages=[human_message, tool_message],
+            messages=[HumanMessage(content="user")],
             system_prompt="system prompt",
             state=Mock(),
             runtime=Mock(),
+            model_settings={"temperature": 0.3},
         )
-
-        async def handler(_request: ModelRequest) -> ModelResponse:
-            return ModelResponse(result=[])
+        handler = AsyncMock(return_value=ModelResponse(result=[]))
 
         await middleware.awrap_model_call(request, handler)
 
-        assert human_message.content[-1]["cache_control"] == {"type": middleware.type, "ttl": middleware.ttl}
-        assert human_message.content[-1]["text"] == "user"
-        assert "cache_control" not in tool_message.content[-1]
-
-    async def test_awrap_model_call_handles_only_tool_messages(self):
-        middleware = AnthropicPromptCachingMiddleware()
-        middleware._is_openrouter_anthropic_model = Mock(return_value=True)
-
-        tool_message = ToolMessage(content=[{"type": "text", "text": "tool output"}], tool_call_id="call_1")
-        request = ModelRequest(
-            model=Mock(), messages=[tool_message], system_prompt="system prompt", state=Mock(), runtime=Mock()
-        )
-
-        async def handler(_request: ModelRequest) -> ModelResponse:
-            return ModelResponse(result=[])
-
-        await middleware.awrap_model_call(request, handler)
-
-        assert "cache_control" not in tool_message.content[-1]
+        assert handler.await_args.args[0] is request
