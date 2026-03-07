@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Added a `traces_sampler` function to the Sentry configuration to filter out transactions from health check endpoints (`/-/alive/`) and prevent sending thousands of irrelevant events to Sentry.
 - Fixed unit tests that still referenced the removed `create_changelog_subagent` by migrating them to `create_docs_research_subagent` expectations and `/agents` output assertions.
 - Fixed duplicate agent launches when issue labels are added, removed, and re-added by checking if DAIV has already reacted to the issue before processing label events.
 - Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
