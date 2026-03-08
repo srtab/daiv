@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shlex
@@ -18,6 +19,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
 from codebase.base import GitPlatform
+from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
@@ -39,232 +41,382 @@ GITLAB_PER_PAGE = "5"
 GITLAB_TOOL_NAME = "gitlab"
 
 GITLAB_TOOL_DESCRIPTION = f"""\
-Tool to interact with GitLab API to retrieve information about issues, merge requests, pipelines, jobs, and other resources.
+Use this tool to inspect the configured GitLab project through the python-gitlab CLI.
 
-**What this tool does:**
-- Retrieves GitLab project resources using the python-gitlab CLI
-- Automatically targets the configured project (no `--project-id` needed)
-- Returns data in a simplified format by default (`output_mode='simplified'`)
-- Paginate the results to the first 5 items
-- The output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines by default
-- The results are ordered from the most recent to the oldest by default.
+This tool is best for retrieving the current state of:
+- issues
+- merge requests
+- pipelines
+- jobs
+- job traces
+- other project-scoped GitLab resources
 
-**Command Format:**
-`<object> <action> <arguments...>`
+**Inputs:**
+- `subcommand`: a single CLI-like subcommand string in the form `<object> <action> <arguments...>`
+- `output_mode`: either `simplified` or `detailed`
 
-**Auto-configured:**
-- Project ID is automatically set (do NOT pass --project-id)
-- `--output` argument is automatically set to according to the `output_mode`, do not pass it manually (it's auto-set).
+**Hard rules:**
+- Do NOT include the `gitlab` prefix in `subcommand`
+- Do NOT pass `--project-id` (the project is injected automatically)
+- Do NOT pass `--output` (it is set automatically from `output_mode`)
+- Prefer IID-based lookup when available (for example `--iid` for issues and merge requests)
 
-**Common use cases:**
-- Get a specific issue by its IID: `command: project-issue get --iid <issue_iid>, output_mode: 'detailed'`
-- Get a specific merge request by its IID: `command: project-merge-request get --iid <merge_request_iid>, output_mode: 'detailed'`
-- List pipelines for a merge request: `command: project-merge-request-pipeline list --mr-iid <merge_request_iid>, output_mode: 'simplified'`
-- Get the logs/console output of a job: `command: project-job trace --id <job_id>, output_mode: 'detailed'` (the output is truncated to {DEFAULT_MAX_OUTPUT_LINES} lines)
-- List issues: `command: project-issue list --state opened --labels bug --page <page_number>, output_mode: 'simplified'` (paginate the results to the specified page)
+**Default behavior:**
+- The configured project is targeted automatically
+- Results are ordered from most recent to oldest by default
+- List subcommands return the first 5 items by default unless you paginate with `--page`
+- Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
 
-**Bad Examples:**
-✗ `gitlab project-issue get --iid 42` (don't include 'gitlab' prefix)
-✗ `project-issue get --iid 42 --project-id 123` (project-id auto-added)
-✗ `project-issue get --id 42` (use --iid for issues, not --id)
-✗ `project-issue list --output json` (don't pass --output manually, it's auto-set)
+**How to use it well:**
+- Use `output_mode="simplified"` to discover the right resource (recent items, IDs, pipeline list)
+- Use `output_mode="detailed"` once you know the exact target and need full fields or logs
+- Prefer one targeted query over broad listings
+- If debugging CI, move in this order: pipeline -> jobs -> failing job trace
 
-**Important Notes:**
-- Do NOT attempt to fetch URLs from the output - they require authentication
-- Always use IID when available, not the internal ID.
-- Some actions support additional filters - pass them as additional arguments. If you don't know the available filters, use the `--help` argument to get the list of available arguments.
-- When getting a resource by its IID/ID, use `output_mode='detailed'` to get the full output. For listing resources to discover IDs, use the default `output_mode='simplified'`, avoiding long outputs.
-- Always quote text that contain spaces or multiline text with double quotes (e.g., project-merge-request-note create --body "This is a note with a space")
-"""  # noqa: E501
+**Useful subcommand patterns:**
+- Issue by IID: `project-issue get --iid <issue_iid>`
+- Merge request by IID: `project-merge-request get --iid <merge_request_iid>`
+- MR pipelines: `project-merge-request-pipeline list --mr-iid <merge_request_iid>`
+- Pipeline jobs: `project-pipeline-job list --pipeline-id <pipeline_id>`
+- Job trace: `project-job trace --id <job_id>`
+- Filtered issue list: `project-issue list --state opened --labels bug --page <page_number>`
+
+**Invalid examples:**
+- ✗ `gitlab project-issue get --iid 42`
+- ✗ `project-issue get --iid 42 --project-id 123`
+- ✗ `project-issue get --id 42`
+- ✗ `project-issue list --output json`
+- ✗ `project list --topic test` (unsupported: this tool is project-scoped)
+
+**Special case: inline merge request comments**
+- For a new inline comment on an MR diff, use `project-merge-request-discussion create`, not `project-merge-request-note create`.
+- Inline comments require `--position`. Without `--position`, the discussion is created on the MR overview, not on a diff line.
+- Before creating an inline comment, first inspect the latest MR diff/version to get the correct SHA triplet (`base_sha`, `start_sha`, `head_sha`).
+- For text diff comments, `--position` must be a **JSON object string** containing: `position_type` ("text"), `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line anchor:
+  - use `new_line` (int) for an added line
+  - use `old_line` (int) for a removed line
+  - use both `old_line` and `new_line` for an unchanged line
+  - Example: `--position '{{"position_type": "text", "base_sha": "abc", "start_sha": "def", "head_sha": "ghi", "old_path": "src/foo.py", "new_path": "src/foo.py", "new_line": 42}}'`
+- To reply to an existing inline thread, use `project-merge-request-discussion-note create --discussion-id <discussion_id>`.
+- Never guess an inline position. If the exact diff anchor cannot be determined reliably, prefer a regular MR note instead of posting a misplaced inline comment.
+
+**Special case: review suggestions**
+- When leaving an inline MR diff comment that proposes a precise, localized code change, prefer a suggestion block in the comment body instead of plain prose.
+- A suggestion is created by putting GitLab suggestion Markdown inside the discussion body (for example, a single-line suggestion uses a `suggestion:-0+0` block).
+- Suggestions only work in merge request diff threads. A plain merge request note is not the right place for an applyable suggestion.
+- Prefer single-line suggestions by default. Use multi-line suggestions only when the replacement range is clear and tightly scoped.
+- Use suggestions only for concrete code replacements. If the feedback is ambiguous, high-level, or not safely expressible as code, use a normal comment instead.
+
+**Operational guidance:**
+- Do NOT try to fetch URLs returned by this tool; they require authentication
+- If a subcommand fails because you need flags, use targeted help: `<object> <action> --help`
+- Always wrap arguments containing spaces or multiline text in double quotes
+- When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 GITHUB_TOOL_NAME = "gh"
 
 GITHUB_TOOL_DESCRIPTION = f"""\
-Tool to interact with GitHub API to retrieve information about issues, pull requests, workflows, runs, and other resources.
+Use this tool to inspect the configured GitHub repository through the GitHub CLI.
 
-**What this tool does:**
-- Retrieves GitHub repository resources using the GitHub CLI
-- Automatically targets the configured repository (no `--repo` needed)
-- List commands are limited to the first 30 items by default
-- The output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines by default
-- The results are ordered from the most recent to the oldest by default when supported
+This tool is best for retrieving the current state of:
+- issues
+- pull requests
+- checks
+- workflow runs
+- job logs
+- other repository-scoped GitHub resources
 
-**Command Format:**
-`<object> <action> <arguments...>`
+**Inputs:**
+- `subcommand`: a single CLI-like subcommand string in the form `<object> <action> [arguments...]>`
 
-**Auto-configured:**
-- Repository is automatically set (do NOT pass `--repo` or `-R`)
+**Hard rules:**
+- Do NOT include the `gh` prefix in `subcommand`
+- Do NOT pass `--repo` or `-R` (the repository is injected automatically)
+- Keep listings small and targeted
 
-**Common use cases:**
-- Get a specific issue by its number: `command: issue view <issue_number>`
-- Get a specific pull request by its number: `command: pr view <pr_number>`
-- List workflow runs: `command: run list --workflow <workflow_name>`
-- List issues: `command: issue list --state open --label bug --limit <n>`
+**Default behavior:**
+- The configured repository is targeted automatically
+- List subcommands are limited to the first 30 items by default
+- Results are ordered from most recent to oldest when supported by the underlying subcommand
+- Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
 
-**Bad Examples:**
-✗ `gh issue view 42` (don't include 'gh' prefix)
-✗ `issue list --repo owner/repo` (repo auto-added)
-✗ `issue list --limit 200` (avoid huge outputs; keep limits small)
+**How to use it well:**
+- Start with the smallest subcommand that identifies the exact target
+- Prefer direct detail/log commands once you know the relevant issue, PR, run, or job
+- If debugging CI, move in this order: PR checks -> failing run/job -> logs
+- Prefer one targeted query over broad listings
 
-**Important Notes:**
-- Do NOT attempt to fetch URLs from the output - they require authentication
-- Always quote text that contains spaces or multiline text with double quotes"""  # noqa: E501
+**Useful subcommand patterns:**
+- Issue by number: `issue view <issue_number>`
+- Pull request by number: `pr view <pr_number>`
+- PR checks: `pr checks <pr_number>`
+- Workflow runs: `run list --workflow <workflow_name>`
+- Job logs: `run view <run_id> --job <job_id> --log`
+- Filtered issue list: `issue list --state open --label bug --limit <n>`
+
+**Invalid examples:**
+- ✗ `gh issue view 42`
+- ✗ `issue list --repo owner/repo`
+- ✗ `issue list --limit 200`
+
+**Operational guidance:**
+- Do NOT try to fetch URLs returned by this tool; they require authentication
+- Prefer direct log/detail subcommands over relying on summary output
+- Always wrap arguments containing spaces or multiline text in double quotes
+- When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     f"""\
 ## Git Platform Tools
 
-You have access to the following tools to interact with the Git platform:
+Use the available Git platform tool early whenever platform state can change what you should do.
+
+**Core policy:**
+- If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code.
+- Prefer platform facts over assumptions.
+- Do not propose a fix for failing CI until you have inspected the most relevant failing logs/traces available.
+- Use the smallest query that identifies the exact resource, then inspect that resource in detail.
+- Do not dump raw platform output back to the user; extract only the facts that affect the next action.
+- After inspecting platform state, continue with normal coding-agent behavior: inspect the codebase, make the smallest plausible fix, and verify.
+
+**Default debug loop:**
+1. Identify the exact target resource
+2. Read the most relevant details
+3. If CI is failing, inspect the latest failing logs/traces
+4. Form a concrete hypothesis
+5. Make the smallest likely fix
+6. Re-check the relevant platform signal if needed
 
 {{{{#gitlab_platform}}}}
-- `{GITLAB_TOOL_NAME}`: Interact with GitLab API to retrieve issues, merge requests, pipelines, jobs, and other resources. Wraps the `python-gitlab` CLI.
+### `{GITLAB_TOOL_NAME}` (GitLab)
+
+Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
+
+**GitLab-specific guidance:**
+- For issue work, fetch the issue first and use its title/description as the task definition.
+- For merge request work, fetch the MR first; if CI is relevant, inspect its latest pipeline before changing code.
+- For pipeline failures, do not edit code or CI config until you have read the failing job trace(s).
+- Use `output_mode="simplified"` to discover the right resource.
+- Use `output_mode="detailed"` to inspect a specific resource or read traces.
+
+**Inline MR comment policy:**
+- When the user asks for an inline MR comment, do not create a plain merge request note.
+- First identify the exact target line in the current MR diff.
+- Then inspect the latest MR diff/version to obtain the SHA triplet needed for anchoring (`base_sha`, `start_sha`, `head_sha`).
+- Only then create the comment with `project-merge-request-discussion create --mr-iid <mr_iid> --body "<comment>" --position "<structured position payload>"`.
+- If the user is replying to an existing inline thread, use `project-merge-request-discussion-note create --discussion-id <discussion_id>`.
+- If the exact inline anchor cannot be resolved safely, fall back to a regular MR note and say the inline position could not be determined reliably.
+- Prefer single-line inline comments. Multi-line diff comments are more brittle and should only be attempted when the required range metadata is clearly available.
+
+**Suggestion policy:**
+- When leaving an inline review comment and you can express the fix as a small, concrete code replacement, prefer an inline comment with a suggestion block so the author can apply it directly.
+- Prefer suggestions for localized edits such as renames, condition fixes, missing guards, small refactors, formatting, or replacing one expression with another.
+- Do not use a suggestion when the change is speculative, architectural, spans too much code, depends on broader context, or cannot be anchored precisely to the current diff.
+- Prefer a single concise suggestion over a long explanatory comment when the code change itself communicates the fix clearly.
+- If using an inline comment, first anchor the discussion correctly to the diff, then place the suggestion block in the comment body.
+- Default to single-line suggestions; only use multi-line suggestions when the replacement range is obvious and tightly scoped.
 
 <example>
 user: Fix issue #42.
 assistant:
   [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
 assistant:
-  [Use the issue title/description to understand the problem and the user's request]
-  [Explore the codebase to understand the problem and the user's request]
-  [Apply corrective actions to fix the issue]
+  [Extract the real problem from the issue]
+  [Inspect the relevant code]
+  [Make the smallest fix that addresses the issue]
 </example>
+
 <example>
 user: Fix the failing pipeline for merge request #123.
 assistant:
   [Call `{GITLAB_TOOL_NAME}("project-merge-request-pipeline list --mr-iid 123", output_mode="simplified")`]
-  [Pick the latest pipeline_id from the list]
+  [Pick the latest relevant pipeline_id]
   [Call `{GITLAB_TOOL_NAME}("project-pipeline-job list --pipeline-id <pipeline_id>", output_mode="detailed")`]
-  [Filter jobs where status is 'failed' and collect the job_ids]
-  [For each failing job_id: Call `{GITLAB_TOOL_NAME}("project-job trace --id <job_id>", output_mode="detailed")`]
+  [Identify failing jobs]
+  [For each failing job: Call `{GITLAB_TOOL_NAME}("project-job trace --id <job_id>", output_mode="detailed")`]
 assistant:
-  [Analyze traces → identify root cause → Implement fixes]
+  [Use the traces to form a root-cause hypothesis]
+  [Then change code or CI config]
 </example>
 
-**Notes:**
-- Use `output_mode="detailed"` when you need fields like status/name/stage/etc., not just IDs.
-- Always fetch job traces for failing jobs before proposing code/config changes.
+<example>
+user: Leave an inline review comment on merge request #123 for src/foo.py line 87.
+assistant:
+  [Call `gitlab("project-merge-request-diff list --mr-iid 123", output_mode="detailed")`]
+  [Select the latest diff/version and extract the SHA fields needed for anchoring]
+  [If needed, inspect the diff details to confirm the file path and whether the target line is added, removed, or unchanged]
+  [Construct the position as a JSON object with `position_type`, `base_sha`, `start_sha`, `head_sha`, `old_path`, `new_path`, and the correct line field(s)]
+  [Call `gitlab("project-merge-request-discussion create --mr-iid 123 --body \\"<comment>\\" --position \\"<json position object>\\"", output_mode="detailed")`]
+assistant:
+  [Confirm the comment was created at the intended diff location]
+</example>
+
+<example>
+user: Leave an inline review comment on merge request #123 suggesting a safer nil check.
+assistant:
+  [Identify the exact diff line and create a properly anchored inline MR discussion]
+  [Write the comment body as a short explanation plus a GitLab suggestion block containing the replacement code]
+assistant:
+  [Prefer a single-line suggestion if the fix is localized and directly applicable]
+</example>
 {{{{/gitlab_platform}}}}
+
 {{{{#github_platform}}}}
-- `{GITHUB_TOOL_NAME}`: Interact with GitHub API to retrieve issues, pull requests, workflows, runs, and other resources. Wraps the `gh` CLI.
+### `{GITHUB_TOOL_NAME}` (GitHub)
+
+Use this tool for GitHub issues, pull requests, checks, workflow runs, and logs.
+
+**GitHub-specific guidance:**
+- For issue work, fetch the issue first and use its title/body as the task definition.
+- For pull request work, fetch the PR first; if CI is relevant, inspect checks and the failing run/job before changing code.
+- For workflow failures, do not edit code or workflow config until you have read the most relevant failing logs.
+- Prefer direct log/detail subcommands over summaries when possible.
+
 <example>
 user: Fix issue #42.
 assistant:
   [Call `{GITHUB_TOOL_NAME}("issue view 42")`]
-  [Use the issue title/description to understand the problem and the user's request]
-  [Explore the codebase to understand the problem and the user's request]
-  [Apply corrective actions to fix the issue]
+assistant:
+  [Extract the real problem from the issue]
+  [Inspect the relevant code]
+  [Make the smallest fix that addresses the issue]
 </example>
+
 <example>
 user: Investigate failing workflow/job/check for pull request #123.
 assistant:
   [Call `{GITHUB_TOOL_NAME}("pr checks 123")`]
-  [Pick the failing check run_id and job_id from the url, if any]
+  [Identify the failing check and the relevant run/job identifiers from the returned metadata]
   [Call `{GITHUB_TOOL_NAME}("run view <run_id> --job <job_id> --log")`]
 assistant:
-  [Analyze logs → identify root cause → Implement fixes]
+  [Use the logs to form a root-cause hypothesis]
+  [Then change code or workflow config]
 </example>
-{{{{/github_platform}}}}""",  # noqa: E501
+{{{{/github_platform}}}}""",  # noqa: E501, S608
     "mustache",
 )
 
 
-GITLAB_CLI_DENY_RESOURCES = [
-    # Token & credential minting
-    "personal-access-token",
-    "user-personal-access-token",
-    "user-impersonation-token",
-    "project-access-token",
-    "group-access-token",
-    "deploy-token",
-    "project-deploy-token",
-    "group-deploy-token",
-    # Keys (SSH/GPG)  # noqa: ERA001
-    "key",
-    "user-key",
-    "current-user-key",
-    "project-key",
-    "deploy-key",
-    "user-gpg-key",
-    "current-user-gpg-key",
-    # Webhooks / outbound integrations
-    "hook",
-    "project-hook",
-    "group-hook",
-    "project-integration",
-    # Secrets & secret-adjacent storage
-    "project-variable",
-    "group-variable",
-    "project-secure-file",
-    "project-artifact",
-    # Access control / governance / protections
-    "project-member",
-    "group-member",
-    "group-member-all",
-    "member-role",
-    "group-member-role",
-    "project-invitation",
-    "group-invitation",
-    "project-access-request",
-    "group-access-request",
-    "project-protected-branch",
-    "project-protected-tag",
-    "project-protected-environment",
-    "project-approval-rule",
-    "group-approval-rule",
-    "project-merge-request-approval",
-    "project-merge-request-approval-rule",
-    "project-merge-request-approval-state",
-    "project-push-rules",
-    "group-push-rules",
-    # Import / export / mirroring (bulk movement of code/data)
-    "project-export",
-    "group-export",
-    "project-import",
-    "group-import",
-    "bulk-import",
-    "bulk-import-all-entity",
-    "bulk-import-entity",
-    "project-pull-mirror",
-    "project-remote-mirror",
-    # Instance/admin surface (block if there’s any chance the tool token is admin-capable)
-    "application",
-    "application-settings",
-    "application-appearance",
-    "application-statistics",
-    "license",
-    "ldap-group",
-    "geo-node",
-    "feature",
-    "audit-event",
-    "group-audit-event",
-    "project-audit-event",
-]
+GITLAB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
+    # Typical issue workflow
+    "project-issue": {
+        "list",
+        "get",
+        "create",
+        "update",
+        "participants",
+        "related-merge-requests",
+        "time-stats",
+        "time-estimate",
+        "reset-time-estimate",
+        "add-spent-time",
+        "reset-spent-time",
+        "move",
+        "reorder",
+        "closed-by",
+    },
+    "project-issue-note": {"list", "get", "create", "update"},
+    "project-issue-discussion": {"list", "get", "create"},
+    "project-issue-discussion-note": {"list", "get", "create", "update"},
+    "project-issue-award-emoji": {"list", "get", "create", "delete"},
+    "project-issue-link": {"list", "create", "delete"},
+    "project-label": {"list", "get", "create", "update"},
+    # Typical merge request workflow (without merge/approval/admin actions)
+    "project-merge-request": {
+        "list",
+        "get",
+        "create",
+        "update",
+        "time-stats",
+        "time-estimate",
+        "reset-time-estimate",
+        "add-spent-time",
+        "reset-spent-time",
+        "participants",
+        "related-issues",
+        "closes-issues",
+        "commits",
+        "changes",
+    },
+    "project-merge-request-note": {"list", "get", "create", "update"},
+    "project-merge-request-note-award-emoji": {"list", "get", "create", "delete"},
+    "project-merge-request-discussion": {"list", "get", "create", "update"},
+    "project-merge-request-discussion-note": {"list", "get", "create", "update"},
+    "project-merge-request-diff": {"list", "get"},
+    "project-merge-request-pipeline": {"list", "create"},
+    "project-merge-request-award-emoji": {"list", "get", "create", "delete"},
+    "project-merge-request-draft-note": {"list", "get", "create", "update", "delete"},
+    "project-merge-request-status-check": {"list"},
+    # CI investigation workflow
+    "project-pipeline": {"list", "get", "cancel", "retry", "create"},
+    "project-pipeline-job": {"list"},
+    "project-job": {"list", "get", "artifacts", "artifact", "trace", "retry", "play"},
+    # Supporting project data
+    "project": {"get", "delete-merged-branches", "languages", "trigger-pipeline"},
+    "project-branch": {"list", "get", "create"},
+    "project-tag": {"list", "get", "create"},
+    "project-release": {"list", "get", "create", "update"},
+    "project-release-link": {"list", "get", "create", "update"},
+    "project-commit": {"list", "get", "diff", "refs", "merge-requests"},
+    "project-environment": {"list", "get"},
+    "project-package": {"list", "get"},
+    "project-snippet": {"list", "get", "create", "update", "content"},
+    "project-snippet-discussion": {"list", "get", "create", "update"},
+    "project-snippet-discussion-note": {"list", "get", "create", "update"},
+    "project-snippet-note": {"list", "get", "create", "update"},
+    "project-snippet-note-award-emoji": {"list", "get", "create", "delete"},
+    "project-snippet-award-emoji": {"list", "get", "create", "delete"},
+}
 
-GITHUB_CLI_DENY_COMMANDS = {
-    "repo": {"create", "delete", "rename", "fork", "archive", "unarchive", "edit", "set-default-branch", "sync"},
-    "browser": "*",
-    # Token & credential minting
-    "auth": "*",
-    "secret": "*",
-    "variable": "*",
-    # Keys (SSH/GPG)  # noqa: ERA001
-    "ssh-key": "*",
-    "gpg-key": "*",
-    # Extensions / config / local settings
-    "alias": "*",
-    "config": "*",
-    "extension": "*",
-    # Codespaces and other remote access surfaces
-    "codespace": "*",
-    # Copilot access
-    "copilot": "*",
+GITHUB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
+    # Typical issue workflow
+    "issue": {"status", "list", "view", "create", "edit", "comment", "close", "reopen", "lock", "unlock", "develop"},
+    # Typical pull request workflow (without merge/destructive operations)
+    "pr": {
+        "status",
+        "list",
+        "view",
+        "create",
+        "edit",
+        "comment",
+        "review",
+        "checks",
+        "diff",
+        "close",
+        "reopen",
+        "lock",
+        "unlock",
+    },
+    # CI investigation workflow (read-only)
+    "workflow": {"list", "view", "run"},
+    "run": {"list", "view", "watch", "download", "rerun"},
+    # Supporting read-only project data
+    "repo": {"list", "view"},
+    "release": {"list", "view", "download", "edit", "upload"},
+    "ruleset": {"list", "view", "check"},
+    "label": {"list", "create", "edit"},
+    "cache": {"list", "delete"},
+    "search": {"code", "commits", "issues", "prs"},
 }
 
 
-class GitPlatformState(AgentState):
-    github_token: NotRequired[Annotated[str | None, OmitFromOutput]]
-    github_token_expires_at: NotRequired[Annotated[float | None, OmitFromOutput]]
+def _is_allowed_cli_command(
+    resource: str, action: str, allow_commands: dict[str, set[str] | Literal["*"]]
+) -> tuple[bool, str]:
+    allowed_actions = allow_commands.get(resource)
+    if allowed_actions is None:
+        logger.warning("[git-platform] The subcommand '%s' is not allowed by policy.", resource)
+        return False, f"error: The subcommand '{resource}' is not allowed by policy."
+
+    if allowed_actions == "*":
+        return True, ""
+
+    if action in allowed_actions:
+        return True, ""
+
+    logger.warning("[git-platform] The action '%s' for subcommand '%s' is not allowed by policy.", action, resource)
+    return False, f"error: The action '{action}' for subcommand '{resource}' is not allowed by policy."
 
 
 def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
@@ -280,31 +432,86 @@ def _gitlab_has_disallowed_cli_flags(args: list[str]) -> bool:
     return False
 
 
-def _gh_has_disallowed_cli_flags(args: list[str]) -> bool:
-    for arg in args:
-        if arg in {"--repo", "-R", "--hostname"}:
-            return True
-        if arg.startswith("--repo=") or arg.startswith("--hostname="):
-            return True
-        if arg.startswith("-R") and arg != "-R":
-            return True
-    return False
+def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
+    """
+    Extract a single flag value from a shlex-split args list.
+
+    Supports both `--flag value` and `--flag=value` forms.
+    """
+    for i, arg in enumerate(args):
+        if arg == flag and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith(f"{flag}="):
+            return arg[len(flag) + 1 :]
+    return None
+
+
+async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+    """
+    Create an inline MR diff discussion via the python-gitlab Python API.
+
+    This is the fallback path used when `project-merge-request-discussion create`
+    includes `--position`, because the python-gitlab CLI cannot encode nested hash
+    parameters (position[base_sha], position[position_type], etc.) correctly.
+
+    Args:
+        args: Parsed subcommand arguments after `project-merge-request-discussion create`.
+        runtime: The tool runtime carrying the repository context.
+
+    Returns:
+        A string suitable for returning from the gitlab tool.
+    """
+    mr_iid_str = _parse_gitlab_flag(args, "--mr-iid")
+    body = _parse_gitlab_flag(args, "--body")
+    position_str = _parse_gitlab_flag(args, "--position")
+
+    if not mr_iid_str:
+        return "error: --mr-iid is required for inline discussion creation"
+    if not body:
+        return "error: --body is required for inline discussion creation"
+    if not position_str:
+        return "error: --position is required for inline discussion creation"
+
+    try:
+        mr_iid = int(mr_iid_str)
+    except ValueError:
+        return f"error: --mr-iid must be an integer, got '{mr_iid_str}'"
+
+    try:
+        position = json.loads(position_str)
+    except json.JSONDecodeError as e:
+        return f"error: --position must be a valid JSON object. Parse error: {e}"
+
+    if not isinstance(position, dict):
+        return "error: --position must be a JSON object (dict), not a scalar or list"
+
+    try:
+        repo_client = RepoClient.create_instance()
+        discussion_id = await asyncio.to_thread(
+            repo_client.create_merge_request_inline_discussion, runtime.context.repository.slug, mr_iid, body, position
+        )
+        return json.dumps({"id": discussion_id, "status": "created"})
+    except Exception as e:
+        logger.exception("[%s] Failed to create inline MR diff discussion.", GITLAB_TOOL_NAME)
+        return f"error: Failed to create inline discussion. Details: {e}"
 
 
 @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
 async def gitlab_tool(
     subcommand: Annotated[
         str,
-        "The complete subcommand string in format: '<object> <action> <arguments>'. "
-        "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'. "
-        "Do NOT include 'gitlab' command prefix or --project-id argument - these are auto-added.",
+        "Single GitLab CLI subcommand string, parsed with shell-like quoting. "
+        "Format: '<object> <action> [arguments...]'. "
+        "Do not include the 'gitlab' prefix, '--project-id', or any output/verbosity flags managed by the tool. "
+        "Wrap arguments containing spaces in double quotes. "
+        "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'.",
     ],
     runtime: ToolRuntime[RuntimeCtx],
     output_mode: Annotated[
         Literal["detailed", "simplified"],
-        "The output format to use (default: 'simplified').",
-        "'simplified' is useful for long lists of items to discover IDs. Use it when listing resources.",
-        "'detailed' is useful for detailed output. Use it when getting resource details.",
+        "Controls the detail level of the returned output. "
+        "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific resource or reading logs. "
+        "Default: 'simplified'.",
     ] = "simplified",
 ) -> str:
     """
@@ -325,7 +532,7 @@ async def gitlab_tool(
     if len(splitted_subcommand) < 2:
         return f"error: Incomplete subcommand. Expected format: '<object> <action> <arguments>'. Got: '{subcommand}'"
 
-    resource = splitted_subcommand[0]
+    resource, action = splitted_subcommand[0:2]
 
     if resource == "gitlab":
         return (
@@ -333,11 +540,19 @@ async def gitlab_tool(
             "Start directly with the object. Example: 'project-issue get --iid 123'"
         )
 
-    if resource in GITLAB_CLI_DENY_RESOURCES:
-        return f"error: The resource '{resource}' is not allowed. Please use a different resource."
+    is_allowed, policy_message = _is_allowed_cli_command(resource, action, GITLAB_CLI_ALLOW_COMMANDS)
+    if not is_allowed:
+        return policy_message
 
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The project ID and output format are automatically set."
+
+    # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
+    # hash params (position[base_sha], position[position_type], …) via the CLI.
+    if resource == "project-merge-request-discussion" and action == "create":
+        rest_args = splitted_subcommand[2:]
+        if any(arg == "--position" or arg.startswith("--position=") for arg in rest_args):
+            return await _create_gitlab_inline_discussion(rest_args, runtime)
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -355,7 +570,7 @@ async def gitlab_tool(
         args.append("--verbose")
 
     args += splitted_subcommand
-    args += ["--project-id", runtime.context.repository.slug]
+    args += ["--project-id" if resource != "project" else "--id", runtime.context.repository.slug]
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -425,13 +640,27 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     return token, None
 
 
+def _gh_has_disallowed_cli_flags(args: list[str]) -> bool:
+    for arg in args:
+        if arg in {"--repo", "-R", "--hostname"}:
+            return True
+        if arg.startswith("--repo=") or arg.startswith("--hostname="):
+            return True
+        if arg.startswith("-R") and arg != "-R":
+            return True
+    return False
+
+
 @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
 async def github_tool(
     subcommand: Annotated[
         str,
-        "The complete subcommand string in format: '<object> <action> [arguments...]'. "
-        "Examples: 'issue view 42', 'pr list --state open'. "
-        "Do NOT include 'gh' command prefix or --repo argument - these are auto-added.",
+        "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
+        "Format: '<object> <action> [arguments...]'. "
+        "Do not include the 'gh' prefix. "
+        "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
+        "Wrap arguments containing spaces in double quotes. "
+        "Examples: 'issue view 42', 'pr list --state open'.",
     ],
     runtime: ToolRuntime[RuntimeCtx],
 ) -> str | Command:
@@ -461,11 +690,9 @@ async def github_tool(
     if not action:
         return f"error: Incomplete subcommand. Expected format: '<object> <action> [arguments...]'. Got: '{subcommand}'"
 
-    if resource in GITHUB_CLI_DENY_COMMANDS:
-        if action == "*":
-            return f"error: The command '{resource}' is not allowed. Please use a different command."
-        elif action in GITHUB_CLI_DENY_COMMANDS[resource]:
-            return f"error: The action '{action}' for command '{resource}' is not allowed."
+    is_allowed, policy_message = _is_allowed_cli_command(resource, action, GITHUB_CLI_ALLOW_COMMANDS)
+    if not is_allowed:
+        return policy_message
 
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
@@ -526,6 +753,11 @@ async def github_tool(
         return Command(update=state_update)
 
     return output
+
+
+class GitPlatformState(AgentState):
+    github_token: NotRequired[Annotated[str | None, OmitFromOutput]]
+    github_token_expires_at: NotRequired[Annotated[float | None, OmitFromOutput]]
 
 
 class GitPlatformMiddleware(AgentMiddleware):

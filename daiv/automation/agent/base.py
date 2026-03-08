@@ -25,10 +25,14 @@ CLAUDE_ADAPTIVE_MAX_TOKENS = 16_000
 # 4.5-generation models: require thinking.type="enabled" with explicit budget_tokens
 CLAUDE_THINKING_MODELS_LEGACY = (
     "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
     "claude-opus-4-5",
+    "claude-opus-4-6",
     "claude-haiku-4-5",
     "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-sonnet-4.6",
     "anthropic/claude-opus-4.5",
+    "anthropic/claude-opus-4.6",
     "anthropic/claude-haiku-4.5",
 )
 

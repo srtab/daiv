@@ -39,7 +39,7 @@ class AutomationSettings(BaseSettings):
 
     # Web fetch settings
     WEB_FETCH_ENABLED: bool = Field(default=True, description="Enable/disable the native web_fetch tool.")
-    WEB_FETCH_MODEL_NAME: ModelName = Field(
+    WEB_FETCH_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_HAIKU_4_5,
         description=(
             "Model name used by web_fetch to process page content with the prompt. "

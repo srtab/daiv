@@ -11,9 +11,10 @@ class CoreSettings(BaseSettings):
     SANDBOX_TIMEOUT: float = Field(default=600, description="Timeout for sandbox requests in seconds")
     SANDBOX_API_KEY: SecretStr | None = Field(default=None, description="API key for sandbox requests")
     SANDBOX_BASE_IMAGE: str | None = Field(
-        default="python:3.12-alpine",
+        default="python:3.12-bookworm",
         description=(
             "Default base image for sandbox sessions. "
+            "The image should have git command installed to allow agents to inspect git repositories."
             "If set to None, sandbox is disabled unless a repository `.daiv.yml` overrides it."
         ),
     )

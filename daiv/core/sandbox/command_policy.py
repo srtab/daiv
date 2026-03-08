@@ -42,7 +42,10 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "tag", "--delete"),
     # Git configuration changes
     ("git", "config"),
-    # Force-push variants covered by ("git", "push") prefix above
+    # Git platform tools
+    ("gitlab",),
+    ("gh",),
+    ("python", "-m", "gitlab"),
 )
 
 
@@ -132,16 +135,32 @@ def _normalize_argv_for_match(argv: tuple[str, ...]) -> tuple[str, ...]:
 
 def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     """
-    Return ``True`` when *argv* starts with the tokens in *rule* (prefix match).
+    Return ``True`` when *argv* contains all tokens in *rule* as an in-order
+    subsequence, with the executable name (argv[0]) matched exactly.
+
+    This handles global flags that appear between the executable name and the
+    subcommand, e.g. ``git -C /repo commit`` is matched by rule
+    ``("git", "commit")`` even though ``-C /repo`` intervenes.
 
     Comparison is case-insensitive and performs short-flag normalization for
     bundled short options. Example: ``-rf`` and ``-fr`` are considered equal.
     """
-    if not rule or len(argv) < len(rule):
+    if not rule or not argv:
         return False
     argv_normalized = _normalize_argv_for_match(argv)
     rule_normalized = _normalize_argv_for_match(rule)
-    return argv_normalized[: len(rule_normalized)] == rule_normalized
+    # The executable name must match exactly at position 0.
+    if argv_normalized[0] != rule_normalized[0]:
+        return False
+    # Remaining rule tokens are matched as an in-order subsequence of the
+    # remaining argv tokens, so intervening flags are transparently skipped.
+    rule_idx = 1
+    for argv_token in argv_normalized[1:]:
+        if rule_idx >= len(rule_normalized):
+            break
+        if argv_token == rule_normalized[rule_idx]:
+            rule_idx += 1
+    return rule_idx == len(rule_normalized)
 
 
 def _rule_repr(rule: tuple[str, ...]) -> str:
