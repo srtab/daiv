@@ -31,6 +31,11 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "reflog", "delete"),
     ("git", "filter-branch"),
     ("git", "filter-repo"),
+    # Git index / object manipulation (not in allowed whitelist)
+    ("git", "add"),
+    ("git", "hash-object"),
+    ("git", "update-index"),
+    ("git", "commit-tree"),
     # Destructive working-tree operations
     ("git", "clean"),
     ("git", "checkout", "."),
