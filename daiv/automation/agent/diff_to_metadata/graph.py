@@ -39,7 +39,7 @@ def dynamic_system_prompt(request: ModelRequest) -> str:
     system_prompt = ""
     if request.system_prompt:
         system_prompt = request.system_prompt + "\n\n"
-    return system_prompt + cast("str", system.format(current_date_time=timezone.now().strftime("%d %B, %Y")).content)
+    return system_prompt + cast("str", system.format(current_date=timezone.now().strftime("%d %B, %Y")).content)
 
 
 def create_diff_to_metadata_graph(

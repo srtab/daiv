@@ -172,6 +172,8 @@ GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 
 Use the available Git platform tool early whenever platform state can change what you should do.
 
+Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
+
 **Core policy:**
 - If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code.
 - Prefer platform facts over assumptions.

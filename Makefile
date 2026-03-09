@@ -40,16 +40,16 @@ compilemessages:
 	uv run django-admin compilemessages
 
 integration-tests:
-	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m subagents
+	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m sandbox
 
 swebench:
-	uv run evals/swebench.py --dataset-path "SWE-bench/SWE-bench_Lite" --dataset-split "dev" --output-path predictions.json --num-samples 1
+	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
 
 swebench-evaluate: swebench-clean
 	mkdir -p /tmp/swebench
 	git clone https://github.com/SWE-bench/SWE-bench /tmp/swebench
 	cd /tmp/swebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
-		--dataset_name SWE-bench/SWE-bench_Lite \
+		--dataset_name princeton-nlp/SWE-bench_Verified \
 		--split dev \
 		--max_workers 4 \
 		--predictions_path /tmp/predictions.json \
@@ -58,8 +58,25 @@ swebench-evaluate: swebench-clean
 swebench-clean:
 	rm -rf /tmp/swebench
 
+swerebench:
+	uv run evals/swebench.py --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_01" --output-path swerebench-predictions.json --num-samples 1
+
+swerebench-evaluate: swerebench-clean
+	mkdir -p /tmp/swerebench
+	git clone https://github.com/SWE-rebench/SWE-bench-fork /tmp/swerebench
+	cd /tmp/swerebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
+		--dataset_name nebius/SWE-rebench-leaderboard \
+		--split 2026_01 \
+		--max_workers 4 \
+		--predictions_path /tmp/predictions.json \
+		--namespace "swerebench" \
+		--run_id 1
+
+swerebench-clean:
+	rm -rf /tmp/swerebench
+
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
 
 langsmith-fetch:
-	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 4 ./my-traces
+	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 5 ./swebench-traces

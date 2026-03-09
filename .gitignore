@@ -166,3 +166,8 @@ state-snapshots.txt
 .cursor
 
 request.json
+
+# SWE-bench
+swebench-traces/
+swebench-evaluation-results/
+predictions.json

@@ -38,11 +38,16 @@ Executes a bash command in a persistent shell session.
 
 Session behavior:
 - Environment persists across invocations (e.g., exported variables remain).
-- Working directory does NOT persist: each invocation starts in the workspace root (PWD resets).
+- Working directory does NOT persist: each invocation starts in the repository root (PWD resets).
 
 **CRITICAL (PWD resets):** Do NOT rely on `cd`. Maintain context using absolute paths.
-  <good-example>pytest tests</good-example>
-  <bad-example>cd tests && pytest</bad-example>
+  <good-example>pytest /repos/tests</good-example>
+  <bad-example>cd /repos/tests && pytest</bad-example>
+
+Result format:
+- On success, returns a JSON array of result objects (one per command) including at least `command`, `output`, and `exit_code`.
+- You MUST inspect `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
+- On infrastructure failure, the tool may return a plain string starting with `error:` instead of JSON. Treat that as a tool failure, not as a test result.
 
 Intended use:
 - Terminal operations: running tests, builds, linters/formatters, package managers, and git inspection.
@@ -100,15 +105,29 @@ Key constraint:
 Decision rules:
 - If you can verify something quickly by running a command, do so instead of guessing.
 - Prefer small, targeted commands; avoid “decorative” command output or extra commands used only for formatting.
+- When you need to install project dependencies, first look for the project's manifest or lockfile (e.g., setup.py, pyproject.toml, package.json, Cargo.toml, go.mod, environment.yml) and use the ecosystem's standard bulk install command. Only install individual packages as a fallback.
 
 Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
+
+Result interpretation:
+- Successful calls return a JSON array of per-command results with fields like `command`, `output`, and `exit_code`.
+- Always check `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
+- If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
+
+Repeated failure policy:
+- If multiple different commands all return the same `error:` indicating that the bash tool is not working properly, assume command execution is unavailable for this conversation.
+- After that point, stop invoking `{BASH_TOOL_NAME}`, switch to static reasoning only (code reading/search), and clearly mention that you cannot run commands.
 
 Dedicated-tool failure policy:
 - If a dedicated tool (for example `gitlab`, `gh`, `web_search`, or `web_fetch`) exists for the task, do NOT use bash to reproduce or bypass that tool.
 - If a dedicated tool fails due to validation, permissions, unsupported scope, or policy, do NOT retry the same action with bash, Python subprocesses, `curl`, or the underlying CLI.
 - Do not use bash to invoke `gitlab`, `gh`, `python -m gitlab`, `gh api`, or direct platform API calls as a workaround.
 - If a dedicated tool fails, either use another explicitly supported dedicated tool or stop and explain the limitation.
+
+Environment awareness:
+- The sandbox is a minimal container. Common tools (test runners, package managers, linters) may not be installed.
+- If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`). Accept it is unavailable and adapt your approach or inform the user.
 
 Safety / boundaries (never do these):
 - Do not access or print secrets/credentials.

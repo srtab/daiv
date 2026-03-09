@@ -1,8 +1,6 @@
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from django.conf import django
 from django.utils import timezone
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -20,10 +18,6 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
     dynamic_prompt,
 )
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
@@ -38,15 +32,15 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMIMDER, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
     create_docs_research_subagent,
     create_explore_subagent,
     create_general_purpose_subagent,
 )
 from automation.conf import settings as automation_settings
-from codebase.base import GitPlatform, Scope
-from codebase.context import RuntimeCtx, set_runtime_ctx
+from codebase.base import GitPlatform
+from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
 
@@ -80,22 +74,33 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     Returns:
         str: The dynamic prompt for the DAIV system.
     """
-    tool_names = [tool.name for tool in request.tools]
-    agent_path = Path(request.runtime.context.gitrepo.working_dir)
+    context = cast("RuntimeCtx", request.runtime.context)
+    agent_path = Path(context.gitrepo.working_dir)
 
-    system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
-        current_date_time=timezone.now().strftime("%d %B, %Y"),
+    daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
+        current_date=timezone.now().strftime("%d %B, %Y"),
         bot_name=BOT_NAME,
-        bot_username=request.runtime.context.bot_username,
-        repository=request.runtime.context.repository.slug,
-        repository_url=request.runtime.context.repository.html_url,
-        gitlab_platform=request.runtime.context.git_platform == GitPlatform.GITLAB,
-        github_platform=request.runtime.context.git_platform == GitPlatform.GITHUB,
-        bash_tool_enabled=BASH_TOOL_NAME in tool_names,
+        bot_username=context.bot_username,
+        repository_url=context.repository.html_url,
+        gitlab_platform=context.git_platform == GitPlatform.GITLAB,
+        github_platform=context.git_platform == GitPlatform.GITHUB,
+        bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
         working_directory=f"/{agent_path.name}/",
-        current_branch=get_repo_ref(request.runtime.context.gitrepo),
+        current_branch=get_repo_ref(context.gitrepo),
     )
-    return OUTPUT_INVARIANTS_SYSTEM_PROMPT + "\n\n" + request.system_prompt + "\n\n" + system_prompt.content.strip()
+
+    inherited_system_prompt = ""
+    if request.system_prompt:
+        inherited_system_prompt = request.system_prompt + "\n\n"
+
+    return (
+        OUTPUT_INVARIANTS_SYSTEM_PROMPT
+        + "\n\n"
+        + cast("str", daiv_system_prompt.content).strip()
+        + "\n\n"
+        + inherited_system_prompt
+        + REPO_RELATIVE_SYSTEM_REMIMDER
+    )
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -220,39 +225,3 @@ async def create_daiv_agent(
         debug=debug,
         name="DAIV Agent",
     ).with_config({"recursion_limit": settings.RECURSION_LIMIT})
-
-
-async def main():
-    session = PromptSession(
-        message=HTML('<style fg="#ffffff">></style> '),
-        complete_while_typing=True,  # Show completions as you type
-        complete_in_thread=True,  # Async completion prevents menu freezing
-        mouse_support=False,
-        enable_open_in_editor=True,  # Allow Ctrl+X Ctrl+E to open external editor
-        enable_history_search=True,
-        wrap_lines=True,
-        reserve_space_for_menu=7,  # Reserve space for completion menu to show 5-6 results
-    )
-    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
-        agent = await create_daiv_agent(
-            ctx=ctx,
-            model_names=["openrouter:minimax/minimax-m2.5"],
-            store=InMemoryStore(),
-            checkpointer=InMemorySaver(),
-        )
-        while True:
-            user_input = await session.prompt_async()
-            async for message_chunk, _metadata in agent.astream(
-                {"messages": [{"role": "user", "content": user_input}]},
-                context=ctx,
-                config={"configurable": {"thread_id": "1"}},
-                stream_mode="messages",
-            ):
-                if message_chunk and message_chunk.content and message_chunk.type != "tool":
-                    print(message_chunk.content, end="", flush=True)  # noqa: T201
-            print()  # noqa: T201
-
-
-if __name__ == "__main__":
-    django.setup()
-    asyncio.run(main())
