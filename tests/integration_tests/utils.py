@@ -34,10 +34,10 @@ INTERRUPT_ALL_TOOLS_CONFIG = {
 }
 
 CODING_MODEL_NAMES = [
-    # ModelName.CLAUDE_SONNET_4_5,
-    # ModelName.CLAUDE_SONNET_4_6,
-    # ModelName.CLAUDE_OPUS_4_5,
-    # ModelName.CLAUDE_OPUS_4_6,
+    ModelName.CLAUDE_SONNET_4_5,
+    ModelName.CLAUDE_SONNET_4_6,
+    ModelName.CLAUDE_OPUS_4_5,
+    ModelName.CLAUDE_OPUS_4_6,
     ModelName.GPT_5_2,
     ModelName.GPT_5_3_CODEX,
     ModelName.Z_AI_GLM_5,

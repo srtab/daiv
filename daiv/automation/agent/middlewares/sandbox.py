@@ -105,9 +105,7 @@ Key constraint:
 Decision rules:
 - If you can verify something quickly by running a command, do so instead of guessing.
 - Prefer small, targeted commands; avoid “decorative” command output or extra commands used only for formatting.
-- When you need to install project dependencies, first look for the project's manifest or lockfile
-(e.g., setup.py, pyproject.toml, package.json, Cargo.toml, go.mod, environment.yml) and use the
-ecosystem's standard bulk install command. Only install individual packages as a fallback.
+- When you need to install project dependencies, first look for the project's manifest or lockfile (e.g., setup.py, pyproject.toml, package.json, Cargo.toml, go.mod, environment.yml) and use the ecosystem's standard bulk install command. Only install individual packages as a fallback.
 
 Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
