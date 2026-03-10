@@ -46,8 +46,8 @@ services:
       - "5432:5432"
 
   redis:
-    image: redis:latest
-    command: redis-server --save "" --appendonly no
+    image: redis:8.6-alpine
+    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy noeviction
     restart: unless-stopped
     container_name: daiv-redis
     healthcheck:
@@ -55,6 +55,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    volumes:
+      - ./data/redis:/data
     ports:
       - "6379:6379"
 

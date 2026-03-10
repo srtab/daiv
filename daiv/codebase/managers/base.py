@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
 
 
+CHECKPOINT_TTL_MINUTES = 60 * 24 * 90  # 90 days
+
+
 class BaseManager:
     """
     Base class for all managers.

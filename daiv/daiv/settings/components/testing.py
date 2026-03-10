@@ -17,7 +17,10 @@ DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memor
 
 # Use memory cache to run tests faster
 
-CACHES = {"default": {"BACKEND": "core.cache.LocMemCache"}}
+CACHES = {
+    "default": {"BACKEND": "core.cache.LocMemCache"},
+    "sessions": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+}
 
 
 # Use simpler hashes to run tests faster

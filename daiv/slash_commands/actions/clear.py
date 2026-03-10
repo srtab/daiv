@@ -2,7 +2,7 @@ import logging
 
 from django.conf import settings as django_settings
 
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.redis import RedisSaver
 
 from codebase.base import Scope
 from core.utils import generate_uuid
@@ -44,7 +44,7 @@ class ClearSlashCommand(SlashCommand):
             return f"The /{self.command} command is only available for issues and merge requests."
 
         try:
-            with PostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+            with RedisSaver.from_conn_string(django_settings.DJANGO_REDIS_CHECKPOINT_URL) as checkpointer:
                 checkpointer.delete_thread(thread_id)
             logger.info("Thread %s deleted successfully via /%s command", thread_id, self.command)
             return "✅ Conversation context cleared successfully. You can start a fresh conversation now."

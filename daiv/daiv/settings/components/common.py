@@ -57,6 +57,7 @@ AUTH_USER_MODEL = "accounts.User"
 # SESSION
 
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "sessions"
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_NAME = "__Secure-sessionid"

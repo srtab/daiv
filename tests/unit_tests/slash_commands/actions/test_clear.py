@@ -34,12 +34,12 @@ def test_clear_command_has_correct_attributes():
     assert Scope.GLOBAL not in ClearSlashCommand.scopes
 
 
-@override_settings(DB_URI="postgresql://test:test@localhost:5432/test")
-@patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_for_issue(mock_postgres_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
+@override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
+@patch("slash_commands.actions.clear.RedisSaver")
+async def test_clear_command_for_issue(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand deletes the thread for an issue."""
     mock_checkpointer = MagicMock()
-    mock_postgres_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
+    mock_redis_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
 
     message = await clear_slash_command_issue.execute_for_agent(args="", issue_iid=42)
 
@@ -49,12 +49,12 @@ async def test_clear_command_for_issue(mock_postgres_saver: Mock, clear_slash_co
     assert "✅" in message
 
 
-@override_settings(DB_URI="postgresql://test:test@localhost:5432/test")
-@patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_for_merge_request(mock_postgres_saver: Mock, clear_slash_command_mr: ClearSlashCommand):
+@override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
+@patch("slash_commands.actions.clear.RedisSaver")
+async def test_clear_command_for_merge_request(mock_redis_saver: Mock, clear_slash_command_mr: ClearSlashCommand):
     """Test that ClearSlashCommand deletes the thread for a merge request."""
     mock_checkpointer = MagicMock()
-    mock_postgres_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
+    mock_redis_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
 
     message = await clear_slash_command_mr.execute_for_agent(args="", merge_request_id=123)
 
@@ -64,25 +64,23 @@ async def test_clear_command_for_merge_request(mock_postgres_saver: Mock, clear_
     assert "✅" in message
 
 
-@patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_without_issue_iid(mock_postgres_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
+@patch("slash_commands.actions.clear.RedisSaver")
+async def test_clear_command_without_issue_iid(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand returns an error when issue_iid is missing."""
     message = await clear_slash_command_issue.execute_for_agent(args="")
 
     # Verify no thread deletion attempted
-    mock_postgres_saver.from_conn_string.assert_not_called()
+    mock_redis_saver.from_conn_string.assert_not_called()
     assert "only available for issues and merge requests" in message
 
 
-@override_settings(DB_URI="postgresql://test:test@localhost:5432/test")
-@patch("slash_commands.actions.clear.PostgresSaver")
-async def test_clear_command_handles_exceptions(
-    mock_postgres_saver: Mock, clear_slash_command_issue: ClearSlashCommand
-):
+@override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
+@patch("slash_commands.actions.clear.RedisSaver")
+async def test_clear_command_handles_exceptions(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand handles exceptions gracefully."""
     mock_checkpointer = MagicMock()
     mock_checkpointer.delete_thread.side_effect = Exception("Database error")
-    mock_postgres_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
+    mock_redis_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
 
     message = await clear_slash_command_issue.execute_for_agent(args="", issue_iid=42)
 
