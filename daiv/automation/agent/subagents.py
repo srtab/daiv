@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from deepagents.graph import SubAgent
 from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.summarization import _compute_summarization_defaults
+from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents.middleware import TodoListMiddleware
 
 from automation.agent import BaseAgent
@@ -45,7 +45,7 @@ def create_general_purpose_subagent(
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    _summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = compute_summarization_defaults(model)
 
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
@@ -126,7 +126,7 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> SubAgent:
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     model = BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME)
-    _summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = compute_summarization_defaults(model)
 
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -321,7 +321,7 @@ def create_docs_research_subagent(backend: BackendProtocol, **kwargs) -> SubAgen
     Create the docs research subagent.
     """
     model = BaseAgent.get_model(model=settings.DOCS_RESEARCH_MODEL_NAME)
-    _summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = compute_summarization_defaults(model)
 
     middleware = [
         WebFetchMiddleware(),
