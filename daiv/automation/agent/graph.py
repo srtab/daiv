@@ -7,7 +7,7 @@ from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
-from deepagents.middleware.summarization import _compute_summarization_defaults
+from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
@@ -150,7 +150,7 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    _summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = compute_summarization_defaults(model)
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
 
