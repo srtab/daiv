@@ -49,7 +49,9 @@ Variables marked with:
 
 | Variable           | Description                | Default | Example |
 |--------------------|----------------------------|:---------:|---------|
-| :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL | *(none)* | `redis://redis:6379/0` |
+| :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL for cache (DB 0) | *(none)* | `redis://redis:6379/0` |
+| `DJANGO_REDIS_SESSION_URL`  :material-lock: | Redis connection URL for sessions (DB 1) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
+| `DJANGO_REDIS_CHECKPOINT_URL`  :material-lock: | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
 
 
 ### Sentry

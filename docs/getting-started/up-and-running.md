@@ -69,6 +69,8 @@ x-app-environment-defaults: &app_environment_defaults
   DJANGO_SETTINGS_MODULE: daiv.settings.production
   DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
   DJANGO_REDIS_URL: redis://daiv_redis:6379/0
+  DJANGO_REDIS_SESSION_URL: redis://daiv_redis:6379/1
+  DJANGO_REDIS_CHECKPOINT_URL: redis://daiv_redis:6379/2
   DAIV_EXTERNAL_URL: https://your-hostname.com (2)
   # DATABASE
   DB_NAME: daiv
@@ -317,6 +319,8 @@ x-app-defaults: &x_app_default
     DJANGO_SECRET_KEY: secret-key (1)
     DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
     DJANGO_REDIS_URL: redis://redis:6379/0
+    DJANGO_REDIS_SESSION_URL: redis://redis:6379/1
+    DJANGO_REDIS_CHECKPOINT_URL: redis://redis:6379/2
     DAIV_EXTERNAL_URL: https://your-hostname.com (12)
     # Database settings
     DB_HOST: db

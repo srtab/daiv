@@ -1,4 +1,4 @@
-FROM python:3.14.2-slim-bookworm
+FROM debian:bookworm-slim
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -55,7 +55,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/app/.venv/bin:/home/app/.local/bin/:$PATH"
 ENV UV_PROJECT_ENVIRONMENT="/home/app/.venv"
 
-COPY --chown=app:app pyproject.toml uv.lock ./
+COPY --chown=app:app pyproject.toml uv.lock .python-version ./
 COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN uv sync \

@@ -66,6 +66,8 @@ async def main(
                     """\
                     You are given a problem statement, along with some hints extracted from the issue tracker, to help you understand and solve the problem.
 
+                    VERY IMPORTANT: never activate the plan skill, just solve the problem.
+
                     ## Problem Statement
                     ```markdown
                     {problem_statement}

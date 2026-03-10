@@ -6,7 +6,7 @@ from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.publishers import GitChangePublisher
@@ -15,7 +15,7 @@ from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-from .base import BaseManager
+from .base import CHECKPOINT_TTL_MINUTES, BaseManager
 
 if TYPE_CHECKING:
     from codebase.base import Issue
@@ -83,7 +83,9 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
             )
 
-        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+        async with AsyncRedisSaver.from_conn_string(
+            django_settings.DJANGO_REDIS_CHECKPOINT_URL, ttl={"default_ttl": CHECKPOINT_TTL_MINUTES}
+        ) as checkpointer:
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx,
                 checkpointer=checkpointer,
