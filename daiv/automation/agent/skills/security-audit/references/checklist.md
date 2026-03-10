@@ -20,7 +20,9 @@ Reference this file during the audit phase for specific signals to look for in e
 user_id = request.params["user_id"]
 
 # Dangerous: role from JWT payload without server-side check
-if token_payload["role"] == "admin": ...
+if token_payload["role"] == "admin":
+    ...
+
 
 # Dangerous: no auth on sensitive route
 @app.route("/admin/delete", methods=["POST"])

@@ -45,6 +45,7 @@ from pathlib import Path
 
 EXPORT_BASE = Path("/tmp/exports").resolve()
 
+
 def generate_export(user_id: int, profile_name: str) -> Path:
     # Sanitize filename: allow only alphanumeric, dash, underscore
     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", profile_name)
@@ -55,10 +56,7 @@ def generate_export(user_id: int, profile_name: str) -> Path:
         raise ValueError("Invalid export path")
 
     # Use subprocess list form — no shell interpolation
-    subprocess.run(
-        ["zip", f"/tmp/exports/{user_id}.zip", str(export_path)],
-        check=True
-    )
+    subprocess.run(["zip", f"/tmp/exports/{user_id}.zip", str(export_path)], check=True)
     return export_path
 ```
 
@@ -85,7 +83,7 @@ def download_export(export_id):
 def download_export(export_id):
     export = Export.query.filter_by(
         id=export_id,
-        user_id=current_user.id  # enforce ownership
+        user_id=current_user.id,  # enforce ownership
     ).first_or_404()
     return send_file(export.path)
 ```
