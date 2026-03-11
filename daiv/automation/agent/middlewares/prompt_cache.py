@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
 )
-from langchain_openai.chat_models import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 
 from automation.agent.base import ModelProvider
 
@@ -69,4 +69,4 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         """
         Check if the model is an OpenRouter Anthropic model.
         """
-        return isinstance(model, ChatOpenAI) and model.model_name.startswith(ModelProvider.ANTHROPIC.value)
+        return isinstance(model, ChatOpenRouter) and model.model_name.startswith(ModelProvider.ANTHROPIC.value)

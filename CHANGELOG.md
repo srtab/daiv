@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
+- Added `XHIGH` thinking level to `ThinkingLevel` enum (maps to OpenRouter's `"xhigh"` effort level). ([#908](../../issues/908))
 - Added support for `gpt-5.2` model from OpenAI
 - Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
 - Added GitHub CLI (`gh`) tool support in Git platform middleware for GitHub operations.
@@ -25,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced OpenRouter integration with the official `langchain-openrouter` package, using `init_chat_model` natively with `model_provider="openrouter"`. This removes the OpenAI-compatibility workaround (no more `openai_api_base` override or manual headers). ([#908](../../issues/908))
+- Changed default `MAX_THINKING_LEVEL` from `HIGH` to `XHIGH` in agent settings. ([#908](../../issues/908))
+- Updated `AnthropicPromptCachingMiddleware` to detect OpenRouter Anthropic models via `ChatOpenRouter` instance check instead of `ChatOpenAI`. ([#908](../../issues/908))
 - Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
 - Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
@@ -59,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the `OPENROUTER_API_BASE` setting (no longer needed as `ChatOpenRouter` manages the endpoint internally). ([#908](../../issues/908))
 - Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
 - Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 - Removed Celery worker configuration and bootstrap scripts.

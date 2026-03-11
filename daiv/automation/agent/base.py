@@ -56,6 +56,7 @@ class ThinkingLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -149,31 +150,21 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENROUTER:
             assert settings.OPENROUTER_API_KEY is not None, "OpenRouter API key is not set"
             _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
-            # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
-            _kwargs["model_provider"] = ModelProvider.OPENAI
-            _kwargs["model_kwargs"]["extra_headers"] = {
-                "HTTP-Referer": "https://srtab.github.io/daiv",
-                "X-Title": BOT_NAME,
-            }
-            _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
-            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["openrouter_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["app_url"] = "https://srtab.github.io/daiv"
+            _kwargs["app_title"] = BOT_NAME
 
             if thinking_level:
-                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                    )
-                    _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
-                    # When using thinking the temperature need to be set to 1 for Anthropic models
+                _kwargs["reasoning"] = {"effort": thinking_level.value}
+                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS) or _kwargs["model"].startswith(
+                    OPENAI_THINKING_MODELS
+                ):
+                    # When using thinking the temperature need to be set to 1
                     _kwargs["temperature"] = 1
-                else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
 
-            elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
+            elif _kwargs["model"].startswith("anthropic/") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
                 _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
-                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
@@ -193,6 +184,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             return max_tokens + 25_600, 25_600
         elif thinking_level == ThinkingLevel.HIGH:
             return 64_000, 64_000 - max_tokens
+        elif thinking_level == ThinkingLevel.XHIGH:
+            return 64_000 + max_tokens, 64_000
 
     async def draw_mermaid(self) -> str:
         """
@@ -239,6 +232,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
             case ModelProvider.GOOGLE_GENAI:
                 # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash
+                return 8192
+
+            case ModelProvider.OPENROUTER:
                 return 8192
 
             case _:
