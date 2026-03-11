@@ -34,6 +34,16 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-haiku-4.5",
 )
 
+# Models that support adaptive thinking (claude-opus-4-6 and claude-sonnet-4-6 only).
+# These models use adaptive thinking by default and do not require a budget_tokens parameter.
+# See: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking.md
+CLAUDE_ADAPTIVE_THINKING_MODELS = (
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-sonnet-4.6",
+)
+
 OPENAI_THINKING_MODELS = (
     "gpt-5.1-codex-mini",
     "gpt-5.2",
@@ -126,13 +136,22 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                )
                 # When using thinking the temperature need to be set to 1 for Anthropic models
                 _kwargs["temperature"] = 1
-                _kwargs["max_tokens"] = max_tokens
-                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
+                if _kwargs["model"].startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
+                    # Adaptive thinking: Claude decides how much to think based on task complexity.
+                    # Supported only on claude-opus-4-6 and claude-sonnet-4-6.
+                    # See: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking.md
+                    _kwargs["thinking"] = {"type": "adaptive"}
+                    # XHIGH maps to "max" effort (Opus 4.6 only; Sonnet 4.6 ignores it and uses "high")
+                    _kwargs["effort"] = "max" if thinking_level == ThinkingLevel.XHIGH else thinking_level.value
+                else:
+                    # Manual extended thinking with a fixed token budget for older models.
+                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
+                        thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
+                    )
+                    _kwargs["max_tokens"] = max_tokens
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
             elif "max_tokens" not in _kwargs:
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
@@ -155,7 +174,17 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["app_title"] = BOT_NAME
 
             if thinking_level:
-                _kwargs["reasoning"] = {"effort": thinking_level.value}
+                if _kwargs["model"].startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
+                    # Claude 4.6 models use adaptive thinking by default on OpenRouter — no reasoning param needed.
+                    # reasoning.effort is ignored for these models per OpenRouter docs.
+                    # See: https://openrouter.ai/docs/guides/guides/evaluate-and-optimize/model-migrations/claude-4-6
+                    pass
+                else:
+                    # Older Claude and OpenAI thinking models use explicit reasoning effort.
+                    # Cap XHIGH to "high" since xhigh is not a valid effort value for these models.
+                    effort = "high" if thinking_level == ThinkingLevel.XHIGH else thinking_level.value
+                    _kwargs["reasoning"] = {"effort": effort}
+
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS) or _kwargs["model"].startswith(
                     OPENAI_THINKING_MODELS
                 ):

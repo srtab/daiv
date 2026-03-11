@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
 - Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
 - Added `XHIGH` thinking level to `ThinkingLevel` enum (maps to OpenRouter's `"xhigh"` effort level). ([#908](../../issues/908))
+- Added adaptive thinking support for `claude-opus-4-6` and `claude-sonnet-4-6` models on both the Anthropic and OpenRouter providers. ([#908](../../issues/908))
 - Added support for `gpt-5.2` model from OpenAI
 - Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
 - Added GitHub CLI (`gh`) tool support in Git platform middleware for GitHub operations.
@@ -29,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced OpenRouter integration with the official `langchain-openrouter` package, using `init_chat_model` natively with `model_provider="openrouter"`. This removes the OpenAI-compatibility workaround (no more `openai_api_base` override or manual headers). ([#908](../../issues/908))
 - Changed default `MAX_THINKING_LEVEL` from `HIGH` to `XHIGH` in agent settings. ([#908](../../issues/908))
 - Updated `AnthropicPromptCachingMiddleware` to detect OpenRouter Anthropic models via `ChatOpenRouter` instance check instead of `ChatOpenAI`. ([#908](../../issues/908))
+- Updated OpenRouter Anthropic model thinking: `claude-opus-4-6` and `claude-sonnet-4-6` now rely on OpenRouter's default adaptive thinking (omitting `reasoning.effort` which is ignored for these models); older models continue to use `reasoning.effort` with `XHIGH` capped to `"high"`. ([#908](../../issues/908))
+- Updated Anthropic provider thinking: `claude-opus-4-6` and `claude-sonnet-4-6` now use `thinking: {type: "adaptive"}` with an `effort` parameter (`XHIGH` maps to `"max"`); older models continue to use manual extended thinking with `budget_tokens`. ([#908](../../issues/908))
 - Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
 - Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
 - Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
