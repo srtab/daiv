@@ -4,7 +4,7 @@ import pytest
 from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from automation.agent.base import BaseAgent, ModelProvider, ThinkingLevel, CLAUDE_ADAPTIVE_THINKING_MODELS
+from automation.agent.base import CLAUDE_ADAPTIVE_THINKING_MODELS, BaseAgent, ModelProvider, ThinkingLevel
 
 
 class ConcreteAgent(BaseAgent):
@@ -63,18 +63,6 @@ class TestBaseAgent:
         assert "extra_body" not in kwargs
         assert kwargs["max_tokens"] == 4_096  # anthropic/ prefix triggers default max_tokens
 
-    def test_get_model_kwargs_openrouter_with_thinking(self):
-        # Claude 4.5 (non-adaptive): uses reasoning.effort; XHIGH is capped to "high"
-        agent = ConcreteAgent()
-        kwargs = agent.get_model_kwargs(
-            model_provider=ModelProvider.OPENROUTER,
-            model="openrouter:anthropic/claude-sonnet-4.5",
-            thinking_level=ThinkingLevel.XHIGH,
-        )
-
-        assert kwargs["reasoning"] == {"effort": "high"}
-        assert kwargs["temperature"] == 1
-
     def test_get_model_kwargs_openrouter_with_thinking_high(self):
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(
@@ -104,21 +92,20 @@ class TestBaseAgent:
                 full_model = f"openrouter:{model_name}"
                 agent = ConcreteAgent()
                 kwargs = agent.get_model_kwargs(
-                    model_provider=ModelProvider.OPENROUTER,
-                    model=full_model,
-                    thinking_level=ThinkingLevel.XHIGH,
+                    model_provider=ModelProvider.OPENROUTER, model=full_model, thinking_level=ThinkingLevel.XHIGH
                 )
 
-                assert "reasoning" not in kwargs, f"reasoning should not be set for adaptive model {model_name}"
+                assert "reasoning" in kwargs, f"reasoning should be set for adaptive model {model_name}"
+                assert "max_tokens" not in kwargs["reasoning"], (
+                    f"reasoning max_tokens should not be set for adaptive model {model_name}"
+                )
                 assert kwargs["temperature"] == 1
 
     def test_get_model_kwargs_anthropic_adaptive_thinking(self):
         # Claude 4.6 with Anthropic provider: uses adaptive thinking type + effort param
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(
-            model_provider=ModelProvider.ANTHROPIC,
-            model="claude-opus-4-6",
-            thinking_level=ThinkingLevel.XHIGH,
+            model_provider=ModelProvider.ANTHROPIC, model="claude-opus-4-6", thinking_level=ThinkingLevel.XHIGH
         )
 
         assert kwargs["thinking"] == {"type": "adaptive"}
@@ -129,9 +116,7 @@ class TestBaseAgent:
     def test_get_model_kwargs_anthropic_adaptive_thinking_high(self):
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(
-            model_provider=ModelProvider.ANTHROPIC,
-            model="claude-sonnet-4-6",
-            thinking_level=ThinkingLevel.HIGH,
+            model_provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6", thinking_level=ThinkingLevel.HIGH
         )
 
         assert kwargs["thinking"] == {"type": "adaptive"}
@@ -141,9 +126,7 @@ class TestBaseAgent:
     def test_get_model_kwargs_anthropic_adaptive_thinking_low(self):
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(
-            model_provider=ModelProvider.ANTHROPIC,
-            model="claude-sonnet-4-6",
-            thinking_level=ThinkingLevel.LOW,
+            model_provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6", thinking_level=ThinkingLevel.LOW
         )
 
         assert kwargs["thinking"] == {"type": "adaptive"}
@@ -154,9 +137,7 @@ class TestBaseAgent:
         # Claude 4.5 and older: uses manual extended thinking with budget_tokens
         agent = ConcreteAgent()
         kwargs = agent.get_model_kwargs(
-            model_provider=ModelProvider.ANTHROPIC,
-            model="claude-sonnet-4-5",
-            thinking_level=ThinkingLevel.HIGH,
+            model_provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-5", thinking_level=ThinkingLevel.HIGH
         )
 
         assert kwargs["thinking"]["type"] == "enabled"
@@ -188,5 +169,5 @@ class TestBaseAgent:
         max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
             thinking_level=ThinkingLevel.XHIGH, max_tokens=4_096
         )
-        assert thinking_tokens == 64_000
-        assert max_tokens == 64_000 + 4_096
+        assert thinking_tokens == 64_000 - 4_096
+        assert max_tokens == 64_000

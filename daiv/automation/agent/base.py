@@ -174,16 +174,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["app_title"] = BOT_NAME
 
             if thinking_level:
-                if _kwargs["model"].startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
-                    # Claude 4.6 models use adaptive thinking by default on OpenRouter — no reasoning param needed.
-                    # reasoning.effort is ignored for these models per OpenRouter docs.
-                    # See: https://openrouter.ai/docs/guides/guides/evaluate-and-optimize/model-migrations/claude-4-6
-                    pass
-                else:
-                    # Older Claude and OpenAI thinking models use explicit reasoning effort.
-                    # Cap XHIGH to "high" since xhigh is not a valid effort value for these models.
-                    effort = "high" if thinking_level == ThinkingLevel.XHIGH else thinking_level.value
-                    _kwargs["reasoning"] = {"effort": effort}
+                _kwargs["reasoning"] = {"effort": thinking_level.value}
 
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS) or _kwargs["model"].startswith(
                     OPENAI_THINKING_MODELS
@@ -191,9 +182,12 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                     # When using thinking the temperature need to be set to 1
                     _kwargs["temperature"] = 1
 
-            elif _kwargs["model"].startswith("anthropic/") and "max_tokens" not in _kwargs:
-                # Avoid rate limiting by setting a fair max_tokens value
-                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
+            if _kwargs["model"].startswith(ModelProvider.ANTHROPIC.value):
+                _kwargs["model_kwargs"]["cache_control"] = {"type": "default", "ttl": "1h"}
+
+                if not thinking_level and "max_tokens" not in _kwargs:
+                    # Avoid rate limiting by setting a fair max_tokens value
+                    _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
@@ -211,10 +205,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
             return max_tokens + 25_600, 25_600
-        elif thinking_level == ThinkingLevel.HIGH:
+        elif thinking_level in (ThinkingLevel.HIGH, ThinkingLevel.XHIGH):
             return 64_000, 64_000 - max_tokens
-        elif thinking_level == ThinkingLevel.XHIGH:
-            return 64_000 + max_tokens, 64_000
 
     async def draw_mermaid(self) -> str:
         """
