@@ -13,9 +13,6 @@ class AutomationSettings(BaseSettings):
     OPENROUTER_API_KEY: SecretStr | None = Field(
         default=None, description="OpenRouter API key", alias="OPENROUTER_API_KEY"
     )
-    OPENROUTER_API_BASE: str | None = Field(
-        default="https://openrouter.ai/api/v1", description="OpenRouter API base url", alias="OPENROUTER_API_BASE"
-    )
 
     # Anthropic settings
     ANTHROPIC_API_KEY: SecretStr | None = Field(

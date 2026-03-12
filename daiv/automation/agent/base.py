@@ -34,6 +34,16 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-haiku-4.5",
 )
 
+# Models that support adaptive thinking (claude-opus-4-6 and claude-sonnet-4-6 only).
+# These models use adaptive thinking by default and do not require a budget_tokens parameter.
+# See: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking.md
+CLAUDE_ADAPTIVE_THINKING_MODELS = (
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-sonnet-4.6",
+)
+
 OPENAI_THINKING_MODELS = (
     "gpt-5.1-codex-mini",
     "gpt-5.2",
@@ -56,6 +66,7 @@ class ThinkingLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
 
 
 T = TypeVar("T", bound=Runnable)
@@ -125,13 +136,22 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                )
                 # When using thinking the temperature need to be set to 1 for Anthropic models
                 _kwargs["temperature"] = 1
-                _kwargs["max_tokens"] = max_tokens
-                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
+                if _kwargs["model"].startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
+                    # Adaptive thinking: Claude decides how much to think based on task complexity.
+                    # Supported only on claude-opus-4-6 and claude-sonnet-4-6.
+                    # See: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking.md
+                    _kwargs["thinking"] = {"type": "adaptive"}
+                    # XHIGH maps to "max" effort (Opus 4.6 only; Sonnet 4.6 ignores it and uses "high")
+                    _kwargs["effort"] = "max" if thinking_level == ThinkingLevel.XHIGH else thinking_level.value
+                else:
+                    # Manual extended thinking with a fixed token budget for older models.
+                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
+                        thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
+                    )
+                    _kwargs["max_tokens"] = max_tokens
+                    _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
             elif "max_tokens" not in _kwargs:
                 # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
                 # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
@@ -149,31 +169,25 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENROUTER:
             assert settings.OPENROUTER_API_KEY is not None, "OpenRouter API key is not set"
             _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
-            # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
-            _kwargs["model_provider"] = ModelProvider.OPENAI
-            _kwargs["model_kwargs"]["extra_headers"] = {
-                "HTTP-Referer": "https://srtab.github.io/daiv",
-                "X-Title": BOT_NAME,
-            }
-            _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
-            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["openrouter_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["app_url"] = "https://srtab.github.io/daiv"
+            _kwargs["app_title"] = BOT_NAME
 
             if thinking_level:
-                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                    )
-                    _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
-                    # When using thinking the temperature need to be set to 1 for Anthropic models
-                    _kwargs["temperature"] = 1
-                else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
+                _kwargs["reasoning"] = {"effort": thinking_level.value}
 
-            elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
-                # Avoid rate limiting by setting a fair max_tokens value
-                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
-                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
+                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS) or _kwargs["model"].startswith(
+                    OPENAI_THINKING_MODELS
+                ):
+                    # When using thinking the temperature need to be set to 1
+                    _kwargs["temperature"] = 1
+
+            if _kwargs["model"].startswith(ModelProvider.ANTHROPIC.value):
+                _kwargs["model_kwargs"]["cache_control"] = {"type": "default", "ttl": "1h"}
+
+                if not thinking_level and "max_tokens" not in _kwargs:
+                    # Avoid rate limiting by setting a fair max_tokens value
+                    _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
             assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
@@ -191,7 +205,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
             return max_tokens + 25_600, 25_600
-        elif thinking_level == ThinkingLevel.HIGH:
+        elif thinking_level in (ThinkingLevel.HIGH, ThinkingLevel.XHIGH):
             return 64_000, 64_000 - max_tokens
 
     async def draw_mermaid(self) -> str:
@@ -239,6 +253,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
             case ModelProvider.GOOGLE_GENAI:
                 # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash
+                return 8192
+
+            case ModelProvider.OPENROUTER:
                 return 8192
 
             case _:

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage
+from langchain_openrouter import ChatOpenRouter
 
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 
@@ -21,7 +22,7 @@ class TestAnthropicPromptCachingMiddleware:
 
         assert middleware._should_apply_caching(request) is True
 
-    async def test_awrap_model_call_adds_cache_control_to_extra_body_for_openrouter_models(self):
+    async def test_awrap_model_call_adds_cache_control_to_model_settings_for_openrouter_models(self):
         middleware = AnthropicPromptCachingMiddleware()
         middleware._is_openrouter_anthropic_model = Mock(return_value=True)
 
@@ -42,7 +43,7 @@ class TestAnthropicPromptCachingMiddleware:
         assert wrapped_request is not request
         assert wrapped_request.model_settings == {
             "temperature": 0.3,
-            "extra_body": {"cache_control": {"type": middleware.type, "ttl": middleware.ttl}},
+            "cache_control": {"type": middleware.type, "ttl": middleware.ttl},
         }
         assert request.model_settings == {"temperature": 0.3}
 
@@ -63,3 +64,23 @@ class TestAnthropicPromptCachingMiddleware:
         await middleware.awrap_model_call(request, handler)
 
         assert handler.await_args.args[0] is request
+
+    def test_is_openrouter_anthropic_model_with_chat_openrouter(self):
+        middleware = AnthropicPromptCachingMiddleware()
+        model = Mock(spec=ChatOpenRouter)
+        model.model_name = "anthropic/claude-sonnet-4.5"
+
+        assert middleware._is_openrouter_anthropic_model(model) is True
+
+    def test_is_openrouter_anthropic_model_with_non_anthropic_model(self):
+        middleware = AnthropicPromptCachingMiddleware()
+        model = Mock(spec=ChatOpenRouter)
+        model.model_name = "openai/gpt-4o"
+
+        assert middleware._is_openrouter_anthropic_model(model) is False
+
+    def test_is_openrouter_anthropic_model_with_non_openrouter_model(self):
+        middleware = AnthropicPromptCachingMiddleware()
+        model = Mock()  # not a ChatOpenRouter instance
+
+        assert middleware._is_openrouter_anthropic_model(model) is False
