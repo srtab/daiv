@@ -22,6 +22,10 @@ Infer from conversation history. If still unclear, ask one focused scoping quest
 
 Scope the audit to changed code paths plus any critical adjacent components (auth layers, input boundaries, data access objects, encryption utilities).
 
+## Error Recovery
+
+If a tool call fails, switch to an alternative tool (e.g., platform tool instead of `bash git diff`) and continue from where you are. Never re-invoke the `skill` tool to restart the audit.
+
 ---
 
 ## 2. Run the Audit
@@ -64,6 +68,8 @@ If you cannot concretely answer all three, omit the finding or demote it to a Re
 
 **The test:** Could you write a proof-of-concept — even a short one — that demonstrates the issue? If not, it's not a finding. False positives erode trust and cause real vulnerabilities to be buried in noise.
 
+If you reconsider a finding during analysis and conclude it is not valid, drop it entirely. Never include self-corrected findings, strikethrough text, or "on closer reading this is fine" in the output.
+
 ---
 
 ## 4. Classify Findings
@@ -83,11 +89,24 @@ For full severity criteria and calibration examples, see → `references/severit
 
 ---
 
-## 5. Write the Report
+## 5. Verify Critical and High Findings
 
-Present the report as your output message only. Do NOT post comments, notes, or discussions on issues or merge/pull requests using the platform tool.
+Before writing the report, verify all Critical and High findings. Launch a single verification subagent using the `task` tool with the following mandate:
 
-If the system prompt contains a "Code References" section, use its link format for file locations in findings.
+- Provide it with the list of Critical and High findings (title, claimed location, vulnerability type).
+- Instruct it to read the actual source files at the claimed locations and confirm or reject each finding.
+- A finding is **confirmed** if the code at the stated location matches the claimed vulnerability.
+- A finding is **rejected** if the code doesn't match, the vulnerability is already mitigated, or the location is wrong.
+
+Drop rejected findings entirely. Medium and Low findings do not require this step — the signal filter in Step 3 is sufficient.
+
+---
+
+## 6. Write the Report
+
+**CRITICAL: Do NOT post the report as a comment, note, or discussion on any issue or merge request. The harness handles delivery — your job is to return the report as your final output message only.**
+
+Use the link format from the "Code References" section in the system prompt for all file locations.
 
 When the same vulnerability pattern appears across multiple files, group them into a single finding with a locations table rather than creating separate findings per file.
 

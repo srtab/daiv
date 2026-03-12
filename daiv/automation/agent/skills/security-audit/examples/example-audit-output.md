@@ -74,16 +74,16 @@ def generate_export(user_id: int, profile_name: str) -> Path:
 **Risk:** An authenticated user can inject arbitrary SQL through any endpoint backed by these queries, leading to data exfiltration or modification.
 
 **Locations:**
-| File | Line | Parameter |
-|------|------|-----------|
-| [`src/controllers/search.py:34`](https://example.com/repo/-/blob/main/src/controllers/search.py#L34) | 34 | `request.args["q"]` |
-| [`src/controllers/search.py:71`](https://example.com/repo/-/blob/main/src/controllers/search.py#L71) | 71 | `request.args["category"]` |
-| [`src/controllers/reports.py:22`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L22) | 22 | `request.form["date_from"]` |
-| [`src/controllers/reports.py:23`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L23) | 23 | `request.form["date_to"]` |
-| [`src/controllers/reports.py:89`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L89) | 89 | `request.form["branch_id"]` |
-| [`src/controllers/inventory.py:45`](https://example.com/repo/-/blob/main/src/controllers/inventory.py#L45) | 45 | `request.args["sku"]` |
-| [`src/controllers/inventory.py:112`](https://example.com/repo/-/blob/main/src/controllers/inventory.py#L112) | 112 | `request.args["warehouse"]` |
-| [`src/controllers/users.py:58`](https://example.com/repo/-/blob/main/src/controllers/users.py#L58) | 58 | `request.form["username"]` |
+| File | Parameter |
+|------|-----------|
+| [`src/controllers/search.py:34`](https://example.com/repo/-/blob/main/src/controllers/search.py#L34) | `request.args["q"]` |
+| [`src/controllers/search.py:71`](https://example.com/repo/-/blob/main/src/controllers/search.py#L71) | `request.args["category"]` |
+| [`src/controllers/reports.py:22`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L22) | `request.form["date_from"]` |
+| [`src/controllers/reports.py:23`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L23) | `request.form["date_to"]` |
+| [`src/controllers/reports.py:89`](https://example.com/repo/-/blob/main/src/controllers/reports.py#L89) | `request.form["branch_id"]` |
+| [`src/controllers/inventory.py:45`](https://example.com/repo/-/blob/main/src/controllers/inventory.py#L45) | `request.args["sku"]` |
+| [`src/controllers/inventory.py:112`](https://example.com/repo/-/blob/main/src/controllers/inventory.py#L112) | `request.args["warehouse"]` |
+| [`src/controllers/users.py:58`](https://example.com/repo/-/blob/main/src/controllers/users.py#L58) | `request.form["username"]` |
 
 **Evidence** (representative instance):
 ```python
