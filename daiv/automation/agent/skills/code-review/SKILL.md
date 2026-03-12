@@ -44,9 +44,9 @@ If you reconsider a finding during analysis and conclude it is not a real issue,
 
 ## Response format
 
-Present the review as your output message only. Do NOT post comments, notes, or discussions on the merge/pull request using the platform tool. Do not add preamble text like "Here is the review:".
+**CRITICAL: Do NOT post the review as a comment, note, or discussion on any issue or merge request. The harness handles delivery — your job is to return the review as your final output message only.** Do not add preamble text like "Here is the review:".
 
-If the system prompt contains a "Code References" section, use its link format. Place the file reference in the finding summary line, not in the body.
+Use the link format from the "Code References" section in the system prompt for all file locations. Place the file reference in the finding summary line, not in the body.
 
 For a complete example of a well-formed review, see `examples/example-review-output.md`.
 
