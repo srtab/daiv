@@ -116,7 +116,7 @@ Result interpretation:
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
 Repeated failure policy:
-- If multiple different commands all return the same `error:` indicating that the bash tool is not working properly, assume command execution is unavailable for this conversation.
+- If 2 consecutive commands return the same `error:` string indicating that the bash tool is not working properly, assume command execution is unavailable for this conversation. Do not attempt a third command.
 - After that point, stop invoking `{BASH_TOOL_NAME}`, switch to static reasoning only (code reading/search), and clearly mention that you cannot run commands.
 
 Dedicated-tool failure policy:
