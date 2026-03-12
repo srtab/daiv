@@ -35,11 +35,12 @@ Usage notes:
   - Use this tool with the skill name and optional arguments
   - If the skill does not exist, the tool will return an error.
   - Only use skills listed in <available_skills>.
+  - CRITICAL: NEVER call this tool in parallel with other tools. The skill tool MUST be the ONLY tool call in any assistant turn that uses it. Calling skill alongside other tools will cause an API error.
 
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
   - `skill: "code-review", skill_args: ["my-branch"]` - invoke with arguments
-"""
+"""  # noqa: E501
 
 SKILLS_SYSTEM_PROMPT = f"""\
 ## Skills
@@ -63,6 +64,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - When a skill is relevant, you must invoke the `{SKILLS_TOOL_NAME}` tool IMMEDIATELY as your first action.
 - NEVER just announce or mention a skill in your text response without actually calling the `{SKILLS_TOOL_NAME}` tool.
 - This is a BLOCKING REQUIREMENT: invoke the relevant `{SKILLS_TOOL_NAME}` tool BEFORE generating any other response about the task.
+- CRITICAL: The `{SKILLS_TOOL_NAME}` tool MUST be the ONLY tool call in its assistant turn. NEVER call `{SKILLS_TOOL_NAME}` in parallel with other tools (e.g., do NOT call `{SKILLS_TOOL_NAME}` and `gitlab` at the same time). Other tools can be called in subsequent turns after the skill has been processed.
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
