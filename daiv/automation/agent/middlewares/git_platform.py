@@ -75,11 +75,15 @@ This tool is best for retrieving the current state of:
 
 **Useful subcommand patterns:**
 - Issue by IID: `project-issue get --iid <issue_iid>`
+- Issue note (comment): `project-issue-note create --issue-iid <issue_iid> --body "<text>"`
 - Merge request by IID: `project-merge-request get --iid <merge_request_iid>`
+- MR note (comment): `project-merge-request-note create --mr-iid <merge_request_iid> --body "<text>"`
 - MR pipelines: `project-merge-request-pipeline list --mr-iid <merge_request_iid>`
 - Pipeline jobs: `project-pipeline-job list --pipeline-id <pipeline_id>`
 - Job trace: `project-job trace --id <job_id>`
 - Filtered issue list: `project-issue list --state opened --labels bug --page <page_number>`
+- MR diff versions: `project-merge-request-diff list --mr-iid <merge_request_iid>`
+- MR diff detail: `project-merge-request-diff get --mr-iid <merge_request_iid> --id <diff_id>`
 
 **Invalid examples:**
 - ✗ `gitlab project-issue get --iid 42`
@@ -110,7 +114,7 @@ This tool is best for retrieving the current state of:
 **Operational guidance:**
 - Do NOT try to fetch URLs returned by this tool; they require authentication
 - If a subcommand fails because you need flags, use targeted help: `<object> <action> --help`
-- Always wrap arguments containing spaces or multiline text in double quotes
+- Always wrap arguments containing spaces or multiline text in double quotes. Do not escape internal quotes with backslashes — use single quotes inside double-quoted strings or rephrase. If the body is very long (>2000 chars), consider splitting into multiple notes.
 - When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 GITHUB_TOOL_NAME = "gh"

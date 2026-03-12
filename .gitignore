@@ -164,10 +164,11 @@ state-snapshots.txt
 
 .ruff_cache/
 .cursor
+.claude/
 
 request.json
 
 # SWE-bench
-swebench-traces/
-swebench-evaluation-results/
+daiv-traces/
 predictions.json
+

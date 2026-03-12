@@ -136,7 +136,7 @@ WRITE_TODOS_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 ## Task Management
 
 You have access to the `write_todos` tool to help you manage and plan tasks.
-Use this tool for complex multi-step tasks to ensure that you are tracking your tasks and giving the user visibility into your progress. For simple tasks (fewer than 3 steps), skip the todo list and just do the work directly.
+Use this tool for complex multi-step tasks (5+ steps) to ensure that you are tracking your tasks and giving the user visibility into your progress. For tasks with fewer than 5 steps, skip the todo list and just do the work directly.
 This tool is also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
 
 It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.

@@ -28,7 +28,7 @@ GENERAL_PURPOSE_SYSTEM_PROMPT = """You are an agent for DAIV. Given the user's m
 
 - For file searches: Use `grep` or `glob` when you need to search broadly. Use `read_file` when you know the specific file path.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.
-- Any file paths you return in your response MUST be absolute. Do NOT use relative paths.
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 """  # noqa: E501
 
 
@@ -105,7 +105,7 @@ Guidelines:
 - Use `grep` for searching file contents with regex
 - Use `read_file` when you know the specific file path you need to read
 - Adapt your search approach based on the thoroughness level specified by the caller
-- Return file paths as absolute paths in your final response
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 - For clear communication, avoid using emojis
 - Communicate your final report directly as a regular message - do NOT attempt to create files
 
