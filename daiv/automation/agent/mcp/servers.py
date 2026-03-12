@@ -25,3 +25,21 @@ class SentryMCPServer(MCPServer):
 
     def is_enabled(self) -> bool:
         return bool(settings.SENTRY_ENABLED and settings.SENTRY_ACCESS_TOKEN)
+
+
+@mcp_server
+class Context7MCPServer(MCPServer):
+    name = "context7"
+    proxy_config = StdioMcpServer(
+        command="npx",
+        args=[f"@upstash/context7-mcp@{settings.CONTEXT7_VERSION}"],
+        env={"CONTEXT7_API_KEY": settings.CONTEXT7_API_KEY and settings.CONTEXT7_API_KEY.get_secret_value() or ""},
+        options=CommonOptions(
+            panic_if_invalid=False,
+            log_enabled=True,
+            tool_filter=ToolFilter(mode="allow", items=["resolve-library-id", "query-docs"]),
+        ),
+    )
+
+    def is_enabled(self) -> bool:
+        return bool(settings.CONTEXT7_ENABLED)
