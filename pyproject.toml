@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "ddgs==9.11.3",
-  "deepagents==0.4.9",
+  "deepagents==0.4.10",
   "django==6.0.3",
   "django-crontask==1.1.3",
   "django-extensions==4.1.0",
