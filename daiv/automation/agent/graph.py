@@ -33,11 +33,7 @@ from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMIMDER, WRITE_TODOS_SYSTEM_PROMPT
-from automation.agent.subagents import (
-    create_docs_research_subagent,
-    create_explore_subagent,
-    create_general_purpose_subagent,
-)
+from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent
 from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
@@ -169,10 +165,6 @@ async def create_daiv_agent(
         ),
         create_explore_subagent(backend),
     ]
-
-    if _web_fetch_enabled:
-        # only create the docs research subagent if web fetch is enabled as it requires web fetch to be enabled
-        subagents.append(create_docs_research_subagent(backend))
 
     agent_conditional_middlewares = []
 

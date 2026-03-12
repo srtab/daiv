@@ -85,19 +85,36 @@ For full severity criteria and calibration examples, see → `references/severit
 
 ## 5. Write the Report
 
+Present the report as your output message only. Do NOT post comments, notes, or discussions on issues or merge/pull requests using the platform tool.
+
+If the system prompt contains a "Code References" section, use its link format for file locations in findings.
+
+When the same vulnerability pattern appears across multiple files, group them into a single finding with a locations table rather than creating separate findings per file.
+
 Structure every audit report in this order:
 
 **Summary** (2–4 bullets)
 Overall security posture, count of findings by severity, highest-risk area.
 
 **Findings** (one block per finding)
-Group by severity descending. Each finding must include:
-- **ID**: Sequential number prefixed by severity initial (e.g., `C-01`, `H-01`, `M-01`, `L-01`) — allows users to reference specific findings in comments, tickets, or follow-up discussion
-- **Title**: Short, specific (e.g., "SQL Injection in `user_search()` via `name` parameter")
-- **Location**: File, function, line number if known
-- **Risk**: What an attacker could do and under what conditions
-- **Evidence**: The vulnerable code snippet (quote it)
-- **Remediation**: Concrete fix with example code where helpful
+Group by severity descending. Each finding has a **one-line summary** with ID, title, and location, and a collapsible `<details>` block containing the risk, evidence, and remediation. This keeps the report scannable.
+
+```
+**C-01 — Title of the finding** — `path/to/file.py:42`
+
+<details>
+<summary>Details</summary>
+
+**Risk:** What an attacker could do and under what conditions.
+
+**Evidence:**
+(vulnerable code snippet)
+
+**Remediation:**
+Concrete fix with example code where helpful.
+
+</details>
+```
 
 **Recommendations** (non-blocking)
 Improvements that reduce attack surface but aren't findings — missing headers, missing logging, hardening opportunities. This is also where filtered-out near-findings belong: briefly note what was considered and why it didn't meet the bar, so reviewers know the area was examined.
