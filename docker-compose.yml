@@ -143,12 +143,14 @@ services:
     image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     restart: unless-stopped
     container_name: daiv-mcp-proxy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - '/main --config https://app:8000/api/automation/mcp-proxy/config/ --insecure --http-headers "Authorization: Bearer $${MCP_CONFIG_API_KEY}"'
     env_file:
       - docker/local/app/config.secrets.env
     environment:
       NODE_ENV: development
-    volumes:
-      - ./data/mcp-proxy:/config
     ports:
       - "9090:9090"
     depends_on:
