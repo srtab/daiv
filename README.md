@@ -17,7 +17,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 - ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing).
 - ⚡ **Slash Commands**: Command-based interactions for common tasks on issues and merge requests, such as help to list available commands, cloning issues to multiple repositories, etc.
 - 🔧 **MCP Tools**: Supporting [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools to extend the capabilities of the agents.
-- 🎯 **Agent Skills**: Modular, reusable capabilities that give agents domain-specific expertise. Define custom workflows in your repository's `.daiv/skills/`, `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/` directory, or use builtin skills like changelog maintenance and AGENTS.md generation.
+- 🎯 **Agent Skills**: Modular, reusable capabilities that give agents domain-specific expertise. Define custom workflows in your repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/` directory, or use builtin skills like changelog maintenance and AGENTS.md generation.
 - 📦 **Sandbox**: Running commands in a secure sandbox to allow the agents to perform actions on the codebase, such as installing/updating dependencies, generating translations, etc. with your own docker image.
 - 📊 **Monitoring**: Monitoring the behavior of the agents to allow you to analyze the performance and identify potential issues.
 - 🤖 **Providers Support**: [OpenAI](https://openai.com/api/), [Anthropic](https://www.anthropic.com/api), [Gemini](https://ai.google.dev/gemini) and [OpenRouter](https://openrouter.ai/) are the supported LLM providers.
@@ -47,7 +47,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    ```
 
 2. **Configure Environment**:
-   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
+   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Google API Key, and LangChain API Key.
 
    ```bash
    cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env
@@ -72,7 +72,6 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    This will start all needed services locally. You can access them at:
 
    - DAIV API documentation: https://localhost:8000/api/docs/
-   - PGAdmin (database management): http://localhost:8080
    - GitLab (local test repository platform): http://localhost:8929
    - Sandbox (secure code execution): http://localhost:8888/docs
 
@@ -92,8 +91,8 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
    ```bash
    $ docker compose exec -it app bash
-   $ make lint      # to check for linting issues
-   $ make lint-fix  # to automatically fix linting errors
+   $ make lint      # to check for linting and formatting issues
+   $ make lint-fix  # to automatically fix linting and formatting issues
    ```
 
 7. **Configure test repository**:
@@ -121,8 +120,6 @@ DAIV is an open-source automation assistant designed to enhance developer produc
       # Set up webhooks to trigger automatically DAIV actions. You can disable SSL verification for local development by adding `--disable-ssl-verification` to the command.
       $ django-admin setup_webhooks
 
-      # Update the repository index to be able to search for code
-      $ django-admin update_index
       ```
 
       > [!NOTE]
