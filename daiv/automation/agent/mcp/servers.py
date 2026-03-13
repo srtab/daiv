@@ -19,7 +19,10 @@ class SentryMCPServer(MCPServer):
         options=CommonOptions(
             panic_if_invalid=False,
             log_enabled=True,
-            tool_filter=ToolFilter(mode="allow", items=["find_organizations", "get_issue_details"]),
+            tool_filter=ToolFilter(
+                mode="allow",
+                items=["find_organizations", "find_projects", "search_issues", "search_events", "get_issue_details"],
+            ),
         ),
     )
 

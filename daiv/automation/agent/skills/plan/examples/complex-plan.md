@@ -38,42 +38,43 @@ Add a lightweight auth layer:
 ## 4. Implementation Phases
 
 ### Phase 1: Dependencies and Model
-- Step 1.1: Install `jsonwebtoken` and `bcryptjs` — required by all subsequent steps
-- Step 1.2: Extend `User` model — add `password` field with pre-save bcrypt hook and `comparePassword` instance method
-- Step 1.3: Add `JWT_SECRET` and `JWT_EXPIRES_IN` to `.env.example` and document in README
+1. **Install auth dependencies** — required by all subsequent steps
+   - `package.json` — add `jsonwebtoken`, `bcryptjs`
+
+2. **Extend User model** — add password field with pre-save bcrypt hook and `comparePassword` instance method
+   - `src/models/User.js` (line ~8) — add `password` field, bcrypt hook, instance method
+
+3. **Add environment config** — document required secrets
+   - `.env.example` — add `JWT_SECRET`, `JWT_EXPIRES_IN`
 
 ### Phase 2: Auth Routes
-- Step 2.1: Create `AuthController` with `register` and `login` methods
-- Step 2.2: Create `src/routes/auth.js` and mount at `/auth` in `server.js`
-- Step 2.3: Add input validation (required fields, email format, password min length 8)
+1. **Create auth controller** — register and login logic with input validation
+   - `src/controllers/AuthController.js` — Create — `register` and `login` methods
+   - Validate: required fields, email format, password min length 8
+
+2. **Mount auth routes** — expose `/auth/register` and `/auth/login`
+   - `src/routes/auth.js` — Create — route definitions
+   - `server.js` (line ~15) — mount auth router at `/auth`
 
 ### Phase 3: Middleware and Route Protection
-- Step 3.1: Create `src/middleware/authenticate.js` — extract Bearer token, verify JWT, attach `req.user`, call `next()` or return 401
-- Step 3.2: Apply `authenticate` middleware to the `/api` router in `server.js` (one line, protects all existing routes)
+1. **Create JWT verification middleware** — extract Bearer token, verify, attach `req.user`, call `next()` or return 401
+   - `src/middleware/authenticate.js` — Create
+
+2. **Protect existing routes** — apply middleware to all `/api` routes
+   - `server.js` (line ~18) — one line, apply `authenticate` to `/api` router
 
 ### Phase 4: Tests
-- Step 4.1: Write integration tests for `/auth/register` (success, duplicate email, missing fields)
-- Step 4.2: Write integration tests for `/auth/login` (success, wrong password, unknown email)
-- Step 4.3: Write middleware unit test (valid token, expired token, missing token, malformed token)
-- Step 4.4: Update existing route tests to include a valid auth token in request headers
+1. **Auth route integration tests** — register and login flows
+   - `src/routes/__tests__/auth.test.js` — Create — success, duplicate email, missing fields, wrong password, unknown email
 
-## 5. File Changes
+2. **Middleware unit tests** — verify token handling in isolation
+   - `src/middleware/__tests__/authenticate.test.js` — Create — valid token, expired token, missing token, malformed token
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `package.json` | Modify | Add `jsonwebtoken`, `bcryptjs` |
-| `src/models/User.js` | Modify | Add password field, bcrypt hook, comparePassword method |
-| `src/controllers/AuthController.js` | Create | Register and login logic |
-| `src/routes/auth.js` | Create | Mount `/register` and `/login` |
-| `src/middleware/authenticate.js` | Create | JWT verification middleware |
-| `server.js` | Modify | Mount auth router, apply authenticate to `/api` |
-| `.env.example` | Modify | Add JWT_SECRET, JWT_EXPIRES_IN |
-| `src/routes/__tests__/auth.test.js` | Create | Auth route integration tests |
-| `src/middleware/__tests__/authenticate.test.js` | Create | Middleware unit tests |
-| `src/routes/__tests__/posts.test.js` | Modify | Add auth headers to existing tests |
-| `src/routes/__tests__/comments.test.js` | Modify | Add auth headers to existing tests |
+3. **Update existing tests** — add auth headers so they pass under protection
+   - `src/routes/__tests__/posts.test.js` — add token in `beforeAll`
+   - `src/routes/__tests__/comments.test.js` — add token in `beforeAll`
 
-## 6. Dependencies and Configuration
+## 5. Dependencies and Configuration
 
 ```
 npm install jsonwebtoken bcryptjs
@@ -85,7 +86,7 @@ JWT_SECRET=<random 64-char string>
 JWT_EXPIRES_IN=7d
 ```
 
-## 7. Testing Strategy
+## 6. Testing Strategy
 
 **Integration tests** (Jest + Supertest): Full request lifecycle for register and login. Verify token is returned and usable. Verify protected routes return 401 without token.
 
@@ -99,7 +100,7 @@ JWT_EXPIRES_IN=7d
 3. GET `/api/posts` without token → 401
 4. POST `/auth/login` with wrong password → 401
 
-## 8. Edge Cases and Error Handling
+## 7. Edge Cases and Error Handling
 
 - Duplicate email on register → 409 Conflict with message "Email already in use"
 - Missing required fields → 400 with field-level errors (follow existing `errorHandler` format)
@@ -108,7 +109,7 @@ JWT_EXPIRES_IN=7d
 - Malformed token → 401 "Invalid token"
 - `JWT_SECRET` not set in environment → throw at startup, not at request time
 
-## 9. Risks and Mitigations
+## 8. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
@@ -117,7 +118,7 @@ JWT_EXPIRES_IN=7d
 | bcrypt rounds too high, login is slow | Low | Low | Salt rounds = 10 is standard; benchmark if needed |
 | Token not expiring in tests causes flaky results | Medium | Low | Use short expiry (`60s`) in test env via `JWT_EXPIRES_IN` env var |
 
-## 10. Open Questions
+## 9. Open Questions
 
 - Should `/api/users/:id` (the profile endpoint) be public or protected? Currently assuming protected.
 - Is there a token refresh requirement, or is re-login on expiry acceptable?
