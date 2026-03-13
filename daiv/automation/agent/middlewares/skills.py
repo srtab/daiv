@@ -1,11 +1,12 @@
 import logging
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, override
+from typing import TYPE_CHECKING, Annotated, NotRequired, override
 
 from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
 from langchain.agents.middleware import hook_config
+from langchain.agents.middleware.types import ModelRequest, ModelResponse, PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
@@ -19,6 +20,8 @@ from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from deepagents.graph import SubAgent
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
@@ -27,6 +30,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
+SKILL_MODE_READ_ONLY = "read-only"
+WRITE_TOOL_NAMES = frozenset({"edit_file", "write_file"})
+
+
+class DAIVSkillsState(SkillsState):
+    """Extended skills state that tracks the active skill mode."""
+
+    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr]]
+
 
 SKILLS_TOOL_NAME = "skill"
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
@@ -93,6 +105,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     directory to make them available to the agent even if the project skills directory is not set up.
     """
 
+    state_schema = DAIVSkillsState
+
     def __init__(self, *args, subagents: list[SubAgent] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
@@ -101,12 +115,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(
-        self, state: SkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
-    ) -> SkillsStateUpdate | None:
+        self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
+    ) -> SkillsStateUpdate | dict | None:
         """
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
         """
+        # Clear the active skill mode when the user sends a follow-up message. This allows the agent to transition
+        # from plan mode (read-only) to implementation mode (full tool access) when the user says "proceed" or similar.
+        clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
+        if clear_skill_mode:
+            logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
+
         # We need to always copy builtin skills before calling the super method to make them available in the filesystem
         # not just to be captured and registered in "skills_metadata" on first run, but also to be available in the
         # filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error will be raised.
@@ -132,7 +152,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         )
 
         if builtin_slash_commands:
+            if clear_skill_mode:
+                builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
+
+        if clear_skill_mode:
+            return {**(skills_update or {}), "active_skill_mode": None}
 
         return skills_update
 
@@ -198,6 +223,43 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             return f"(No skills available yet. You can create skills in {' or '.join(paths)})"
 
         return AVAILABLE_SKILLS_TEMPLATE.format(skills_list=skills)
+
+    @override
+    async def awrap_model_call(
+        self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        """Filter write tools when the active skill declares read-only mode."""
+        active_mode = request.state.get("active_skill_mode")
+        if active_mode == SKILL_MODE_READ_ONLY:
+            filtered_tools = [t for t in request.tools if t.name not in WRITE_TOOL_NAMES]
+            modified = self.modify_request(request.override(tools=filtered_tools))
+            return await handler(modified)
+        return await super().awrap_model_call(request, handler)
+
+    @staticmethod
+    def _has_user_followup(messages: list[AnyMessage]) -> bool:
+        """Check if the user has sent a follow-up message after the agent responded to a skill injection.
+
+        The pattern we look for (walking backwards from the end):
+        1. The latest message is a HumanMessage (user follow-up)
+        2. Before it, there's an AIMessage (agent's plan/response)
+        """
+        if len(messages) < 2:
+            return False
+
+        if not isinstance(messages[-1], HumanMessage):
+            return False
+
+        # Walk backwards to find an AIMessage before this HumanMessage
+        for i in range(len(messages) - 2, -1, -1):
+            msg = messages[i]
+            if isinstance(msg, AIMessage):
+                return True
+            if isinstance(msg, HumanMessage):
+                # Hit another human message before finding an AI message — no agent response yet
+                break
+
+        return False
 
     async def _apply_builtin_slash_commands(
         self, messages: list[AnyMessage], context: RuntimeCtx, skills: list[SkillMetadata]
@@ -327,13 +389,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
 
-            return Command(
-                update={
-                    "messages": [
-                        ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
-                        HumanMessage(content=body),
-                    ]
-                }
-            )
+            skill_mode = loaded_skill.get("metadata", {}).get("mode")
+            update: dict = {
+                "messages": [
+                    ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
+                    HumanMessage(content=body),
+                ]
+            }
+            if skill_mode:
+                update["active_skill_mode"] = skill_mode
+
+            return Command(update=update)
 
         return tool(SKILLS_TOOL_NAME, description=SKILLS_TOOL_DESCRIPTION)(skill_tool)

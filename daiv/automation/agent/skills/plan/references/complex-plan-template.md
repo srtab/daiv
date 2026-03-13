@@ -24,45 +24,44 @@ Adapt sections to fit the task — not every section applies to every complex ta
 ## 4. Implementation Phases
 
 ### Phase 1: [Foundation/Setup]
-- Step 1.1: [Action] — [Purpose]
-- Step 1.2: [Action] — [Purpose]
+1. **[Action]** — [Purpose]
+   - `path/to/file1.js` — Create — [what to add]
+   - `path/to/file2.js` (line ~N) — [what changes]
+
+2. **[Action]** — [Purpose]
+   - `path/to/file3.js` — [what changes]
 
 ### Phase 2: [Core Implementation]
-- Step 2.1: [Action] — [Purpose]
-- Step 2.2: [Action] — [Purpose]
+1. **[Action]** — [Purpose]
+   - `path/to/file4.js` — Create — [what to add]
+
+2. **[Action]** — [Purpose]
+   - `path/to/file5.js` (line ~N) — [what changes]
 
 ### Phase 3: [Integration and Testing]
-- Step 3.1: [Action] — [Purpose]
-- Step 3.2: [Action] — [Purpose]
+1. **[Action]** — [Purpose]
+   - `path/to/file6.test.js` — Create — [what to test]
 
-## 5. File Changes
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `path/to/file1.js` | Create | [Purpose] |
-| `path/to/file2.js` | Modify | [Purpose] |
-| `path/to/file3.test.js` | Create | [Purpose] |
-
-## 6. Dependencies and Configuration
+## 5. Dependencies and Configuration
 
 [New packages to install. Config file changes. Environment variables to add. Infrastructure requirements.]
 
-## 7. Testing Strategy
+## 6. Testing Strategy
 
 [Unit tests — what to cover and where. Integration tests — key flows to verify. Manual testing steps.]
 
-## 8. Edge Cases and Error Handling
+## 7. Edge Cases and Error Handling
 
 [Specific scenarios that need explicit handling. Validation requirements. Error messages and states. Failure modes and recovery behavior.]
 
-## 9. Risks and Mitigations
+## 8. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | [Risk 1] | High/Med/Low | High/Med/Low | [How to address] |
 | [Risk 2] | High/Med/Low | High/Med/Low | [How to address] |
 
-## 10. Open Questions
+## 9. Open Questions
 
 [Decisions that need clarification before or during implementation. Flag ambiguities discovered during exploration.]
 ```
