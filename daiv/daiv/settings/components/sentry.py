@@ -27,9 +27,21 @@ def _traces_sampler(sampling_context: dict) -> float:
 
 if SENTRY_DSN:
     import sentry_sdk
+    from sentry_sdk.integrations.anthropic import AnthropicIntegration
+    from sentry_sdk.integrations.google_genai import GoogleGenAIIntegration
+    from sentry_sdk.integrations.langchain import LangchainIntegration
+    from sentry_sdk.integrations.langgraph import LanggraphIntegration
+    from sentry_sdk.integrations.openai import OpenAIIntegration
 
     sentry_sdk.init(
         ignore_errors=[DisallowedHost, KeyboardInterrupt],
+        integrations=[
+            AnthropicIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
+            GoogleGenAIIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
+            LangchainIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
+            LanggraphIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
+            OpenAIIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
+        ],
         dsn=SENTRY_DSN,
         release=__version__,
         environment=ENVIRONMENT,
