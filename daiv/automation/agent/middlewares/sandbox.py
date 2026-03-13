@@ -375,7 +375,11 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, str] | None: The state updates with the closed sandbox session ID.
         """
         if self.close_session and "session_id" in state and state["session_id"] is not None:
-            await DAIVSandboxClient().close_session(state["session_id"])
+            try:
+                await DAIVSandboxClient().close_session(state["session_id"])
+            except httpx.HTTPStatusError:
+                # Ignore errors closing the session, it's not critical. Maybe the session was already closed.
+                logger.warning("Error closing sandbox session: %s", state["session_id"])
             return {"session_id": None}
 
     async def awrap_model_call(
