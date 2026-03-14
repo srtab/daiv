@@ -202,6 +202,7 @@ This section documents the environment variables for each tool configuration use
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `AUTOMATION_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                     | `true`         | `false` |
 | `AUTOMATION_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search      | `5`            |         |
 | `AUTOMATION_WEB_SEARCH_ENGINE`  | Web search engine to use (`duckduckgo`, `tavily`)              | `duckduckgo`   | `tavily`|
 | `AUTOMATION_WEB_SEARCH_API_KEY` :material-lock: | Web search API key (required if engine is `tavily`)            | *(none)*       |         |
