@@ -1,6 +1,7 @@
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from automation.agent.middlewares.web_search import web_search_tool
+from automation.agent.middlewares.web_search import WebSearchMiddleware, web_search_tool
 
 
 class TestWebSearchTool:
@@ -124,3 +125,74 @@ class TestWebSearchTool:
         assert result.count("<web_search_result") == 3
         assert result.count("</web_search_result>") == 3
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
+
+
+class TestWebSearchMiddleware:
+    @patch("automation.agent.middlewares.web_search.timezone")
+    async def test_system_prompt_contains_current_year(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2026, 3, 14)
+
+        middleware = WebSearchMiddleware()
+        request = MagicMock()
+        request.system_prompt = "Base prompt"
+        request.override.return_value = request
+        handler = AsyncMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        call_kwargs = request.override.call_args
+        system_prompt = call_kwargs.kwargs["system_prompt"]
+        assert "2026" in system_prompt
+        assert "2025" in system_prompt  # previous year in the "NOT" example
+        assert "2024" not in system_prompt
+
+    @patch("automation.agent.middlewares.web_search.timezone")
+    async def test_system_prompt_does_not_contain_hardcoded_year(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2030, 1, 1)
+
+        middleware = WebSearchMiddleware()
+        request = MagicMock()
+        request.system_prompt = "Base prompt"
+        request.override.return_value = request
+        handler = AsyncMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        call_kwargs = request.override.call_args
+        system_prompt = call_kwargs.kwargs["system_prompt"]
+        assert "2030" in system_prompt
+        assert "2029" in system_prompt
+        # Should not contain any other hardcoded years
+        assert "2025" not in system_prompt
+        assert "2026" not in system_prompt
+
+    @patch("automation.agent.middlewares.web_search.timezone")
+    async def test_system_prompt_appended_to_base_prompt(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2026, 6, 15)
+
+        middleware = WebSearchMiddleware()
+        request = MagicMock()
+        request.system_prompt = "Base prompt"
+        request.override.return_value = request
+        handler = AsyncMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        call_kwargs = request.override.call_args
+        system_prompt = call_kwargs.kwargs["system_prompt"]
+        assert system_prompt.startswith("Base prompt\n\n")
+        assert "## Web Search tool" in system_prompt
+
+    @patch("automation.agent.middlewares.web_search.timezone")
+    async def test_handler_called_with_overridden_request(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2026, 3, 14)
+
+        middleware = WebSearchMiddleware()
+        request = MagicMock()
+        overridden_request = MagicMock()
+        request.override.return_value = overridden_request
+        handler = AsyncMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        handler.assert_awaited_once_with(overridden_request)
