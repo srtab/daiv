@@ -10,59 +10,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `/agents` slash command to list all available sub-agents with their names and descriptions.
-- Added `/clear` slash command to reset conversation context in issues and merge requests
-- Added changelog subagent for maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, NEWS, etc.) with automatic format detection and convention preservation
-- Added code review and security audit agent skills for structured review and security guidance.
+- Added `/clear` slash command to reset conversation context in issues and merge requests.
+- Added code review, security audit, plan, and skill creator builtin skills for structured guidance during agent execution.
 - Added a deduplicating Django Tasks backend to prevent duplicate async task execution.
-- Added support for issue labels to configure plan and execute agent behavior:
-  - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval
-  - `daiv-max`: Use high-performance mode with `CLAUDE_OPUS_4_5` model and `HIGH` thinking level for both planning and execution
-- Added `MAX_PLANNING_MODEL_NAME`, `MAX_EXECUTION_MODEL_NAME`, `MAX_PLANNING_THINKING_LEVEL`, and `MAX_EXECUTION_THINKING_LEVEL` configuration settings for high-performance mode
-- Added support for `gpt-5.2` model from OpenAI
-- Added `django-crontask` integration and scheduler service scaffolding for periodic tasks.
-- Added GitHub CLI (`gh`) tool support in Git platform middleware for GitHub operations.
-- Added support for `.agents/skills` directory as an additional location for project-specific skills, providing more flexibility in organizing skills alongside existing `.daiv/skills`, `.cursor/skills`, and `.claude/skills` directories.
+- Added support for issue labels to configure agent behavior:
+  - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval.
+  - `daiv-max`: Use high-performance mode with a more capable model and higher thinking level.
+- Added `MAX_MODEL_NAME` and `MAX_THINKING_LEVEL` configuration settings for high-performance mode.
+- Added `django-crontask` integration and scheduler service for periodic tasks, including automatic webhook setup for GitLab.
+- Added GitHub CLI (`gh`) and GitLab specialized tools for git platform operations.
+- Added support for `.agents/skills` directory as an additional location for project-specific skills.
+- Added `web_fetch` tool with SSRF protection (multicast and IPv6 checks), replacing the MCP fetch tool.
+- Added configurable command policy for the sandbox `bash` tool, allowing repositories to define allowed and disallowed commands via `.daiv.yml`.
+- Added Context7 MCP server integration for up-to-date library documentation lookups.
+- Added support for inline comments on merge request reviews.
+- Added the ability for the Review Addressor to push code changes directly to the repository as a draft merge request.
+- Added per-repository model configuration support through the `models` section in `.daiv.yml`.
+- Added Sentry AI integrations for Anthropic, OpenAI, Google GenAI, LangChain, and LangGraph tracing.
+- Added configurable Sentry settings: `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_PROFILES_SAMPLE_RATE`, and `SENTRY_SEND_DEFAULT_PII`.
+- Added support for `claude-opus-4.6`, `claude-sonnet-4.6`, `gpt-5.2`, `gpt-5.3-codex`, `glm-5`, `minimax-m2.5`, and `kimi-k2.5` models.
 
 ### Changed
 
-- Improved documentation for Review Addressor with clear examples showing how to address code review comments using direct mentions (`@daiv <request>`).
-- Added comparison table to Slash Commands documentation clarifying the difference between slash commands and direct mentions.
-- Added configuration section to Issue Addressor documentation with `.daiv.yml` snippets for enabling automated issue resolution and plan approval workflow.
-- Updated the `generating-agents-md` skill prompt to align with the AGENTS.md creation guidance format.
-- Updated issue addressing to accept DAIV trigger labels (`daiv`, `daiv-auto`, `daiv-max`) to launch the agent. All three labels trigger the agent, with `daiv-auto` enabling auto-approval mode. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
-- Migrated pre-commit tooling to prek.
-- Replaced `locked_task` usage with task dedup keys for Django Tasks.
-- Completely rewrote `PullRequestDescriberAgent` prompts with improved structure and clarity:
-  - Enhanced system prompt with explicit rules about factuality and convention handling
-  - Improved guidance for branch naming and commit messages based on repository conventions
-  - Added support for `AGENTS.md` context integration during PR metadata generation
-- Updated default fallback models from `gpt-5.1` to `gpt-5.2` for both planning and execution in `PlanAndExecuteAgent`
-- Refactored `get_context_file_content` logic from `AgentsMDMiddleware` to standalone utility function in `automation.agents.utils`
-- Migrated `PullRequestDescriberAgent` evaluation tests to use data-driven approach with JSONL test cases and reference outputs
-- Deferred sandbox session creation until the first `bash` tool invocation.
-- Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
+- Integrated the `deepagents` library to power the core agent framework, replacing the custom `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` implementations with a unified middleware-based architecture.
+- Migrated agent checkpoints from Postgres to Redis to prevent sub-agent hangs during concurrent execution.
 - Migrated background processing from Celery to Django Tasks using the `django-tasks` database backend.
-- Simplified task definitions to use Django Tasks async support directly.
+- Migrated pre-commit tooling to prek.
+- Migrated type checking from mypy to ty.
+- Updated issue addressing to accept DAIV trigger labels (`daiv`, `daiv-auto`, `daiv-max`) to launch the agent, with `daiv-auto` enabling auto-approval mode. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
+- Completely rewrote the pull request metadata generation as the `diff_to_metadata` module with improved structure, including `AGENTS.md` context integration.
+- Updated default models to `claude-sonnet-4.6` and `gpt-5.3-codex`.
+- Deferred sandbox session creation until the first `bash` tool invocation.
+- Changed base sandbox image to include the `git` command.
+- Migrated Anthropic prompt caching to automatic cache control for OpenRouter.
+- Updated Redis configuration to use persistence (`appendonly yes`) with memory limits.
+- Increased default worker replicas to 2.
+- Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
+- Renamed `quick_actions` module to `slash_commands` and merged behavior with skills system.
+- Improved documentation for Review Addressor, Slash Commands, and Issue Addressor with clearer examples and configuration guides.
 
 ### Fixed
 
-- Added a `traces_sampler` function to the Sentry configuration to filter out transactions from health check endpoints (`/-/alive/`) and prevent sending thousands of irrelevant events to Sentry.
-- Fixed unit tests that still referenced the removed `create_changelog_subagent` by migrating them to `create_docs_research_subagent` expectations and `/agents` output assertions.
-- Fixed duplicate agent launches when issue labels are added, removed, and re-added by checking if DAIV has already reacted to the issue before processing label events.
-- Fixed sandbox archive layout to avoid adding the repository root folder; repository contents are now archived at the top level (while still excluding `.git`).
-- Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception when attempting to read files from empty repositories.
-- Fixed repeated generation of GitHub CLI installation tokens by caching the token in the agent session state for subsequent `gh` tool calls.
-- Fixed skill tool to properly return a `Command` object for state updates instead of returning messages directly.
-- Fixed `daiv-auto` label to work as a trigger label that both launches the agent and enables auto-approval mode, eliminating the need to add two separate labels.
-- Fixed Anthropic prompt caching for OpenRouter multi-turn runs by avoiding `cache_control` markers on trailing tool messages and applying the marker to the latest human message instead.
-- Fixed bash command policy rule checker not matching disallowed commands when global flags (e.g. `git -C /repo commit`) appear before the subcommand. The `_argv_matches_rule()` function in `daiv/core/sandbox/command_policy.py` now uses in-order subsequence matching instead of strict positional prefix matching, so flags between the executable name and subcommand are transparently skipped. ([#883](../../issues/883))
+- Fixed health check endpoints (`/-/alive/`) generating irrelevant Sentry transactions by adding a `traces_sampler` function.
+- Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception.
 
 ### Removed
 
-- Removed builtin `maintaining-changelog` skill in favor of the new changelog subagent
-- Removed `pull_request.branch_name_convention` from `.daiv.yml` configuration file. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
+- Removed builtin `maintaining-changelog` skill.
+- Removed `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` classes, replaced by the `deepagents`-based agent framework.
+- Removed `pull_request.branch_name_convention` from `.daiv.yml`. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
 - Removed Celery worker configuration and bootstrap scripts.
-- Removed the `quick_actions` Django app, templates, and tests in favor of the `slash_commands` module.
+- Removed the `quick_actions` Django app in favor of the `slash_commands` module.
+- Removed support for `gpt-5.1`, `gpt-5.1-codex`, `deepseek-v3.1-terminus`, `gemini-2.5-pro`, `grok-code-fast-1`, `glm-4.6`, `qwen3-max`, `qwen3-coder-plus`, `kimi-k2-thinking`, and `minimax-m2` models.
 
 ## [1.1.0] - 2025-12-04
 
