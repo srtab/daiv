@@ -62,6 +62,7 @@ class IssueAddressorManager(BaseManager):
         Process the issue by addressing it with the appropriate actions.
         """
         messages = []
+        triggered_by = self.issue.author.username
 
         if self.mention_comment_id:
             # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
@@ -69,6 +70,7 @@ class IssueAddressorManager(BaseManager):
                 self.ctx.repository.slug, self.issue.iid, self.mention_comment_id
             )
             latest_comment = mention_comment.notes[-1]
+            triggered_by = latest_comment.author.username
             messages.append(
                 HumanMessage(name=latest_comment.author.username, id=latest_comment.id, content=latest_comment.body)
             )
@@ -94,9 +96,13 @@ class IssueAddressorManager(BaseManager):
             )
             agent_config = RunnableConfig(
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
                 metadata={
                     "author": self.issue.author.username,
+                    "triggered_by": triggered_by,
+                    "trigger": "mention" if self.mention_comment_id else "label",
+                    "repository": self.ctx.repository.slug,
+                    "git_platform": self.client.git_platform.value,
                     "issue_id": self.issue.iid,
                     "labels": [label.lower() for label in self.issue.labels],
                     "scope": self.ctx.scope,
