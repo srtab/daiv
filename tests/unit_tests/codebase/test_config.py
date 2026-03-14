@@ -14,7 +14,7 @@ class RepositoryConfigTest:
         repo_id = "test_repo"
         cached_config = {
             "default_branch": "main",
-            "code_review": {"enabled": True},
+            "pull_request_assistant": {"enabled": True},
             "issue_addressing": {"enabled": True},
             "slash_commands": {"enabled": True},
         }
@@ -23,7 +23,7 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.default_branch == "main"
-        assert config.code_review.enabled is True
+        assert config.pull_request_assistant.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
@@ -35,7 +35,7 @@ class RepositoryConfigTest:
         mock_repo_client.get_repository.return_value.default_branch = "main"
         mock_repo_client.get_repository_file.return_value = """
         default_branch: main
-        code_review:
+        pull_request_assistant:
           enabled: true
         issue_addressing:
           enabled: true
@@ -46,7 +46,7 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.default_branch == "main"
-        assert config.code_review.enabled is True
+        assert config.pull_request_assistant.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
@@ -63,7 +63,7 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.default_branch == "main"
-        assert config.code_review.enabled is True
+        assert config.pull_request_assistant.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
@@ -86,7 +86,7 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.default_branch == "main"
-        assert config.code_review.enabled is True
+        assert config.pull_request_assistant.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
@@ -105,7 +105,7 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.default_branch == "main"
-        assert config.code_review.enabled is True
+        assert config.pull_request_assistant.enabled is True
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(

@@ -151,7 +151,7 @@ DAIV's agent has access to a set of capabilities that make this possible:
 - [x] Add support to Agent Skills.
 - [ ] Add support to custom MCP servers.
 - [x] Add an evaluation system to measure the quality of DAIV's agents.
-- [ ] Add support to automated code review.
+- [ ] Add support to automated pull request review.
 - [ ] Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
 - [ ] Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
 

@@ -19,7 +19,7 @@ omit_content_patterns:
 issue_addressing:
   enabled: true
 
-code_review:
+pull_request_assistant:
   enabled: true
 
 slash_commands:
@@ -75,7 +75,7 @@ All features are enabled by default. Disable any you don't need:
 issue_addressing:
   enabled: false
 
-code_review:
+pull_request_assistant:
   enabled: false
 
 slash_commands:
@@ -85,7 +85,7 @@ slash_commands:
 | Section | Option | Default | Description |
 |---------|--------|---------|-------------|
 | `issue_addressing` | `enabled` | `true` | [Issue Addressing](../features/issue-addressing.md) |
-| `code_review` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
+| `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 
 ## Sandbox

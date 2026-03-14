@@ -75,9 +75,9 @@ DAIV maintains context across multiple interactions on the same pull request. Yo
 
 ## Configuration
 
-Code review is enabled by default. To disable it, add the following to your `.daiv.yml`:
+The pull request assistant is enabled by default. To disable it, add the following to your `.daiv.yml`:
 
 ```yaml
-code_review:
+pull_request_assistant:
   enabled: false
 ```
