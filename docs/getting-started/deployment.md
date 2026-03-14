@@ -175,6 +175,7 @@ services:
       - internal
     deploy:
       <<: *deploy_defaults
+      replicas: 1 (10)
 
   scheduler:
     image: ghcr.io/srtab/daiv:latest (5)
@@ -264,6 +265,7 @@ secrets:
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
 9.   MCP Proxy fetches its configuration from the DAIV API. The secret must be a valid DAIV API key (see [MCP Proxy API key](#mcp-proxy-api-key))
+10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 3: Deploy the stack
 
@@ -387,9 +389,10 @@ services:
 
   worker:
     <<: *x_app_default
-    container_name: daiv-worker
     command: sh /home/daiv/start-worker
     ports: []
+    deploy:
+      replicas: 1 (16)
     depends_on:
       app:
         condition: service_healthy
@@ -454,6 +457,7 @@ volumes:
 13.  **Generate a random API key** for MCP Proxy service authentication
 14.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 15.  **DAIV API key** for MCP Proxy to fetch its configuration (see [MCP Proxy API key](#mcp-proxy-api-key))
+16.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 2: Run the compose file
 
