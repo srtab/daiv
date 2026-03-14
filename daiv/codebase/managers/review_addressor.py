@@ -235,9 +235,13 @@ class CommentsAddressorManager(BaseManager):
             )
             agent_config = RunnableConfig(
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
                 metadata={
                     "author": self.merge_request.author.username,
+                    "triggered_by": mention_comment.notes[0].author.username,
+                    "trigger": "mention",
+                    "repository": self.ctx.repository.slug,
+                    "git_platform": self.client.git_platform.value,
                     "merge_request_id": self.merge_request.merge_request_id,
                     "scope": self.ctx.scope,
                 },
