@@ -84,5 +84,44 @@ sandbox:
 | `command_policy.allow` | `[]` | Commands to explicitly allow. |
 | `command_policy.disallow` | `[]` | Commands to explicitly block. |
 
+## Custom base image
+
+The `base_image` option is one of the most powerful sandbox settings. By providing your own Docker image, you give the agent access to your project's exact toolchain — the same runtimes, package managers, and utilities your team uses every day.
+
+### Requirements
+
+Your base image **must include `git`**. The sandbox mounts the repository and the agent relies on git to inspect the codebase (e.g., `git diff`, `git log`, `git status`). Without it, many sandbox operations will fail.
+
+### Examples
+
+| Project type | Recommended image | Why |
+|---|---|---|
+| Python | `python:3.12-bookworm` (default) | Includes pip, git, and common build tools |
+| Node.js | `node:22-bookworm` | Includes npm/npx and git |
+| Go | `golang:1.23-bookworm` | Includes go toolchain and git |
+| Multi-language | Your own image | Pre-install all runtimes and dependencies |
+
+### Building your own image
+
+For the best experience, create an image with your project's dependencies pre-installed. This avoids the agent spending time on `npm install` or `pip install` on every task.
+
+```dockerfile
+FROM python:3.12-bookworm
+
+# Ensure git is available
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Pre-install project dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+```
+
+Then reference it in `.daiv.yml`:
+
+```yaml
+sandbox:
+  base_image: "your-registry.example.com/your-project-sandbox:latest"
+```
+
 !!! tip
-    Use a custom `base_image` if your project needs specific tooling pre-installed (e.g., `node:18-alpine` for a Node.js project, or your own image with project-specific dependencies).
+    Pre-installing dependencies in your image makes the agent significantly faster — it can jump straight into running tests or builds instead of waiting for package installation.
