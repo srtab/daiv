@@ -35,12 +35,12 @@ class IssueAddressing(BaseModel):
     enabled: bool = Field(default=True, description="Enable issue addressing features.")
 
 
-class CodeReview(BaseModel):
+class PullRequestAssistant(BaseModel):
     """
-    Code review configuration.
+    Pull request assistant configuration.
     """
 
-    enabled: bool = Field(default=True, description="Enable code review features.")
+    enabled: bool = Field(default=True, description="Enable pull request assistant features.")
 
 
 class SlashCommands(BaseModel):
@@ -210,7 +210,11 @@ class RepositoryConfig(BaseModel):
     slash_commands: SlashCommands = Field(
         default_factory=SlashCommands, description="Configure slash command features."
     )
-    code_review: CodeReview = Field(default_factory=CodeReview, description="Configure code review features.")
+    pull_request_assistant: PullRequestAssistant = Field(
+        default_factory=PullRequestAssistant,
+        validation_alias=AliasChoices("pull_request_assistant", "code_review"),
+        description="Configure pull request assistant features.",
+    )
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )
