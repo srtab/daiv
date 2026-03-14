@@ -12,24 +12,24 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/issue-addressor/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/sandbox/">
       
       
-        <link rel="prev" href="../../configuration/monitoring/">
+        <link rel="prev" href="../subagents/">
       
       
-        <link rel="next" href="../review-addressor/">
+        <link rel="next" href="../../customization/repository-config/">
       
       
         
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
     
     
       
-        <title>Issue Addressor - DAIV</title>
+        <title>Sandbox - DAIV</title>
       
     
     
@@ -50,8 +50,8 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#issue-addressor" class="md-skip">
+        <a href="#sandbox" class="md-skip">
           Skip to content
         </a>
       
@@ -103,7 +103,7 @@
     <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Issue Addressor
+              Sandbox
             
           </span>
         </div>
@@ -143,7 +143,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -153,7 +153,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
     
       <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -249,7 +249,7 @@
     <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     DAIV
@@ -350,14 +350,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/up-and-running/" class="md-nav__link">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Up and Running
+    Deployment
   
 
     
@@ -378,14 +378,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/configuration/" class="md-nav__link">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Configuration
+    Platform Setup
   
 
     
@@ -406,152 +406,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Supported Providers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Configuration
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/yaml-config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    YAML Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/env-config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Environment Variables
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/monitoring/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Monitoring
+    LLM Providers
   
 
     
@@ -589,10 +451,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -610,8 +472,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -625,44 +487,17 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Issue Addressor
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../issue-addressing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Issue Addressor
+    Issue Addressing
   
 
     
@@ -671,170 +506,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#triggering-runs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Triggering runs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-configuration-labels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Agent Configuration Labels
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Configuration Labels">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#daiv-auto-label" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        daiv-auto Label
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#daiv-max-label" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        daiv-max Label
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#combining-labels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Combining Labels
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-the-plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resetting the plan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#plan-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Plan Approval
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Plan Approval">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#approving-the-plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Approving the Plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-manual-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why Manual Approval?
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#plan-execution-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Plan Execution Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -847,14 +518,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../review-addressor/" class="md-nav__link">
+      <a href="../pull-request-assistant/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Review Addressor
+    Pull Request Assistant
   
 
     
@@ -882,7 +553,370 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands
+    Slash Commands & Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-agent-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the agent can do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built-in-safety-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in safety rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-repository-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-repository rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-base-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom base image
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom base image">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building-your-own-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building your own image
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Tools
   
 
     
@@ -928,7 +962,7 @@
   <span class="md-ellipsis">
     
   
-    AI Agents
+    Reference
   
 
     
@@ -944,7 +978,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    AI Agents
+    Reference
   
 
           </label>
@@ -957,14 +991,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/overview/" class="md-nav__link">
+      <a href="../../reference/env-variables/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
+    Environment Variables
   
 
     
@@ -985,14 +1019,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/skills/" class="md-nav__link">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent Architecture
   
 
     
@@ -1013,14 +1047,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/mcp-tools/" class="md-nav__link">
+      <a href="../../reference/monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    Monitoring
   
 
     
@@ -1095,6 +1129,67 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-the-agent-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the agent can do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built-in-safety-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in safety rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-repository-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-repository rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1106,33 +1201,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#triggering-runs" class="md-nav__link">
+  <a href="#custom-base-image" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Triggering runs
+        Custom base image
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-configuration-labels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Agent Configuration Labels
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Configuration Labels">
+    <nav class="md-nav" aria-label="Custom base image">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#daiv-auto-label" class="md-nav__link">
+  <a href="#requirements" class="md-nav__link">
     <span class="md-ellipsis">
       
-        daiv-auto Label
+        Requirements
       
     </span>
   </a>
@@ -1140,10 +1224,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#daiv-max-label" class="md-nav__link">
+  <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
       
-        daiv-max Label
+        Examples
       
     </span>
   </a>
@@ -1151,10 +1235,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#combining-labels" class="md-nav__link">
+  <a href="#building-your-own-image" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Combining Labels
+        Building your own image
       
     </span>
   </a>
@@ -1163,78 +1247,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-the-plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resetting the plan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#plan-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Plan Approval
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Plan Approval">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#approving-the-plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Approving the Plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-manual-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why Manual Approval?
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#plan-execution-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Plan Execution Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1281,7 +1293,7 @@
     
     
       <li class="md-path__item">
-        <a href="./" class="md-path__link">
+        <a href="../issue-addressing/" class="md-path__link">
           
   <span class="md-ellipsis">
     Features
@@ -1303,7 +1315,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/features/issue-addressor.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/sandbox.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1311,112 +1323,211 @@
   
 
 
-<h1 id="issue-addressor">🤖 Issue Addressor</h1>
-<p>Issue Addressing is a feature that allows DAIV to address issues by generating a plan and executing the necessary code changes, opening a merge request (GitLab) or pull request (GitHub) with the changes for review.</p>
-<h2 id="configuration">Configuration</h2>
-<p>Enable issue addressing in your <code>.daiv.yml</code> configuration file at the repository root:</p>
+<h1 id="sandbox">Sandbox</h1>
+<p>The sandbox gives DAIV's agent the ability to execute shell commands inside an isolated Docker container. This lets it run tests, install dependencies, execute linters, inspect git history, and perform other operations that require a real shell environment.</p>
+<p>The sandbox is powered by <a href="https://github.com/srtab/daiv-sandbox/">daiv-sandbox</a>, a companion service that manages container sessions.</p>
+<h2 id="what-the-agent-can-do">What the agent can do</h2>
+<p>With the sandbox enabled, DAIV can:</p>
+<ul>
+<li>Run tests and linters to validate changes</li>
+<li>Install and update dependencies (npm, pip, uv, etc.)</li>
+<li>Inspect git state (<code>git status</code>, <code>git diff</code>, <code>git log</code>)</li>
+<li>Execute build scripts and generators</li>
+<li>Run any command allowed by the command policy</li>
+</ul>
+<p>Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.</p>
+<h2 id="command-policy">Command policy</h2>
+<p>Not all commands are safe for an AI agent to run. The sandbox enforces a layered command policy that controls what's allowed.</p>
+<h3 id="built-in-safety-rules">Built-in safety rules</h3>
+<p>The following commands are <strong>always blocked</strong> and cannot be overridden:</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Blocked commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Git history mutation</td>
+<td><code>git commit</code>, <code>git push</code>, <code>git reset</code>, <code>git rebase</code>, <code>git filter-branch</code></td>
+</tr>
+<tr>
+<td>Git index manipulation</td>
+<td><code>git add</code>, <code>git hash-object</code>, <code>git update-index</code></td>
+</tr>
+<tr>
+<td>Destructive operations</td>
+<td><code>git clean</code>, <code>git checkout .</code>, <code>git restore .</code></td>
+</tr>
+<tr>
+<td>Branch/tag deletion</td>
+<td><code>git branch -D</code>, <code>git tag -d</code></td>
+</tr>
+<tr>
+<td>Git configuration</td>
+<td><code>git config</code></td>
+</tr>
+<tr>
+<td>Platform CLI tools</td>
+<td><code>gitlab</code>, <code>gh</code>, <code>python -m gitlab</code></td>
+</tr>
+</tbody>
+</table>
+<p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.</p>
+<h3 id="per-repository-rules">Per-repository rules</h3>
+<p>You can add custom allow and disallow rules in your <code>.daiv.yml</code>:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
 <span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Enable automated issue resolution</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nt">issue_addressing</span><span class="p">:</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span>
+<span class="normal"><a href="#__codelineno-0-4">4</a></span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span>
+<span class="normal"><a href="#__codelineno-0-6">6</a></span>
+<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">command_policy</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">    </span><span class="nt">allow</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;npm</span><span class="nv"> </span><span class="s">install&quot;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pytest&quot;</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">disallow</span><span class="p">:</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;rm</span><span class="nv"> </span><span class="s">-rf&quot;</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="precedence">Precedence</h3>
+<p>When a command is evaluated, rules are checked in this order:</p>
+<ol>
+<li><strong>Built-in disallow</strong> — always wins, cannot be overridden</li>
+<li><strong>Repository disallow</strong> — cannot be overridden by allow</li>
+<li><strong>Repository allow</strong> — permits commands not caught by 1 or 2</li>
+<li><strong>Default</strong> — everything else is allowed</li>
+</ol>
+<h2 id="configuration">Configuration</h2>
+<p>The sandbox is configured per-repository in <code>.daiv.yml</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span>
+<span class="normal"><a href="#__codelineno-1-5">5</a></span>
+<span class="normal"><a href="#__codelineno-1-6">6</a></span>
+<span class="normal"><a href="#__codelineno-1-7">7</a></span>
+<span class="normal"><a href="#__codelineno-1-8">8</a></span>
+<span class="normal"><a href="#__codelineno-1-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python:3.12-bookworm&quot;</span><span class="w">  </span><span class="c1"># Docker image (set to null to disable)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="nt">network_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">               </span><span class="c1"># Allow network access</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="nt">ephemeral</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                     </span><span class="c1"># Ephemeral sessions</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="w">  </span><span class="nt">memory_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4294967296</span><span class="w">             </span><span class="c1"># Memory limit (4 GB)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="w">  </span><span class="nt">cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">                            </span><span class="c1"># CPU limit</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="w">  </span><span class="nt">command_policy</span><span class="p">:</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="w">    </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9"></a><span class="w">    </span><span class="nt">disallow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
 </code></pre></div></td></tr></table></div>
 <table>
 <thead>
 <tr>
 <th>Option</th>
-<th>Type</th>
 <th>Default</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>enabled</code></td>
-<td><code>bool</code></td>
-<td><code>true</code></td>
-<td>Enable or disable the issue addressing feature.</td>
+<td><code>base_image</code></td>
+<td><code>python:3.12-bookworm</code></td>
+<td>Docker image for the sandbox. Set to <code>null</code> to disable the sandbox for this repository.</td>
+</tr>
+<tr>
+<td><code>network_enabled</code></td>
+<td><code>false</code></td>
+<td>Whether the container can access the network.</td>
+</tr>
+<tr>
+<td><code>ephemeral</code></td>
+<td><code>false</code></td>
+<td>Whether sessions are ephemeral (no state persistence).</td>
+</tr>
+<tr>
+<td><code>memory_bytes</code></td>
+<td><code>null</code> (unlimited)</td>
+<td>Memory limit in bytes.</td>
+</tr>
+<tr>
+<td><code>cpus</code></td>
+<td><code>null</code> (unlimited)</td>
+<td>CPU limit.</td>
+</tr>
+<tr>
+<td><code>command_policy.allow</code></td>
+<td><code>[]</code></td>
+<td>Commands to explicitly allow.</td>
+</tr>
+<tr>
+<td><code>command_policy.disallow</code></td>
+<td><code>[]</code></td>
+<td>Commands to explicitly block.</td>
 </tr>
 </tbody>
 </table>
+<h2 id="custom-base-image">Custom base image</h2>
+<p>The <code>base_image</code> option is one of the most powerful sandbox settings. By providing your own Docker image, you give the agent access to your project's exact toolchain — the same runtimes, package managers, and utilities your team uses every day.</p>
+<h3 id="requirements">Requirements</h3>
+<p>Your base image <strong>must include <code>git</code></strong>. The sandbox mounts the repository and the agent relies on git to inspect the codebase (e.g., <code>git diff</code>, <code>git log</code>, <code>git status</code>). Without it, many sandbox operations will fail.</p>
+<h3 id="examples">Examples</h3>
+<table>
+<thead>
+<tr>
+<th>Project type</th>
+<th>Recommended image</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td><code>python:3.12-bookworm</code> (default)</td>
+<td>Includes pip, git, and common build tools</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td><code>node:22-bookworm</code></td>
+<td>Includes npm/npx and git</td>
+</tr>
+<tr>
+<td>Go</td>
+<td><code>golang:1.23-bookworm</code></td>
+<td>Includes go toolchain and git</td>
+</tr>
+<tr>
+<td>Multi-language</td>
+<td>Your own image</td>
+<td>Pre-install all runtimes and dependencies</td>
+</tr>
+</tbody>
+</table>
+<h3 id="building-your-own-image">Building your own image</h3>
+<p>For the best experience, create an image with your project's dependencies pre-installed. This avoids the agent spending time on <code>npm install</code> or <code>pip install</code> on every task.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Docker</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span>
+<span class="normal"><a href="#__codelineno-2-7">7</a></span>
+<span class="normal"><a href="#__codelineno-2-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">python:3.12-bookworm</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="c"># Ensure git is available</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>git<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/var/lib/apt/lists/*
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="c"># Pre-install project dependencies</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="k">COPY</span><span class="w"> </span>requirements.txt<span class="w"> </span>.
+<a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="k">RUN</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</code></pre></div></td></tr></table></div>
+<p>Then reference it in <code>.daiv.yml</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-registry.example.com/your-project-sandbox:latest&quot;</span>
+</code></pre></div></td></tr></table></div>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p>Issue addressing is enabled by default. Add <code>enabled: false</code> only if you want to disable it.</p>
+<p>Pre-installing dependencies in your image makes the agent significantly faster — it can jump straight into running tests or builds instead of waiting for package installation.</p>
 </div>
-<h2 id="triggering-runs">Triggering runs</h2>
-<p>DAIV monitor issues for changes in the issue title, description, labels and state using webhooks. This streamlines the process of issuing a code change and requires no manual intervention to start a run.</p>
-<p><strong>With Label</strong></p>
-<p>You can trigger issue addressing by adding any of the following labels to the issue:
-- <code>daiv</code> - Standard DAIV issue addressing
-- <code>daiv-auto</code> - Automatically approve and execute plans (see <a href="#agent-configuration-labels">Agent Configuration Labels</a>)
-- <code>daiv-max</code> - Use high-performance mode (see <a href="#agent-configuration-labels">Agent Configuration Labels</a>)</p>
-<p>Labels are case-insensitive, so <code>DAIV</code>, <code>Daiv</code>, or <code>daiv</code> will all work.</p>
-<h2 id="agent-configuration-labels">Agent Configuration Labels</h2>
-<p>You can configure the plan and execute agent behavior by adding specific labels to your issue:</p>
-<h3 id="daiv-auto-label"><code>daiv-auto</code> Label</h3>
-<p>Automatically approve the plan and proceed with implementation without requiring manual approval. This is useful for trusted scenarios where you want DAIV to execute plans immediately after generation.</p>
-<p><strong>Example:</strong>
-- Add the <code>daiv-auto</code> label to an issue
-- DAIV will generate a plan and automatically execute it without waiting for manual approval</p>
-<h3 id="daiv-max-label"><code>daiv-max</code> Label</h3>
-<p>Enable high-performance mode with:
-- <strong>Model</strong>: Uses <code>CLAUDE_OPUS_4_5</code> (more intelligent model) instead of the default <code>CLAUDE_SONNET_4_5</code>
-- <strong>Thinking Level</strong>: Sets both planning and execution thinking levels to <code>HIGH</code> for deeper reasoning</p>
-<p>This is useful for complex issues that require more sophisticated analysis and execution.</p>
-<p><strong>Example:</strong>
-- Add the <code>daiv-max</code> label to an issue
-- DAIV will use the more powerful model and higher thinking levels for both planning and execution</p>
-<h3 id="combining-labels">Combining Labels</h3>
-<p>You can combine labels to get both behaviors:
-- <code>daiv-auto</code> + <code>daiv-max</code>: Automatically approve plans using high-performance mode</p>
-<h2 id="resetting-the-plan">Resetting the plan</h2>
-<p>You can reset the plan by:</p>
-<ol>
-<li>updating the issue title or description.</li>
-</ol>
-<p>DAIV will automatically regenerate the plan.</p>
-<h2 id="plan-approval">Plan Approval</h2>
-<p>DAIV uses a <strong>human-in-the-loop</strong> approach for plan approval. After generating a plan, DAIV waits for explicit approval before executing code changes.</p>
-<h3 id="approving-the-plan">Approving the Plan</h3>
-<p>Approve and execute the plan by leaving a comment that mentions DAIV:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv proceed
-</code></pre></div></td></tr></table></div>
-<p>DAIV will execute the plan and open a merge request (GitLab) or pull request (GitHub) with the changes for review.</p>
-<h3 id="why-manual-approval">Why Manual Approval?</h3>
-<p>Manual plan approval provides:</p>
-<ul>
-<li><strong>Review opportunity</strong>: Verify the plan before code changes are made</li>
-<li><strong>Safety</strong>: Prevent unintended changes to your codebase</li>
-<li><strong>Control</strong>: Choose when and which plans to execute</li>
-</ul>
-<h3 id="plan-execution-behavior">Plan Execution Behavior</h3>
-<p>After a first plan is executed on an issue, executing a second plan will override the previous merge/pull request.</p>
-<h2 id="workflow">Workflow</h2>
-<pre class="mermaid"><code>graph TD
-    A["👤 Developer"] --&gt; B["📝 Creates Issue&lt;br/&gt;(with 'daiv' label)"]
-    B --&gt; C["🔔 Webhook Triggered"]
-    C --&gt; D["🤖 Issue Addressor Agent"]
-    D --&gt; E["📋 Analyzes Issue&lt;br/&gt;(title, description, images)"]
-    E --&gt; F["💡 Generates Plan"]
-    F --&gt; G["💬 Posts Plan as Comment&lt;br/&gt;(waits for approval)"]
-
-    H["👤 Developer"] --&gt; I["✅ Approves Plan&lt;br/&gt;(comments approval)"]
-    I --&gt; J["🔔 Comment Webhook"]
-    J --&gt; K["🔨 Executes Plan&lt;br/&gt;(plan_and_execute agent)"]
-    K --&gt; L["📝 Applies Code Changes"]
-    L --&gt; M["🎨 Code Formatting"]
-    M --&gt; N["📤 Creates Merge/Pull Request"]
-    N --&gt; O["💬 Posts MR/PR Link on Issue"]
-
-    G --&gt; P["❌ Plan Needs Changes"]
-    P --&gt; Q["📝 Developer Updates Issue"]
-    Q --&gt; R["🔄 Regenerates Plan"]
-    R --&gt; G
-
-    style B fill:#e1f5fe
-    style G fill:#fff3e0
-    style I fill:#e8f5e8
-    style N fill:#f3e5f5</code></pre>
 
 
 
@@ -1439,7 +1550,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     
@@ -1449,7 +1560,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     

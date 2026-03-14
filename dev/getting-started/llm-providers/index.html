@@ -12,29 +12,31 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/getting-started/llm-providers/">
       
       
+        <link rel="prev" href="../platform-setup/">
       
-        <link rel="next" href="getting-started/deployment/">
+      
+        <link rel="next" href="../../features/issue-addressing/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
     
     
       
-        <title>DAIV</title>
+        <title>LLM Providers - DAIV</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,7 +55,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-daiv-does" class="md-skip">
+        <a href="#llm-providers" class="md-skip">
           Skip to content
         </a>
       
@@ -98,7 +100,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
@@ -118,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              LLM Providers
             
           </span>
         </div>
@@ -244,7 +246,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
@@ -271,35 +273,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -315,79 +292,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-daiv-does" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What DAIV does
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quick-example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick example
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#under-the-hood" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Under the hood
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#supported-platforms" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Supported platforms
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#get-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Get started
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -396,18 +300,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -428,7 +334,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -446,7 +352,7 @@
   
   
     <li class="md-nav__item">
-      <a href="getting-started/deployment/" class="md-nav__link">
+      <a href="../deployment/" class="md-nav__link">
         
   
   
@@ -474,7 +380,7 @@
   
   
     <li class="md-nav__item">
-      <a href="getting-started/platform-setup/" class="md-nav__link">
+      <a href="../platform-setup/" class="md-nav__link">
         
   
   
@@ -499,10 +405,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="getting-started/llm-providers/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM Providers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -518,6 +451,98 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-models-are-specified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How models are specified
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How models are specified">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openrouter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#anthropic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anthropic
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#google-gemini" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Google Gemini
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -584,7 +609,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/issue-addressing/" class="md-nav__link">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
         
   
   
@@ -612,7 +637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/pull-request-assistant/" class="md-nav__link">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
         
   
   
@@ -640,7 +665,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/slash-commands/" class="md-nav__link">
+      <a href="../../features/slash-commands/" class="md-nav__link">
         
   
   
@@ -668,7 +693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/subagents/" class="md-nav__link">
+      <a href="../../features/subagents/" class="md-nav__link">
         
   
   
@@ -696,7 +721,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/sandbox/" class="md-nav__link">
+      <a href="../../features/sandbox/" class="md-nav__link">
         
   
   
@@ -778,7 +803,7 @@
   
   
     <li class="md-nav__item">
-      <a href="customization/repository-config/" class="md-nav__link">
+      <a href="../../customization/repository-config/" class="md-nav__link">
         
   
   
@@ -806,7 +831,7 @@
   
   
     <li class="md-nav__item">
-      <a href="customization/agent-skills/" class="md-nav__link">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
         
   
   
@@ -834,7 +859,7 @@
   
   
     <li class="md-nav__item">
-      <a href="customization/mcp-tools/" class="md-nav__link">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
         
   
   
@@ -916,7 +941,7 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/env-variables/" class="md-nav__link">
+      <a href="../../reference/env-variables/" class="md-nav__link">
         
   
   
@@ -944,7 +969,7 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/agent-architecture/" class="md-nav__link">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
   
@@ -972,7 +997,7 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/monitoring/" class="md-nav__link">
+      <a href="../../reference/monitoring/" class="md-nav__link">
         
   
   
@@ -1007,7 +1032,7 @@
   
   
     <li class="md-nav__item">
-      <a href="community/" class="md-nav__link">
+      <a href="../../community/" class="md-nav__link">
         
   
   
@@ -1044,6 +1069,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1052,10 +1079,38 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-daiv-does" class="md-nav__link">
+  <a href="#how-models-are-specified" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What DAIV does
+        How models are specified
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How models are specified">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openrouter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter
       
     </span>
   </a>
@@ -1063,10 +1118,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick-example" class="md-nav__link">
+  <a href="#openai" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quick example
+        OpenAI
       
     </span>
   </a>
@@ -1074,10 +1129,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#under-the-hood" class="md-nav__link">
+  <a href="#anthropic" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Under the hood
+        Anthropic
       
     </span>
   </a>
@@ -1085,21 +1140,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#supported-platforms" class="md-nav__link">
+  <a href="#google-gemini" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Supported platforms
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#get-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Get started
+        Google Gemini
       
     </span>
   </a>
@@ -1124,6 +1168,46 @@
   
 
 
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../deployment/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Getting Started
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
               
               <article class="md-content__inner md-typeset">
                 
@@ -1131,7 +1215,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/getting-started/llm-providers.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1139,87 +1223,148 @@
   
 
 
-<h1 align="center" style="font-size: 4rem; font-weight: 800; letter-spacing: -0.02em;">DAIV</h1>
-
-<p align="center">
-  <strong>Open-source async SWE agent for your Git platform</strong>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml" alt="Python Version">
-  <a href="https://github.com/srtab/daiv/blob/main/LICENSE"><img src="https://img.shields.io/github/license/srtab/daiv" alt="License"></a>
-  <a href="https://github.com/srtab/daiv/actions"><img src="https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-</p>
-
-<hr />
-<p>DAIV integrates directly with <strong>GitLab</strong> and <strong>GitHub</strong> repositories through webhooks. No separate interface needed — you keep using your existing workflow while DAIV handles automation in the background.</p>
-<h2 id="what-daiv-does">What DAIV does</h2>
-<p>DAIV automates routine software engineering work so you can focus on creative problem-solving:</p>
+<h1 id="llm-providers">LLM Providers</h1>
+<p>DAIV supports the following LLM providers:</p>
 <ul>
-<li><strong>Issue Addressing</strong> — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.</li>
-<li><strong>Pull Request Assistant</strong> — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.</li>
-<li><strong>Slash Commands &amp; Skills</strong> — Invoke commands and skills directly from issues and merge requests (<code>/help</code>, <code>/plan</code>, <code>/code-review</code>, <code>/clone-to-topics</code>). Built-in skills provide planning, code review, and security audits — and you can create your own.</li>
+<li><a href="https://openrouter.ai">OpenRouter</a> (<strong>default</strong>)</li>
+<li><a href="https://openai.com">OpenAI</a></li>
+<li><a href="https://anthropic.com">Anthropic</a></li>
+<li><a href="https://gemini.google.com">Google Gemini</a></li>
 </ul>
-<h2 id="quick-example">Quick example</h2>
+<p>You can mix providers — for example, use OpenRouter for the main agent and a direct provider for a specific model override.</p>
+<h2 id="how-models-are-specified">How models are specified</h2>
+<p>Models use a <strong>prefix system</strong> to identify the provider:</p>
+<table>
+<thead>
+<tr>
+<th>Prefix</th>
+<th>Provider</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>openrouter:</code></td>
+<td>OpenRouter</td>
+<td><code>openrouter:anthropic/claude-sonnet-4.6</code></td>
+</tr>
+<tr>
+<td><code>claude</code></td>
+<td>Anthropic (direct)</td>
+<td><code>claude-sonnet-4.6</code></td>
+</tr>
+<tr>
+<td><code>gpt-</code>, <code>o4</code></td>
+<td>OpenAI (direct)</td>
+<td><code>gpt-5.3-codex</code></td>
+</tr>
+<tr>
+<td><code>gemini</code></td>
+<td>Google Gemini (direct)</td>
+<td><code>gemini-2.5-pro-preview-05-06</code></td>
+</tr>
+</tbody>
+</table>
+<p>DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.</p>
+<h3 id="default-models">Default models</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Model</th>
+<th>Provider</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Main agent</td>
+<td>Claude Sonnet 4.6</td>
+<td>OpenRouter</td>
+</tr>
+<tr>
+<td>Max mode</td>
+<td>Claude Opus 4.6</td>
+<td>OpenRouter</td>
+</tr>
+<tr>
+<td>Explore subagent</td>
+<td>Claude Haiku 4.5</td>
+<td>OpenRouter</td>
+</tr>
+<tr>
+<td>Fallback</td>
+<td>GPT 5.3 Codex</td>
+<td>OpenRouter</td>
+</tr>
+</tbody>
+</table>
+<p>All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Override models per repository in <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
+<hr />
+<h2 id="openrouter">OpenRouter</h2>
+<p>OpenRouter is the <strong>default provider</strong> for DAIV. It provides access to models from multiple vendors with built-in fallback support.</p>
+<p><strong>Setup:</strong></p>
 <ol>
-<li><strong>You create an issue:</strong> "Add rate limiting to the API endpoints"</li>
-<li><strong>DAIV posts a plan:</strong> Analyzes the codebase and proposes implementation steps</li>
-<li><strong>You approve:</strong> Comment <code>@daiv proceed</code></li>
-<li><strong>DAIV implements:</strong> Creates a merge request with the code changes</li>
-<li><strong>Reviewer asks for changes:</strong> "@daiv use Redis instead of in-memory storage"</li>
-<li><strong>DAIV updates the code:</strong> Modifies the implementation and pushes</li>
+<li>Obtain an API key from <a href="https://openrouter.ai/settings/keys">OpenRouter Settings</a></li>
+<li>Set the environment variable:
+   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>OPENROUTER_API_KEY=your-api-key-here
+</code></pre></div></td></tr></table></div></li>
 </ol>
-<h2 id="under-the-hood">Under the hood</h2>
-<p>DAIV is powered by <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework built on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> with sub-agent spawning, a middleware stack, and virtual filesystem. On top of this foundation, DAIV adds:</p>
-<ul>
-<li><strong>Subagents</strong> — Specialized agents for fast codebase exploration and complex multi-step tasks.</li>
-<li><strong>Sandbox</strong> — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.</li>
-<li><strong>MCP Tools</strong> — External tool integrations via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, such as Sentry for error tracking.</li>
-</ul>
-<h2 id="supported-platforms">Supported platforms</h2>
-<div class="grid cards">
-<ul>
-<li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m23.6 9.593-.033-.086L20.3.98a.85.85 0 0 0-.336-.405.875.875 0 0 0-1 .054.88.88 0 0 0-.29.44L16.47 7.818H7.537L5.333 1.07a.86.86 0 0 0-.29-.441.875.875 0 0 0-1-.054.86.86 0 0 0-.336.405L.433 9.502l-.032.086a6.066 6.066 0 0 0 2.012 7.01l.01.009.03.021 4.977 3.727 2.462 1.863 1.5 1.132a1.01 1.01 0 0 0 1.22 0l1.499-1.132 2.461-1.863 5.006-3.75.013-.01a6.07 6.07 0 0 0 2.01-7.002"/></svg></span> <strong>GitLab</strong></p>
+<p><strong>Model format:</strong></p>
+<p>Use the <code>openrouter:</code> prefix followed by the <a href="https://openrouter.ai/models">model name from OpenRouter</a>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>openrouter:anthropic/claude-sonnet-4.6
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>openrouter:openai/gpt-5.3-codex
+</code></pre></div></td></tr></table></div>
 <hr />
-<p>GitLab.com and self-hosted instances. Full feature support.</p>
-</li>
-<li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></span> <strong>GitHub</strong></p>
+<h2 id="openai">OpenAI</h2>
+<p><strong>Setup:</strong></p>
+<ol>
+<li>Obtain an API key from <a href="https://platform.openai.com/api-keys">OpenAI</a></li>
+<li>Set the environment variable:
+   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>OPENAI_API_KEY=your-api-key-here
+</code></pre></div></td></tr></table></div></li>
+</ol>
+<p><strong>Model format:</strong></p>
+<p>Use the <a href="https://platform.openai.com/docs/models">model name from OpenAI</a> directly (no prefix needed):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>gpt-5.3-codex
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>o4-mini
+</code></pre></div></td></tr></table></div>
 <hr />
-<p>GitHub.com and GitHub Enterprise. Full feature support.</p>
-</li>
-</ul>
+<h2 id="anthropic">Anthropic</h2>
+<p><strong>Setup:</strong></p>
+<ol>
+<li>Obtain an API key from <a href="https://console.anthropic.com/settings/keys">Anthropic</a></li>
+<li>Set the environment variable:
+   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>ANTHROPIC_API_KEY=your-api-key-here
+</code></pre></div></td></tr></table></div></li>
+</ol>
+<p><strong>Model format:</strong></p>
+<p>Use the <a href="https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names">model name from Anthropic</a> directly (no prefix needed):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>claude-sonnet-4.6
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a>claude-opus-4.6
+</code></pre></div></td></tr></table></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>We love Anthropic, but unfortunately their API is very unstable and often returns errors.
+Also, the rate limits could be exceeded very quickly.</p>
 </div>
-<h2 id="get-started">Get started</h2>
-<div class="grid cards">
-<ul>
-<li>
-<p><strong>Deploy DAIV</strong></p>
 <hr />
-<p>Install and run DAIV with Docker Compose or Docker Swarm.</p>
-<p><a href="getting-started/deployment/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Deployment</a></p>
-</li>
-<li>
-<p><strong>Connect your repository</strong></p>
-<hr />
-<p>Link DAIV to your GitLab or GitHub repository.</p>
-<p><a href="getting-started/platform-setup/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Platform Setup</a></p>
-</li>
-<li>
-<p><strong>Choose your LLM</strong></p>
-<hr />
-<p>Configure OpenRouter, Anthropic, OpenAI, or Google as your provider.</p>
-<p><a href="getting-started/llm-providers/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> LLM Providers</a></p>
-</li>
-<li>
-<p><strong>Customize behavior</strong></p>
-<hr />
-<p>Tailor DAIV to your team with <code>.daiv.yml</code>, skills, and MCP tools.</p>
-<p><a href="customization/repository-config/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Repository Config</a></p>
-</li>
-</ul>
-</div>
+<h2 id="google-gemini">Google Gemini</h2>
+<p><strong>Setup:</strong></p>
+<ol>
+<li>Obtain an API key from <a href="https://aistudio.google.com/apikey">AI Studio</a></li>
+<li>Set the environment variable:
+   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>GOOGLE_API_KEY=your-api-key-here
+</code></pre></div></td></tr></table></div></li>
+</ol>
+<p><strong>Model format:</strong></p>
+<p>Use the <a href="https://ai.google.dev/gemini-api/docs/models">model name from Gemini</a> directly (no prefix needed):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>gemini-2.5-pro-preview-05-06
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>gemini-2.4-flash-preview-04-17
+</code></pre></div></td></tr></table></div>
 
 
 
@@ -1298,10 +1443,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

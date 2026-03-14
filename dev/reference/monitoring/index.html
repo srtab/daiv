@@ -12,10 +12,10 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/mcp-tools/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/monitoring/">
       
       
-        <link rel="prev" href="../skills/">
+        <link rel="prev" href="../agent-architecture/">
       
       
         <link rel="next" href="../../community/">
@@ -25,11 +25,11 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
     
     
       
-        <title>MCP Tools - DAIV</title>
+        <title>Monitoring - DAIV</title>
       
     
     
@@ -50,8 +50,8 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#mcp-tools" class="md-skip">
+        <a href="#monitoring" class="md-skip">
           Skip to content
         </a>
       
@@ -103,7 +103,7 @@
     <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              MCP Tools
+              Monitoring
             
           </span>
         </div>
@@ -143,7 +143,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -153,7 +153,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
     
       <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -249,7 +249,7 @@
     <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     DAIV
@@ -350,14 +350,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/up-and-running/" class="md-nav__link">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Up and Running
+    Deployment
   
 
     
@@ -378,14 +378,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/configuration/" class="md-nav__link">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Configuration
+    Platform Setup
   
 
     
@@ -406,14 +406,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Supported Providers
+    LLM Providers
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Features
   
 
     
@@ -475,7 +475,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Configuration
+    Features
   
 
           </label>
@@ -488,14 +488,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/yaml-config/" class="md-nav__link">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    YAML Configuration
+    Issue Addressing
   
 
     
@@ -516,14 +516,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/env-config/" class="md-nav__link">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Pull Request Assistant
   
 
     
@@ -544,14 +544,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/monitoring/" class="md-nav__link">
+      <a href="../../features/slash-commands/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Monitoring
+    Slash Commands & Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
   
 
     
@@ -597,7 +653,7 @@
   <span class="md-ellipsis">
     
   
-    Features
+    Customization
   
 
     
@@ -613,7 +669,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Features
+    Customization
   
 
           </label>
@@ -626,14 +682,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/issue-addressor/" class="md-nav__link">
+      <a href="../../customization/repository-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Issue Addressor
+    Repository Config
   
 
     
@@ -654,14 +710,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/review-addressor/" class="md-nav__link">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Review Addressor
+    Agent Skills
   
 
     
@@ -682,14 +738,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/slash-commands/" class="md-nav__link">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Slash Commands
+    MCP Tools
   
 
     
@@ -737,7 +793,7 @@
   <span class="md-ellipsis">
     
   
-    AI Agents
+    Reference
   
 
     
@@ -753,7 +809,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    AI Agents
+    Reference
   
 
           </label>
@@ -766,14 +822,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../env-variables/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
+    Environment Variables
   
 
     
@@ -794,14 +850,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../skills/" class="md-nav__link">
+      <a href="../agent-architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent Architecture
   
 
     
@@ -838,7 +894,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    Monitoring
   
 
     
@@ -856,7 +912,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    Monitoring
   
 
     
@@ -882,44 +938,83 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-are-mcp-tools" class="md-nav__link">
+  <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What are MCP Tools?
+        Setup
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#available-mcp-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Available MCP Tools
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configuration">
+    <nav class="md-nav" aria-label="Setup">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#basic-configuration" class="md-nav__link">
+  <a href="#1-get-an-api-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Basic Configuration
+        1. Get an API key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-configure-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Configure environment variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Configure environment variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-swarm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Swarm
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-restart-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Restart services
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Verify
       
     </span>
   </a>
@@ -932,22 +1027,94 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#advanced-configuration" class="md-nav__link">
+  <a href="#trace-tags-and-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Advanced Configuration
+        Trace tags and metadata
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Advanced Configuration">
+    <nav class="md-nav" aria-label="Trace tags and metadata">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#creating-custom-mcp-servers" class="md-nav__link">
+  <a href="#tags" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Creating Custom MCP Servers
+        Tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metadata-by-trigger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata by trigger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dashboard-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dashboard tips
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bash-command-policy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bash command policy logs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bash command policy logs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#log-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#log-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring recommendations
       
     </span>
   </a>
@@ -964,56 +1131,6 @@
     <span class="md-ellipsis">
       
         Troubleshooting
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Issues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debugging
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Security Considerations
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Additional Resources
       
     </span>
   </a>
@@ -1090,44 +1207,83 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-are-mcp-tools" class="md-nav__link">
+  <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What are MCP Tools?
+        Setup
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#available-mcp-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Available MCP Tools
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configuration">
+    <nav class="md-nav" aria-label="Setup">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#basic-configuration" class="md-nav__link">
+  <a href="#1-get-an-api-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Basic Configuration
+        1. Get an API key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-configure-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Configure environment variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Configure environment variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-swarm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Swarm
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-restart-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Restart services
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Verify
       
     </span>
   </a>
@@ -1140,22 +1296,94 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#advanced-configuration" class="md-nav__link">
+  <a href="#trace-tags-and-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Advanced Configuration
+        Trace tags and metadata
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Advanced Configuration">
+    <nav class="md-nav" aria-label="Trace tags and metadata">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#creating-custom-mcp-servers" class="md-nav__link">
+  <a href="#tags" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Creating Custom MCP Servers
+        Tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metadata-by-trigger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata by trigger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dashboard-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dashboard tips
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bash-command-policy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bash command policy logs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bash command policy logs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#log-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#log-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring recommendations
       
     </span>
   </a>
@@ -1172,56 +1400,6 @@
     <span class="md-ellipsis">
       
         Troubleshooting
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Issues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debugging
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Security Considerations
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#additional-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Additional Resources
       
     </span>
   </a>
@@ -1271,10 +1449,10 @@
     
     
       <li class="md-path__item">
-        <a href="../overview/" class="md-path__link">
+        <a href="../env-variables/" class="md-path__link">
           
   <span class="md-ellipsis">
-    AI Agents
+    Reference
   </span>
 
         </a>
@@ -1293,7 +1471,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/mcp-tools.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/reference/monitoring.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1301,105 +1479,184 @@
   
 
 
-<h1 id="mcp-tools">🔧 MCP Tools</h1>
-<h2 id="what-are-mcp-tools">What are MCP Tools?</h2>
-<p>MCP (Model Context Protocol) Tools are external services that extend the capabilities of DAIV agents by providing specialized functionality through a standardized protocol. These tools allow AI agents to interact with external systems, fetch data from various sources, and perform actions that go beyond basic code analysis and modification.</p>
-<h2 id="available-mcp-tools">Available MCP Tools</h2>
-<p>DAIV currently supports the following MCP tools:</p>
+<h1 id="monitoring">Monitoring</h1>
+<p>DAIV supports <a href="https://smith.langchain.com">LangSmith</a> for tracing agent executions. This page covers how to set it up and what data is available.</p>
+<hr />
+<h2 id="setup">Setup</h2>
+<h3 id="1-get-an-api-key">1. Get an API key</h3>
+<ol>
+<li>Sign in at <a href="https://smith.langchain.com">smith.langchain.com</a></li>
+<li>Go to <strong>Settings</strong> → <strong>API Keys</strong> → <strong>Create API Key</strong></li>
+<li>Copy the key (format: <code>lsv2_pt_...</code>)</li>
+</ol>
+<h3 id="2-configure-environment-variables">2. Configure environment variables</h3>
+<h4 id="docker-compose">Docker Compose</h4>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span>
+<span class="normal"><a href="#__codelineno-0-4">4</a></span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span>
+<span class="normal"><a href="#__codelineno-0-6">6</a></span>
+<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="c1"># ...</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">    </span><span class="nt">LANGSMITH_TRACING</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="nt">LANGSMITH_PROJECT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-production</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">LANGSMITH_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">  </span><span class="c1"># ...</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="docker-swarm">Docker Swarm</h4>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="c1"># Environment</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="nv">LANGSMITH_TRACING</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nv">LANGSMITH_PROJECT</span><span class="o">=</span>daiv-production
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="nv">LANGSMITH_API_KEY_FILE</span><span class="o">=</span>/run/secrets/langsmith_api_key
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="c1"># Create secret</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>langsmith_api_key<span class="w"> </span>-
+</code></pre></div></td></tr></table></div>
+<div class="admonition tip">
+<p class="admonition-title">EU endpoint</p>
+<p>If you're in Europe, set <code>LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com</code>.</p>
+</div>
+<h3 id="3-restart-services">3. Restart services</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span>
+<span class="normal"><a href="#__codelineno-3-4">4</a></span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="c1"># Docker Compose</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="c1"># Docker Swarm</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a>docker<span class="w"> </span>stack<span class="w"> </span>deploy<span class="w"> </span>-c<span class="w"> </span>stack.yml<span class="w"> </span>daiv
+</code></pre></div></td></tr></table></div>
+<h3 id="4-verify">4. Verify</h3>
+<ol>
+<li>Create a test issue with the <code>daiv</code> label</li>
+<li>Open your LangSmith project — traces should appear within a few minutes</li>
+</ol>
+<p>See <a href="../env-variables/#monitoring-langsmith">Environment Variables</a> for all LangSmith-related variables.</p>
+<hr />
+<h2 id="trace-tags-and-metadata">Trace tags and metadata</h2>
+<p>Every agent run includes tags and metadata that make it easy to filter and build dashboards in LangSmith.</p>
+<h3 id="tags">Tags</h3>
+<p>All runs include two tags:</p>
 <table>
 <thead>
 <tr>
-<th>MCP Server</th>
-<th>Tools</th>
-<th>Use Cases</th>
+<th>Tag</th>
+<th>Description</th>
+<th>Example</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server</a></td>
-<td>• <code>find_organizations</code>: Discover Sentry organizations<br>• <code>get_issue_details</code>: Retrieve detailed information about specific issues</td>
-<td>• Analyzing error patterns and crash reports<br>• Understanding issue context when fixing bugs<br>• Gathering debugging information from production systems<br>• Correlating code changes with error occurrences</td>
+<td>Agent name</td>
+<td>Always <code>DAIV Agent</code></td>
+<td><code>DAIV Agent</code></td>
+</tr>
+<tr>
+<td>Git platform</td>
+<td>The platform handling the request</td>
+<td><code>gitlab</code>, <code>github</code></td>
 </tr>
 </tbody>
 </table>
-<h2 id="configuration">Configuration</h2>
-<p>MCP tools are configured through environment variables. Here's how to set them up:</p>
-<h3 id="basic-configuration">Basic Configuration</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-0-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># MCP Proxy Configuration</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nv">MCP_PROXY_HOST</span><span class="o">=</span>http://mcp-proxy:9090<span class="w">         </span><span class="c1"># Default: http://mcp-proxy:9090</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nv">MCP_PROXY_ADDR</span><span class="o">=</span>:9090<span class="w">                         </span><span class="c1"># Default: :9090</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="nv">MCP_PROXY_AUTH_TOKEN</span><span class="o">=</span>your-auth-token<span class="w">         </span><span class="c1"># Optional authentication token</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="c1"># Sentry MCP Server</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="nv">MCP_SENTRY_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                      </span><span class="c1"># Default: true</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="nv">MCP_SENTRY_VERSION</span><span class="o">=</span><span class="m">0</span>.17.1<span class="w">                    </span><span class="c1"># Default: 0.17.1</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="nv">MCP_SENTRY_ACCESS_TOKEN</span><span class="o">=</span>your-sentry-token<span class="w">    </span><span class="c1"># Required for Sentry functionality</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="nv">MCP_SENTRY_HOST</span><span class="o">=</span>your-sentry-host<span class="w">             </span><span class="c1"># Your Sentry instance host</span>
+<h3 id="metadata-by-trigger">Metadata by trigger</h3>
+<p><strong>Issue addressing</strong> (triggered by labelled issues):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span>
+<span class="normal"><a href="#__codelineno-4-5">5</a></span>
+<span class="normal"><a href="#__codelineno-4-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;username&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;issue_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;daiv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bug&quot;</span><span class="p">],</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Issue&quot;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
-<p>See <a href="../../configuration/env-config/#mcp-tools">Environment Variables Reference</a> for more details.</p>
-<h2 id="advanced-configuration">Advanced Configuration</h2>
-<h3 id="creating-custom-mcp-servers">Creating Custom MCP Servers</h3>
-<div class="admonition warning">
-<p class="admonition-title">Coming Soon</p>
-<p>The ability to create custom MCP servers is currently under development. This feature will allow you to define custom MCP servers.</p>
-<p>Stay tuned for updates as we work on bringing this functionality to DAIV.</p>
-</div>
+<p><strong>Comment addressing</strong> (triggered by <code>@daiv</code> mentions on merge requests):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span>
+<span class="normal"><a href="#__codelineno-5-4">4</a></span>
+<span class="normal"><a href="#__codelineno-5-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reviewer-username&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;merge_request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Merge Request&quot;</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>The <code>scope</code> field distinguishes how the agent was triggered: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code>.</p>
+<h3 id="dashboard-tips">Dashboard tips</h3>
+<ul>
+<li><strong>By trigger type</strong> — filter by <code>scope</code> or by metadata key <code>issue_id</code> vs <code>merge_request_id</code></li>
+<li><strong>By user</strong> — filter or group by <code>author</code></li>
+<li><strong>Performance</strong> — monitor execution time and token usage per run</li>
+</ul>
+<hr />
+<h2 id="bash-command-policy-logs">Bash command policy logs</h2>
+<p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
+<h3 id="log-events">Log events</h3>
+<p><strong><code>bash_policy_denied</code></strong> — a command segment matched a disallow rule:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule=&#39;git push&#39;, segment=&#39;git push origin main&#39;)
+</code></pre></div></td></tr></table></div>
+<p><strong><code>bash_policy_parse_failed</code></strong> — the command string could not be parsed (fail-closed):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason=&#39;Parse error: ...&#39;)
+</code></pre></div></td></tr></table></div>
+<h3 id="log-fields">Log fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event</code></td>
+<td><code>bash_policy_denied</code> or <code>bash_policy_parse_failed</code></td>
+</tr>
+<tr>
+<td><code>reason_category</code></td>
+<td><code>default_disallow</code>, <code>repo_disallow</code>, or <code>parse_failure</code></td>
+</tr>
+<tr>
+<td><code>matched_rule</code></td>
+<td>The rule prefix that triggered denial (e.g. <code>"git push"</code>)</td>
+</tr>
+<tr>
+<td><code>denied_segment</code></td>
+<td>The specific argv segment that was blocked</td>
+</tr>
+<tr>
+<td><code>tool_call_id</code></td>
+<td>The agent tool-call ID for correlation with LangSmith traces</td>
+</tr>
+</tbody>
+</table>
+<h3 id="monitoring-recommendations">Monitoring recommendations</h3>
+<ul>
+<li><strong>Alert on high denial rates</strong> — a spike in <code>bash_policy_denied</code> may indicate the agent is repeatedly attempting prohibited operations.</li>
+<li><strong>Tune policy rules</strong> — use <code>reason_category</code> to distinguish built-in denials from custom repo-level denials and adjust <code>.daiv.yml</code> accordingly.</li>
+<li><strong>Correlate with LangSmith</strong> — the <code>tool_call_id</code> links each denial to the full agent trace for deeper investigation.</li>
+</ul>
+<hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
-<h3 id="common-issues">Common Issues</h3>
-<p><strong>MCP tools not available in agents:</strong></p>
+<p><strong>No traces appearing</strong>:</p>
 <ul>
-<li>Verify that the MCP proxy is running and accessible</li>
-<li>Check that required environment variables are set</li>
+<li>Verify <code>LANGSMITH_TRACING=true</code> is set</li>
+<li>Check the API key is correct</li>
+<li>Ensure network connectivity to LangSmith endpoints</li>
+<li>Review application logs for authentication errors</li>
 </ul>
-<p><strong>Sentry tools not working:</strong></p>
+<p><strong>Incomplete trace data</strong>:</p>
 <ul>
-<li>Verify <code>MCP_SENTRY_ACCESS_TOKEN</code> is set and valid</li>
-<li>Check that <code>MCP_SENTRY_HOST</code> points to your Sentry instance</li>
-<li>Ensure your Sentry token has the necessary permissions</li>
-</ul>
-<p><strong>Fetch tools timing out:</strong></p>
-<ul>
-<li>Check network connectivity from the MCP proxy</li>
-<li>Verify target URLs are accessible</li>
-</ul>
-<h3 id="debugging">Debugging</h3>
-<p>To debug MCP tool issues:</p>
-<ol>
-<li>
-<p><strong>Check MCP proxy logs:</strong>
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>mcp-proxy
-</code></pre></div></td></tr></table></div></p>
-</li>
-<li>
-<p><strong>Verify configuration:</strong>
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>mcp_proxy_config
-</code></pre></div></td></tr></table></div></p>
-</li>
-</ol>
-<h2 id="security-considerations">Security Considerations</h2>
-<p>DAIV uses <a href="https://github.com/TBXark/mcp-proxy">MCP Proxy</a> to allow installing and running MCP servers on a containerized environment. This means that the MCP servers are not directly installed/running on your machine, but rather on the MCP Proxy docker container, improving security by isolating the MCP servers from your machine.</p>
-<p>This doesn't mean that you're safe from attacks. You still need to be careful about the MCP servers you use <a href="https://modelcontextprotocol.io/specification/draft/basic/security_best_practices">following the MCP protocol security best practices</a>.</p>
-<p>Here are some best practices to follow when using MCP servers in DAIV:</p>
-<ul>
-<li><strong>API Tokens</strong>: Store sensitive tokens like <code>MCP_SENTRY_ACCESS_TOKEN</code> securely using Docker secrets</li>
-<li><strong>Network Access</strong>: MCP servers may require network access to external services (e.g. Sentry)</li>
-<li><strong>Authentication</strong>: Configure <code>MCP_PROXY_AUTH_TOKEN</code> for additional security in production environments</li>
-</ul>
-<h2 id="additional-resources">Additional Resources</h2>
-<ul>
-<li><a href="https://spec.modelcontextprotocol.io/">MCP Protocol Specification</a></li>
-<li><a href="https://pypi.org/project/mcp-server-fetch/">Fetch MCP Server Documentation</a></li>
-<li><a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server Documentation</a></li>
-<li><a href="../../configuration/env-config/">Environment Variables Reference</a></li>
+<li>Verify the project name matches across all services</li>
+<li>Ensure Docker secrets are properly mounted (Swarm deployments)</li>
 </ul>
 
 
@@ -1423,7 +1680,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     
@@ -1433,7 +1690,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     

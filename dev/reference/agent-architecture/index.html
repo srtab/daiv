@@ -12,24 +12,24 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/ai-agents/overview/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/agent-architecture/">
       
       
-        <link rel="prev" href="../../features/slash-commands/">
+        <link rel="prev" href="../env-variables/">
       
       
-        <link rel="next" href="../skills/">
+        <link rel="next" href="../monitoring/">
       
       
         
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
     
     
       
-        <title>Overview - DAIV</title>
+        <title>Agent Architecture - DAIV</title>
       
     
     
@@ -50,8 +50,8 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#ai-agents-overview" class="md-skip">
+        <a href="#agent-architecture" class="md-skip">
           Skip to content
         </a>
       
@@ -103,7 +103,7 @@
     <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              Agent Architecture
             
           </span>
         </div>
@@ -143,7 +143,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -153,7 +153,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
     
       <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -249,7 +249,7 @@
     <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     DAIV
@@ -350,14 +350,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/up-and-running/" class="md-nav__link">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Up and Running
+    Deployment
   
 
     
@@ -378,14 +378,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/configuration/" class="md-nav__link">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Configuration
+    Platform Setup
   
 
     
@@ -406,14 +406,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Supported Providers
+    LLM Providers
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Features
   
 
     
@@ -475,7 +475,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Configuration
+    Features
   
 
           </label>
@@ -488,14 +488,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/yaml-config/" class="md-nav__link">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    YAML Configuration
+    Issue Addressing
   
 
     
@@ -516,14 +516,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/env-config/" class="md-nav__link">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Pull Request Assistant
   
 
     
@@ -544,14 +544,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration/monitoring/" class="md-nav__link">
+      <a href="../../features/slash-commands/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Monitoring
+    Slash Commands & Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
   
 
     
@@ -597,7 +653,7 @@
   <span class="md-ellipsis">
     
   
-    Features
+    Customization
   
 
     
@@ -613,7 +669,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Features
+    Customization
   
 
           </label>
@@ -626,14 +682,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/issue-addressor/" class="md-nav__link">
+      <a href="../../customization/repository-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Issue Addressor
+    Repository Config
   
 
     
@@ -654,14 +710,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/review-addressor/" class="md-nav__link">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Review Addressor
+    Agent Skills
   
 
     
@@ -682,14 +738,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/slash-commands/" class="md-nav__link">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Slash Commands
+    MCP Tools
   
 
     
@@ -737,7 +793,7 @@
   <span class="md-ellipsis">
     
   
-    AI Agents
+    Reference
   
 
     
@@ -753,11 +809,39 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    AI Agents
+    Reference
   
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -782,7 +866,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    Agent Architecture
   
 
     
@@ -800,7 +884,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    Agent Architecture
   
 
     
@@ -826,22 +910,33 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-daiv-agents-work" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How DAIV Agents Work
+        Overview
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How DAIV Agents Work">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-end flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="End-to-end flow">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#core-architecture" class="md-nav__link">
+  <a href="#managers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Architecture
+        Managers
       
     </span>
   </a>
@@ -854,22 +949,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-available-ai-agents" class="md-nav__link">
+  <a href="#tools" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Available AI Agents
+        Tools
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Core Available AI Agents">
+    <nav class="md-nav" aria-label="Tools">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#plan-and-execute-agent" class="md-nav__link">
+  <a href="#filesystem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Plan and Execute Agent
+        Filesystem
       
     </span>
   </a>
@@ -877,10 +972,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#code-review-addressor-agent" class="md-nav__link">
+  <a href="#git-platform" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔍 Code Review Addressor Agent
+        Git platform
       
     </span>
   </a>
@@ -888,10 +983,43 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pr-describer-agent" class="md-nav__link">
+  <a href="#sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📝 PR Describer Agent
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP
       
     </span>
   </a>
@@ -904,22 +1032,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-capabilities" class="md-nav__link">
+  <a href="#middlewares" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Agent Capabilities
+        Middlewares
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Agent Capabilities">
+    <nav class="md-nav" aria-label="Middlewares">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mcp-tools-integration" class="md-nav__link">
+  <a href="#always-enabled" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔧 MCP Tools Integration
+        Always enabled
       
     </span>
   </a>
@@ -927,54 +1055,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#repository-tools" class="md-nav__link">
+  <a href="#conditionally-enabled" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🗂️ Repository Tools
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web-search-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🌐 Web Search Tools
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox-environment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🏗️ Sandbox Environment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#agent-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧠 Agent Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#specialized-subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🤖 Specialized Subagents
+        Conditionally enabled
       
     </span>
   </a>
@@ -987,138 +1071,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#configuration-and-customization" class="md-nav__link">
+  <a href="#subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration and Customization
+        Subagents
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Configuration and Customization">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#repository-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Repository Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#model-selection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model Selection
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#best-practices" class="md-nav__link">
+  <a href="#dynamic-system-prompt" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Best Practices
+        Dynamic system prompt
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Best Practices">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#maximizing-agent-effectiveness" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Maximizing Agent Effectiveness
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#repository-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Repository Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Security Considerations
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#model-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Issues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#getting-help" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Help
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ⏭️ Next Steps
+        Model configuration
       
     </span>
   </a>
@@ -1141,42 +1119,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../skills/" class="md-nav__link">
+      <a href="../monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Agent Skills
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../mcp-tools/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Tools
+    Monitoring
   
 
     
@@ -1251,22 +1201,33 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-daiv-agents-work" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How DAIV Agents Work
+        Overview
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How DAIV Agents Work">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-end flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="End-to-end flow">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#core-architecture" class="md-nav__link">
+  <a href="#managers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Architecture
+        Managers
       
     </span>
   </a>
@@ -1279,22 +1240,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-available-ai-agents" class="md-nav__link">
+  <a href="#tools" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Available AI Agents
+        Tools
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Core Available AI Agents">
+    <nav class="md-nav" aria-label="Tools">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#plan-and-execute-agent" class="md-nav__link">
+  <a href="#filesystem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🎯 Plan and Execute Agent
+        Filesystem
       
     </span>
   </a>
@@ -1302,10 +1263,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#code-review-addressor-agent" class="md-nav__link">
+  <a href="#git-platform" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔍 Code Review Addressor Agent
+        Git platform
       
     </span>
   </a>
@@ -1313,10 +1274,43 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pr-describer-agent" class="md-nav__link">
+  <a href="#sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📝 PR Describer Agent
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP
       
     </span>
   </a>
@@ -1329,22 +1323,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-capabilities" class="md-nav__link">
+  <a href="#middlewares" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Agent Capabilities
+        Middlewares
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Agent Capabilities">
+    <nav class="md-nav" aria-label="Middlewares">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mcp-tools-integration" class="md-nav__link">
+  <a href="#always-enabled" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔧 MCP Tools Integration
+        Always enabled
       
     </span>
   </a>
@@ -1352,54 +1346,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#repository-tools" class="md-nav__link">
+  <a href="#conditionally-enabled" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🗂️ Repository Tools
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web-search-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🌐 Web Search Tools
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox-environment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🏗️ Sandbox Environment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#agent-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧠 Agent Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#specialized-subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🤖 Specialized Subagents
+        Conditionally enabled
       
     </span>
   </a>
@@ -1412,138 +1362,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#configuration-and-customization" class="md-nav__link">
+  <a href="#subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration and Customization
+        Subagents
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Configuration and Customization">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#repository-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Repository Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#model-selection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model Selection
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#best-practices" class="md-nav__link">
+  <a href="#dynamic-system-prompt" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Best Practices
+        Dynamic system prompt
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Best Practices">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#maximizing-agent-effectiveness" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Maximizing Agent Effectiveness
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#repository-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Repository Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-considerations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Security Considerations
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#model-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Issues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#getting-help" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Help
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ⏭️ Next Steps
+        Model configuration
       
     </span>
   </a>
@@ -1593,10 +1437,10 @@
     
     
       <li class="md-path__item">
-        <a href="./" class="md-path__link">
+        <a href="../env-variables/" class="md-path__link">
           
   <span class="md-ellipsis">
-    AI Agents
+    Reference
   </span>
 
         </a>
@@ -1615,7 +1459,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/ai-agents/overview.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/reference/agent-architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1623,163 +1467,308 @@
   
 
 
-<h1 id="ai-agents-overview">🤖 AI Agents Overview</h1>
-<p>DAIV uses SWE AI agents to automate various development workflows in your GitLab and GitHub repositories. Each agent is designed for specific tasks and can work independently or collaborate with other agents to provide comprehensive development assistance.</p>
-<hr />
-<h2 id="how-daiv-agents-work">How DAIV Agents Work</h2>
-<h3 id="core-architecture">Core Architecture</h3>
-<p>DAIV agents are built on a modular architecture that combines several key components:</p>
-<p><strong>LangChain Framework</strong>: uses <a href="https://python.langchain.com/">LangChain</a> as a foundation for the agents.</p>
-<p><strong>LangGraph Framework</strong>: uses <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> to create sophisticated workflows with state management, decision-making capabilities, and error handling.</p>
-<p><strong>Language Models</strong>: Agents support multiple LLM providers including:</p>
+<h1 id="agent-architecture">Agent Architecture</h1>
+<p>DAIV uses a single AI agent built on <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework from <a href="https://python.langchain.com/">LangChain</a> with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a>. This page covers the technical architecture for those who want to understand how DAIV works under the hood.</p>
+<h2 id="overview">Overview</h2>
+<p>DAIV's architecture consists of:</p>
 <ul>
-<li><strong>Anthropic Claude</strong> (Sonnet, Opus variants with thinking capabilities)</li>
-<li><strong>OpenAI GPT</strong> (including reasoning models like GPT-5, o4, etc.)</li>
-<li><strong>Google Gemini</strong> (including Gemini 2.5 Pro, etc.)</li>
-<li><strong>OpenRouter</strong> (access to various models from multiple providers)</li>
+<li><strong>One main agent</strong> — handles all tasks (issue addressing, code review, slash commands)</li>
+<li><strong>Two subagents</strong> — general-purpose (full tools) and explore (read-only, fast)</li>
+<li><strong>Middleware stack</strong> — modular capabilities injected based on configuration</li>
+<li><strong>MCP servers</strong> — external tool integrations (Sentry, Context7)</li>
 </ul>
-<p><strong>Repository Integration</strong>: Direct integration with GitLab and GitHub through webhooks and APIs for real-time repository monitoring and interaction.</p>
-<p><strong>Context-Aware Processing</strong>: Agents have access to the entire repository content, allowing them to understand your codebase structure, dependencies, and coding patterns.</p>
-<hr />
-<h2 id="core-available-ai-agents">Core Available AI Agents</h2>
-<h3 id="plan-and-execute-agent">🎯 Plan and Execute Agent</h3>
-<p><strong>Purpose</strong>: This is the core agent that is used by other agents. It is responsible for planning and executing the tasks.</p>
-<p><strong>Key Capabilities</strong>:</p>
-<ul>
-<li>Breaks down complex tasks into self contained actionable steps</li>
-<li>Handles error recovery and replanning</li>
-<li>Coordinates between different tools and systems</li>
-<li>Analyzes attached images from issues and comments (Markdown and HTML formats, including GitHub attachments)</li>
-<li>Uses MCP tools to extend its capabilities (e.g. Fetch, Sentry, etc.)</li>
-<li>Uses repository tools to manipulate the repository (e.g. code search, file operations, snippet replacement, etc.)</li>
-<li>Uses sandbox environment to execute commands (e.g. code formatting, custom commands, etc.)</li>
-<li>Support to <code>AGENTS.md</code> file to understand the repository context and conventions</li>
-<li>Uses <a href="../skills/">Agent Skills</a> for specialized domain knowledge and workflows</li>
-</ul>
-<h3 id="code-review-addressor-agent">🔍 Code Review Addressor Agent</h3>
-<p><strong>Purpose</strong>: Responds to code review feedback by implementing requested changes or answering questions.</p>
-<p><strong>Key Capabilities</strong>:</p>
-<ul>
-<li>Interprets reviewer comments and suggestions</li>
-<li>Implements code changes based on feedback</li>
-<li>Repairs failed CI/CD pipelines by analyzing job logs</li>
-<li>Answers questions about the codebase</li>
-</ul>
-<p><strong>Workflow</strong>:</p>
+<pre class="mermaid"><code>graph TB
+    WH[Webhook Event] --&gt; CB[Callback Handler]
+    CB --&gt; TQ[Task Queue]
+    TQ --&gt; MGR[Manager]
+    MGR --&gt; AGENT[DAIV Agent]
+
+    AGENT --&gt; MW[Middleware Stack]
+    MW --&gt; FS[Filesystem Tools]
+    MW --&gt; GIT[Git Tools]
+    MW --&gt; GP[Git Platform Tools]
+    MW --&gt; SB[Sandbox]
+    MW --&gt; WS[Web Search / Fetch]
+    MW --&gt; SK[Skills]
+    MW --&gt; SA[Subagents]
+    MW --&gt; MCP[MCP Tools]
+
+    SA --&gt; GPAgent[General-Purpose]
+    SA --&gt; EXAgent[Explore]
+
+    AGENT --&gt; PUB[Git Change Publisher]
+    PUB --&gt; COMMIT[Commit &amp; Push]
+    PUB --&gt; MR[Create / Update MR]</code></pre>
+<h2 id="end-to-end-flow">End-to-end flow</h2>
 <ol>
-<li>Triggered by review comments on merge/pull requests that mention the bot</li>
-<li>Evaluates if comment requests code changes</li>
-<li>Plans and implements requested modifications using the Plan and Execute agent</li>
-<li>Updates the merge/pull request with changes</li>
-<li>Responds to reviewer with explanation, if no changes requested</li>
+<li><strong>Webhook</strong> — GitLab or GitHub sends an event (issue created, comment posted, etc.)</li>
+<li><strong>Callback handler</strong> — validates the webhook, extracts event data, enqueues a background task</li>
+<li><strong>Manager</strong> — sets up the runtime context (repository, branch, scope) and creates the agent</li>
+<li><strong>Agent execution</strong> — LangGraph runs the agent loop: call LLM → execute tools → repeat</li>
+<li><strong>Publishing</strong> — the agent commits changes, creates/updates a merge request, and leaves a comment</li>
 </ol>
-<h3 id="pr-describer-agent">📝 PR Describer Agent</h3>
-<p><strong>Purpose</strong>: Generates comprehensive pull request metadata (title, description, summary, commit message, etc.).</p>
-<p><strong>Key Capabilities</strong>:</p>
+<h3 id="managers">Managers</h3>
+<p>Two managers orchestrate the agent:</p>
+<table>
+<thead>
+<tr>
+<th>Manager</th>
+<th>Trigger</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IssueAddressorManager</code></td>
+<td>Issue with <code>daiv</code> label</td>
+<td>Plans and implements issue solutions</td>
+</tr>
+<tr>
+<td><code>CommentsAddressorManager</code></td>
+<td><code>@daiv</code> mention on MR</td>
+<td>Responds to code review comments</td>
+</tr>
+</tbody>
+</table>
+<p>Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.</p>
+<h2 id="tools">Tools</h2>
+<p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
+<h3 id="filesystem">Filesystem</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>glob</code></td>
+<td>Find files by pattern matching</td>
+</tr>
+<tr>
+<td><code>grep</code></td>
+<td>Search file contents with regex</td>
+</tr>
+<tr>
+<td><code>read_file</code></td>
+<td>Read file contents</td>
+</tr>
+<tr>
+<td><code>edit_file</code></td>
+<td>Modify existing files</td>
+</tr>
+<tr>
+<td><code>write_file</code></td>
+<td>Create new files</td>
+</tr>
+<tr>
+<td><code>ls</code></td>
+<td>List directory contents</td>
+</tr>
+</tbody>
+</table>
+<h3 id="git-platform">Git platform</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gitlab</code> / <code>github</code></td>
+<td>Inspect issues, merge requests, pipeline status, and job logs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sandbox">Sandbox</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bash</code></td>
+<td>Execute commands in a persistent, isolated Docker container</td>
+</tr>
+</tbody>
+</table>
+<p>Commands are evaluated against a <a href="../../features/sandbox/">command policy</a> before execution. See <a href="../../features/sandbox/">Sandbox</a> for details.</p>
+<h3 id="web">Web</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>web_search</code></td>
+<td>Search the web (DuckDuckGo or Tavily)</td>
+</tr>
+<tr>
+<td><code>web_fetch</code></td>
+<td>Fetch a URL, convert to markdown, and answer a prompt about its content</td>
+</tr>
+</tbody>
+</table>
+<h3 id="skills">Skills</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>skill</code></td>
+<td>Execute a <a href="../../customization/agent-skills/">skill</a> (slash command)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mcp">MCP</h3>
+<p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
+<h2 id="middlewares">Middlewares</h2>
+<p>Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.</p>
+<h3 id="always-enabled">Always enabled</h3>
+<table>
+<thead>
+<tr>
+<th>Middleware</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FilesystemMiddleware</code></td>
+<td>File operations (glob, grep, read, edit, write)</td>
+</tr>
+<tr>
+<td><code>GitMiddleware</code></td>
+<td>Branch management, auto-commit, MR creation</td>
+</tr>
+<tr>
+<td><code>GitPlatformMiddleware</code></td>
+<td>Git platform CLI tool (issues, MRs, pipelines)</td>
+</tr>
+<tr>
+<td><code>SkillsMiddleware</code></td>
+<td>Skill loading and slash command execution</td>
+</tr>
+<tr>
+<td><code>SubAgentMiddleware</code></td>
+<td>Delegates tasks to subagents</td>
+</tr>
+<tr>
+<td><code>MemoryMiddleware</code></td>
+<td>Loads <code>AGENTS.md</code> and repository context</td>
+</tr>
+<tr>
+<td><code>TodoListMiddleware</code></td>
+<td>Task tracking within conversations</td>
+</tr>
+<tr>
+<td><code>SummarizationMiddleware</code></td>
+<td>Compresses conversation history when it grows too long</td>
+</tr>
+<tr>
+<td><code>AnthropicPromptCachingMiddleware</code></td>
+<td>Prompt caching for Anthropic models</td>
+</tr>
+<tr>
+<td><code>ToolCallLoggingMiddleware</code></td>
+<td>Logs all tool calls</td>
+</tr>
+<tr>
+<td><code>PatchToolCallsMiddleware</code></td>
+<td>Fixes malformed tool calls from the LLM</td>
+</tr>
+</tbody>
+</table>
+<h3 id="conditionally-enabled">Conditionally enabled</h3>
+<table>
+<thead>
+<tr>
+<th>Middleware</th>
+<th>Condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SandboxMiddleware</code></td>
+<td>Sandbox is configured (<code>DAIV_SANDBOX_BASE_IMAGE</code> is set)</td>
+</tr>
+<tr>
+<td><code>WebSearchMiddleware</code></td>
+<td>Web search is enabled</td>
+</tr>
+<tr>
+<td><code>WebFetchMiddleware</code></td>
+<td><code>AUTOMATION_WEB_FETCH_ENABLED</code> is <code>true</code></td>
+</tr>
+<tr>
+<td><code>ModelFallbackMiddleware</code></td>
+<td>A fallback model is configured</td>
+</tr>
+<tr>
+<td><code>HumanInTheLoopMiddleware</code></td>
+<td>Plan approval is required (non-auto mode)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="subagents">Subagents</h2>
+<p>The main agent can delegate work to two subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
+<table>
+<thead>
+<tr>
+<th>Subagent</th>
+<th>Model</th>
+<th>Tools</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>General-purpose</td>
+<td>Same as main agent</td>
+<td>Full tool access</td>
+<td>Complex searches, multi-step research</td>
+</tr>
+<tr>
+<td>Explore</td>
+<td>Claude Haiku 4.5 (fast)</td>
+<td>Read-only filesystem</td>
+<td>Quick file lookups, code structure questions</td>
+</tr>
+</tbody>
+</table>
+<h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
+<p>The agent's system prompt is assembled at runtime and includes:</p>
 <ul>
-<li>Analyzes code changes and their impact</li>
-<li>Generates clear, detailed PR metadata</li>
+<li>Current date</li>
+<li>Bot username</li>
+<li>Repository URL and git platform</li>
+<li>Current branch and default branch</li>
+<li>Available tools and their descriptions</li>
+<li>Loaded skill metadata</li>
+<li><code>AGENTS.md</code> content (if present in the repository)</li>
 </ul>
-<hr />
-<h2 id="agent-capabilities">Agent Capabilities</h2>
-<h3 id="mcp-tools-integration">🔧 MCP Tools Integration</h3>
-<p>Agents can use <a href="../mcp-tools/">Model Context Protocol (MCP)</a> tools to extend their capabilities:</p>
-<p><strong>Fetch Tools</strong>: Web scraping and HTTP requests for researching solutions
-<strong>Sentry Integration</strong>: Access to error monitoring and debugging information
-<strong>Custom Tools</strong>: Extensible framework for adding specialized functionality</p>
-<h3 id="repository-tools">🗂️ Repository Tools</h3>
-<p>All agents have access to powerful repository manipulation tools:</p>
-<ul>
-<li><strong>File Navigation</strong>: List, grep (using <code>ripgrep</code>), glob and read files and directories.</li>
-<li><strong>File Editing</strong>: Read, write, edit, rename and delete files.</li>
-<li><strong>Merge Request</strong>: Get the latest pipeline/workflow status and job logs for a merge/pull request.</li>
-</ul>
-<h3 id="web-search-tools">🌐 Web Search Tools</h3>
-<p>Agents can use web search tools to gather information from the web:</p>
-<ul>
-<li><strong>Web Search</strong>: Search the web for information using DuckDuckGo or Tavily.</li>
-</ul>
-<h3 id="sandbox-environment">🏗️ Sandbox Environment</h3>
-<p>Agents can execute commands in isolated sandbox environments using <a href="https://github.com/srtab/daiv-sandbox">daiv-sandbox</a>:</p>
-<ul>
-<li><strong>Code Formatting</strong>: Apply repository-specific formatting rules (e.g. ruff, black, isort, etc.)</li>
-<li><strong>Custom Commands</strong>: Execute repository-specific commands (e.g. install dependencies, etc.)</li>
-<li><strong>Command Policy Enforcement</strong>: Every bash command is parsed and evaluated against configurable allow/disallow rules before reaching the sandbox. High-risk operations (<code>git commit</code>, <code>git push</code>, <code>git reset</code>, etc.) are blocked by default. See <a href="../../configuration/yaml-config/#command-security-policy">Command Security Policy</a> for customization options.</li>
-</ul>
-<h3 id="agent-skills">🧠 Agent Skills</h3>
-<p>Agents can leverage <a href="../skills/">Agent Skills</a> for specialized domain knowledge:</p>
-<ul>
-<li><strong>Progressive Disclosure</strong>: Skills metadata loads at startup, full instructions load on-demand</li>
-<li><strong>Custom Skills</strong>: Create repository-specific Skills in <code>.agents/skills/</code></li>
-<li><strong>Builtin Skills</strong>: Pre-packaged Skills for common tasks (e.g. AGENTS.md generation)</li>
-<li><strong>Scoped Skills</strong>: Target Skills to specific contexts (issues or merge requests)</li>
-</ul>
-<h3 id="specialized-subagents">🤖 Specialized Subagents</h3>
-<p>The Plan and Execute agent can delegate work to specialized subagents for focused tasks:</p>
-<ul>
-<li><strong>General Purpose</strong>: Multi-step tasks, research, and complex code searches</li>
-<li><strong>Explore</strong>: Fast codebase exploration and file pattern matching</li>
-<li><strong>Changelog</strong>: Maintaining changelogs and release notes across any format (CHANGELOG.md, CHANGES.rst, HISTORY.md, etc.)</li>
-</ul>
-<p>Subagents are automatically selected based on the task at hand, providing specialized expertise while maintaining access to the full toolset.</p>
-<hr />
-<h2 id="configuration-and-customization">Configuration and Customization</h2>
-<h3 id="repository-configuration">Repository Configuration</h3>
-<p>Control agent behavior using a <code>.daiv.yml</code> file in your repository root.</p>
-<p><strong><a href="../../configuration/yaml-config/">Learn more about configuration →</a></strong></p>
-<h3 id="model-selection">Model Selection</h3>
-<p>Configure which AI models agents use through environment variables:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span>
-<span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Use Claude Sonnet for most tasks</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nv">PLAN_AND_EXECUTE_PLANNING_MODEL_NAME</span><span class="o">=</span>openrouter:openai/gpt-4.1
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="c1"># Use reasoning models for complex planning</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="nv">PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME</span><span class="o">=</span>openrouter:openai/gpt-4.1
-</code></pre></div></td></tr></table></div>
-<p><strong><a href="../../configuration/env-config/#automation-ai-agents">Learn more about model configuration →</a></strong></p>
-<hr />
-<h2 id="best-practices">Best Practices</h2>
-<h3 id="maximizing-agent-effectiveness">Maximizing Agent Effectiveness</h3>
-<p><strong>Write Clear Issues</strong>: Provide detailed descriptions with examples and acceptance criteria</p>
-<p><strong>Use Labels</strong>: Apply the <code>daiv</code> label to issues you want automated</p>
-<p><strong>Review Plans</strong>: Always review agent-generated plans before approval</p>
-<h3 id="repository-setup">Repository Setup</h3>
-<p><strong>Comprehensive Documentation</strong>: Well-documented code helps agents understand context</p>
-<p><strong>Clear Patterns</strong>: Consistent code patterns make agent-generated code more accurate</p>
-<p><strong>Test Coverage</strong>: Good tests help agents validate their changes</p>
-<p><strong>CI/CD Integration</strong>: Proper pipeline configuration enables automatic fixing</p>
-<h3 id="security-considerations">Security Considerations</h3>
-<p><strong>Review Changes</strong>: Always review agent-generated code before merging</p>
-<p><strong>Access Controls</strong>: Configure appropriate repository permissions</p>
-<p><strong>Sensitive Data</strong>: Ensure no secrets are exposed in repository configurations</p>
-<p><strong>Audit Trails</strong>: Monitor agent activities through <a href="../../configuration/monitoring/">LangSmith</a></p>
-<hr />
-<h2 id="troubleshooting">Troubleshooting</h2>
-<h3 id="common-issues">Common Issues</h3>
-<p><strong>Poor Quality Responses</strong>:</p>
-<ul>
-<li>Improve issue descriptions with more context</li>
-<li>Update repository <code>AGENTS.md</code> file to provide more context about the repository</li>
-<li>Consider adjusting model selection</li>
-<li>Consider using <a href="../skills/">Agent Skills</a> to extend agent capabilities on specific tasks</li>
-</ul>
-<h3 id="getting-help">Getting Help</h3>
-<p><strong>Logs and Monitoring</strong>: Check application logs for detailed error information</p>
-<p><strong>Configuration Validation</strong>: Use management commands to verify setup</p>
-<p><strong>Community Support</strong>: Join discussions and share experiences with other users</p>
-<hr />
-<h2 id="next-steps">⏭️ Next Steps</h2>
-<p>Now that you understand how DAIV's agents work:</p>
-<ul>
-<li><strong><a href="../../getting-started/configuration/">Configure your first repository</a></strong> - Set up DAIV integration</li>
-<li><strong><a href="../skills/">Create Agent Skills</a></strong> - Extend agents with specialized domain knowledge</li>
-<li><strong><a href="../mcp-tools/">Explore MCP tools</a></strong> - Understand how MCP tools can be used to extend agent capabilities</li>
-<li><strong><a href="../../configuration/yaml-config/">Customize behavior</a></strong> - Fine-tune agents for your workflow</li>
-<li><strong><a href="../../configuration/monitoring/">Monitor performance</a></strong> - Track agent effectiveness and usage</li>
-</ul>
+<p>This ensures the agent always has up-to-date context about the repository it's working in.</p>
+<h2 id="model-configuration">Model configuration</h2>
+<p>Models are resolved at three levels (highest priority first):</p>
+<ol>
+<li><strong>Issue labels</strong> — <code>daiv-max</code> switches to a stronger model with higher thinking</li>
+<li><strong>Repository config</strong> — <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a></li>
+<li><strong>Environment variables</strong> — global defaults (<code>DAIV_AGENT_*</code>)</li>
+</ol>
+<p>See <a href="../env-variables/#daiv-agent">Environment Variables</a> for all agent model settings.</p>
 
 
 
@@ -1802,7 +1791,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     
@@ -1812,7 +1801,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     

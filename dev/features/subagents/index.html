@@ -12,24 +12,24 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/review-addressor/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/subagents/">
       
       
-        <link rel="prev" href="../issue-addressor/">
+        <link rel="prev" href="../slash-commands/">
       
       
-        <link rel="next" href="../slash-commands/">
+        <link rel="next" href="../sandbox/">
       
       
         
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
     
     
       
-        <title>Review Addressor - DAIV</title>
+        <title>Subagents - DAIV</title>
       
     
     
@@ -50,8 +50,8 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#review-addressor" class="md-skip">
+        <a href="#subagents" class="md-skip">
           Skip to content
         </a>
       
@@ -103,7 +103,7 @@
     <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Review Addressor
+              Subagents
             
           </span>
         </div>
@@ -143,7 +143,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -153,7 +153,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
     
       <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -249,7 +249,7 @@
     <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 19h4.6L2.62 8.64C2.23 8 2 7.29 2 6.5a3.999 3.999 0 0 1 7.87-1H14V3c0-1.1.9-2 2-2v2.59L17.59 2H22v2h-3.59L16 6.41v.18L18.41 9H22v2h-4.41L16 9.41V12a2 2 0 0 1-2-2V7.5H9.87c-.1.39-.26.76-.46 1.1l6 10.4H20a2 2 0 0 1 2 2v1H2v-1c0-1.1.9-2 2-2m3.91-9c-.56.32-1.21.5-1.91.5l4.91 8.5h2.19zM6 4.5a2 2 0 0 0-2 2c0 1.11.89 2 2 2s2-.89 2-2a2 2 0 0 0-2-2"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5c0 1.11-.89 2-2 2s-2-.89-2-2 .9-2 2-2 2 .9 2 2m-9-2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.89 2-2-.89-2-2-2M23 15v3c0 .55-.45 1-1 1h-1v1c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2v-1H2c-.55 0-1-.45-1-1v-3c0-.55.45-1 1-1h1c0-3.87 3.13-7 7-7h1V5.73c-.6-.34-1-.99-1-1.73 0-1.1.9-2 2-2s2 .9 2 2c0 .74-.4 1.39-1 1.73V7h1c3.87 0 7 3.13 7 7h1c.55 0 1 .45 1 1m-2 1h-2v-2c0-2.76-2.24-5-5-5h-4c-2.76 0-5 2.24-5 5v2H3v1h2v3h14v-3h2z"/></svg>
 
     </a>
     DAIV
@@ -350,14 +350,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/up-and-running/" class="md-nav__link">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Up and Running
+    Deployment
   
 
     
@@ -378,14 +378,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/configuration/" class="md-nav__link">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Configuration
+    Platform Setup
   
 
     
@@ -406,152 +406,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/supported-providers/" class="md-nav__link">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Supported Providers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Configuration
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/yaml-config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    YAML Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/env-config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Environment Variables
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/monitoring/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Monitoring
+    LLM Providers
   
 
     
@@ -589,10 +451,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -610,8 +472,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -628,14 +490,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../issue-addressor/" class="md-nav__link">
+      <a href="../issue-addressing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Issue Addressor
+    Issue Addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull Request Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash Commands & Skills
   
 
     
@@ -672,7 +590,7 @@
   <span class="md-ellipsis">
     
   
-    Review Addressor
+    Subagents
   
 
     
@@ -690,7 +608,7 @@
   <span class="md-ellipsis">
     
   
-    Review Addressor
+    Subagents
   
 
     
@@ -716,22 +634,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-to-address-code-review-comments" class="md-nav__link">
+  <a href="#available-subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How to Address Code Review Comments
+        Available subagents
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How to Address Code Review Comments">
+    <nav class="md-nav" aria-label="Available subagents">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#command-format" class="md-nav__link">
+  <a href="#general-purpose" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Command Format
+        General-purpose
       
     </span>
   </a>
@@ -739,10 +657,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#where-to-comment" class="md-nav__link">
+  <a href="#explore" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to Comment
+        Explore
       
     </span>
   </a>
@@ -755,60 +673,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#how-delegation-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#request-a-code-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Request a Code Change
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ask-a-question-about-the-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ask a Question About the Code
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#request-specific-fixes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Request Specific Fixes
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How It Works
+        How delegation works
       
     </span>
   </a>
@@ -816,30 +684,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#workflow" class="md-nav__link">
+  <a href="#custom-subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Workflow
+        Custom subagents
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Workflow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#code-review-response-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        💬 Code Review Response Workflow
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -859,14 +710,152 @@
   
   
     <li class="md-nav__item">
-      <a href="../slash-commands/" class="md-nav__link">
+      <a href="../sandbox/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Slash Commands
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Tools
   
 
     
@@ -912,7 +901,7 @@
   <span class="md-ellipsis">
     
   
-    AI Agents
+    Reference
   
 
     
@@ -928,7 +917,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    AI Agents
+    Reference
   
 
           </label>
@@ -941,14 +930,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/overview/" class="md-nav__link">
+      <a href="../../reference/env-variables/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
+    Environment Variables
   
 
     
@@ -969,14 +958,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/skills/" class="md-nav__link">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent Architecture
   
 
     
@@ -997,14 +986,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-agents/mcp-tools/" class="md-nav__link">
+      <a href="../../reference/monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    Monitoring
   
 
     
@@ -1079,22 +1068,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-to-address-code-review-comments" class="md-nav__link">
+  <a href="#available-subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How to Address Code Review Comments
+        Available subagents
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How to Address Code Review Comments">
+    <nav class="md-nav" aria-label="Available subagents">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#command-format" class="md-nav__link">
+  <a href="#general-purpose" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Command Format
+        General-purpose
       
     </span>
   </a>
@@ -1102,10 +1091,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#where-to-comment" class="md-nav__link">
+  <a href="#explore" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to Comment
+        Explore
       
     </span>
   </a>
@@ -1118,60 +1107,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#how-delegation-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#request-a-code-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Request a Code Change
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ask-a-question-about-the-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ask a Question About the Code
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#request-specific-fixes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Request Specific Fixes
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How It Works
+        How delegation works
       
     </span>
   </a>
@@ -1179,30 +1118,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#workflow" class="md-nav__link">
+  <a href="#custom-subagents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Workflow
+        Custom subagents
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Workflow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#code-review-response-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        💬 Code Review Response Workflow
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1249,7 +1171,7 @@
     
     
       <li class="md-path__item">
-        <a href="../issue-addressor/" class="md-path__link">
+        <a href="../issue-addressing/" class="md-path__link">
           
   <span class="md-ellipsis">
     Features
@@ -1271,7 +1193,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/features/review-addressor.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/subagents.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1279,80 +1201,39 @@
   
 
 
-<h1 id="review-addressor">🤖 Review Addressor</h1>
-<p>Review Addressor is a feature that allows DAIV to address code review comments by applying the changes suggested by the reviewer or answering questions about the codebase.</p>
-<hr />
-<h2 id="how-to-address-code-review-comments">How to Address Code Review Comments</h2>
-<p><strong>To instruct DAIV to address a code review comment, mention DAIV directly in your comment using <code>@&lt;daiv-username&gt; &lt;your request&gt;</code>.</strong></p>
-<p>No slash command is required. Simply tag DAIV and describe what you want done.</p>
-<h3 id="command-format">Command Format</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv &lt;your request&gt;
-</code></pre></div></td></tr></table></div>
-<p>Replace <code>daiv</code> with your DAIV bot's username if it differs.</p>
-<h3 id="where-to-comment">Where to Comment</h3>
-<p>You can leave comments in two places:</p>
+<h1 id="subagents">Subagents</h1>
+<p>DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.</p>
+<p>You can see the available subagents by running <code>/agents</code> on any issue or merge/pull request.</p>
+<h2 id="available-subagents">Available subagents</h2>
+<h3 id="general-purpose">General-purpose</h3>
+<p>A full-capability agent for researching complex questions, searching for code, and executing multi-step tasks. It has access to the same tools as the main agent:</p>
 <ul>
-<li><strong>In the diff</strong> (inline comments): Comment directly on specific lines of code in the merge/pull request diff</li>
-<li><strong>On the merge/pull request</strong>: Comment in the general discussion area</li>
+<li>Filesystem operations (read, search, edit)</li>
+<li>Git platform tools (GitLab/GitHub)</li>
+<li>Web search and fetch</li>
+<li>Sandbox command execution</li>
+<li>Task tracking</li>
 </ul>
-<hr />
-<h2 id="examples">Examples</h2>
-<h3 id="request-a-code-change">Request a Code Change</h3>
-<p>When you want DAIV to modify code based on your review feedback:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv use Redis instead of in-memory storage
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv rename this variable to `user_count` for clarity
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv add error handling for the case when the API returns null
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv move this logic to a separate helper function
-</code></pre></div></td></tr></table></div>
-<h3 id="ask-a-question-about-the-code">Ask a Question About the Code</h3>
-<p>When you want to understand the code better before making a decision:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv why is this import inside the method instead of at the top of the file?
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv what is the purpose of this function?
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv is this the most performant way to do this?
-</code></pre></div></td></tr></table></div>
-<h3 id="request-specific-fixes">Request Specific Fixes</h3>
-<p>When you spot issues during code review:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv this will cause a null pointer exception, please add a null check
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv the indentation is inconsistent here, please fix it
-</code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>@daiv this SQL query is vulnerable to injection, please use parameterized queries
-</code></pre></div></td></tr></table></div>
-<hr />
-<h2 id="how-it-works">How It Works</h2>
-<p>DAIV monitors merge/pull requests for comments that mention DAIV using webhooks. This streamlines the process of addressing code review comments and requires no manual intervention to start a run.</p>
-<h2 id="workflow">Workflow</h2>
-<h4 id="code-review-response-workflow">💬 Code Review Response Workflow</h4>
-<pre class="mermaid"><code>graph TD
-    A["👥 Code Reviewer"] --&gt; B["💬 Comments on Merge/Pull Request&lt;br/&gt;(requests changes or asks questions)"]
-    B --&gt; C["🔔 Comment Webhook"]
-    C --&gt; D["🤖 Review Addressor Agent"]
-    D --&gt; E["📊 Comment Assessment&lt;br/&gt;(ReviewCommentEvaluator)"]
-
-    E --&gt; F["🔍 Change Request?"]
-    F --&gt;|Yes| G["🛠️ Plan &amp; Execute&lt;br/&gt;(code changes needed)"]
-    F --&gt;|No| H["💬 Reply to Reviewer&lt;br/&gt;(answer questions)"]
-
-    G --&gt; I["📝 Analyzes Code Context"]
-    I --&gt; J["🔨 Applies Code Changes"]
-    J --&gt; K["🎨 Code Formatting"]
-    K --&gt; L["📤 Commits to MR/PR Branch"]
-    L --&gt; M["✅ Marks Discussion Resolved&lt;br/&gt;(GitLab) or Adds Comment (GitHub)"]
-
-    H --&gt; N["🔍 Gathers Context&lt;br/&gt;(if needed)"]
-    N --&gt; O["💭 Thinks Through Response"]
-    O --&gt; P["💬 Posts Detailed Reply"]
-
-    style B fill:#e1f5fe
-    style E fill:#fff3e0
-    style G fill:#ffebee
-    style H fill:#e8f5e8
-    style M fill:#f3e5f5</code></pre>
+<p>The main agent delegates to the general-purpose subagent when a task requires multiple rounds of searching and reasoning — for example, investigating a bug across several files or researching how an external library works before making changes.</p>
+<h3 id="explore">Explore</h3>
+<p>A fast, read-only agent specialized for codebase navigation. It can:</p>
+<ul>
+<li>Find files by glob patterns (e.g., <code>src/components/**/*.tsx</code>)</li>
+<li>Search code for keywords and regex patterns</li>
+<li>Read and analyze file contents</li>
+</ul>
+<p>It <strong>cannot</strong> modify files, run commands, or access external resources. This constraint makes it fast and safe for quick lookups.</p>
+<p>The main agent delegates to the explore subagent when it needs to quickly locate files, understand code structure, or gather context before making decisions. You can control the depth of exploration with thoroughness levels: "quick", "medium", or "very thorough".</p>
+<h2 id="how-delegation-works">How delegation works</h2>
+<p>The main agent chooses which subagent to use based on the task:</p>
+<ul>
+<li><strong>Need to find a file or understand code structure?</strong> → Explore subagent</li>
+<li><strong>Need to research, run commands, or do multi-step work?</strong> → General-purpose subagent</li>
+<li><strong>Need to make code changes directly?</strong> → Main agent handles it itself</li>
+</ul>
+<p>Subagents run within the same conversation context. Their findings are returned to the main agent, which uses them to continue the task.</p>
+<h2 id="custom-subagents">Custom subagents</h2>
+<p>Custom subagents are on the roadmap. In the future, you'll be able to define your own specialized subagents to extend DAIV's capabilities for your specific workflows.</p>
 
 
 
@@ -1375,7 +1256,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     
@@ -1385,7 +1266,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 11:00:57 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 14, 2026 10:21:28 UTC">March 14, 2026</span>
   </span>
 
     

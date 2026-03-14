@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/slash-commands/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/customization/repository-config/">
       
       
-        <link rel="prev" href="../pull-request-assistant/">
+        <link rel="prev" href="../../features/sandbox/">
       
       
-        <link rel="next" href="../subagents/">
+        <link rel="next" href="../agent-skills/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Slash Commands & Skills - DAIV</title>
+        <title>Repository Config - DAIV</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#slash-commands-skills" class="md-skip">
+        <a href="#repository-config" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Slash Commands & Skills
+              Repository Config
             
           </span>
         </div>
@@ -438,20 +438,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -472,7 +470,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -490,7 +488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../issue-addressing/" class="md-nav__link">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
         
   
   
@@ -518,7 +516,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pull-request-assistant/" class="md-nav__link">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
         
   
   
@@ -543,37 +541,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Slash Commands & Skills
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../features/slash-commands/" class="md-nav__link">
         
   
   
@@ -589,170 +560,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in commands
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Built-in commands">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#help" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /help
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#agents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /agents
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clear" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clear
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in skills
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Built-in skills">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#code-review" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /code-review
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /security-audit
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#init" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /init
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skill-creator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /skill-creator
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom skills
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -765,7 +572,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../subagents/" class="md-nav__link">
+      <a href="../../features/subagents/" class="md-nav__link">
         
   
   
@@ -793,7 +600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sandbox/" class="md-nav__link">
+      <a href="../../features/sandbox/" class="md-nav__link">
         
   
   
@@ -825,18 +632,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -857,7 +666,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -872,10 +681,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../customization/repository-config/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository Config
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -891,6 +727,131 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repository-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-toggles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature toggles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#branch-naming-and-commit-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch naming and commit conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model overrides
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model overrides">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diff-to-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diff to metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -903,7 +864,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../customization/agent-skills/" class="md-nav__link">
+      <a href="../agent-skills/" class="md-nav__link">
         
   
   
@@ -931,7 +892,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../customization/mcp-tools/" class="md-nav__link">
+      <a href="../mcp-tools/" class="md-nav__link">
         
   
   
@@ -1151,22 +1112,88 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#built-in-commands" class="md-nav__link">
+  <a href="#full-example" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Built-in commands
+        Full example
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Built-in commands">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repository-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-toggles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature toggles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#branch-naming-and-commit-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch naming and commit conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model overrides
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model overrides">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#help" class="md-nav__link">
+  <a href="#agent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /help
+        Agent
       
     </span>
   </a>
@@ -1174,32 +1201,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#agents" class="md-nav__link">
+  <a href="#diff-to-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /agents
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clear" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clear
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
+        Diff to metadata
       
     </span>
   </a>
@@ -1208,89 +1213,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in skills
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Built-in skills">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#code-review" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /code-review
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /security-audit
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#init" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /init
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skill-creator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /skill-creator
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom skills
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1337,10 +1259,10 @@
     
     
       <li class="md-path__item">
-        <a href="../issue-addressing/" class="md-path__link">
+        <a href="./" class="md-path__link">
           
   <span class="md-ellipsis">
-    Features
+    Customization
   </span>
 
         </a>
@@ -1359,7 +1281,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/features/slash-commands.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/customization/repository-config.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1367,122 +1289,332 @@
   
 
 
-<h1 id="slash-commands-skills">Slash Commands &amp; Skills</h1>
-<p>DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are <strong>skills</strong> — modular capabilities that give DAIV specialized expertise for specific tasks.</p>
-<p>From your perspective, both work the same way:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv /&lt;command&gt; [arguments]
+<h1 id="repository-config">Repository Config</h1>
+<p>Customize DAIV's behavior per repository using a <code>.daiv.yml</code> file in the root of the default branch.</p>
+<h2 id="full-example">Full example</h2>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-0-10">10</a></span>
+<span class="normal"><a href="#__codelineno-0-11">11</a></span>
+<span class="normal"><a href="#__codelineno-0-12">12</a></span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span>
+<span class="normal"><a href="#__codelineno-0-14">14</a></span>
+<span class="normal"><a href="#__codelineno-0-15">15</a></span>
+<span class="normal"><a href="#__codelineno-0-16">16</a></span>
+<span class="normal"><a href="#__codelineno-0-17">17</a></span>
+<span class="normal"><a href="#__codelineno-0-18">18</a></span>
+<span class="normal"><a href="#__codelineno-0-19">19</a></span>
+<span class="normal"><a href="#__codelineno-0-20">20</a></span>
+<span class="normal"><a href="#__codelineno-0-21">21</a></span>
+<span class="normal"><a href="#__codelineno-0-22">22</a></span>
+<span class="normal"><a href="#__codelineno-0-23">23</a></span>
+<span class="normal"><a href="#__codelineno-0-24">24</a></span>
+<span class="normal"><a href="#__codelineno-0-25">25</a></span>
+<span class="normal"><a href="#__codelineno-0-26">26</a></span>
+<span class="normal"><a href="#__codelineno-0-27">27</a></span>
+<span class="normal"><a href="#__codelineno-0-28">28</a></span>
+<span class="normal"><a href="#__codelineno-0-29">29</a></span>
+<span class="normal"><a href="#__codelineno-0-30">30</a></span>
+<span class="normal"><a href="#__codelineno-0-31">31</a></span>
+<span class="normal"><a href="#__codelineno-0-32">32</a></span>
+<span class="normal"><a href="#__codelineno-0-33">33</a></span>
+<span class="normal"><a href="#__codelineno-0-34">34</a></span>
+<span class="normal"><a href="#__codelineno-0-35">35</a></span>
+<span class="normal"><a href="#__codelineno-0-36">36</a></span>
+<span class="normal"><a href="#__codelineno-0-37">37</a></span>
+<span class="normal"><a href="#__codelineno-0-38">38</a></span>
+<span class="normal"><a href="#__codelineno-0-39">39</a></span>
+<span class="normal"><a href="#__codelineno-0-40">40</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Repository settings</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nt">default_branch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nt">context_file_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;AGENTS.md&quot;</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="c1"># Files the agent can see but won&#39;t read</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="nt">omit_content_patterns</span><span class="p">:</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.min.js&quot;</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.svg&quot;</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.lock&quot;</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="c1"># Feature toggles</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="nt">issue_addressing</span><span class="p">:</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="nt">code_review</span><span class="p">:</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="nt">slash_commands</span><span class="p">:</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20"></a>
+<a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="c1"># Sandbox</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="nt">sandbox</span><span class="p">:</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python:3.12-bookworm&quot;</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24"></a><span class="w">  </span><span class="nt">ephemeral</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25"></a><span class="w">  </span><span class="nt">network_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26"></a><span class="w">  </span><span class="nt">cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27"></a><span class="w">  </span><span class="nt">memory_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4294967296</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28"></a><span class="w">  </span><span class="nt">command_policy</span><span class="p">:</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29"></a><span class="w">    </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30"></a><span class="w">    </span><span class="nt">disallow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31"></a>
+<a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="c1"># Model overrides</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33"></a><span class="nt">models</span><span class="p">:</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:openai/gpt-5.3-codex&quot;</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="w">    </span><span class="nt">thinking_level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;medium&quot;</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="w">  </span><span class="nt">diff_to_metadata</span><span class="p">:</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:openai/gpt-5.3-codex&quot;</span>
 </code></pre></div></td></tr></table></div>
-<p>Use <code>/help</code> to see everything available in the current context.</p>
-<h2 id="built-in-commands">Built-in commands</h2>
-<p>These commands have fixed behavior and are always available:</p>
+<h2 id="repository-settings">Repository settings</h2>
 <table>
 <thead>
 <tr>
-<th>Command</th>
-<th>Scopes</th>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/help</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Lists all available commands and skills</td>
+<td><code>default_branch</code></td>
+<td><code>str \| null</code></td>
+<td>Repository default</td>
+<td>Branch DAIV uses to load <code>.daiv.yml</code> and as the base for merge requests.</td>
 </tr>
 <tr>
-<td><code>/agents</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Lists available subagents with descriptions</td>
-</tr>
-<tr>
-<td><code>/clear</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Resets the conversation context to start fresh</td>
-</tr>
-<tr>
-<td><code>/clone-to-topics &lt;topics&gt;</code></td>
-<td>Issues only</td>
-<td>Clones the issue to all repositories matching the specified topics</td>
+<td><code>context_file_name</code></td>
+<td><code>str \| null</code></td>
+<td><code>"AGENTS.md"</code></td>
+<td>Name of the <a href="https://arxiv.org/abs/2602.11988">AGENTS.md</a> guidance file. Set to <code>null</code> to disable.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="help">/help</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv /help
-</code></pre></div></td></tr></table></div>
-<p>Shows all available slash commands <strong>and</strong> skills for the current scope. The output includes both built-in commands and any skills (built-in or custom) available in the repository.</p>
-<h3 id="agents">/agents</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv /agents
-</code></pre></div></td></tr></table></div>
-<p>Lists the available subagents with their names and descriptions. See <a href="../subagents/">Subagents</a> for details.</p>
-<h3 id="clear">/clear</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv /clear
-</code></pre></div></td></tr></table></div>
-<p>Clears the conversation history for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting.</p>
-<h3 id="clone-to-topics">/clone-to-topics</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /clone-to-topics backend, api
-</code></pre></div></td></tr></table></div>
-<p>Clones the current issue (title, description, and labels) to all repositories matching <strong>all</strong> the specified topics. The current repository is excluded. Only available on issues.</p>
-<h2 id="built-in-skills">Built-in skills</h2>
-<p>Skills are invoked the same way as commands. DAIV ships with the following built-in skills:</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>The <code>AGENTS.md</code> file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the <code>/init</code> skill — see <a href="../../features/slash-commands/#init">Slash Commands &amp; Skills</a>.</p>
+</div>
+<h2 id="file-access">File access</h2>
+<p>Control which files DAIV can read.</p>
 <table>
 <thead>
 <tr>
-<th>Skill</th>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/plan</code></td>
-<td>Explores the codebase in read-only mode and produces an implementation plan</td>
-</tr>
-<tr>
-<td><code>/code-review</code></td>
-<td>Reviews a merge/pull request for correctness, tests, performance, security, and architecture</td>
-</tr>
-<tr>
-<td><code>/security-audit</code></td>
-<td>Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks</td>
-</tr>
-<tr>
-<td><code>/init</code></td>
-<td>Analyzes the repository and generates or updates an <code>AGENTS.md</code> guidance file</td>
-</tr>
-<tr>
-<td><code>/skill-creator</code></td>
-<td>Guides you through creating a new custom skill</td>
+<td><code>omit_content_patterns</code></td>
+<td><code>list[str]</code></td>
+<td><code>["*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"]</code></td>
+<td>Files matching these patterns are visible to the agent but their content is not read. Useful for large generated files.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="plan">/plan</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv /plan implement rate limiting for the API
+<p>Patterns follow <a href="https://docs.python.org/3/library/fnmatch.html">fnmatch</a> syntax.</p>
+<h2 id="feature-toggles">Feature toggles</h2>
+<p>All features are enabled by default. Disable any you don't need:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span>
+<span class="normal"><a href="#__codelineno-1-5">5</a></span>
+<span class="normal"><a href="#__codelineno-1-6">6</a></span>
+<span class="normal"><a href="#__codelineno-1-7">7</a></span>
+<span class="normal"><a href="#__codelineno-1-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">issue_addressing</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="nt">code_review</span><span class="p">:</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="nt">slash_commands</span><span class="p">:</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </code></pre></div></td></tr></table></div>
-<p>DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the <code>daiv-auto</code> label (see <a href="../issue-addressing/">Issue Addressing</a>).</p>
-<h3 id="code-review">/code-review</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv /code-review
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>issue_addressing</code></td>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td><a href="../../features/issue-addressing/">Issue Addressing</a></td>
+</tr>
+<tr>
+<td><code>code_review</code></td>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td><a href="../../features/pull-request-assistant/">Pull Request Assistant</a></td>
+</tr>
+<tr>
+<td><code>slash_commands</code></td>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td><a href="../../features/slash-commands/">Slash Commands &amp; Skills</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="sandbox">Sandbox</h2>
+<p>Configure the sandbox for command execution. See <a href="../../features/sandbox/">Sandbox</a> for a full explanation of what the sandbox does and how the command policy works.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sandbox.base_image</code></td>
+<td><code>str \| null</code></td>
+<td><code>python:3.12-bookworm</code></td>
+<td>Docker image. Set to <code>null</code> to disable.</td>
+</tr>
+<tr>
+<td><code>sandbox.ephemeral</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Ephemeral sessions (no state persistence).</td>
+</tr>
+<tr>
+<td><code>sandbox.network_enabled</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Allow network access.</td>
+</tr>
+<tr>
+<td><code>sandbox.cpus</code></td>
+<td><code>float \| null</code></td>
+<td><code>null</code></td>
+<td>CPU limit.</td>
+</tr>
+<tr>
+<td><code>sandbox.memory_bytes</code></td>
+<td><code>int \| null</code></td>
+<td><code>null</code></td>
+<td>Memory limit in bytes.</td>
+</tr>
+<tr>
+<td><code>sandbox.command_policy.allow</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Command prefixes to explicitly permit.</td>
+</tr>
+<tr>
+<td><code>sandbox.command_policy.disallow</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Command prefixes to block.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="branch-naming-and-commit-conventions">Branch naming and commit conventions</h2>
+<p>DAIV generates branch names and commit messages automatically. You can define your conventions in <code>AGENTS.md</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="gu">## Branch naming</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a>Use: pr/&lt;issue-id&gt;-&lt;kebab-summary&gt;
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="gu">## Commit messages</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a>Use: (&lt;ISSUE-ID&gt;) &lt;type&gt;: &lt;summary&gt;
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a>Where &lt;type&gt; is one of: feat, fix, chore, docs, refactor, test
 </code></pre></div></td></tr></table></div>
-<p>Reviews the current merge/pull request diff for correctness, test coverage, performance, security issues, and architecture concerns. Posts numbered findings grouped by severity.</p>
-<h3 id="security-audit">/security-audit</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv /security-audit
-</code></pre></div></td></tr></table></div>
-<p>Performs a dedicated security scan of the code changes, looking for injection flaws, hardcoded secrets, authentication issues, and data handling risks.</p>
-<h3 id="init">/init</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv /init
-</code></pre></div></td></tr></table></div>
-<p>Analyzes the repository structure and generates an <code>AGENTS.md</code> file with guidance for AI coding agents, following the recommendations from <a href="https://arxiv.org/abs/2602.11988">the AGENTS.md research paper</a>. If one already exists, it updates it.</p>
-<h3 id="skill-creator">/skill-creator</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv /skill-creator
-</code></pre></div></td></tr></table></div>
-<p>Walks you through creating a new custom skill for your repository. See <a href="../../customization/agent-skills/">Agent Skills</a> for more on custom skills.</p>
-<h2 id="custom-skills">Custom skills</h2>
-<p>You can create your own skills by adding them to your repository. Custom skills appear alongside built-in ones in <code>/help</code> and are invoked the same way.</p>
-<p>Skills live in one of these directories:</p>
+<p>If no conventions are defined, DAIV defaults to:</p>
 <ul>
-<li><code>.agents/skills/</code></li>
-<li><code>.cursor/skills/</code></li>
-<li><code>.claude/skills/</code></li>
+<li><strong>Branches</strong>: <code>&lt;type&gt;/&lt;short-kebab-summary&gt;</code></li>
+<li><strong>Commits</strong>: Conventional Commits style <code>&lt;type&gt;: &lt;short summary&gt;</code></li>
 </ul>
-<p>For details on creating custom skills, see <a href="../../customization/agent-skills/">Agent Skills</a>.</p>
+<h2 id="model-overrides">Model overrides</h2>
+<p>Override the default models on a per-repository basis. Useful for using smaller models on simple projects or larger models on complex ones.</p>
+<p>Configuration priority (highest to lowest):</p>
+<ol>
+<li><strong>Issue labels</strong> (<code>daiv-max</code>) — see <a href="../../features/issue-addressing/#max-mode">Issue Addressing</a></li>
+<li><strong><code>.daiv.yml</code> models section</strong> — per-repository overrides</li>
+<li><strong>Environment variables</strong> — global defaults</li>
+</ol>
+<h3 id="agent">Agent</h3>
+<p>The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>models.agent.model</code></td>
+<td><code>str</code></td>
+<td><code>claude-sonnet-4.6</code></td>
+<td>Primary model.</td>
+</tr>
+<tr>
+<td><code>models.agent.fallback_model</code></td>
+<td><code>str</code></td>
+<td><code>gpt-5.3-codex</code></td>
+<td>Fallback if the primary model fails.</td>
+</tr>
+<tr>
+<td><code>models.agent.thinking_level</code></td>
+<td><code>"minimal" \| "low" \| "medium" \| "high" \| null</code></td>
+<td><code>medium</code></td>
+<td>Thinking depth. Set to <code>null</code> to disable.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="diff-to-metadata">Diff to metadata</h3>
+<p>Generates pull request titles, descriptions, and commit messages from diffs.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>models.diff_to_metadata.model</code></td>
+<td><code>str</code></td>
+<td><code>claude-sonnet-4.6</code></td>
+<td>Primary model.</td>
+</tr>
+<tr>
+<td><code>models.diff_to_metadata.fallback_model</code></td>
+<td><code>str</code></td>
+<td><code>gpt-5.3-codex</code></td>
+<td>Fallback if the primary model fails.</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The diff to metadata agent reads your <code>AGENTS.md</code> file to follow your branch naming and commit message conventions.</p>
+</div>
 
 
 
