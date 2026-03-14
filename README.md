@@ -31,6 +31,7 @@ DAIV automates routine software engineering work so you can focus on creative pr
 
 DAIV's agent has access to a set of capabilities that make this possible:
 
+- **Scalable Workers** — Handle more concurrent tasks by increasing worker replicas — no architecture changes needed.
 - **Subagents** — Specialized agents for fast codebase exploration and complex multi-step tasks.
 - **Sandbox** — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.
 - **MCP Tools** — External tool integrations via the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
