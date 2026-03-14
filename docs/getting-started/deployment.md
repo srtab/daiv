@@ -572,26 +572,17 @@ systemctl restart nginx
 
 The MCP Proxy fetches its server configuration from the DAIV API at startup. This requires a valid DAIV API key for authentication.
 
-To create one, open a shell in the running DAIV container and use Django's admin:
+To create one, run the `create_api_key` management command:
 
 ```bash
 # Docker Swarm
-docker exec -it $(docker ps -q -f name=daiv_app) bash
+docker exec -it $(docker ps -q -f name=daiv_app) django-admin create_api_key <username> --name mcp-proxy
 
 # Docker Compose
-docker compose exec -it app bash
+docker compose exec app django-admin create_api_key <username> --name mcp-proxy
 ```
 
-Then create the API key:
-
-```bash
-django-admin shell -c "
-from accounts.models import APIKey, User
-user = User.objects.first()
-_, key = APIKey.objects.create_key(user=user, name='mcp-proxy')
-print(key)
-"
-```
+You can optionally pass `--expires-at` with an ISO 8601 date (e.g. `2026-12-31T23:59:59`) to set an expiration.
 
 Copy the printed key and use it as:
 

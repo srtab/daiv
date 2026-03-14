@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `create_api_key` management command to create API keys from the command line without opening a Django shell.
 - Added `/agents` slash command to list all available sub-agents with their names and descriptions.
 - Added `/clear` slash command to reset conversation context in issues and merge requests.
 - Added code review, security audit, plan, and skill creator builtin skills for structured guidance during agent execution.

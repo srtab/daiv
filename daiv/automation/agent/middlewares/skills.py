@@ -147,9 +147,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
 
-        builtin_slash_commands = await self._apply_builtin_slash_commands(
-            state["messages"], runtime.context, skills_metadata
-        )
+        builtin_slash_commands = None
+        if runtime.context.config.slash_commands.enabled:
+            builtin_slash_commands = await self._apply_builtin_slash_commands(
+                state["messages"], runtime.context, skills_metadata
+            )
 
         if builtin_slash_commands:
             if clear_skill_mode:
