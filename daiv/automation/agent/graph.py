@@ -119,7 +119,7 @@ async def create_daiv_agent(
     # Flags to override the default settings
     sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
-    web_search_enabled: bool = True,
+    web_search_enabled: bool | None = None,
 ):
     """
     Create the DAIV agent.
@@ -135,7 +135,7 @@ async def create_daiv_agent(
         interrupt_on: The interrupt on configuration for the agent.
         sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
-        web_search_enabled: Whether to enable web search for the agent.
+        web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
 
     Returns:
         The DAIV agent.
@@ -149,6 +149,9 @@ async def create_daiv_agent(
     _summarization_defaults = compute_summarization_defaults(model)
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
+    _web_search_enabled = (
+        web_search_enabled if web_search_enabled is not None else automation_settings.WEB_SEARCH_ENABLED
+    )
 
     agent_path = Path(ctx.gitrepo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
@@ -160,7 +163,7 @@ async def create_daiv_agent(
             backend,
             ctx,
             sandbox_enabled=_sandbox_enabled,
-            web_search_enabled=web_search_enabled,
+            web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
         ),
         create_explore_subagent(backend),
@@ -168,7 +171,7 @@ async def create_daiv_agent(
 
     agent_conditional_middlewares = []
 
-    if web_search_enabled:
+    if _web_search_enabled:
         agent_conditional_middlewares.append(WebSearchMiddleware())
     if _web_fetch_enabled:
         agent_conditional_middlewares.append(WebFetchMiddleware())
