@@ -8,9 +8,12 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  logo: assets/logo.svg
   icon:
-    logo: material/robot-industrial-outline
+    logo: material/robot-outline
+
+  font:
+    text: Inter
+    code: JetBrains Mono
 
   features:
     - search.highlight
@@ -34,6 +37,8 @@ theme:
     # Palette toggle for light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -41,6 +46,8 @@ theme:
     # Palette toggle for dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -70,9 +77,6 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
-
-extra_css:
-  - assets/extra.css
 
 extra:
   generator: false

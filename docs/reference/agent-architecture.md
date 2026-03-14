@@ -1,6 +1,6 @@
 # Agent Architecture
 
-DAIV uses a single AI agent built on [LangChain](https://python.langchain.com/) and [LangGraph](https://langchain-ai.github.io/langgraph/) to automate development workflows. This page covers the technical architecture for those who want to understand how DAIV works under the hood.
+DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
 
 ## Overview
 

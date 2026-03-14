@@ -1,8 +1,4 @@
-# DAIV
-
-<p align="center">
-  <img src="assets/logo-banner.png" alt="DAIV" width="400">
-</p>
+<h1 align="center" style="font-size: 4rem; font-weight: 800; letter-spacing: -0.02em;">DAIV</h1>
 
 <p align="center">
   <strong>Open-source async SWE agent for your Git platform</strong>
@@ -37,7 +33,7 @@ DAIV automates routine software engineering work so you can focus on creative pr
 
 ## Under the hood
 
-DAIV's agent has access to a set of capabilities that make this possible:
+DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework built on [LangGraph](https://langchain-ai.github.io/langgraph/) with sub-agent spawning, a middleware stack, and virtual filesystem. On top of this foundation, DAIV adds:
 
 - **Subagents** — Specialized agents for fast codebase exploration and complex multi-step tasks.
 - **Sandbox** — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.
