@@ -4,6 +4,8 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING, Annotated
 
+from django.utils import timezone
+
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
 from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
@@ -30,7 +32,7 @@ Usage examples:
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
-  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version 2025")`"""
+  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`"""
 
 
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
@@ -44,7 +46,7 @@ Use this tool to:
 
 IMPORTANT - Use the correct year in search queries:
   - You MUST use this year when searching for recent information, documentation, or current events.
-  - Example: If today is 2025-07-15 and the user asks for "latest React docs", search for "React documentation 2025", NOT "React documentation 2024".
+  - Example: If today is {{current_year}}-07-15 and the user asks for "latest React docs", search for "React documentation {{current_year}}", NOT "React documentation {{previous_year}}".
 
 CRITICAL REQUIREMENT - You MUST follow this when using web search:
   - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response when the answer primarily derives from search results.
@@ -157,5 +159,7 @@ class WebSearchMiddleware(AgentMiddleware):
         """
         Update the system prompt with the web search system prompt.
         """
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + WEB_SEARCH_SYSTEM_PROMPT)
+        current_year = timezone.now().year
+        web_search_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(current_year=current_year, previous_year=current_year - 1)
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + web_search_prompt)
         return await handler(request)
