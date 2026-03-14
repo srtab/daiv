@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.0.0] - 2026-03-14
+
 ### Added
 
 - Added `create_api_key` management command to create API keys from the command line without opening a Django shell.
@@ -340,7 +342,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dependency on `gunicorn` and used `uvicorn` as the default server.
 
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/srtab/daiv/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/srtab/daiv/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/srtab/daiv/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/srtab/daiv/compare/v0.2.1...v0.3.0
