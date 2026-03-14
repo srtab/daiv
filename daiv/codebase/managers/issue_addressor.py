@@ -6,7 +6,7 @@ from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.publishers import GitChangePublisher
@@ -15,7 +15,7 @@ from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-from .base import BaseManager
+from .base import CHECKPOINT_TTL_MINUTES, BaseManager
 
 if TYPE_CHECKING:
     from codebase.base import Issue
@@ -36,7 +36,7 @@ class IssueAddressorManager(BaseManager):
     def __init__(self, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue = issue
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope}/{issue.iid}")
+        self.thread_id = generate_uuid(f"{self.ctx.repository.slug}:{self.ctx.scope}/{issue.iid}")
         self.mention_comment_id = mention_comment_id
 
     @classmethod
@@ -65,7 +65,9 @@ class IssueAddressorManager(BaseManager):
 
         if self.mention_comment_id:
             # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
-            mention_comment = self.client.get_issue_comment(self.ctx.repo_id, self.issue.iid, self.mention_comment_id)
+            mention_comment = self.client.get_issue_comment(
+                self.ctx.repository.slug, self.issue.iid, self.mention_comment_id
+            )
             latest_comment = mention_comment.notes[-1]
             messages.append(
                 HumanMessage(name=latest_comment.author.username, id=latest_comment.id, content=latest_comment.body)
@@ -81,7 +83,9 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
             )
 
-        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+        async with AsyncRedisSaver.from_conn_string(
+            django_settings.DJANGO_REDIS_CHECKPOINT_URL, ttl={"default_ttl": CHECKPOINT_TTL_MINUTES}
+        ) as checkpointer:
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx,
                 checkpointer=checkpointer,
@@ -155,4 +159,4 @@ class IssueAddressorManager(BaseManager):
             body: The body of the comment.
             reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
         """
-        return self.client.create_issue_comment(self.ctx.repo_id, self.issue.iid, body, reply_to_id=reply_to_id)
+        return self.client.create_issue_comment(self.ctx.repository.slug, self.issue.iid, body, reply_to_id=reply_to_id)

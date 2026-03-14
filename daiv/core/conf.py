@@ -11,9 +11,10 @@ class CoreSettings(BaseSettings):
     SANDBOX_TIMEOUT: float = Field(default=600, description="Timeout for sandbox requests in seconds")
     SANDBOX_API_KEY: SecretStr | None = Field(default=None, description="API key for sandbox requests")
     SANDBOX_BASE_IMAGE: str | None = Field(
-        default="python:3.12-alpine",
+        default="python:3.12-bookworm",
         description=(
             "Default base image for sandbox sessions. "
+            "The image should have git command installed to allow agents to inspect git repositories."
             "If set to None, sandbox is disabled unless a repository `.daiv.yml` overrides it."
         ),
     )
@@ -26,6 +27,21 @@ class CoreSettings(BaseSettings):
     SANDBOX_CPU: float | None = Field(default=None, description="CPUs to allocate to sandbox sessions by default.")
     SANDBOX_MEMORY: int | None = Field(
         default=None, description="Memory limit (bytes) to allocate to sandbox sessions by default."
+    )
+    SANDBOX_COMMAND_POLICY_DISALLOW: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Global list of additional bash command prefixes to block before sandbox execution. "
+            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
+            "Built-in safety rules always apply and cannot be removed via this setting."
+        ),
+    )
+    SANDBOX_COMMAND_POLICY_ALLOW: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Global list of bash command prefixes that override the default disallow policy. "
+            "Repository-level disallow rules and built-in rules still take precedence."
+        ),
     )
 
 

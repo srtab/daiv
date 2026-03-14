@@ -145,7 +145,7 @@ class NoteCallback(BaseCallback):
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         return bool(
-            self._repo_config.code_review.enabled
+            self._repo_config.pull_request_assistant.enabled
             and self.object_attributes.type is None  # This is a comment note.
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]

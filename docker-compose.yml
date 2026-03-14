@@ -46,8 +46,8 @@ services:
       - "5432:5432"
 
   redis:
-    image: redis:latest
-    command: redis-server --save "" --appendonly no
+    image: redis:8.6-alpine
+    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy noeviction
     restart: unless-stopped
     container_name: daiv-redis
     healthcheck:
@@ -55,6 +55,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    volumes:
+      - ./data/redis:/data
     ports:
       - "6379:6379"
 
@@ -140,12 +143,14 @@ services:
     image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     restart: unless-stopped
     container_name: daiv-mcp-proxy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - '/main --config https://app:8000/api/automation/mcp-proxy/config/ --insecure --http-headers "Authorization: Bearer $${MCP_CONFIG_API_KEY}"'
     env_file:
       - docker/local/app/config.secrets.env
     environment:
       NODE_ENV: development
-    volumes:
-      - ./data/mcp-proxy:/config
     ports:
       - "9090:9090"
     depends_on:
@@ -153,16 +158,16 @@ services:
         condition: service_healthy
         restart: true
 
-  smee:
-    build:
-      context: ./
-      dockerfile: ./docker/local/smee/Dockerfile
-    container_name: daiv-smee
-    restart: unless-stopped
-    command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
-    environment:
-      NODE_TLS_REJECT_UNAUTHORIZED: 0
-    depends_on:
-      app:
-        condition: service_healthy
-        restart: true
+  # smee:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./docker/local/smee/Dockerfile
+  #   container_name: daiv-smee
+  #   restart: unless-stopped
+  #   command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
+  #   environment:
+  #     NODE_TLS_REJECT_UNAUTHORIZED: 0
+  #   depends_on:
+  #     app:
+  #       condition: service_healthy
+  #       restart: true

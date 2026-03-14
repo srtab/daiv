@@ -9,7 +9,11 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   icon:
-    logo: material/robot-industrial-outline
+    logo: material/robot-outline
+
+  font:
+    text: Inter
+    code: JetBrains Mono
 
   features:
     - search.highlight
@@ -33,6 +37,8 @@ theme:
     # Palette toggle for light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -40,6 +46,8 @@ theme:
     # Palette toggle for dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -78,19 +86,21 @@ extra:
 nav:
   - Home: index.md
   - Getting Started:
-    - Up and Running: getting-started/up-and-running.md
-    - Configuration: getting-started/configuration.md
-    - Supported Providers: getting-started/supported-providers.md
-  - Configuration:
-    - YAML Configuration: configuration/yaml-config.md
-    - Environment Variables: configuration/env-config.md
-    - Monitoring: configuration/monitoring.md
+    - Deployment: getting-started/deployment.md
+    - Platform Setup: getting-started/platform-setup.md
+    - LLM Providers: getting-started/llm-providers.md
   - Features:
-    - Issue Addressor: features/issue-addressor.md
-    - Review Addressor: features/review-addressor.md
-    - Slash Commands: features/slash-commands.md
-  - AI Agents:
-    - Overview: ai-agents/overview.md
-    - Agent Skills: ai-agents/skills.md
-    - MCP Tools: ai-agents/mcp-tools.md
+    - Issue Addressing: features/issue-addressing.md
+    - Pull Request Assistant: features/pull-request-assistant.md
+    - Slash Commands & Skills: features/slash-commands.md
+    - Subagents: features/subagents.md
+    - Sandbox: features/sandbox.md
+  - Customization:
+    - Repository Config: customization/repository-config.md
+    - Agent Skills: customization/agent-skills.md
+    - MCP Tools: customization/mcp-tools.md
+  - Reference:
+    - Environment Variables: reference/env-variables.md
+    - Agent Architecture: reference/agent-architecture.md
+    - Monitoring: reference/monitoring.md
   - Community: community.md

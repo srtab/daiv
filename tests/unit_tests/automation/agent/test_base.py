@@ -25,7 +25,7 @@ class TestBaseAgent:
         assert agent.checkpointer is None
 
     def test_custom_initialization(self, mock_init_chat_model):
-        checkpointer = Mock(name="PostgresSaver")
+        checkpointer = Mock(name="RedisSaver")
 
         agent = ConcreteAgent(checkpointer=checkpointer)
 

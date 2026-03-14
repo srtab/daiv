@@ -16,6 +16,10 @@ class CodebaseSettings(BaseSettings):
         default=None, description="Secret token for GitLab webhook validation"
     )
 
+    WEBHOOK_SETUP_CRON: str = Field(
+        default="*/5 * * * *", description="Cron expression for periodic webhook setup (GitLab only)"
+    )
+
     # GitHub
     GITHUB_URL: HttpUrl | None = Field(default=None, description="URL of the GitHub instance")
     GITHUB_APP_ID: int | None = Field(default=None, description="GitHub app ID")

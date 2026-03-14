@@ -1,4 +1,4 @@
-# Up and Running
+# Deployment
 
 This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
 
@@ -6,18 +6,18 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 **DAIV requires several core services to function properly**. You'll deploy these services using container orchestration:
 
-**Required Core Services:**
+**Required services:**
 
- * **[PostgreSQL](https://www.postgresql.org/)** - Stores application data;
-* **[Redis](https://redis.io/)** - Handles caching;
- * **[DAIV Application](https://github.com/srtab/daiv)** - Main API;
-* **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** - Background task processor.
+* **[PostgreSQL](https://www.postgresql.org/)** — stores application data
+* **[Redis](https://redis.io/)** — handles caching
+* **[DAIV Application](https://github.com/srtab/daiv)** — main API
+* **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** — background task processor
 
-**Optional Service:**
+**Optional services:**
 
-* **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** - Periodic task scheduler;
-* **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** - Isolated environment for running arbitrary commands;
-* **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** - Proxy MCP server to run other MCP servers inside a container.
+* **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
+* **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](../features/sandbox.md))
+* **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** — proxy for running MCP servers in a container (see [MCP Tools](../customization/mcp-tools.md))
 
 ---
 
@@ -39,11 +39,12 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 * **`django_secret_key`** - Random secret key for Django ([generate one here](https://djecrety.ir/))
 * **`db_password`** - Random password for the PostgreSQL database
-* **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
+* **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](platform-setup.md#gitlab-configuration))
 * **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
 * **`mcp_proxy_auth_token`** - Random API key for MCP Proxy service authentication
+* **`mcp_config_api_key`** - DAIV API key for MCP Proxy to fetch its configuration (see [below](#mcp-proxy-api-key))
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -52,14 +53,14 @@ docker secret create django_secret_key <secret_key>
 ```
 
 !!! warning "Additional Secrets May Be Required"
-    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](../configuration/env-config.md) page for additional secrets needed for specific features or services.
+    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](../reference/env-variables.md) page for additional secrets needed for specific features or services.
 
 ### Step 2: Create `stack.yml` file
 
 **Create your deployment configuration file**. This YAML file defines all services, networks, and volumes needed for DAIV.
 
 !!! warning "Customize Environment Variables"
-    **Replace all annotated values with your own configuration**. See the [Environment Variables](../configuration/env-config.md) page for complete configuration options.
+    **Replace all annotated values with your own configuration**. See the [Environment Variables](../reference/env-variables.md) page for complete configuration options.
 
 <div class="annotate" markdown>
 
@@ -69,6 +70,8 @@ x-app-environment-defaults: &app_environment_defaults
   DJANGO_SETTINGS_MODULE: daiv.settings.production
   DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
   DJANGO_REDIS_URL: redis://daiv_redis:6379/0
+  DJANGO_REDIS_SESSION_URL: redis://daiv_redis:6379/1
+  DJANGO_REDIS_CHECKPOINT_URL: redis://daiv_redis:6379/2
   DAIV_EXTERNAL_URL: https://your-hostname.com (2)
   # DATABASE
   DB_NAME: daiv
@@ -152,8 +155,6 @@ services:
       - external
     ports:
       - "8000:8000"
-    volumes:
-      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
 
@@ -172,10 +173,9 @@ services:
       - mcp_proxy_auth_token
     networks:
       - internal
-    volumes:
-      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
+      replicas: 1 (10)
 
   scheduler:
     image: ghcr.io/srtab/daiv:latest (5)
@@ -192,8 +192,6 @@ services:
       - mcp_proxy_auth_token
     networks:
       - internal
-    volumes:
-      - mcp-proxy-volume:/home/daiv/data/mcp-proxy
     deploy:
       <<: *deploy_defaults
 
@@ -213,10 +211,14 @@ services:
 
   mcp-proxy:
     image: ghcr.io/tbxark/mcp-proxy:v0.43.2
+    entrypoint:
+      - /bin/sh
+      - -c
+      - '/main --config http://app:8000/api/automation/mcp-proxy/config/ --http-headers "Authorization: Bearer $$(cat /run/secrets/mcp_config_api_key)"' (9)
     networks:
       - internal
-    volumes:
-      - mcp-proxy-volume:/config
+    secrets:
+      - mcp_config_api_key
     deploy:
       <<: *deploy_defaults
 
@@ -231,8 +233,6 @@ volumes:
   db-volume:
     driver: local
   redis-volume:
-    driver: local
-  mcp-proxy-volume:
     driver: local
 
 secrets:
@@ -250,6 +250,8 @@ secrets:
     external: true
   mcp_proxy_auth_token:
     external: true
+  mcp_config_api_key:
+    external: true
 ```
 
 </div>
@@ -262,6 +264,8 @@ secrets:
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
+9.   MCP Proxy fetches its configuration from the DAIV API. The secret must be a valid DAIV API key (see [MCP Proxy API key](#mcp-proxy-api-key))
+10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 3: Deploy the stack
 
@@ -284,9 +288,9 @@ docker ps
 !!! info "Deployment Time"
     **Services may take several minutes to become fully healthy**, especially during the initial deployment when images are being pulled and databases are being initialized.
 
-### Step 4: ⏭️ Next steps
+### Step 4: Next steps
 
-**Your DAIV deployment is now running!** Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to connect your first repository.
+Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to [Platform Setup](platform-setup.md) to connect your first repository.
 
 ---
 
@@ -304,7 +308,7 @@ docker ps
 **Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
 
 !!! info "Environment Variable Configuration"
-    **Replace all annotated values with your specific configuration**. See the [Environment Variables](../configuration/env-config.md) page for additional options.
+    **Replace all annotated values with your specific configuration**. See the [Environment Variables](../reference/env-variables.md) page for additional options.
 
 <div class="annotate" markdown>
 
@@ -317,6 +321,8 @@ x-app-defaults: &x_app_default
     DJANGO_SECRET_KEY: secret-key (1)
     DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
     DJANGO_REDIS_URL: redis://redis:6379/0
+    DJANGO_REDIS_SESSION_URL: redis://redis:6379/1
+    DJANGO_REDIS_CHECKPOINT_URL: redis://redis:6379/2
     DAIV_EXTERNAL_URL: https://your-hostname.com (12)
     # Database settings
     DB_HOST: db
@@ -335,8 +341,6 @@ x-app-defaults: &x_app_default
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
     # MCP Proxy settings
     MCP_PROXY_AUTH_TOKEN: mcp-proxy-auth-token (13)
-  volumes:
-    - mcp-proxy-volume:/home/daiv/data/mcp-proxy
 
 services:
   db:
@@ -385,9 +389,10 @@ services:
 
   worker:
     <<: *x_app_default
-    container_name: daiv-worker
     command: sh /home/daiv/start-worker
     ports: []
+    deploy:
+      replicas: 1 (16)
     depends_on:
       app:
         condition: service_healthy
@@ -418,10 +423,12 @@ services:
     image: ghcr.io/tbxark/mcp-proxy:v0.43.2
     restart: unless-stopped
     container_name: daiv-mcp-proxy
-    volumes:
-      - mcp-proxy-volume:/config
-    ports:
-      - "9090:9090"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - '/main --config http://app:8000/api/automation/mcp-proxy/config/ --http-headers "Authorization: Bearer $${MCP_CONFIG_API_KEY}"'
+    environment:
+      MCP_CONFIG_API_KEY: mcp-config-api-key (15)
     depends_on:
       app:
         condition: service_healthy
@@ -432,8 +439,6 @@ volumes:
     driver: local
   redis-volume:
     driver: local
-  mcp-proxy-volume:
-    driver: local
 ```
 
 </div>
@@ -442,7 +447,7 @@ volumes:
 2.   **Replace with your domain name** - Don't include schema (e.g., `daiv.com`)
 3.   **Generate a secure random password** for the database
 4.   **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
-5.   **Create a GitLab personal access token** with `api` scope permissions (see [how to create one](configuration.md#step-1-create-gitlab-personal-access-token))
+5.   **Create a GitLab personal access token** with `api` scope permissions (see [Platform Setup](platform-setup.md#gitlab-configuration))
 6.   **Generate a random webhook secret** for GitLab webhook validation
 8.   **Get an OpenRouter API key** for LLM model access
 9.   **Generate a random API key** for Sandbox service authentication
@@ -451,6 +456,8 @@ volumes:
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 13.  **Generate a random API key** for MCP Proxy service authentication
 14.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
+15.  **DAIV API key** for MCP Proxy to fetch its configuration (see [MCP Proxy API key](#mcp-proxy-api-key))
+16.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 2: Run the compose file
 
@@ -466,9 +473,9 @@ docker compose up -d
 docker compose ps
 ```
 
-### Step 3: ⏭️ Next steps
+### Step 3: Next steps
 
-**Your DAIV instance is now operational!** Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to connect your first repository.
+Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](platform-setup.md) to connect your first repository.
 
 ---
 
@@ -561,49 +568,35 @@ systemctl restart nginx
 
 ---
 
-## 🚀 Final Steps and Repository Configuration
+## MCP Proxy API key
 
-**Congratulations! Your DAIV instance is now running and accessible.** To start using DAIV with your repositories, follow these essential next steps:
+The MCP Proxy fetches its server configuration from the DAIV API at startup. This requires a valid DAIV API key for authentication.
 
-### 1. Connect Your First Repository
-
-**Your next step is connecting DAIV to your GitLab repositories**. This process involves:
-
-- Creating GitLab personal access tokens
-- Configuring repository webhooks
-- Setting up automated workflows\
-
-**📖 Follow the complete repository setup guide**: [Repository Configuration](configuration.md)
-
-### 2. What You Can Do After Configuration
-
-**Once your repository is connected, DAIV will automatically**:
-
-- **Respond to issues** - DAIV analyzes issues and suggests solutions or implementation plans
-- **Review pull requests** - Automated code review and suggestions for improvements
-- **Address pipeline failures** - Investigates CI/CD failures and proposes fixes
-
-### 3. Monitoring Your Instance
-
-**Keep track of your DAIV deployment**:
+To create one, run the `create_api_key` management command:
 
 ```bash
-# Check service health (Docker Swarm)
-docker stack ps daiv
+# Docker Swarm
+docker exec -it $(docker ps -q -f name=daiv_app) django-admin create_api_key <username> --name mcp-proxy
 
-# Check service health (Docker Compose)
-docker compose ps
-
-# View application logs
-docker logs <container_name>
+# Docker Compose
+docker compose exec app django-admin create_api_key <username> --name mcp-proxy
 ```
 
-### 4. Getting Help
+You can optionally pass `--expires-at` with an ISO 8601 date (e.g. `2026-12-31T23:59:59`) to set an expiration.
 
-**If you encounter issues during setup**:
+Copy the printed key and use it as:
 
-- **Check the logs** for error messages and debugging information
-- **Review the [Environment Variables](../configuration/env-config.md)** for configuration options
-- **Verify network connectivity** between services and external APIs
-- **Ensure all secrets and API keys** are valid and have proper permissions
-- **Ask for help** on the [GitHub Discussions](https://github.com/srtab/daiv/discussions)
+- **Docker Swarm**: `printf '<key>' | docker secret create mcp_config_api_key -`
+- **Docker Compose**: set `MCP_CONFIG_API_KEY` in the mcp-proxy environment
+
+Then restart the mcp-proxy service.
+
+---
+
+## Next steps
+
+Your DAIV instance is now running and accessible. Continue with:
+
+1. **[Platform Setup](platform-setup.md)** — connect DAIV to your GitLab or GitHub repositories
+2. **[LLM Providers](llm-providers.md)** — configure your LLM provider and API keys
+3. **[Repository Config](../customization/repository-config.md)** — customize DAIV's behavior per repository

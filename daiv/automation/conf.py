@@ -29,6 +29,7 @@ class AutomationSettings(BaseSettings):
     GOOGLE_API_KEY: SecretStr | None = Field(default=None, description="Google API key", alias="GOOGLE_API_KEY")
 
     # Web search settings
+    WEB_SEARCH_ENABLED: bool = Field(default=True, description="Enable/disable the web_search tool.")
     WEB_SEARCH_MAX_RESULTS: int = Field(default=5, description="Maximum number of results to return from web search")
     WEB_SEARCH_ENGINE: Literal["duckduckgo", "tavily"] = Field(
         default="duckduckgo",
@@ -42,7 +43,7 @@ class AutomationSettings(BaseSettings):
 
     # Web fetch settings
     WEB_FETCH_ENABLED: bool = Field(default=True, description="Enable/disable the native web_fetch tool.")
-    WEB_FETCH_MODEL_NAME: ModelName = Field(
+    WEB_FETCH_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_HAIKU_4_5,
         description=(
             "Model name used by web_fetch to process page content with the prompt. "

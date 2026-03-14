@@ -14,14 +14,14 @@
 
 The `.dropdown-menu` is missing `z-index` and uses `position: relative` instead of `position: absolute`, causing it to push content down rather than float above it on viewports below 768px.
 
-## Files to Modify
+## Changes
 
-- `src/components/Navbar.css` (line ~83) — change `.dropdown-menu` positioning and add z-index
+- `src/components/Navbar.css` (line ~83) — change `.dropdown-menu` to `position: absolute` and add `z-index: 100` inside the `@media (max-width: 768px)` block
+- `src/components/Navbar.css` (line ~12) — if `overflow: hidden` on `.navbar` clips the dropdown, change to `overflow: visible`
 - `src/components/Navbar.test.jsx` — add snapshot test for mobile dropdown render
 
-## Implementation Notes
+## Notes
 
-- Set `.dropdown-menu` to `position: absolute` and `z-index: 100`. The existing modal uses `z-index: 200`, so 100 is safe.
-- The fix only needs to apply inside the `@media (max-width: 768px)` block — desktop is unaffected.
-- Check that `overflow: hidden` on the parent `.navbar` container isn't clipping the dropdown. If it is, change to `overflow: visible` (currently line 12).
+- The existing modal uses `z-index: 200`, so 100 is safe.
+- Desktop is unaffected — fix is scoped to the mobile media query.
 - No JavaScript changes needed.

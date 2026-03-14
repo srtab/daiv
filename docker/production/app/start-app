@@ -3,6 +3,6 @@
 set -eu pipefail
 
 django-admin migrate --noinput
-django-admin mcp_proxy_config --output /home/daiv/data/mcp-proxy/config.json
+django-admin setup_checkpoint_saver
 
 exec uvicorn --host ${UVICORN_HOST:-0.0.0.0} --port ${UVICORN_PORT:-8000} --lifespan off --app-dir "/home/daiv/app" "daiv.asgi:application"

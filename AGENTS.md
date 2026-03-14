@@ -67,13 +67,7 @@ make docs-serve     # serve documentation locally at localhost:4000
 
 Example:
 ```python
-def commit_changes(
-    self,
-    commit_message: str,
-    *,
-    branch_name: str,
-    skip_ci: bool = False,
-) -> str:
+def commit_changes(self, commit_message: str, *, branch_name: str, skip_ci: bool = False) -> str:
     """Commit changes to the repository."""
     ...
 ```
@@ -127,18 +121,16 @@ except GitCommandError as e:
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
 
+
 @tool("my_tool")
 async def my_tool(param: str, runtime: ToolRuntime) -> str | Command:
     # Simple case: just return output as string
     if not needs_state_update:
         return "output"
-    
+
     # When state update is needed: return Command with ToolMessage
     output = "tool output"
-    state_update = {
-        "key": "value",
-        "messages": [ToolMessage(content=output, tool_call_id=runtime.tool_call_id)]
-    }
+    state_update = {"key": "value", "messages": [ToolMessage(content=output, tool_call_id=runtime.tool_call_id)]}
     return Command(update=state_update)
 ```
 

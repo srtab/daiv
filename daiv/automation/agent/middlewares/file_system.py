@@ -24,7 +24,13 @@ LIST_FILES_TOOL_DESCRIPTION = LIST_FILES_TOOL_DESCRIPTION_BASE + "\n" + REMINDER
 
 READ_FILE_TOOL_DESCRIPTION = READ_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
 
-WRITE_FILE_TOOL_DESCRIPTION = WRITE_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
+# The agent is calling write_file on a file that already exists, gets rejected
+# ("Cannot write because it already exists"), then correctly switches to edit_file. This wastes one tool call.
+WRITE_FILE_TOOL_DESCRIPTION = (
+    WRITE_FILE_TOOL_DESCRIPTION_BASE
+    + "\nIMPORTANT: This tool can ONLY create new files. It will fail on files that already exist. "
+    "To modify existing files, always use `edit_file` instead." + "\n" + REMINDER_ABSOLUTE_PATHS
+)
 
 EDIT_FILE_TOOL_DESCRIPTION = EDIT_FILE_TOOL_DESCRIPTION_BASE + "\n" + REMINDER_ABSOLUTE_PATHS
 

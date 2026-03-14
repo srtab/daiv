@@ -212,9 +212,9 @@ class TestSlashCommandRegistry:
             if original_command is not None:
                 MockCommand1.command = original_command
             elif hasattr(MockCommand1, "command"):
-                delattr(MockCommand1, "command")
+                del MockCommand1.command
 
             if original_scopes is not None:
                 MockCommand1.scopes = original_scopes
             elif hasattr(MockCommand1, "scopes"):
-                delattr(MockCommand1, "scopes")
+                del MockCommand1.scopes

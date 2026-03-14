@@ -34,6 +34,7 @@ class Repository(BaseModel):
     slug: str
     name: str
     clone_url: str
+    html_url: str
     default_branch: str
     git_platform: GitPlatform
     topics: list[str] = Field(default_factory=list)

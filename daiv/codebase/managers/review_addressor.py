@@ -8,7 +8,7 @@ from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
@@ -19,7 +19,7 @@ from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, Not
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-from .base import BaseManager
+from .base import CHECKPOINT_TTL_MINUTES, BaseManager
 
 if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
@@ -194,7 +194,9 @@ class CommentsAddressorManager(BaseManager):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(f"{self.ctx.repo_id}:{self.ctx.scope}/{self.merge_request.merge_request_id}")
+        self.thread_id = generate_uuid(
+            f"{self.ctx.repository.slug}:{self.ctx.scope}/{self.merge_request.merge_request_id}"
+        )
 
     @classmethod
     async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
@@ -219,10 +221,12 @@ class CommentsAddressorManager(BaseManager):
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
         mention_comment = self.client.get_merge_request_comment(
-            self.ctx.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
+            self.ctx.repository.slug, self.merge_request.merge_request_id, self.mention_comment_id
         )
 
-        async with AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer:
+        async with AsyncRedisSaver.from_conn_string(
+            django_settings.DJANGO_REDIS_CHECKPOINT_URL, ttl={"default_ttl": CHECKPOINT_TTL_MINUTES}
+        ) as checkpointer:
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx,
                 checkpointer=checkpointer,
@@ -309,5 +313,5 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.ctx.repo_id, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
+            self.ctx.repository.slug, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
         )

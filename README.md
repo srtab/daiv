@@ -1,32 +1,48 @@
-# DAIV: Development AI Assistant
+<h1 align="center">DAIV</h1>
+<p align="center"><strong>Open-source async SWE agent for your Git platform</strong></p>
+<p align="center">
+  <img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml" alt="Python Version">
+  <a href="https://github.com/srtab/daiv/blob/main/LICENSE"><img src="https://img.shields.io/github/license/srtab/daiv" alt="License"></a>
+  <a href="https://github.com/srtab/daiv/actions"><img src="https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml)
-[![GitHub License](https://img.shields.io/github/license/srtab/daiv)](https://github.com/srtab/daiv/blob/main/LICENSE)
-[![Actions Status](https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg)](https://github.com/srtab/daiv/actions)
+---
 
-DAIV is an open-source automation assistant designed to enhance developer productivity. It integrates seamlessly with **GitLab** and **GitHub** repositories to streamline your development process. It uses AI agents and configurable actions to automate common software development tasks such as:
+DAIV integrates directly with **GitLab** and **GitHub** repositories through webhooks. No separate interface needed — you keep using your existing workflow while DAIV handles automation in the background.
 
-- **Issue Addressing**: Planning and, after human approval, executing solutions directly from issue titles and descriptions.
-- **Code Review Assistance**: Automatically responding to reviewer comments, adjusting code, repairing failed CI/CD pipelines and improving pull requests on demand.
+## What DAIV does
 
-## Key Features
+DAIV automates routine software engineering work so you can focus on creative problem-solving:
 
-- 🚀 **Automated Issue Resolution**: When an issue is created in your repository, DAIV can parse the description, propose a step-by-step plan, and, after human approval, execute code changes and open a merge request for you to review.
-- 💬 **Code Review Addressor**: Assists with code review comments by providing context-aware answers or directly applying requested changes. This reduces the overhead of going back and forth on merge requests.
-- 🧠 **Codebase Chat**: Chat with your codebase for context-aware answers. An OpenAI-compatible API is available for easy integration with tools such as [Open-WebUI](https://github.com/open-webui/open-webui).
-- ⚙️ **Configurable Behavior**: A `.daiv.yml` file in your repo's default branch lets you tailor DAIV's features (like toggling auto-issue addressing).
-- ⚡ **Slash Commands**: Command-based interactions for common tasks on issues and merge requests, such as help to list available commands, cloning issues to multiple repositories, etc.
-- 🔧 **MCP Tools**: Supporting [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools to extend the capabilities of the agents.
-- 🎯 **Agent Skills**: Modular, reusable capabilities that give agents domain-specific expertise. Define custom workflows in your repository's `.daiv/skills/`, `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/` directory, or use builtin skills like changelog maintenance and AGENTS.md generation.
-- 📦 **Sandbox**: Running commands in a secure sandbox to allow the agents to perform actions on the codebase, such as installing/updating dependencies, generating translations, etc. with your own docker image.
-- 📊 **Monitoring**: Monitoring the behavior of the agents to allow you to analyze the performance and identify potential issues.
-- 🤖 **Providers Support**: [OpenAI](https://openai.com/api/), [Anthropic](https://www.anthropic.com/api), [Gemini](https://ai.google.dev/gemini) and [OpenRouter](https://openrouter.ai/) are the supported LLM providers.
+- **Issue Addressing** — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.
+- **Pull Request Assistant** — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.
+- **Slash Commands & Skills** — Invoke commands and skills directly from issues and merge requests (`/help`, `/plan`, `/code-review`, `/clone-to-topics`). Built-in skills provide planning, code review, and security audits — and you can create your own.
+
+## Quick example
+
+1. **You create an issue:** "Add rate limiting to the API endpoints"
+2. **DAIV posts a plan:** Analyzes the codebase and proposes implementation steps
+3. **You approve:** Comment `@daiv proceed`
+4. **DAIV implements:** Creates a merge request with the code changes
+5. **Reviewer asks for changes:** "@daiv use Redis instead of in-memory storage"
+6. **DAIV updates the code:** Modifies the implementation and pushes
+
+## Under the hood
+
+DAIV's agent has access to a set of capabilities that make this possible:
+
+- **Scalable Workers** — Handle more concurrent tasks by increasing worker replicas — no architecture changes needed.
+- **Subagents** — Specialized agents for fast codebase exploration and complex multi-step tasks.
+- **Sandbox** — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.
+- **MCP Tools** — External tool integrations via the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **Monitoring** — Track agent behavior with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and identify issues.
+- **LLM Providers** — [OpenRouter](https://openrouter.ai/), [Anthropic](https://www.anthropic.com/api), [OpenAI](https://openai.com/api/), and [Google Gemini](https://ai.google.dev/gemini).
 
 ## Technology Stack
 
+- **Agent Framework**: [Deep Agents](https://github.com/langchain-ai/deepagents) — the core agent engine powering DAIV. A general-purpose deep agent with sub-agent spawning, middleware stack, and virtual filesystem. Built on [LangGraph](https://langchain-ai.github.io/langgraph).
 - **Backend Framework**: [Django](https://www.djangoproject.com/) for building robust APIs and managing database models.
 - **Async Tasks**: [Django Tasks](https://docs.djangoproject.com/en/6.0/topics/tasks/) with the [`django-tasks` backend](https://pypi.org/project/django-tasks/) and [`django-crontask`](https://pypi.org/project/django-crontask/) for periodic scheduling.
-- **LLM Frameworks**: [LangChain](https://python.langchain.com/) and [LangGraph](https://langchain-ai.github.io/langgraph), integrating various LLM agents for intent understanding, query transformation, and natural language reasoning about code changes.
 - **Code Executor**: [Sandbox](https://github.com/srtab/daiv-sandbox/) for running commands in a secure sandbox to allow the agents to perform actions on the codebase.
 - **Observability**: [LangSmith](https://www.langchain.com/langsmith) for tracing and monitoring all the interactions between DAIV and your codebase.
 - **Error Handling**: [Sentry](https://sentry.io/) for tracking and analyzing errors.
@@ -47,7 +63,7 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    ```
 
 2. **Configure Environment**:
-   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Gemini API Key, and LangSmith API Key.
+   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Google API Key, and LangChain API Key.
 
    ```bash
    cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env
@@ -72,7 +88,6 @@ DAIV is an open-source automation assistant designed to enhance developer produc
    This will start all needed services locally. You can access them at:
 
    - DAIV API documentation: https://localhost:8000/api/docs/
-   - PGAdmin (database management): http://localhost:8080
    - GitLab (local test repository platform): http://localhost:8929
    - Sandbox (secure code execution): http://localhost:8888/docs
 
@@ -92,8 +107,8 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
    ```bash
    $ docker compose exec -it app bash
-   $ make lint      # to check for linting issues
-   $ make lint-fix  # to automatically fix linting errors
+   $ make lint      # to check for linting and formatting issues
+   $ make lint-fix  # to automatically fix linting and formatting issues
    ```
 
 7. **Configure test repository**:
@@ -121,8 +136,6 @@ DAIV is an open-source automation assistant designed to enhance developer produc
       # Set up webhooks to trigger automatically DAIV actions. You can disable SSL verification for local development by adding `--disable-ssl-verification` to the command.
       $ django-admin setup_webhooks
 
-      # Update the repository index to be able to search for code
-      $ django-admin update_index
       ```
 
       > [!NOTE]
@@ -133,14 +146,14 @@ DAIV is an open-source automation assistant designed to enhance developer produc
 
 ## Roadmap
 
-- [x] 🐙 Add support to GitHub.
-- [x] 🤖 Add support to [AGENTS.md](https://agents.md/) format to guide agents.
-- [x] 🎯 Add support to Agent Skills.
-- [ ] 🌐 Add support to custom MCP servers.
-- [x] 📊 Add an evaluation system to measure the quality of DAIV's agents.
-- [ ] 🔍 Add support to automated code review.
-- [ ] 🎨 Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
-- [ ] 🚀 Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
+- [x] Add support to GitHub.
+- [x] Add support to [AGENTS.md](https://agents.md/) format to guide agents.
+- [x] Add support to Agent Skills.
+- [ ] Add support to custom MCP servers.
+- [x] Add an evaluation system to measure the quality of DAIV's agents.
+- [ ] Add support to automated pull request review.
+- [ ] Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
+- [ ] Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
 
 
 ## Contributing
@@ -154,5 +167,3 @@ This project is licensed under the [Apache 2.0 License](LICENSE).
 ## Support & Community
 
 For questions or support, please open an issue in the GitHub repository. Contributions, suggestions, and feedback are greatly appreciated!
-
-**Happy Coding!**

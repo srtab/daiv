@@ -18,5 +18,13 @@ class MCPSettings(BaseSettings):
     SENTRY_ACCESS_TOKEN: SecretStr | None = Field(default=None, description="The access token to the Sentry MCP server")
     SENTRY_HOST: str | None = Field(default=None, description="The host of the Sentry MCP server")
 
+    # Context7 MCP server
+    CONTEXT7_ENABLED: bool = Field(default=True, description="Whether to enable the Context7 MCP server")
+    CONTEXT7_VERSION: str = Field(
+        default="latest",
+        description="The version of the Context7 MCP server: https://www.npmjs.com/package/@upstash/context7-mcp",
+    )
+    CONTEXT7_API_KEY: SecretStr | None = Field(default=None, description="The API key for the Context7 MCP server")
+
 
 settings = MCPSettings()

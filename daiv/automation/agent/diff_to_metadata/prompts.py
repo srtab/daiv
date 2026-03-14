@@ -1,7 +1,7 @@
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 system = SystemMessagePromptTemplate.from_template(
-    """You are a senior software engineer generating Pull Request metadata. Current date: {{current_date_time}}.
+    """You are a senior software engineer generating Pull Request metadata. Current date: {{current_date}}.
 
 You MUST follow these rules:
 1) Source of truth is ONLY:

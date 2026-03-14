@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from git import Repo
 
-from codebase.base import Discussion, GitPlatform, Issue, Job, MergeRequest, Pipeline, Repository, User
+from codebase.base import Discussion, GitPlatform, Issue, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.clients.utils import safe_slug
 
@@ -58,12 +58,14 @@ class SWERepoClient(RepoClient):
 
         owner, name = repo_id.split("/", 1)
         clone_url = f"https://{self.repo_host}/{repo_id}.git"
+        html_url = f"https://{self.repo_host}/{repo_id}"
 
         return Repository(
             pk=hash(repo_id) % (2**31),  # Generate a deterministic pseudo-ID
             slug=repo_id,
             name=name,
             clone_url=clone_url,
+            html_url=html_url,
             default_branch="main",  # Default assumption, can be overridden
             git_platform=self.git_platform,
             topics=[],
@@ -143,34 +145,16 @@ class SWERepoClient(RepoClient):
             logger.error("Failed to read file %s: %s", file_path, e)
             return None
 
-    def repository_branch_exists(self, repo_id: str, branch: str) -> bool:
-        """
-        Check if a branch exists in a repository.
-
-        Requires load_repo to have been called first.
-
-        Args:
-            repo_id: The repository identifier.
-            branch: The branch name.
-
-        Returns:
-            True if the branch exists, False otherwise.
-
-        Raises:
-            RuntimeError: If load_repo has not been called.
-        """
-        if self._loaded_repo is None:
-            raise RuntimeError(
-                "Repository not loaded. Call load_repo() before using repository_branch_exists(). "
-                "This method requires a repository to be loaded via the load_repo context manager."
-            )
-
-        try:
-            # Try to fetch the branch
-            self._loaded_repo.git.fetch("origin", branch)
-            return True
-        except Exception:
-            return False
+    def set_repository_webhooks(
+        self,
+        repo_id: str,
+        url: str,
+        push_events_branch_filter: str | None = None,
+        enable_ssl_verification: bool = True,
+        secret_token: str | None = None,
+    ) -> bool:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support webhooks")
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
@@ -206,27 +190,31 @@ class SWERepoClient(RepoClient):
                 # Clear instance variable when context exits
                 self._loaded_repo = None
 
-    @cached_property
-    def current_user(self) -> User:
-        """
-        Get the current user. For SWE client, returns a dummy user.
-
-        Returns:
-            A dummy user object.
-        """
-        return User(id=0, username="swe-bench", name="SWE Bench")
-
-    # Issue/MR/CI methods - not supported for SWE-bench
-    def set_repository_webhooks(
-        self,
-        repo_id: str,
-        url: str,
-        push_events_branch_filter: str | None = None,
-        enable_ssl_verification: bool = True,
-        secret_token: str | None = None,
-    ) -> bool:
+    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support webhooks")
+        raise NotImplementedError("SWERepoClient does not support issues")
+
+    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue creation")
+
+    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue comments")
+
+    def create_issue_comment(
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+    ) -> str | None:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue comments")
+
+    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue emojis")
+
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support issue reactions")
 
     def update_or_create_merge_request(
         self,
@@ -267,59 +255,9 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
 
-    def get_issue(self, repo_id: str, issue_id: int) -> Issue:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issues")
-
-    def create_issue(self, repo_id: str, title: str, description: str, labels: list[str] | None = None) -> int:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue creation")
-
-    def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
-    ) -> str | None:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue comments")
-
-    def update_issue_comment(
-        self, repo_id: str, issue_id: int, comment_id: int, body: str, reply_to_id: str | None = None
-    ) -> str | None:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue comments")
-
-    def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue emojis")
-
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue reactions")
-
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue comments")
-
-    def get_issue_related_merge_requests(
-        self, repo_id: str, issue_id: int, assignee_id: int | None = None, label: str | None = None
-    ) -> list[MergeRequest]:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support issue-related merge requests")
-
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
-
-    def get_merge_request_latest_pipelines(self, repo_id: str, merge_request_id: int) -> list[Pipeline]:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support pipelines")
-
-    def get_merge_request_review_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support merge request review comments")
-
-    def get_merge_request_comments(self, repo_id: str, merge_request_id: int) -> list[Discussion]:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support merge request comments")
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """Not supported for SWE client."""
@@ -333,10 +271,12 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support resolving merge request comments")
 
-    def get_job(self, repo_id: str, job_id: int) -> Job:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support jobs")
+    @cached_property
+    def current_user(self) -> User:
+        """
+        Get the current user. For SWE client, returns a dummy user.
 
-    def job_log_trace(self, repo_id: str, job_id: int) -> str:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support job logs")
+        Returns:
+            A dummy user object.
+        """
+        return User(id=0, username="swe-bench", name="SWE Bench")

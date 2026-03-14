@@ -39,7 +39,7 @@ def dynamic_system_prompt(request: ModelRequest) -> str:
     system_prompt = ""
     if request.system_prompt:
         system_prompt = request.system_prompt + "\n\n"
-    return system_prompt + cast("str", system.format(current_date_time=timezone.now().strftime("%d %B, %Y")).content)
+    return system_prompt + cast("str", system.format(current_date=timezone.now().strftime("%d %B, %Y")).content)
 
 
 def create_diff_to_metadata_graph(
@@ -63,7 +63,7 @@ def create_diff_to_metadata_graph(
         "At least one of include_pr_metadata or include_commit_message must be True"
     )
 
-    agent_path = Path(ctx.repo.working_dir)
+    agent_path = Path(ctx.gitrepo.working_dir)
 
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 

@@ -1,15 +1,13 @@
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from django.conf import django
 from django.utils import timezone
 
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
-from deepagents.middleware.summarization import _compute_summarization_defaults
+from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     AgentMiddleware,
@@ -21,10 +19,6 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
     dynamic_prompt,
 )
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
@@ -39,15 +33,11 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
-from automation.agent.subagents import (
-    create_docs_research_subagent,
-    create_explore_subagent,
-    create_general_purpose_subagent,
-)
+from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMIMDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent
 from automation.conf import settings as automation_settings
-from codebase.base import GitPlatform, Scope
-from codebase.context import RuntimeCtx, set_runtime_ctx
+from codebase.base import GitPlatform
+from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
 
@@ -65,9 +55,9 @@ Applies to ALL user-visible text:
 - NEVER include "/repo/" anywhere in user-visible output.
 - Any repository file path shown to the user MUST be repo-relative (no leading "/").
   <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code references MUST use repo-relative paths (e.g. [daiv/core/utils.py:42](daiv/core/utils.py#L42)).
+- Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
 - Before emitting any user-visible text, check for "/repo/" and rewrite to repo-relative form.
-</output_invariants>"""
+</output_invariants>"""  # noqa: E501
 
 
 @dynamic_prompt
@@ -81,21 +71,33 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     Returns:
         str: The dynamic prompt for the DAIV system.
     """
-    tool_names = [tool.name for tool in request.tools]
-    agent_path = Path(request.runtime.context.repo.working_dir)
+    context = cast("RuntimeCtx", request.runtime.context)
+    agent_path = Path(context.gitrepo.working_dir)
 
-    system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
-        current_date_time=timezone.now().strftime("%d %B, %Y"),
+    daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
+        current_date=timezone.now().strftime("%d %B, %Y"),
         bot_name=BOT_NAME,
-        bot_username=request.runtime.context.bot_username,
-        repository=request.runtime.context.repo_id,
-        gitlab_platform=request.runtime.context.git_platform == GitPlatform.GITLAB,
-        github_platform=request.runtime.context.git_platform == GitPlatform.GITHUB,
-        bash_tool_enabled=BASH_TOOL_NAME in tool_names,
+        bot_username=context.bot_username,
+        repository_url=context.repository.html_url,
+        gitlab_platform=context.git_platform == GitPlatform.GITLAB,
+        github_platform=context.git_platform == GitPlatform.GITHUB,
+        bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
         working_directory=f"/{agent_path.name}/",
-        current_branch=get_repo_ref(request.runtime.context.repo),
+        current_branch=get_repo_ref(context.gitrepo),
     )
-    return OUTPUT_INVARIANTS_SYSTEM_PROMPT + "\n\n" + request.system_prompt + "\n\n" + system_prompt.content.strip()
+
+    inherited_system_prompt = ""
+    if request.system_prompt:
+        inherited_system_prompt = request.system_prompt + "\n\n"
+
+    return (
+        OUTPUT_INVARIANTS_SYSTEM_PROMPT
+        + "\n\n"
+        + cast("str", daiv_system_prompt.content).strip()
+        + "\n\n"
+        + inherited_system_prompt
+        + REPO_RELATIVE_SYSTEM_REMIMDER
+    )
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -119,7 +121,7 @@ async def create_daiv_agent(
     # Flags to override the default settings
     sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
-    web_search_enabled: bool = True,
+    web_search_enabled: bool | None = None,
 ):
     """
     Create the DAIV agent.
@@ -136,7 +138,7 @@ async def create_daiv_agent(
         middleware: The middleware to use for the agent.
         sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
-        web_search_enabled: Whether to enable web search for the agent.
+        web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
 
     Returns:
         The DAIV agent.
@@ -147,11 +149,14 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    _summarization_defaults = _compute_summarization_defaults(model)
+    _summarization_defaults = compute_summarization_defaults(model)
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
+    _web_search_enabled = (
+        web_search_enabled if web_search_enabled is not None else automation_settings.WEB_SEARCH_ENABLED
+    )
 
-    agent_path = Path(ctx.repo.working_dir)
+    agent_path = Path(ctx.gitrepo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     # Create subagents list to be shared between middlewares
@@ -161,19 +166,15 @@ async def create_daiv_agent(
             backend,
             ctx,
             sandbox_enabled=_sandbox_enabled,
-            web_search_enabled=web_search_enabled,
+            web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
         ),
         create_explore_subagent(backend),
     ]
 
-    if _web_fetch_enabled:
-        # only create the docs research subagent if web fetch is enabled as it requires web fetch to be enabled
-        subagents.append(create_docs_research_subagent(backend))
-
     agent_conditional_middlewares = []
 
-    if web_search_enabled:
+    if _web_search_enabled:
         agent_conditional_middlewares.append(WebSearchMiddleware())
     if _web_fetch_enabled:
         agent_conditional_middlewares.append(WebFetchMiddleware())
@@ -224,39 +225,3 @@ async def create_daiv_agent(
         debug=debug,
         name="DAIV Agent",
     ).with_config({"recursion_limit": settings.RECURSION_LIMIT})
-
-
-async def main():
-    session = PromptSession(
-        message=HTML('<style fg="#ffffff">></style> '),
-        complete_while_typing=True,  # Show completions as you type
-        complete_in_thread=True,  # Async completion prevents menu freezing
-        mouse_support=False,
-        enable_open_in_editor=True,  # Allow Ctrl+X Ctrl+E to open external editor
-        enable_history_search=True,
-        wrap_lines=True,
-        reserve_space_for_menu=7,  # Reserve space for completion menu to show 5-6 results
-    )
-    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
-        agent = await create_daiv_agent(
-            ctx=ctx,
-            model_names=["openrouter:minimax/minimax-m2.5"],
-            store=InMemoryStore(),
-            checkpointer=InMemorySaver(),
-        )
-        while True:
-            user_input = await session.prompt_async()
-            async for message_chunk, _metadata in agent.astream(
-                {"messages": [{"role": "user", "content": user_input}]},
-                context=ctx,
-                config={"configurable": {"thread_id": "1"}},
-                stream_mode="messages",
-            ):
-                if message_chunk and message_chunk.content and message_chunk.type != "tool":
-                    print(message_chunk.content, end="", flush=True)  # noqa: T201
-            print()  # noqa: T201
-
-
-if __name__ == "__main__":
-    django.setup()
-    asyncio.run(main())

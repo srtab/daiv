@@ -1,6 +1,6 @@
-# Environment Configuration
+# Environment Variables
 
-DAIV provides a large number of environment variables that can be used to configure DAIV behavior. This page lists all supported environment variables.
+DAIV provides a large number of environment variables to configure its behavior. This page lists all supported variables.
 
 Variables marked with:
 
@@ -49,7 +49,9 @@ Variables marked with:
 
 | Variable           | Description                | Default | Example |
 |--------------------|----------------------------|:---------:|---------|
-| :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL | *(none)* | `redis://redis:6379/0` |
+| :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL for cache (DB 0) | *(none)* | `redis://redis:6379/0` |
+| `DJANGO_REDIS_SESSION_URL`  :material-lock: | Redis connection URL for sessions (DB 1) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
+| `DJANGO_REDIS_CHECKPOINT_URL`  :material-lock: | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
 
 
 ### Sentry
@@ -72,20 +74,19 @@ Variables marked with:
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DJANGO_LOGGING_LEVEL`  | Django logging level               | `INFO`         | `DEBUG`         |
+| `DJANGO_LOGGING_LEVEL`  | Django logging level               | `WARNING`      | `DEBUG`         |
 
 ### Monitoring (LangSmith)
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `LANGSMITH_TRACING`     | Enable LangSmith tracing (alternative) | `False`    | `true`          |
-| `LANGSMITH_PROJECT`     | LangSmith project name (alternative) | `default`    | `daiv-production` |
-| `LANGSMITH_API_KEY` :material-lock:    | LangSmith API key (alternative)    | *(none)*       | `lsv2_pt_...`   |
-| `LANGSMITH_API_KEY_FILE` | Path to LangSmith API key file    | *(none)*       | `/run/secrets/langsmith_api_key` |
+| `LANGSMITH_TRACING`     | Enable LangSmith tracing           | `false`        | `true`          |
+| `LANGSMITH_PROJECT`     | LangSmith project name             | `default`      | `daiv-production` |
+| `LANGSMITH_API_KEY` :material-lock:    | LangSmith API key         | *(none)*       | `lsv2_pt_...`   |
 | `LANGSMITH_ENDPOINT`    | LangSmith API endpoint             | `https://api.smith.langchain.com` | `https://eu.api.smith.langchain.com` |
 
 !!! note
-    LangSmith provides comprehensive monitoring and observability for AI agents. For detailed setup instructions, see [Monitoring Configuration](monitoring.md).
+    LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`). The `LANGSMITH_API_KEY` supports Docker secrets via the `_FILE` suffix. For setup details, see [Monitoring](monitoring.md).
 
 ### Sandbox (client-side)
 
@@ -94,14 +95,19 @@ Variables marked with:
 | `DAIV_SANDBOX_URL`     | URL of the sandbox service    | `http://sandbox:8000` | `http://sandbox:8000` |
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds        | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
-| `DAIV_SANDBOX_BASE_IMAGE` | Default base image for sandbox sessions (enables sandbox when set) | `python:3.12-alpine` | `python:3.14-alpine` |
+| `DAIV_SANDBOX_BASE_IMAGE` | Default base image for sandbox sessions | `python:3.12-bookworm` | `node:18-alpine` |
 | `DAIV_SANDBOX_EPHEMERAL` | Default ephemeral setting for sandbox sessions | `False` | `True` |
 | `DAIV_SANDBOX_NETWORK_ENABLED` | Default network setting for sandbox sessions | `False` | `True` |
 | `DAIV_SANDBOX_CPU` | Default CPU limit for sandbox sessions (CPUs) | `None` | `1.0` |
 | `DAIV_SANDBOX_MEMORY` | Default memory limit for sandbox sessions (bytes) | `None` | `1073741824` |
+| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`) | `""` (none) | `"curl wget npm publish"` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none) | `"my-safe-tool"` |
 
 !!! info
-    Check the [daiv-sandbox](https://github.com/daiv/daiv-sandbox) repository for server-side configuration of the sandbox service.
+    Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for server-side configuration of the sandbox service.
+
+!!! note "Global policy vs. repository policy"
+    `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` set global defaults. Per-repository overrides are defined in the `.daiv.yml` `sandbox.command_policy` section and are merged at evaluation time. Built-in safety rules (blocking `git commit`, `git push`, etc.) cannot be overridden by either mechanism.
 
 ### Other
 
@@ -121,6 +127,7 @@ Variables marked with:
 | Variable            | Description                              | Default   | Example   |
 |---------------------|------------------------------------------|:---------:|-----------|
 | `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab`, `github`, or `swe`  |
+| `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *` |
 
 !!! note
     Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.
@@ -161,7 +168,7 @@ Variables marked with:
 This section documents the environment variables for each LLM provider.
 
 !!! note
-    At least one of the [supported providers](../getting-started/supported-providers.md) should be configured to use the automation features.
+    At least one of the [supported providers](../getting-started/llm-providers.md) should be configured to use the automation features.
 
 ### OpenRouter (*default*)
 
@@ -196,6 +203,7 @@ This section documents the environment variables for each tool configuration use
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `AUTOMATION_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                     | `true`         | `false` |
 | `AUTOMATION_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search      | `5`            |         |
 | `AUTOMATION_WEB_SEARCH_ENGINE`  | Web search engine to use (`duckduckgo`, `tavily`)              | `duckduckgo`   | `tavily`|
 | `AUTOMATION_WEB_SEARCH_API_KEY` :material-lock: | Web search API key (required if engine is `tavily`)            | *(none)*       |         |
@@ -207,11 +215,12 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `AUTOMATION_WEB_FETCH_ENABLED`  | Enable/disable the native `web_fetch` tool                     | `true`         | `false` |
-| `AUTOMATION_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `openrouter:openai/gpt-4.1-mini` | `openrouter:anthropic/claude-haiku-4.5` |
-| `AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `900` |
-| `AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `30`           | `10` |
+| `AUTOMATION_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-4-5` | `openrouter:openai/gpt-4.1-mini` |
+| `AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `1800` |
+| `AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests                 | *(none)*       | `http://proxy:8080` |
-| `AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `80000` | `120000` |
+| `AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
+| `AUTOMATION_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### MCP Tools
 
@@ -222,55 +231,42 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_PROXY_HOST`                | Host URL for the MCP proxy server                             | `http://mcp-proxy:9090`        | `http://localhost:9090` |
 | `MCP_PROXY_ADDR`                | Address for the MCP proxy to listen on                        | `:9090`                        | `:9090` |
 | `MCP_PROXY_AUTH_TOKEN` :material-lock: | Authentication token for MCP proxy                             | *(none)*                       | `secure-auth-token` |
-| `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server for error monitoring         | `true`                         | `false` |
-| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.17.1`                       | `0.17.1` |
-| `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                        | *(none)*                       | `sntryu_abc123...` |
+| `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server                              | `true`                         | `false` |
+| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.20.0`                       | `0.20.0` |
+| `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                | *(none)*                       | `sntryu_abc123...` |
 | `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
+| `MCP_CONTEXT7_ENABLED`          | Enable/disable Context7 MCP server                             | `true`                         | `false` |
+| `MCP_CONTEXT7_VERSION`          | Version of the Context7 MCP server                             | `latest`                       | `1.0.0` |
+| `MCP_CONTEXT7_API_KEY` :material-lock: | API key for Context7 MCP server                          | *(none)*                       |         |
 
 !!! info
-    MCP tools are currently available in the **Plan and Execute** agent. The Sentry server enables error monitoring integration. For detailed configuration, see [MCP Tools](../ai-agents/mcp-tools.md).
-
-!!! note
-    Sentry MCP server requires both `MCP_SENTRY_ACCESS_TOKEN` and `MCP_SENTRY_HOST` to be configured for functionality.
+    For detailed MCP server configuration, see [MCP Tools](../customization/mcp-tools.md).
 
 ---
 
-## Automation: AI Agents
+## Automation: Agents
 
-This section documents the environment variables for each automation agent. Each agent uses a unique prefix for its variables.
+These variables control the models and behavior of DAIV's agents. You can also override models per repository via `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
 
-All the default models where chosen to be the most effective models. You can change the models to use other models by setting the corresponding environment variables.
+### DAIV Agent
 
-### Plan and Execute
+The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
-| `PLAN_AND_EXECUTE_PLANNING_RECURSION_LIMIT` | Recursion limit for planning steps each. | `100` |
-| `PLAN_AND_EXECUTE_PLANNING_MODEL_NAME` | Model for planning tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
-| `PLAN_AND_EXECUTE_PLANNING_FALLBACK_MODEL_NAME` | Fallback model for planning tasks. | `openrouter:openai/gpt-5.2` |
-| `PLAN_AND_EXECUTE_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks. | `medium` |
-| `PLAN_AND_EXECUTE_EXECUTION_MODEL_NAME`| Model for executing tasks. | `openrouter:anthropic/claude-sonnet-4.5` |
-| `PLAN_AND_EXECUTE_EXECUTION_FALLBACK_MODEL_NAME`| Fallback model for executing tasks. | `openrouter:openai/gpt-5.2` |
-| `PLAN_AND_EXECUTE_EXECUTION_THINKING_LEVEL` | Thinking level for execution tasks. | `None` (disabled) |
-| `PLAN_AND_EXECUTE_EXECUTION_RECURSION_LIMIT` | Recursion limit for execution steps each. | `100` |
-| `PLAN_AND_EXECUTE_CODE_REVIEW_MODEL_NAME` | Model for code review tasks. | `openrouter:openai/gpt-5.1-codex-mini` |
-| `PLAN_AND_EXECUTE_CODE_REVIEW_THINKING_LEVEL` | Thinking level for code review tasks. | `medium` |
-| `PLAN_AND_EXECUTE_MAX_PLANNING_MODEL_NAME` | Model for planning tasks when `daiv-max` label is present. | `openrouter:anthropic/claude-opus-4.5` |
-| `PLAN_AND_EXECUTE_MAX_PLANNING_THINKING_LEVEL` | Thinking level for planning tasks when `daiv-max` label is present. | `high` |
-| `PLAN_AND_EXECUTE_MAX_EXECUTION_MODEL_NAME` | Model for execution tasks when `daiv-max` label is present. | `openrouter:anthropic/claude-opus-4.5` |
-| `PLAN_AND_EXECUTE_MAX_EXECUTION_THINKING_LEVEL` | Thinking level for execution tasks when `daiv-max` label is present. | `high` |
+| `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
+| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-4-6` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-5-3-codex` |
+| `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`low`, `medium`, `high`, or `None` to disable) | `medium` |
+| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-4-6` |
+| `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks | `high` |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-4-5` |
 
 ### Diff to Metadata
 
+Generates pull request titles, descriptions, and commit messages from diffs. Variables use the `DIFF_TO_METADATA_` prefix.
+
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DIFF_TO_METADATA_MODEL_NAME` | Model for diff to metadata. | `openrouter:anthropic/claude-haiku-4.5` |
-| `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model for diff to metadata. | `openrouter:openai/gpt-4.1-mini` |
-
-### Codebase Chat
-
-| Variable | Description | Default |
-|----------------------------------------|----------------------------------------------------------|--------------------|
-| `CODEBASE_CHAT_MODEL_NAME` | Model for codebase chat. | `openrouter:anthropic/claude-haiku-4.5` |
-| `CODEBASE_CHAT_TEMPERATURE` | Temperature for codebase chat. | `0.2` |
-| `CODEBASE_CHAT_RECURSION_LIMIT` | Recursion limit for the codebase chat agent. | `50` |
+| `DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `claude-haiku-4-5` |
+| `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-4-1-mini` |

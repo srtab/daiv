@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
 
-from codebase.base import GitPlatform, Issue, MergeRequest, Scope  # noqa: TC001
+from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
@@ -28,10 +28,10 @@ class RuntimeCtx:
     git_platform: GitPlatform
     """The Git platform"""
 
-    repo_id: str
-    """The repository identifier"""
+    repository: Repository
+    """The repository object"""
 
-    repo: Repo
+    gitrepo: Repo
     """The Git repository object"""
 
     config: RepositoryConfig
@@ -91,8 +91,8 @@ async def set_runtime_ctx(
     with repo_client.load_repo(repository, sha=ref) as repo:
         ctx = RuntimeCtx(
             git_platform=repo_client.git_platform,
-            repo_id=repo_id,
-            repo=repo,
+            repository=repository,
+            gitrepo=repo,
             config=config,
             scope=scope,
             issue=issue,

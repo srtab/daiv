@@ -1,6 +1,9 @@
 ---
 name: plan
-description: This skill should be used when the user asks to explore a codebase and design implementation plans without making any changes. Trigger when users say 'plan how to implement X', 'design an approach for Y', 'explore the codebase before changing Z', 'create an implementation strategy', 'analyze how to refactor X', 'map out dependencies for Y', or 'I want a plan before we start coding'.
+version: 1.0.0
+description: This skill should be used when the user asks to explore a codebase and design implementation plans without making any changes. Trigger when users say 'plan how to implement X', 'design an approach for Y', 'explore the codebase before changing Z', 'create an implementation strategy', 'analyze how to refactor X', 'map out dependencies for Y', 'I want a plan before we start coding', 'plan to fix issue #N', 'draft an implementation plan', or 'what is the best approach for this'.
+metadata:
+  mode: read-only
 ---
 
 # Plan Mode: Read-Only Codebase Exploration and Implementation Design
@@ -11,6 +14,8 @@ This is a read-only planning task. Make no file modifications of any kind — no
 Explore using only: `grep`, `ls`, `read_file`, `glob`, `task` or `bash` (for read-only operations only eg. `git status`, `git log`, `git diff`, etc.).
 
 Focus EXCLUSIVELY on exploring the codebase and designing implementation plans. The deliverable is a plan document, not code changes.
+
+**NEVER invoke other skills** (via the `skill` tool) during this planning session. If the task or issue references a skill (e.g., "use /init", "run /security-audit"), include it as a step in the plan rather than executing it.
 
 ---
 
@@ -46,6 +51,11 @@ If the request references a platform issue or merge request (for example `#123`,
 - Use parallel tool calls to explore independent areas simultaneously (e.g., frontend and backend at the same time)
 - Identify existing patterns — naming conventions, architectural style, error handling, testing approach
 - Look for similar features already implemented that can serve as templates
+
+**Exploration techniques (all tiers):**
+- Use the `task` tool with `subagent_type=explore` to investigate the codebase efficiently
+- `git log --follow <file>` surfaces intent behind existing decisions
+- Stay focused — use grep and glob deliberately, don't explore unrelated code
 
 ---
 
@@ -84,7 +94,9 @@ If the request references a platform issue or merge request (for example `#123`,
 
 Use the format that matches complexity. See `examples/` for worked samples.
 
-> **Output the plan directly — no preamble, no transition sentences.** Start immediately with the plan heading.
+> HARD CONSTRAINT: **Output the plan directly — no preamble, no transition sentences.** Start immediately with the plan heading.
+>
+> HARD CONSTRAINT: **Keep code minimal.** Plans should describe *what* to change and *where*, not provide ready-to-paste implementations. Use short pseudo-code or 2–3 line snippets only when the approach would be ambiguous without them. Save full code for the implementation phase.
 
 ### Simple Format
 
@@ -94,13 +106,12 @@ Use the format that matches complexity. See `examples/` for worked samples.
 ## What's Changing
 [1–2 sentence description]
 
-## Files to Modify
+## Changes
 - `path/to/file.js` (line ~45) — [what changes]
 - `path/to/test.js` — [add test for...]
 
-## Implementation Notes
-- [Key consideration]
-- [Edge case to handle]
+## Notes
+- [Key consideration or edge case]
 ```
 
 ### Medium Format
@@ -111,14 +122,13 @@ Use the format that matches complexity. See `examples/` for worked samples.
 ## Overview
 [Problem and solution summary]
 
-## Implementation Steps
-1. [Step] — [purpose]
-2. [Step] — [purpose]
-3. [Step] — [purpose]
+## Changes
+1. **[Step description]** — [purpose]
+   - `file1.js` (line ~N) — [what changes]
+   - `file2.js` — Create — [what to add]
 
-## Files
-- `file1.js` — Create/Modify — [purpose]
-- `file2.js` — Create/Modify — [purpose]
+2. **[Step description]** — [purpose]
+   - `file3.js` — [what changes]
 
 ## Testing
 [What to test and how]
@@ -137,25 +147,7 @@ Use the template in `references/complex-plan-template.md`.
 
 **Simple:** Change is clearly located. Key considerations noted. Concise — don't over-explain obvious steps.
 
-**Medium:** Logical change sequence. File purposes clear. Testing approach defined. Edge cases and dependencies noted.
+**Medium:** Logical change sequence. Each step lists the files it touches. Testing approach defined. Edge cases and dependencies noted.
 
-**Complex:** Problem statement and objectives clear. Architectural overview provided. Complete file-by-file breakdown. Implementation sequence is logical. Dependencies, config, and environment changes identified. Testing strategy defined. Edge cases and error handling addressed. Trade-offs and risks discussed.
+**Complex:** Problem statement and objectives clear. Architectural overview provided. Each phase lists steps with their files inline. Implementation sequence is logical. Dependencies, config, and environment changes identified. Testing strategy defined. Edge cases and error handling addressed. Trade-offs and risks discussed.
 
----
-
-## Exploration Tips
-
-- **Efficient exploration:** Proactively use the `task` tool with `subagent_type=explore` to investigate the codebase efficiently.
-- **Parallelize:** When investigating independent areas, issue parallel tool calls to save time.
-- **Follow the data:** Trace how data enters, transforms, and persists — this reveals integration points faster than reading files top-down.
-- **Use git strategically:** `git log --follow <file>` surfaces intent behind existing decisions.
-- **Find templates:** Search for similar features already in the codebase before designing from scratch.
-- **Stay focused:** Use grep and find deliberately. Don't explore unrelated code.
-
----
-
-## Remember
-
-**The goal is to provide an appropriate, actionable plan** - not to write comprehensive documentation for every task. Simple changes deserve simple plans. Complex changes deserve thorough analysis.
-
-Match your effort to the task complexity, and focus on what will help implementation proceed smoothly.

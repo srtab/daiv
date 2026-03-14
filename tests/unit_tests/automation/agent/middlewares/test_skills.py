@@ -10,6 +10,7 @@ from langgraph.types import Command
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
 from automation.agent.middlewares.skills import SkillsMiddleware
 from codebase.base import Scope
+from codebase.repo_config import RepositoryConfig, SlashCommands
 from slash_commands.base import SlashCommand
 from slash_commands.registry import SlashCommandRegistry
 
@@ -19,11 +20,10 @@ def _make_runtime(
 ) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
-    runtime.context.repo = Mock()
-    runtime.context.repo.working_dir = repo_working_dir
+    runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.bot_username = bot_username
     runtime.context.scope = scope
-    runtime.context.repo_id = repo_id
+    runtime.context.repository = Mock(slug=repo_id)
     runtime.context.issue = None
     runtime.context.merge_request = None
     return runtime
@@ -274,7 +274,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = Mock(iid=101)
         context.merge_request = Mock(merge_request_id=202)
 
@@ -310,7 +310,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = None
         context.merge_request = None
 
@@ -341,7 +341,7 @@ class TestSkillsMiddleware:
         context = Mock()
         context.bot_username = "daiv"
         context.scope = Scope.GLOBAL
-        context.repo_id = "repo-1"
+        context.repository = Mock(slug="repo-1")
         context.issue = None
         context.merge_request = None
 
@@ -418,6 +418,27 @@ class TestSkillsMiddleware:
         assert isinstance(result, Command)
         messages = result.update["messages"]
         assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
+
+    async def test_abefore_agent_skips_slash_commands_when_disabled(self, tmp_path: Path):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        repo_name = "repoX"
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="does one"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch.object(middleware, "_apply_builtin_slash_commands") as mock_apply,
+        ):
+            await middleware.abefore_agent({"messages": [HumanMessage(content="/help")]}, runtime, Mock())
+
+        mock_apply.assert_not_called()
 
     async def test_discovers_skills_from_multiple_sources(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend

@@ -128,7 +128,7 @@ class IssueCommentCallback(GitHubCallback):
         Accept the webhook if the note is a merge request comment that mentions DAIV.
         """
         return bool(
-            self._repo_config.code_review.enabled
+            self._repo_config.pull_request_assistant.enabled
             and self.issue.is_pull_request()
             and self.issue.state == "open"
             # and not self.issue.draft

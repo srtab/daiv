@@ -18,11 +18,11 @@ logger = logging.getLogger("daiv.tasks")
 
 if codebase_settings.CLIENT == GitPlatform.GITLAB:
 
-    @cron("*/5 * * * *")  # every 5 minute
+    @cron(codebase_settings.WEBHOOK_SETUP_CRON)
     @task
     def setup_webhooks_cron_task():
         """
-        Setup webhooks for all repositories every 5 minutes.
+        Setup webhooks for all repositories periodically.
         """
         call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
 

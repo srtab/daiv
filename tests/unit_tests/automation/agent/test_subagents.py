@@ -3,17 +3,11 @@
 from unittest.mock import Mock
 
 import pytest
-from deepagents.middleware import SummarizationMiddleware
 
-from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.subagents import (
-    create_docs_research_subagent,
-    create_explore_subagent,
-    create_general_purpose_subagent,
-)
+from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent
 
 
 class TestGeneralPurposeSubagent:
@@ -74,24 +68,3 @@ class TestExploreSubagent:
         assert result["system_prompt"]
         assert "READ-ONLY" in result["system_prompt"]
         assert "PROHIBITED" in result["system_prompt"]
-
-
-class TestDocsResearchSubagent:
-    """Tests for create_docs_research_subagent."""
-
-    @pytest.fixture
-    def mock_backend(self):
-        """Create a mock backend."""
-        return Mock()
-
-    def test_returns_subagent(self, mock_backend):
-        """Test that create_docs_research_subagent returns a SubAgent."""
-        result = create_docs_research_subagent(mock_backend)
-
-        assert isinstance(result, dict)
-        assert result["name"] == "docs-research"
-        assert result["description"]
-        assert result["system_prompt"]
-        assert any(isinstance(m, WebFetchMiddleware) for m in result["middleware"])
-        assert any(isinstance(m, SummarizationMiddleware) for m in result["middleware"])
-        assert any(isinstance(m, AnthropicPromptCachingMiddleware) for m in result["middleware"])

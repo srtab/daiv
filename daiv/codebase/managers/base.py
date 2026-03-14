@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
 
 
+CHECKPOINT_TTL_MINUTES = 60 * 24 * 90  # 90 days
+
+
 class BaseManager:
     """
     Base class for all managers.
@@ -21,4 +24,4 @@ class BaseManager:
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
-        self.git_manager = GitManager(self.ctx.repo)
+        self.git_manager = GitManager(self.ctx.gitrepo)

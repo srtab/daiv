@@ -1,27 +1,21 @@
-# Repository Configuration
+# Platform Setup
 
-This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically implement the issues, respond to code reviews, and more...
+This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.
 
----
+DAIV supports both platforms:
 
-## Choose Your Platform
-
-DAIV supports both GitLab and GitHub. Choose the platform you want to configure:
-
-- **[GitLab Configuration](#gitlab-configuration)** - For GitLab.com or self-hosted GitLab instances
-- **[GitHub Configuration](#github-configuration)** - For GitHub.com or GitHub Enterprise
+- **[GitLab](#gitlab-configuration)** — GitLab.com or self-hosted GitLab instances
+- **[GitHub](#github-configuration)** — GitHub.com or GitHub Enterprise
 
 ---
 
 ## GitLab Configuration
 
----
-
 ### Prerequisites
 
 Before configuring a GitLab repository, ensure you have:
 
-- **DAIV installed and running** - Follow the [installation guide](up-and-running.md) first
+- **DAIV installed and running** - Follow the [Deployment](deployment.md) guide first
 - **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
 - **GitLab personal access token** - With `api` scope permissions
 
@@ -53,7 +47,7 @@ DAIV needs a GitLab personal access token to interact with your repositories.
 
 Add your GitLab token and webhook secret to DAIV's environment configuration.
 
-### For Docker Compose Setup
+#### For Docker Compose Setup
 
 Edit your `docker-compose.yml` file:
 
@@ -67,7 +61,7 @@ x-app-defaults: &x_app_default
   # ...
 ```
 
-### For Docker Swarm Setup
+#### For Docker Swarm Setup
 
 Create Docker secrets:
 
@@ -83,52 +77,26 @@ echo "your-webhook-secret-here" | docker secret create codebase_gitlab_webhook_s
     openssl rand -hex 32
     ```
 
-### Step 3: Set Up Repository Webhooks
+### Step 3: Repository Webhooks
 
 DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
 
-### Automatic Webhook Setup (Recommended)
+DAIV automatically configures webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created and kept up to date automatically.
 
-Use DAIV's management command to automatically set up webhooks for all accessible repositories:
+!!! tip "Verifying webhook setup"
+    To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/` with the following trigger events:
 
-```bash
-# Enter the DAIV container
-docker compose exec -it app bash
+    - ✅ Push events
+    - ✅ Issues events
+    - ✅ Comments (Note events)
 
-# Set up webhooks for all repositories
-django-admin setup_webhooks --base-url https://your-daiv-instance.com
-
-# For local development with self-signed certificates
-django-admin setup_webhooks --base-url https://your-daiv-instance.com --disable-ssl-verification
-```
-
-### Manual Webhook Setup
-
-If you prefer to set up webhooks manually or for specific repositories:
-
-1. **Navigate to Repository Settings**:
-    - Go to your GitLab repository
-    - Navigate to **Settings** → **Webhooks**
-
-2. **Add New Webhook**:
-    - **URL**: `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/`
-    - **Secret token**: Use the same secret from your environment variables
-    - **Trigger events**: Select:
-        - ✅ Push events
-        - ✅ Issues events
-        - ✅ Comments (Note events)
-        - ✅ Pipeline events
-    - **SSL verification**: Enable (unless using self-signed certificates)
-
-3. **Test the Webhook**:
-    - Click **Add webhook**
-    - Click **Test** → **Push events** to verify connectivity
+    Click **Test** → **Push events** to verify connectivity.
 
 ### Step 4: Configure Repository Behavior
 
 To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
 
-For complete configuration options, see [Repository Configurations](../configuration/yaml-config.md).
+For complete configuration options, see [Repository Config](../customization/repository-config.md).
 
 ### Step 5: Test the Integration
 
@@ -136,16 +104,17 @@ Verify that DAIV is properly connected to your repository.
 
 1. **Create a Test Issue**:
     - Go to your GitLab repository
-    - Create a new issue with title: "Add hello world function" (or any other issue you want to address)
-    - Add the `daiv` label to the issue or start the issue title with "DAIV:"
+    - Create a new issue with title: "Add hello world function"
+    - Add the `daiv` label to the issue
 
 2. **Wait for DAIV Response**:
     - DAIV should automatically comment with a plan to address the issue
     - Check the issue comments for DAIV's response
 
-### Troubleshooting
+!!! tip
+    For more on how issue addressing works, see [Issue Addressing](../features/issue-addressing.md).
 
-**Common Issues**
+### Troubleshooting
 
 **Webhook delivery fails**:
 
@@ -156,12 +125,12 @@ Verify that DAIV is properly connected to your repository.
 **Issues not being processed**:
 
 - Ensure the `daiv` label is added to issues
-- Verify `auto_address_issues_enabled: true` in `.daiv.yml`
+- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
 - Check DAIV logs for errors
 
-**No response to comments**:
+**No response to merge request comments**:
 
-- Verify webhook events include "Comments"
+- Verify webhook events include "Comments (Note events)"
 - Check that webhook secret matches environment variable
 - Review repository permissions
 
@@ -173,7 +142,7 @@ Verify that DAIV is properly connected to your repository.
 
 Before configuring a GitHub repository, ensure you have:
 
-- **DAIV installed and running** - Follow the [installation guide](up-and-running.md) first
+- **DAIV installed and running** - Follow the [Deployment](deployment.md) guide first
 - **GitHub repository or organization access** - Admin permissions to create and install GitHub Apps
 - **GitHub account** - On GitHub.com or GitHub Enterprise
 
@@ -340,7 +309,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
 
 To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
 
-For complete configuration options, see [Repository Configurations](../configuration/yaml-config.md).
+For complete configuration options, see [Repository Config](../customization/repository-config.md).
 
 ### Step 6: Test the Integration
 
@@ -349,46 +318,43 @@ Verify that DAIV is properly connected to your GitHub repository.
 1. **Create a Test Issue**:
     - Go to your GitHub repository
     - Create a new issue with title: "Add hello world function"
-    - Add the `daiv` label to the issue or start with "DAIV:" in the issue title
+    - Add the `daiv` label to the issue
 
 2. **Wait for DAIV Response**:
     - DAIV should automatically comment with a plan to address the issue
     - Check the issue comments for DAIV's response
 
-3. **Approve the Plan**:
-    - Reply to the plan comment with `@daiv proceed` to approve and execute the plan
-    - DAIV will create a pull request with the implementation
+!!! tip
+    For more on how issue addressing works, see [Issue Addressing](../features/issue-addressing.md).
 
 ### Troubleshooting
-
-**Common Issues**
 
 **Issues not being processed**:
 
 - Ensure the `daiv` label exists and is added to issues
 - Verify the GitHub App has proper permissions (Issues: Read & Write)
 - Check DAIV logs for errors
-- Ensure `issue_addressing.enabled: true` in `.daiv.yml`
+- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
 
 **No response to comments**:
 
 - Verify webhook events include "Issue comments" and "Pull request reviews"
 - Check that webhook secret matches environment variable
-- Review GitHub App installation permissions
 - Ensure the app is installed on the repository
 
 **Authentication errors**:
 
-- Verify the private key format is correct (including header/footer)
+- Verify the private key format is correct (PEM format with header/footer)
 - Check App ID and Installation ID are correct
 - Ensure the GitHub App is installed on the target repositories
 
 ---
 
-## ⏭️ Next Steps
+## Next steps
 
-With your repository configured, you can now:
+With your repository connected, you can now:
 
-- **[Learn about AI agents](../ai-agents/overview.md)** - Understand how DAIV's agents work
-- **[Customize agent behavior](../configuration/yaml-config.md)** - Fine-tune DAIV for your workflow
-- **[Configure monitoring](../configuration/monitoring.md)** - Configure LangSmith for monitoring
+- **[LLM Providers](llm-providers.md)** — configure your LLM provider and API keys
+- **[Repository Config](../customization/repository-config.md)** — customize DAIV's behavior per repository
+- **[Issue Addressing](../features/issue-addressing.md)** — learn how DAIV handles issues
+- **[Pull Request Assistant](../features/pull-request-assistant.md)** — learn how DAIV reviews code

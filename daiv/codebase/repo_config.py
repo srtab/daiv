@@ -35,12 +35,12 @@ class IssueAddressing(BaseModel):
     enabled: bool = Field(default=True, description="Enable issue addressing features.")
 
 
-class CodeReview(BaseModel):
+class PullRequestAssistant(BaseModel):
     """
-    Code review configuration.
+    Pull request assistant configuration.
     """
 
-    enabled: bool = Field(default=True, description="Enable code review features.")
+    enabled: bool = Field(default=True, description="Enable pull request assistant features.")
 
 
 class SlashCommands(BaseModel):
@@ -49,6 +49,37 @@ class SlashCommands(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable slash command features.")
+
+
+class SandboxCommandPolicy(BaseModel):
+    """
+    Per-repository bash command execution policy for the sandbox.
+
+    Entries in :attr:`disallow` and :attr:`allow` are space-separated command
+    prefixes that match the beginning of a parsed command's argument vector.
+    For example, ``"rm -rf"`` blocks any ``rm`` invocation whose first argument
+    is ``-rf``.
+
+    Precedence: ``disallow`` entries override ``allow`` entries, which override
+    the global default policy.  Built-in safety rules always take precedence.
+    """
+
+    disallow: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "List of bash command prefixes to block in this repository. "
+            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
+            "Takes precedence over allow entries."
+        ),
+    )
+    allow: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "List of bash command prefixes to explicitly permit in this repository, "
+            "overriding the default disallow policy. "
+            "Repo-level disallow entries and built-in rules still take precedence."
+        ),
+    )
 
 
 class Sandbox(BaseModel):
@@ -81,6 +112,10 @@ class Sandbox(BaseModel):
         default=core_settings.SANDBOX_CPU,
         validation_alias=AliasChoices("cpus", "cpu"),
         description="The CPU limit for the sandbox (CPUs).",
+    )
+    command_policy: SandboxCommandPolicy = Field(
+        default_factory=SandboxCommandPolicy,
+        description="Bash command execution policy for this repository's sandbox sessions.",
     )
 
     @property
@@ -175,7 +210,11 @@ class RepositoryConfig(BaseModel):
     slash_commands: SlashCommands = Field(
         default_factory=SlashCommands, description="Configure slash command features."
     )
-    code_review: CodeReview = Field(default_factory=CodeReview, description="Configure code review features.")
+    pull_request_assistant: PullRequestAssistant = Field(
+        default_factory=PullRequestAssistant,
+        validation_alias=AliasChoices("pull_request_assistant", "code_review"),
+        description="Configure pull request assistant features.",
+    )
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )

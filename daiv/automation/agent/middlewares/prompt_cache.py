@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_anthropic.middleware.prompt_caching import (
     AnthropicPromptCachingMiddleware as AnthropicPromptCachingMiddlewareV0,
 )
-from langchain_core.messages.content import create_text_block
 from langchain_openai.chat_models import ChatOpenAI
 
 from automation.agent.base import ModelProvider
@@ -35,12 +34,12 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         ```
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, ttl: Literal["5m", "1h"] = "1h", **kwargs):
         """
         Initialize the middleware.
         """
         unsupported_model_behavior = kwargs.pop("unsupported_model_behavior", "ignore")
-        super().__init__(*args, unsupported_model_behavior=unsupported_model_behavior, **kwargs)
+        super().__init__(*args, unsupported_model_behavior=unsupported_model_behavior, ttl=ttl, **kwargs)
 
     def _should_apply_caching(self, request: ModelRequest) -> bool:
         """
@@ -58,15 +57,12 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         Apply cache control to the request.
         """
         if self._is_openrouter_anthropic_model(request.model) and self._should_apply_caching(request):
-            for message in reversed(request.messages):
-                if message.content_blocks and "cache_control" in message.content_blocks[-1]:
-                    del message.content_blocks[-1]["cache_control"]
-
-            if isinstance(request.messages[-1].content, str):
-                request.messages[-1].content = [create_text_block(request.messages[-1].content)]
-
-            request.messages[-1].content[-1]["cache_control"] = {"type": self.type, "ttl": self.ttl}
-            return await handler(request)
+            model_settings = request.model_settings
+            new_model_settings = {
+                **model_settings,
+                "extra_body": {"cache_control": {"type": self.type, "ttl": self.ttl}},
+            }
+            return await handler(request.override(model_settings=new_model_settings))
         return await super().awrap_model_call(request, handler)
 
     def _is_openrouter_anthropic_model(self, model: BaseChatModel) -> bool:
