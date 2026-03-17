@@ -23,6 +23,7 @@ from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
 from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -206,6 +207,7 @@ async def create_daiv_agent(
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
+        ensure_non_empty_response,
         PatchToolCallsMiddleware(),
         dynamic_daiv_system_prompt,
     ]

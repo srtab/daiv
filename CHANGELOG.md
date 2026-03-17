@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `EnsureNonEmptyResponseMiddleware` to detect and recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
+
 ## [2.0.0] - 2026-03-14
 
 ### Added
