@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.clients.base import WebhookSetupResult
 from codebase.conf import settings
 from core.conf import settings as core_settings
 from core.utils import build_uri
@@ -27,6 +28,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--secret-token", type=str, help="Secret token for webhook validation (overrides settings)", default=None
         )
+        parser.add_argument(
+            "--update", action="store_true", help="Update existing webhooks in addition to creating new ones"
+        )
+        parser.add_argument("--repo-id", type=str, help="Restrict setup to a specific repository ID", default=None)
 
     def handle(self, *args, **options):
         if settings.CLIENT == GitPlatform.GITHUB:
@@ -42,15 +47,26 @@ class Command(BaseCommand):
         if not secret_token and settings.GITLAB_WEBHOOK_SECRET:
             secret_token = settings.GITLAB_WEBHOOK_SECRET.get_secret_value()
 
-        for project in repo_client.list_repositories():
-            created = repo_client.set_repository_webhooks(
+        update = options["update"]
+        callback_url = build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/")
+
+        if options["repo_id"]:
+            projects = [repo_client.get_repository(options["repo_id"])]
+        else:
+            projects = repo_client.list_repositories()
+
+        for project in projects:
+            result = repo_client.set_repository_webhooks(
                 project.slug,
-                build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/"),
+                callback_url,
                 enable_ssl_verification=not options["disable_ssl_verification"],
                 secret_token=secret_token,
+                update=update,
             )
-            if created:
+            if result == WebhookSetupResult.CREATED:
                 logger.info("Created webhook for %s.", project.slug)
-            else:
+            elif result == WebhookSetupResult.UPDATED:
                 logger.info("Updated webhook for %s.", project.slug)
+            else:
+                logger.debug("Webhook already exists for %s, skipping.", project.slug)
         logger.info("All webhooks set successfully.")

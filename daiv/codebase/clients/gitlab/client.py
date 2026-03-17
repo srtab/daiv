@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from gitlab.v4.objects import ProjectHook, ProjectMergeRequest
 
-    from codebase.clients.base import Emoji
+    from codebase.clients.base import Emoji, WebhookSetupResult
 
 logger = logging.getLogger("daiv.clients")
 
@@ -181,22 +181,24 @@ class GitLabClient(RepoClient):
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
-    ) -> bool:
+        update: bool = False,
+    ) -> WebhookSetupResult:
         """
         Set webhooks for a repository.
-        If the webhook already exists, it updates the existing one. Otherwise, it creates a new one.
 
         Args:
             repo_id: The repository ID.
             url: The webhook URL.
-            events: The list of events to trigger the webhook.
             push_events_branch_filter: Filter to apply on branches for push events.
             enable_ssl_verification: Whether to enable SSL verification.
             secret_token: Secret token for webhook validation.
+            update: Whether to update existing webhooks. If False, existing webhooks are skipped.
 
         Returns:
-            True if the webhook was created, otherwise False.
+            The result of the webhook setup operation.
         """
+        from codebase.clients.base import WebhookSetupResult
+
         project = self.client.projects.get(repo_id, lazy=True)
         data = {
             "url": url,
@@ -211,13 +213,15 @@ class GitLabClient(RepoClient):
             "token": secret_token,
         }
         if project_hook := self._get_repository_hook_by_name(repo_id, data["name"]):
+            if not update:
+                return WebhookSetupResult.SKIPPED
             for key, value in data.items():
                 setattr(project_hook, key, value)
             project_hook.save()
-            return False
+            return WebhookSetupResult.UPDATED
 
         project.hooks.create(data)
-        return True
+        return WebhookSetupResult.CREATED
 
     def _get_repository_hook_by_name(self, repo_id: str, name: str) -> ProjectHook | None:
         """

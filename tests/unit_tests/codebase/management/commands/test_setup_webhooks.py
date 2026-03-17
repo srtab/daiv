@@ -5,6 +5,7 @@ from django.core.management import call_command
 import pytest
 from pydantic import SecretStr
 
+from codebase.clients.base import WebhookSetupResult
 from codebase.conf import settings
 
 callback_url = "https://test.com/api/codebase/callbacks/gitlab/"
@@ -27,7 +28,7 @@ def test_setup_webhooks_success(mock_repo_client):
     mock_repo1 = Mock(slug="repo1")
     mock_repo2 = Mock(slug="repo2")
     mock_repo_client.list_repositories.return_value = [mock_repo1, mock_repo2]
-    mock_repo_client.set_repository_webhooks.return_value = True
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.CREATED
 
     # Call the command
     call_command("setup_webhooks", base_url="https://test.com")
@@ -37,8 +38,8 @@ def test_setup_webhooks_success(mock_repo_client):
 
     # Verify set_repository_webhooks was called for each repo
     expected_calls = [
-        call("repo1", callback_url, enable_ssl_verification=True, secret_token="test_secret"),  # noqa: S106
-        call("repo2", callback_url, enable_ssl_verification=True, secret_token="test_secret"),  # noqa: S106
+        call("repo1", callback_url, enable_ssl_verification=True, secret_token="test_secret", update=False),  # noqa: S106
+        call("repo2", callback_url, enable_ssl_verification=True, secret_token="test_secret", update=False),  # noqa: S106
     ]
     assert mock_repo_client.set_repository_webhooks.call_count == 2
     mock_repo_client.set_repository_webhooks.assert_has_calls(expected_calls)
@@ -49,7 +50,7 @@ def test_setup_webhooks_with_ssl_disabled(mock_repo_client):
     # Mock single repository
     mock_repo = Mock(slug="repo1")
     mock_repo_client.list_repositories.return_value = [mock_repo]
-    mock_repo_client.set_repository_webhooks.return_value = True
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.CREATED
 
     # Call the command with SSL verification disabled
     call_command("setup_webhooks", base_url="https://test.com", disable_ssl_verification=True)
@@ -60,19 +61,41 @@ def test_setup_webhooks_with_ssl_disabled(mock_repo_client):
         callback_url,
         enable_ssl_verification=False,
         secret_token="test_secret",  # noqa: S106
+        update=False,
+    )
+
+
+def test_setup_webhooks_skips_existing(mock_repo_client):
+    """Test that existing webhooks are skipped when update is not set."""
+    # Mock repository
+    mock_repo = Mock(slug="repo1")
+    mock_repo_client.list_repositories.return_value = [mock_repo]
+    # Return SKIPPED to simulate skipping existing webhook
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.SKIPPED
+
+    # Call the command without --update
+    call_command("setup_webhooks", base_url="https://test.com")
+
+    # Verify webhook was skipped (no update)
+    mock_repo_client.set_repository_webhooks.assert_called_once_with(
+        "repo1",
+        callback_url,
+        enable_ssl_verification=True,
+        secret_token="test_secret",  # noqa: S106
+        update=False,
     )
 
 
 def test_setup_webhooks_update_existing(mock_repo_client):
-    """Test updating existing webhooks."""
+    """Test updating existing webhooks when --update is passed."""
     # Mock repository
     mock_repo = Mock(slug="repo1")
     mock_repo_client.list_repositories.return_value = [mock_repo]
     # Return False to simulate updating existing webhook
-    mock_repo_client.set_repository_webhooks.return_value = False
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.UPDATED
 
-    # Call the command
-    call_command("setup_webhooks", base_url="https://test.com")
+    # Call the command with --update
+    call_command("setup_webhooks", base_url="https://test.com", update=True)
 
     # Verify webhook was updated
     mock_repo_client.set_repository_webhooks.assert_called_once_with(
@@ -80,6 +103,7 @@ def test_setup_webhooks_update_existing(mock_repo_client):
         callback_url,
         enable_ssl_verification=True,
         secret_token="test_secret",  # noqa: S106
+        update=True,
     )
 
 
@@ -101,7 +125,7 @@ def test_setup_webhooks_with_secret_token(mock_repo_client):
     # Mock repository
     mock_repo = Mock(slug="repo1")
     mock_repo_client.list_repositories.return_value = [mock_repo]
-    mock_repo_client.set_repository_webhooks.return_value = True
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.CREATED
 
     # Call the command with secret token
     call_command("setup_webhooks", base_url="https://test.com", secret_token="test_secret")  # noqa: S106
@@ -112,4 +136,52 @@ def test_setup_webhooks_with_secret_token(mock_repo_client):
         callback_url,
         enable_ssl_verification=True,
         secret_token="test_secret",  # noqa: S106
+        update=False,
+    )
+
+
+def test_setup_webhooks_with_repo_id(mock_repo_client):
+    """Test webhook setup restricted to a specific repository."""
+    # Mock repository
+    mock_repo = Mock(slug="group/repo1")
+    mock_repo_client.get_repository.return_value = mock_repo
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.CREATED
+
+    # Call the command with --repo-id
+    call_command("setup_webhooks", base_url="https://test.com", repo_id="group/repo1")
+
+    # Verify get_repository was called instead of list_repositories
+    mock_repo_client.get_repository.assert_called_once_with("group/repo1")
+    mock_repo_client.list_repositories.assert_not_called()
+
+    # Verify set_repository_webhooks was called for the specific repo
+    mock_repo_client.set_repository_webhooks.assert_called_once_with(
+        "group/repo1",
+        callback_url,
+        enable_ssl_verification=True,
+        secret_token="test_secret",  # noqa: S106
+        update=False,
+    )
+
+
+def test_setup_webhooks_with_repo_id_and_update(mock_repo_client):
+    """Test webhook setup with both --repo-id and --update."""
+    # Mock repository
+    mock_repo = Mock(slug="group/repo1")
+    mock_repo_client.get_repository.return_value = mock_repo
+    mock_repo_client.set_repository_webhooks.return_value = WebhookSetupResult.UPDATED
+
+    # Call the command with --repo-id and --update
+    call_command("setup_webhooks", base_url="https://test.com", repo_id="group/repo1", update=True)
+
+    # Verify get_repository was called
+    mock_repo_client.get_repository.assert_called_once_with("group/repo1")
+
+    # Verify set_repository_webhooks was called with update=True
+    mock_repo_client.set_repository_webhooks.assert_called_once_with(
+        "group/repo1",
+        callback_url,
+        enable_ssl_verification=True,
+        secret_token="test_secret",  # noqa: S106
+        update=True,
     )
