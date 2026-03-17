@@ -2,8 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from codebase.clients.github.api.callbacks import IssueCallback
-from codebase.clients.github.api.models import Issue, Label, Repository
+from codebase.clients.github.api.callbacks import IssueCallback, IssueCommentCallback
+from codebase.clients.github.api.models import Comment, Issue, Label, Repository, User
 from codebase.repo_config import RepositoryConfig
 
 
@@ -33,7 +33,11 @@ def monkeypatch_dependencies(monkeypatch, mock_repo_client, mock_repo_config):
 
 
 def create_issue_callback(
-    action: str, issue_labels: list[dict], issue_state: str = "open", label: Label | None = None
+    action: str,
+    issue_labels: list[dict],
+    issue_state: str = "open",
+    label: Label | None = None,
+    sender_username: str = "testuser",
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
@@ -41,6 +45,7 @@ def create_issue_callback(
         repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
         issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels),
         label=label,
+        sender=User(**{"id": 10, "login": sender_username}),
     )
 
 
@@ -125,5 +130,63 @@ class TestIssueCallback:
         """Test that label checking is case-insensitive."""
         callback = create_issue_callback(
             action="labeled", issue_labels=[{"name": "DAIV"}], label=Label(id=1, name="DAIV")
+        )
+        assert callback.accept_callback() is True
+
+    def test_reject_callback_user_not_in_allowlist(self, monkeypatch_dependencies, mock_repo_config):
+        """Test that callback is rejected when user is not in the allowed usernames list."""
+        mock_repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(action="opened", issue_labels=[{"name": "daiv"}], sender_username="mallory")
+        assert callback.accept_callback() is False
+
+    def test_accept_callback_user_in_allowlist(self, monkeypatch_dependencies, mock_repo_config):
+        """Test that callback is accepted when user is in the allowed usernames list."""
+        mock_repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(action="opened", issue_labels=[{"name": "daiv"}], sender_username="alice")
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_empty_allowlist(self, monkeypatch_dependencies, mock_repo_config):
+        """Test that callback is accepted when allowlist is empty (all users allowed)."""
+        mock_repo_config.allowed_usernames = ()
+
+        callback = create_issue_callback(action="opened", issue_labels=[{"name": "daiv"}])
+        assert callback.accept_callback() is True
+
+    def test_allowlist_case_insensitive(self, monkeypatch_dependencies, mock_repo_config):
+        """Test that allowlist check is case-insensitive."""
+        mock_repo_config.allowed_usernames = ("Alice",)
+
+        callback = create_issue_callback(action="opened", issue_labels=[{"name": "daiv"}], sender_username="alice")
+        assert callback.accept_callback() is True
+
+
+class TestIssueCommentCallbackAllowlist:
+    """Tests for GitHub IssueCommentCallback allowlist."""
+
+    def test_reject_comment_user_not_in_allowlist(self, monkeypatch_dependencies, mock_repo_config, mock_repo_client):
+        """Test that comment callback is rejected when user is not in the allowed usernames list."""
+        mock_repo_config.allowed_usernames = ("alice",)
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[{"name": "daiv"}]),
+            comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "mallory"})),
+        )
+        assert callback.accept_callback() is False
+
+    def test_accept_comment_user_in_allowlist(self, monkeypatch_dependencies, mock_repo_config, mock_repo_client):
+        """Test that comment callback is accepted when user is in the allowed usernames list."""
+        mock_repo_config.allowed_usernames = ("alice",)
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[{"name": "daiv"}]),
+            comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "alice"})),
         )
         assert callback.accept_callback() is True

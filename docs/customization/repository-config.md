@@ -9,6 +9,11 @@ Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of
 default_branch: main
 context_file_name: "AGENTS.md"
 
+# Access control
+allowed_usernames:
+  - alice
+  - bob
+
 # Files the agent can see but won't read
 omit_content_patterns:
   - "*.min.js"
@@ -56,6 +61,26 @@ models:
 
 !!! tip
     The `AGENTS.md` file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the `/init` skill — see [Slash Commands & Skills](../features/slash-commands.md#init).
+
+## Access control
+
+Restrict which users can interact with DAIV on this repository. This is particularly useful for **public repositories** where you want to prevent arbitrary users from triggering DAIV.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowed_usernames` | `list[str]` | `[]` | Usernames allowed to interact with DAIV. When empty, all users are allowed. |
+
+```yaml
+allowed_usernames:
+  - alice
+  - bob
+  - charlie
+```
+
+When the list is empty or omitted, **all users** can interact with DAIV (default behavior). When populated, only the listed users can trigger DAIV through issues, comments, and merge request reviews. Username matching is case-insensitive.
+
+!!! tip
+    Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
 
 ## File access
 

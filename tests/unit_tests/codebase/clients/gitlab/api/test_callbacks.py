@@ -48,20 +48,26 @@ def stub_client():
 
 
 @pytest.fixture
-def monkeypatch_dependencies(monkeypatch, stub_client):
+def repo_config():
+    """Mutable RepositoryConfig instance."""
+    return RepositoryConfig()
+
+
+@pytest.fixture
+def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     """Monkeypatch RepoClient and RepositoryConfig for testing."""
     monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.RepoClient.create_instance", lambda: stub_client)
     monkeypatch.setattr(
-        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: RepositoryConfig()
+        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config
     )
 
 
-def create_note_callback(note_body: str) -> NoteCallback:
+def create_note_callback(note_body: str, username: str = "reviewer") -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        user=User(id=2, username=username, name="Reviewer", email=f"{username}@example.com"),
         merge_request=MergeRequest(
             id=10,
             iid=1,
@@ -225,12 +231,17 @@ def test_reject_when_system_note(monkeypatch_dependencies, stub_client):
 
 
 def create_issue_callback(
-    action: IssueAction, issue_labels: list[Label], issue_state: str = "opened", changes: IssueChanges | None = None
+    action: IssueAction,
+    issue_labels: list[Label],
+    issue_state: str = "opened",
+    changes: IssueChanges | None = None,
+    username: str = "testuser",
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
         object_kind="issue",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=10, username=username, name="Test User", email=f"{username}@example.com"),
         object_attributes=Issue(
             id=100,
             iid=42,
@@ -318,6 +329,7 @@ class TestIssueCallback:
         IssueCallback(
             object_kind="work_item",
             project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=10, username="testuser", name="Test User", email="testuser@example.com"),
             object_attributes=Issue(
                 id=100,
                 iid=42,
@@ -335,4 +347,50 @@ class TestIssueCallback:
         """Test that label checking is case-insensitive."""
         changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="DAIV")]))
         callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="DAIV")], changes=changes)
+        assert callback.accept_callback() is True
+
+    def test_reject_callback_user_not_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that callback is rejected when user is not in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(
+            action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="mallory"
+        )
+        assert callback.accept_callback() is False
+
+    def test_accept_callback_user_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that callback is accepted when user is in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="alice")
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_empty_allowlist(self, monkeypatch_dependencies):
+        """Test that callback is accepted when allowlist is empty (all users allowed)."""
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        assert callback.accept_callback() is True
+
+    def test_allowlist_case_insensitive(self, monkeypatch_dependencies, repo_config):
+        """Test that allowlist check is case-insensitive."""
+        repo_config.allowed_usernames = ("Alice",)
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="alice")
+        assert callback.accept_callback() is True
+
+
+class TestNoteCallbackAllowlist:
+    """Tests for GitLab NoteCallback allowlist."""
+
+    def test_reject_note_user_not_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that note callback is rejected when user is not in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice",)
+
+        callback = create_note_callback("@daiv please review this code", username="mallory")
+        assert callback.accept_callback() is False
+
+    def test_accept_note_user_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that note callback is accepted when user is in the allowed usernames list."""
+        repo_config.allowed_usernames = ("reviewer",)
+
+        callback = create_note_callback("@daiv please review this code")
         assert callback.accept_callback() is True

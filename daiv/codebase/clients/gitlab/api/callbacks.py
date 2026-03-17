@@ -10,7 +10,17 @@ from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Issue, IssueAction, IssueChanges, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from .models import (  # noqa: TC001
+    Issue,
+    IssueAction,
+    IssueChanges,
+    MergeRequest,
+    Note,
+    NoteableType,
+    NoteAction,
+    Project,
+    User,
+)
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -22,6 +32,7 @@ class IssueCallback(BaseCallback):
 
     object_kind: Literal["issue", "work_item"]
     project: Project
+    user: User
     object_attributes: Issue
     changes: IssueChanges | None = None
 
@@ -38,6 +49,16 @@ class IssueCallback(BaseCallback):
             and self.object_attributes.state == "opened"
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
         ):
+            return False
+
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.user.username):
+            logger.info(
+                "Rejecting issue %s#%s: user '%s' is not in the allowed usernames list",
+                self.project.path_with_namespace,
+                self.object_attributes.iid,
+                self.user.username,
+            )
             return False
 
         # Check if DAIV has already reacted to the issue (prevents re-launching when label is removed and re-added)
@@ -109,6 +130,15 @@ class NoteCallback(BaseCallback):
             or self.object_attributes.system
             or self.user.id == self._client.current_user.id
         ):
+            return False
+
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.user.username):
+            logger.info(
+                "Rejecting note on project %s: user '%s' is not in the allowed usernames list",
+                self.project.path_with_namespace,
+                self.user.username,
+            )
             return False
 
         return bool(self._is_issue_comment or self._is_merge_request_comment)

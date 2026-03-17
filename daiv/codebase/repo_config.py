@@ -184,6 +184,15 @@ class RepositoryConfig(BaseModel):
     Configuration for a repository.
     """
 
+    allowed_usernames: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "List of usernames allowed to interact with DAIV on this repository. "
+            "When empty, all users are allowed. "
+            "Useful for public repositories where you want to restrict who can trigger DAIV."
+        ),
+    )
+
     default_branch: str | None = Field(
         default=None,
         description=(
@@ -222,6 +231,15 @@ class RepositoryConfig(BaseModel):
         default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
     )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
+
+    def is_user_allowed(self, username: str) -> bool:
+        """
+        Check if a user is allowed to interact with DAIV on this repository.
+        When the allowlist is empty, all users are allowed.
+        """
+        if not self.allowed_usernames:
+            return True
+        return username.lower() in {u.lower() for u in self.allowed_usernames}
 
     @staticmethod
     def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:
