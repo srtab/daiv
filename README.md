@@ -146,14 +146,12 @@ DAIV's agent has access to a set of capabilities that make this possible:
 
 ## Roadmap
 
-- [x] Add support to GitHub.
-- [x] Add support to [AGENTS.md](https://agents.md/) format to guide agents.
-- [x] Add support to Agent Skills.
-- [ ] Add support to custom MCP servers.
-- [x] Add an evaluation system to measure the quality of DAIV's agents.
-- [ ] Add support to automated pull request review.
-- [ ] Create a frontend to DAIV initial setup and configuration, dashboard with some metrics, a chat interface to interact with DAIV...
-- [ ] Automate the onboarding of new projects into DAIV, by adding a `.daiv.yml` file to the repository.
+- [ ] Configurable hooks — run DAIV on specific events with user-defined triggers and actions.
+- [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
+- [ ] Custom MCP servers per repository — allow teams to configure project-specific MCP servers in `.daiv.yml`.
+- [ ] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
+- [ ] Team notifications — Slack, Discord, and Microsoft Teams integrations to notify teams about DAIV actions and request approvals.
+- [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.
 
 
 ## Contributing
