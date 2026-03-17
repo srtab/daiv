@@ -10,7 +10,7 @@ from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, Label, Repository  # noqa: TC001
+from .models import Comment, Issue, Label, Repository, User  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -31,6 +31,7 @@ class IssueCallback(GitHubCallback):
     action: Literal["opened", "edited", "reopened", "labeled", "closed"]
     issue: Issue
     label: Label | None = None
+    sender: User
 
     def model_post_init(self, __context: Any):
         self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
@@ -43,6 +44,16 @@ class IssueCallback(GitHubCallback):
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
         ):
+            return False
+
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.sender.username):
+            logger.info(
+                "Rejecting issue %s#%s: user '%s' is not in the allowed usernames list",
+                self.repository.full_name,
+                self.issue.number,
+                self.sender.username,
+            )
             return False
 
         # Check if DAIV has already reacted to the issue (prevents re-launching when label is removed and re-added)
@@ -98,6 +109,16 @@ class IssueCommentCallback(GitHubCallback):
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
         ):
+            return False
+
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.comment.user.username):
+            logger.info(
+                "Rejecting comment on %s#%s: user '%s' is not in the allowed usernames list",
+                self.repository.full_name,
+                self.issue.number,
+                self.comment.user.username,
+            )
             return False
 
         return bool(self._is_issue_comment or self._is_merge_request_review)

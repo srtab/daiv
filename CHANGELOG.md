@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `EnsureNonEmptyResponseMiddleware` to detect and recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
 - Added `--update` flag to `setup_webhooks` command to update existing webhooks on demand.
 - Added `--repo-id` option to `setup_webhooks` command to restrict setup to a specific repository.
+- Added `allowed_usernames` option to `.daiv.yml` to restrict which users can interact with DAIV on a per-repository basis. Useful for public repositories where you want to limit who can trigger DAIV.
 
 ### Changed
 
