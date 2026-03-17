@@ -481,7 +481,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
     { name = "langgraph", specifier = "==1.1.2" },
     { name = "langgraph-checkpoint-redis", specifier = "==0.4.0" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.7.17" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.7.18" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdownify", specifier = "==1.2.2" },
     { name = "parable", git = "https://github.com/ldayton/Parable.git?rev=9f7e15734bd3e5bb9fe252d2491d6f61572f0e57" },
@@ -1429,7 +1429,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.7.17"
+version = "0.7.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1442,9 +1442,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/71/79/81041dde07a974e728db7def23c1c7255950b8874102925cc77093bc847d/langsmith-0.7.17.tar.gz", hash = "sha256:6c1b0c2863cdd6636d2a58b8d5b1b80060703d98cac2593f4233e09ac25b5a9d", size = 1132228, upload-time = "2026-03-12T20:41:10.808Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/a8/31e9e7b42089cf194a0d873cbfc1ecec6d6dd0cc693808f1cb64494cbd0c/langsmith-0.7.18.tar.gz", hash = "sha256:d7e6e1f9c9300ee83b9f201c9254b4a32799218de102a5b1d2b217e00be2dfa2", size = 1134635, upload-time = "2026-03-16T18:54:19.131Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/31/62689d57f4d25792bd6a3c05c868771899481be2f3e31f9e71d31e1ac4ab/langsmith-0.7.17-py3-none-any.whl", hash = "sha256:cbec10460cb6c6ecc94c18c807be88a9984838144ae6c4693c9f859f378d7d02", size = 359147, upload-time = "2026-03-12T20:41:08.758Z" },
+    { url = "https://files.pythonhosted.org/packages/29/58/244a14e29c7feccf06ed3929c9ab65a747a9ee94d5ac43d40862053b2f54/langsmith-0.7.18-py3-none-any.whl", hash = "sha256:3253c171fe2f6506056a42f9077983a34749b7a1629e41d8fb8e2005d8960886", size = 359268, upload-time = "2026-03-16T18:54:17.397Z" },
 ]
 
 [package.optional-dependencies]
