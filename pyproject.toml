@@ -63,7 +63,7 @@ dev = [
   "coverage==7.13.4",
   "datasets==4.7.0",
   "openevals==0.1.3",
-  "prek==0.3.5",
+  "prek==0.3.6",
   "pyproject-fmt==2.19.0",
   "pytest==9.0.2",
   "pytest-asyncio==1.3.0",
