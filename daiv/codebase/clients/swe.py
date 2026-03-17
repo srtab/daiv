@@ -16,7 +16,7 @@ from codebase.clients.utils import safe_slug
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from codebase.clients.base import Emoji
+    from codebase.clients.base import Emoji, WebhookSetupResult
 
 logger = logging.getLogger("daiv.clients")
 
@@ -152,7 +152,8 @@ class SWERepoClient(RepoClient):
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
-    ) -> bool:
+        update: bool = False,
+    ) -> WebhookSetupResult:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support webhooks")
 

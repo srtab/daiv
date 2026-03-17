@@ -31,7 +31,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import Emoji
+from codebase.clients.base import Emoji, WebhookSetupResult
 from core.utils import async_download_url
 
 if TYPE_CHECKING:
@@ -167,7 +167,8 @@ class GitHubClient(RepoClient):
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
-    ):
+        update: bool = False,
+    ) -> WebhookSetupResult:
         """
         Set webhooks for a repository.
         """
@@ -182,11 +183,13 @@ class GitHubClient(RepoClient):
 
         for hook in repo.get_hooks():
             if hook.url == url:
+                if not update:
+                    return WebhookSetupResult.SKIPPED
                 hook.edit("web", config, events, active=True)
-                return True
+                return WebhookSetupResult.UPDATED
 
         repo.create_hook("web", config, events, active=True)
-        return True
+        return WebhookSetupResult.CREATED
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:

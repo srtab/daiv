@@ -26,6 +26,12 @@ class Emoji(StrEnum):
     EYES = "eyes"
 
 
+class WebhookSetupResult(StrEnum):
+    CREATED = "created"
+    UPDATED = "updated"
+    SKIPPED = "skipped"
+
+
 class RepoClient(abc.ABC):
     """
     Abstract class for repository clients.
@@ -59,7 +65,8 @@ class RepoClient(abc.ABC):
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
-    ) -> bool:
+        update: bool = False,
+    ) -> WebhookSetupResult:
         pass
 
     @abc.abstractmethod

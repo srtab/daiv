@@ -81,7 +81,7 @@ echo "your-webhook-secret-here" | docker secret create codebase_gitlab_webhook_s
 
 DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
 
-DAIV automatically configures webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created and kept up to date automatically.
+DAIV automatically creates webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To update existing webhooks, run `django-admin setup_webhooks --update`.
 
 !!! tip "Verifying webhook setup"
     To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/` with the following trigger events:
