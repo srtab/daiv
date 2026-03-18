@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `--repo-id` option to `setup_webhooks` command to restrict setup to a specific repository.
 - Added `allowed_usernames` option to `.daiv.yml` to restrict which users can interact with DAIV on a per-repository basis. Useful for public repositories where you want to limit who can trigger DAIV.
 
+### Fixed
+
+- Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
+
 ### Changed
 
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
