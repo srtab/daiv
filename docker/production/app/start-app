@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eu pipefail
+set -eu
 
 django-admin migrate --noinput
 django-admin setup_checkpoint_saver

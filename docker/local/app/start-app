@@ -1,9 +1,19 @@
 #!/bin/sh
 
-set -eu pipefail
+set -eu
+
+# Auto-generate self-signed SSL certificates if missing
+CERT_DIR="/home/app/src/data/certs"
+if [ ! -f "$CERT_DIR/cert.key" ] || [ ! -f "$CERT_DIR/cert.crt" ]; then
+    mkdir -p "$CERT_DIR"
+    openssl req -x509 -newkey rsa:2048 -keyout "$CERT_DIR/cert.key" \
+        -out "$CERT_DIR/cert.crt" -days 365 -nodes \
+        -subj "/CN=localhost"
+    echo "Generated self-signed SSL certificates in $CERT_DIR"
+fi
 
 django-admin compilemessages --ignore=.venv
 django-admin migrate --noinput
 django-admin setup_checkpoint_saver
 
-exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile /home/app/src/data/certs/cert.key --ssl-certfile /home/app/src/data/certs/cert.crt --reload --reload-dir 'daiv/' "daiv.asgi:application"
+exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile "$CERT_DIR/cert.key" --ssl-certfile "$CERT_DIR/cert.crt" --reload --reload-dir 'daiv/' "daiv.asgi:application"

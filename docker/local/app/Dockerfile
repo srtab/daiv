@@ -25,6 +25,7 @@ RUN apt-get update \
         gnupg \
         ca-certificates \
         ripgrep \
+        openssl \
     # Install GitHub CLI
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \

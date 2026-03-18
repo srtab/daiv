@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import shlex
 from collections.abc import Awaitable, Callable  # noqa: TC003
