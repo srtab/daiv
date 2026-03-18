@@ -5,6 +5,7 @@ Thank you for your interest in contributing to DAIV! This document provides guid
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
+- [Development Environment](#development-environment)
 - [Development Guidelines](#development-guidelines)
   - [Code Style](#code-style)
   - [Testing](#testing)
@@ -19,6 +20,25 @@ Thank you for your interest in contributing to DAIV! This document provides guid
 ## Code of Conduct
 
 We expect all contributors to be respectful and constructive. Please ensure that your interactions with the community are positive and inclusive.
+
+## Development Environment
+
+To get started quickly:
+
+```bash
+git clone https://github.com/srtab/daiv.git && cd daiv
+make setup                    # creates config files from templates
+docker compose up --build     # starts core services (db, redis, app, worker, scheduler)
+```
+
+Optional services are available via Docker Compose profiles:
+
+- `--profile gitlab` — local GitLab instance and runner
+- `--profile sandbox` — sandbox code executor
+- `--profile mcp` — MCP proxy
+- `--profile full` — all services
+
+See the [README](README.md) for full setup details.
 
 ## Development Guidelines
 
@@ -66,7 +86,7 @@ DAIV uses pytest for testing:
 
 ### Type Checking
 
-We use mypy for static type checking but we don't enforce it, we encourage you to use it to improve your code quality:
+We use [ty](https://github.com/astral-sh/ty) for static type checking but we don't enforce it, we encourage you to use it to improve your code quality:
 
 ```bash
 make lint-typing

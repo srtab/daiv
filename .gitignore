@@ -160,6 +160,7 @@ cython_debug/
 #.idea/
 
 config.secrets.env
+config.toml
 state-snapshots.txt
 
 .ruff_cache/

@@ -62,12 +62,13 @@ DAIV's agent has access to a set of capabilities that make this possible:
    cd daiv
    ```
 
-2. **Configure Environment**:
-   Copy `docker/local/app/config.secrets.env.example` to `docker/local/app/config.secrets.env` and update it with your Git platform credentials (GitLab token or GitHub App credentials), OpenAI API Key, Anthropic API Key, Google API Key, and LangChain API Key.
+2. **Run setup**:
 
    ```bash
-   cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env
+   make setup
    ```
+
+   This creates config files from their templates (`config.secrets.env` and `config.toml`). Edit `docker/local/app/config.secrets.env` and add your API keys — at minimum one LLM provider key (Anthropic, OpenAI, Google, or OpenRouter) and `CODEBASE_GITLAB_AUTH_TOKEN` if using GitLab.
 
 3. **Install Dependencies** (optional):
    We use [uv](https://docs.astral.sh/uv/) to manage dependencies on DAIV.
@@ -79,22 +80,29 @@ DAIV's agent has access to a set of capabilities that make this possible:
    > [!NOTE]
    > This will install the project dependencies into a virtual environment. Useful for running linting outside of Docker or enabling autocompletion in VSCode.
 
-4. **Start the Server**:
+4. **Start core services**:
 
    ```bash
    docker compose up --build
    ```
 
-   This will start all needed services locally. You can access them at:
+   This starts the core services (db, redis, app, worker, scheduler). SSL certificates are auto-generated on first run.
 
    - DAIV API documentation: https://localhost:8000/api/docs/
-   - GitLab (local test repository platform): http://localhost:8929
-   - Sandbox (secure code execution): http://localhost:8888/docs
+
+5. **Start optional services** (as needed):
+
+   ```bash
+   docker compose --profile gitlab up     # local GitLab instance + runner
+   docker compose --profile sandbox up    # sandbox code executor
+   docker compose --profile mcp up        # MCP proxy
+   docker compose --profile full up       # all services
+   ```
 
    > [!NOTE]
-   > The local development setup includes a GitLab instance for testing. For GitHub integration, you'll need to use GitHub.com or your own GitHub Enterprise instance.
+   > Profiles can be combined: `docker compose --profile gitlab --profile sandbox up`
 
-5. **Run the tests** (optional):
+6. **Run the tests** (optional):
    DAIV includes a comprehensive test suite. To run tests with coverage:
 
    ```bash
@@ -102,7 +110,7 @@ DAIV's agent has access to a set of capabilities that make this possible:
    $ make test
    ```
 
-6. **Run linting** (optional):
+7. **Run linting** (optional):
    To ensure code quality:
 
    ```bash
@@ -111,37 +119,42 @@ DAIV's agent has access to a set of capabilities that make this possible:
    $ make lint-fix  # to automatically fix linting and formatting issues
    ```
 
-7. **Configure test repository**:
-   To be able to test DAIV, you need to configure a test repository on the local GitLab instance (or use your own GitHub repository).
+### Optional: Local GitLab
 
-   1. First you need to obtain root password to authenticate with [local GitLab](http://localhost:8929):
+To test DAIV with a local GitLab instance:
 
-      ```bash
-      $ docker compose exec -it gitlab grep 'Password:' /etc/gitlab/initial_root_password
-      ```
+1. **Start GitLab**:
 
-   2. Then you need to configure a personal access token (you can use the root user or create a new user) and add it to the `docker/local/app/config.secrets.env` file.
+   ```bash
+   docker compose --profile gitlab up
+   ```
 
-   3. Now you need to create a new project in GitLab and follow the instructions to push your testing code to it.
+2. **Get the root password**:
 
-      > [!TIP]
-      > You can import using repository URL, go to `Admin Area` -> `Settings` -> `General` -> `Import and export settings` and check the `Repository by URL` option.
+   ```bash
+   docker compose exec -it gitlab grep 'Password:' /etc/gitlab/initial_root_password
+   ```
 
-   4. After you push/import your code to the repository, you need to set up webhooks and index the repository in DAIV:
+3. **Configure a personal access token** at [http://localhost:8929](http://localhost:8929) (use the root user or create a new user) and add it to `docker/local/app/config.secrets.env` as `CODEBASE_GITLAB_AUTH_TOKEN`.
 
-      ```bash
-      # Enter the app container
-      $ docker compose exec -it app bash
+4. **Create a test project** in GitLab and push your testing code to it.
 
-      # Set up webhooks to trigger automatically DAIV actions. You can disable SSL verification for local development by adding `--disable-ssl-verification` to the command.
-      $ django-admin setup_webhooks
+   > [!TIP]
+   > You can import using repository URL: go to `Admin Area` -> `Settings` -> `General` -> `Import and export settings` and check the `Repository by URL` option.
 
-      ```
+5. **Set up webhooks**:
 
-      > [!NOTE]
-      > If you're getting the error `Invalid url given` when setting up the webhooks on local GitLab, go to `Admin Area` -> `Settings` -> `Network` -> `Outbound requests` and check the `Allow requests to the local network from webhooks and integrations` option.
+   ```bash
+   docker compose exec -it app django-admin setup_webhooks
+   ```
 
-   5. Finally, you can test DAIV by creating an issue in your repository, add `daiv` label to it and see how DAIV will automatically present a plan to address the issue.
+   > [!NOTE]
+   > If you get the error `Invalid url given`, go to `Admin Area` -> `Settings` -> `Network` -> `Outbound requests` and check `Allow requests to the local network from webhooks and integrations`.
+
+6. **Test DAIV** by creating an issue in your repository with the `daiv` label. DAIV will automatically present a plan to address the issue.
+
+> [!NOTE]
+> For GitHub integration, you'll need to use GitHub.com or your own GitHub Enterprise instance. Set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials.
 
 
 ## Roadmap

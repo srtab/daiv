@@ -1,5 +1,5 @@
 #!/bin/sh
 
-set -eu pipefail
+set -eu
 
 exec django-admin db_worker --reload --skip-checks
