@@ -43,6 +43,7 @@ class ModelName(StrEnum):
 
     # z-ai models
     Z_AI_GLM_5 = "openrouter:z-ai/glm-5"
+    Z_AI_GLM_5_TURBO = "openrouter:z-ai/glm-5-turbo"
 
     # minimax models
     MINIMAX_M2_5 = "openrouter:minimax/minimax-m2.5"
