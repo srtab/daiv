@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Adapted prompt cache middleware for OpenRouter to override `_apply_caching` instead of `awrap_model_call`, enabling both sync and async paths and adding system message tagging, tool tagging, and `extra_body` merging.
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 
 ## [2.0.0] - 2026-03-14

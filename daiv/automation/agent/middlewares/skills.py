@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+from collections.abc import Awaitable, Callable  # noqa: TC003
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired, override
 
@@ -22,8 +23,6 @@ from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from deepagents.graph import SubAgent
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
