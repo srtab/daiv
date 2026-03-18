@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_MAX_TOKENS = 4_096
+CLAUDE_MAX_TOKENS = 16_384
 
 CLAUDE_THINKING_MODELS = (
     "claude-sonnet-4-5",
@@ -34,14 +34,7 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-haiku-4.5",
 )
 
-OPENAI_THINKING_MODELS = (
-    "gpt-5.1-codex-mini",
-    "gpt-5.2",
-    "gpt-5.3-codex",
-    "openai/gpt-5.1-codex-mini",
-    "openai/gpt-5.2",
-    "openai/gpt-5.3-codex",
-)
+OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
 
 
 class ModelProvider(StrEnum):
