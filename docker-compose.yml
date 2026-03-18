@@ -133,6 +133,8 @@ services:
     stdin_open: true
     restart: unless-stopped
     container_name: daiv-sandbox
+    group_add:
+      - "${DOCKER_GID:-999}"
     env_file:
       - ./docker/local/sandbox/config.env
     ports:
