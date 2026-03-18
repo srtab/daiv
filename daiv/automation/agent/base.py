@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import TYPE_CHECKING, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
@@ -14,12 +14,11 @@ from core.constants import BOT_NAME
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
-    from langchain_openai.chat_models import ChatOpenAI
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
 
-CLAUDE_MAX_TOKENS = 4_096
+CLAUDE_MAX_TOKENS = 16_384
 
 CLAUDE_THINKING_MODELS = (
     "claude-sonnet-4-5",
@@ -34,14 +33,7 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-haiku-4.5",
 )
 
-OPENAI_THINKING_MODELS = (
-    "gpt-5.1-codex-mini",
-    "gpt-5.2",
-    "gpt-5.3-codex",
-    "openai/gpt-5.1-codex-mini",
-    "openai/gpt-5.2",
-    "openai/gpt-5.3-codex",
-)
+OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
 
 
 class ModelProvider(StrEnum):
@@ -217,32 +209,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             int: The number of tokens
         """
         return BaseAgent.get_model(model=model_name).get_num_tokens_from_messages(messages)
-
-    def get_max_token_value(self, model_name: str) -> int:
-        """
-        Get the maximum token value for the model.
-
-        Args:
-            model_name (str): The model name
-
-        Returns:
-            int: The maximum token value
-        """
-
-        match BaseAgent.get_model_provider(model_name):
-            case ModelProvider.ANTHROPIC:
-                return 8192
-
-            case ModelProvider.OPENAI:
-                _, encoding_model = cast("ChatOpenAI", BaseAgent.get_model(model=model_name))._get_encoding_model()
-                return encoding_model.max_token_value
-
-            case ModelProvider.GOOGLE_GENAI:
-                # As stated in docs: https://ai.google.dev/gemini-api/docs/models/gemini#gemini-2.0-flash
-                return 8192
-
-            case _:
-                raise ValueError(f"Unknown provider for model {model_name}")
 
     @staticmethod
     def get_model_provider(model_name: str) -> ModelProvider:

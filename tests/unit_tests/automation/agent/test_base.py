@@ -36,7 +36,7 @@ class TestBaseAgent:
         kwargs = agent.get_model_kwargs(model_provider=ModelProvider.ANTHROPIC, model="claude-3-5-sonnet-20240229")
 
         assert kwargs["temperature"] == 0
-        assert kwargs["max_tokens"] == 4_096
+        assert kwargs["max_tokens"] == 16_384
 
     def test_get_model_kwargs_openai(self):
         agent = ConcreteAgent()
@@ -45,16 +45,3 @@ class TestBaseAgent:
         assert kwargs["temperature"] == 0
         assert "max_tokens" not in kwargs
         assert not kwargs["model_kwargs"]
-
-    def test_get_max_token_value(self):
-        agent = ConcreteAgent()
-        assert agent.get_max_token_value(model_name="claude-3-5-sonnet-20240229") == 8192
-
-        agent = ConcreteAgent()
-        assert agent.get_max_token_value(model_name="claude-3-opus-20240229") == 8192
-
-    def test_invalid_model_provider(self):
-        agent = ConcreteAgent()
-
-        with pytest.raises(ValueError, match="Unknown/Unsupported provider for model"):
-            agent.get_max_token_value(model_name="invalid_model")

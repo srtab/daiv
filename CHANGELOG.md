@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
+- Increased Claude max output tokens from 4,096 to 16,384.
 
 ## [2.0.0] - 2026-03-14
 
