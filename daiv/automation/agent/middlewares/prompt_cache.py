@@ -57,10 +57,10 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         Apply cache control to the request.
         """
         if self._is_openrouter_anthropic_model(request.model) and self._should_apply_caching(request):
-            model_settings = request.model_settings
+            existing_extra_body = request.model_settings.get("extra_body", {})
             new_model_settings = {
-                **model_settings,
-                "extra_body": {"cache_control": {"type": self.type, "ttl": self.ttl}},
+                **request.model_settings,
+                "extra_body": {**existing_extra_body, "cache_control": {"type": self.type, "ttl": self.ttl}},
             }
             return await handler(request.override(model_settings=new_model_settings))
         return await super().awrap_model_call(request, handler)

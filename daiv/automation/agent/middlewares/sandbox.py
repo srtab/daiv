@@ -127,7 +127,8 @@ Dedicated-tool failure policy:
 
 Environment awareness:
 - The sandbox is a minimal container. Common tools (test runners, package managers, linters) may not be installed.
-- If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`). Accept it is unavailable and adapt your approach or inform the user.
+- If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`) or retry with a different package manager or runner (e.g., switching from `uv` to `pipenv` to raw `python`). Accept the tool is unavailable and verify your changes using other means (linting, type-checking, code review).
+- If a command runs but fails due to missing infrastructure (database connection refused, environment variables, ModuleNotFoundError after dependency install), do not retry with a different approach. The sandbox lacks the required runtime environment — fall back to static verification instead.
 
 Safety / boundaries (never do these):
 - Do not access or print secrets/credentials.
