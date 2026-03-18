@@ -8,6 +8,7 @@ description: This skill should be used when a user asks for a code review, feedb
 
 ## Establish scope and inputs
 
+- If you already reviewed this merge/pull request earlier in this conversation, do not start from scratch. Identify what changed since your last review (new commits, force-pushed changes) by comparing the current diff against what you previously reviewed, and focus only on the delta. Do not re-fetch MR metadata or re-explore unchanged files.
 - Identify whether the request targets a merge/pull request, a local diff, or specific files.
 - If a merge/pull request is referenced:
   1. fetch merge/pull request to determine the source branch and target branch using the available tools;
