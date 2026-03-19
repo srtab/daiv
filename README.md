@@ -95,7 +95,7 @@ DAIV's agent has access to a set of capabilities that make this possible:
    ```bash
    docker compose --profile gitlab up     # local GitLab instance + runner
    docker compose --profile sandbox up    # sandbox code executor
-   docker compose --profile mcp up        # MCP proxy
+   docker compose --profile mcp up        # MCP servers
    docker compose --profile full up       # all services
    ```
 
@@ -161,7 +161,7 @@ To test DAIV with a local GitLab instance:
 
 - [ ] Configurable hooks — run DAIV on specific events with user-defined triggers and actions.
 - [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
-- [ ] Custom MCP servers per repository — allow teams to configure project-specific MCP servers in `.daiv.yml`.
+- [x] Custom MCP servers — user-defined MCP servers via a JSON config file following the Claude Code `.mcp.json` standard.
 - [ ] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
 - [ ] Team notifications — Slack, Discord, and Microsoft Teams integrations to notify teams about DAIV actions and request approvals.
 - [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.

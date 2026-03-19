@@ -224,23 +224,16 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 
 ### MCP Tools
 
-MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality.
+MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. Each MCP server runs in its own isolated container.
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
-| `MCP_PROXY_HOST`                | Host URL for the MCP proxy server                             | `http://mcp-proxy:9090`        | `http://localhost:9090` |
-| `MCP_PROXY_ADDR`                | Address for the MCP proxy to listen on                        | `:9090`                        | `:9090` |
-| `MCP_PROXY_AUTH_TOKEN` :material-lock: | Authentication token for MCP proxy                             | *(none)*                       | `secure-auth-token` |
-| `MCP_SENTRY_ENABLED`            | Enable/disable Sentry MCP server                              | `true`                         | `false` |
-| `MCP_SENTRY_VERSION`            | Version of the Sentry MCP server                              | `0.20.0`                       | `0.20.0` |
-| `MCP_SENTRY_ACCESS_TOKEN` :material-lock: | Sentry API access token                                | *(none)*                       | `sntryu_abc123...` |
-| `MCP_SENTRY_HOST`               | Sentry instance hostname                                       | *(none)*                       | `your-org.sentry.io` |
-| `MCP_CONTEXT7_ENABLED`          | Enable/disable Context7 MCP server                             | `true`                         | `false` |
-| `MCP_CONTEXT7_VERSION`          | Version of the Context7 MCP server                             | `latest`                       | `1.0.0` |
-| `MCP_CONTEXT7_API_KEY` :material-lock: | API key for Context7 MCP server                          | *(none)*                       |         |
+| `MCP_SERVERS_CONFIG_FILE`       | Path to user-defined MCP servers JSON config file              | *(none)*                       | `/path/to/mcp.json` |
+| `MCP_SENTRY_URL`                | SSE URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp-sentry:8000/sse`   | `http://localhost:8001/sse` |
+| `MCP_CONTEXT7_URL`              | SSE URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/sse` | `http://localhost:8002/sse` |
 
 !!! info
-    For detailed MCP server configuration, see [MCP Tools](../customization/mcp-tools.md).
+    For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
 
 ---
 

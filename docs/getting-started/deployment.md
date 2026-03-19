@@ -17,7 +17,7 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 * **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
 * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](../features/sandbox.md))
-* **[MCP Proxy](https://github.com/TBXark/mcp-proxy/)** — proxy for running MCP servers in a container (see [MCP Tools](../customization/mcp-tools.md))
+* **MCP Servers** — isolated containers for MCP tools via [supergateway](https://github.com/supercorp-ai/supergateway) (see [MCP Tools](../customization/mcp-tools.md))
 
 ---
 
@@ -43,8 +43,6 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 * **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
-* **`mcp_proxy_auth_token`** - Random API key for MCP Proxy service authentication
-* **`mcp_config_api_key`** - DAIV API key for MCP Proxy to fetch its configuration (see [below](#mcp-proxy-api-key))
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -149,7 +147,6 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
-      - mcp_proxy_auth_token
     networks:
       - internal
       - external
@@ -170,7 +167,6 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
-      - mcp_proxy_auth_token
     networks:
       - internal
     deploy:
@@ -189,7 +185,6 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
-      - mcp_proxy_auth_token
     networks:
       - internal
     deploy:
@@ -209,16 +204,38 @@ services:
     deploy:
       <<: *deploy_defaults
 
-  mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
-    entrypoint:
-      - /bin/sh
-      - -c
-      - '/main --config http://app:8000/api/automation/mcp-proxy/config/ --http-headers "Authorization: Bearer $$(cat /run/secrets/mcp_config_api_key)"' (9)
+  mcp-sentry:
+    image: supercorp/supergateway:latest
+    command:
+      - --stdio
+      - "npx @sentry/mcp-server@latest"
+      - --healthEndpoint
+      - "/healthz"
+    environment:
+      SENTRY_ACCESS_TOKEN: your-sentry-token (9)
+      SENTRY_HOST: your-sentry-host
     networks:
       - internal
-    secrets:
-      - mcp_config_api_key
+    healthcheck:
+      test: wget --spider -q http://localhost:8000/healthz || exit 1
+      interval: 30s
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+
+  mcp-context7:
+    image: supercorp/supergateway:latest
+    command:
+      - --stdio
+      - "npx @upstash/context7-mcp@latest"
+      - --healthEndpoint
+      - "/healthz"
+    networks:
+      - internal
+    healthcheck:
+      test: wget --spider -q http://localhost:8000/healthz || exit 1
+      interval: 30s
+      start_period: 30s
     deploy:
       <<: *deploy_defaults
 
@@ -248,10 +265,6 @@ secrets:
     external: true
   openrouter_api_key:
     external: true
-  mcp_proxy_auth_token:
-    external: true
-  mcp_config_api_key:
-    external: true
 ```
 
 </div>
@@ -264,7 +277,7 @@ secrets:
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
-9.   MCP Proxy fetches its configuration from the DAIV API. The secret must be a valid DAIV API key (see [MCP Proxy API key](#mcp-proxy-api-key))
+9.   Set your Sentry access token and host. These MCP services are optional — remove them if not needed. For production, inject these values from a secure credential manager rather than hardcoding them
 10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 3: Deploy the stack
@@ -339,8 +352,6 @@ x-app-defaults: &x_app_default
     OPENROUTER_API_KEY: openrouter-api-key (8)
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # MCP Proxy settings
-    MCP_PROXY_AUTH_TOKEN: mcp-proxy-auth-token (13)
 
 services:
   db:
@@ -392,7 +403,7 @@ services:
     command: sh /home/daiv/start-worker
     ports: []
     deploy:
-      replicas: 1 (16)
+      replicas: 1 (15)
     depends_on:
       app:
         condition: service_healthy
@@ -413,26 +424,47 @@ services:
     restart: unless-stopped
     container_name: daiv-sandbox
     group_add:
-      - 987 (14)
+      - 987 (13)
     environment:
       DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (11)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
+  mcp-sentry:
+    image: supercorp/supergateway:latest
     restart: unless-stopped
-    container_name: daiv-mcp-proxy
-    entrypoint:
-      - /bin/sh
-      - -c
-      - '/main --config http://app:8000/api/automation/mcp-proxy/config/ --http-headers "Authorization: Bearer $${MCP_CONFIG_API_KEY}"'
-    environment:
-      MCP_CONFIG_API_KEY: mcp-config-api-key (15)
-    depends_on:
-      app:
-        condition: service_healthy
-        restart: true
+    container_name: daiv-mcp-sentry
+    command:
+      - --stdio
+      - "npx @sentry/mcp-server@latest"
+      - --healthEndpoint
+      - "/healthz"
+    env_file:
+      - config.secrets.env (14)
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  mcp-context7:
+    image: supercorp/supergateway:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-context7
+    command:
+      - --stdio
+      - "npx @upstash/context7-mcp@latest"
+      - --healthEndpoint
+      - "/healthz"
+    env_file:
+      - config.secrets.env
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   db-volume:
@@ -454,10 +486,9 @@ volumes:
 10.  **Use the same password** as defined in annotation 3
 11.  **Use the same API key** as defined in annotation 9
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
-13.  **Generate a random API key** for MCP Proxy service authentication
-14.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
-15.  **DAIV API key** for MCP Proxy to fetch its configuration (see [MCP Proxy API key](#mcp-proxy-api-key))
-16.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
+14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your secrets env file. These MCP services are optional — remove them if not needed
+15.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 2: Run the compose file
 
@@ -565,31 +596,6 @@ systemctl restart nginx
 ```
 
 **Verify the configuration** by accessing your domain in a web browser. You should see the DAIV interface.
-
----
-
-## MCP Proxy API key
-
-The MCP Proxy fetches its server configuration from the DAIV API at startup. This requires a valid DAIV API key for authentication.
-
-To create one, run the `create_api_key` management command:
-
-```bash
-# Docker Swarm
-docker exec -it $(docker ps -q -f name=daiv_app) django-admin create_api_key <username> --name mcp-proxy
-
-# Docker Compose
-docker compose exec app django-admin create_api_key <username> --name mcp-proxy
-```
-
-You can optionally pass `--expires-at` with an ISO 8601 date (e.g. `2026-12-31T23:59:59`) to set an expiration.
-
-Copy the printed key and use it as:
-
-- **Docker Swarm**: `printf '<key>' | docker secret create mcp_config_api_key -`
-- **Docker Compose**: set `MCP_CONFIG_API_KEY` in the mcp-proxy environment
-
-Then restart the mcp-proxy service.
 
 ---
 

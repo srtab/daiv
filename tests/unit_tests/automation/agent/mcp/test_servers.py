@@ -5,65 +5,73 @@ from automation.agent.mcp.servers import Context7MCPServer, SentryMCPServer
 
 class TestSentryMCPServer:
     def test_sentry_server_has_correct_name(self):
-        """Test that SentryMCPServer has the correct name."""
         server = SentryMCPServer()
         assert server.name == "sentry"
 
     @patch("automation.agent.mcp.servers.settings")
-    def test_sentry_server_is_enabled_when_settings_true_and_token_present(self, mock_settings):
-        """Test that SentryMCPServer is enabled when SENTRY_ENABLED is True and token is present."""
-        from pydantic import SecretStr
-
-        mock_settings.SENTRY_ENABLED = True
-        mock_settings.SENTRY_ACCESS_TOKEN = SecretStr("test-token")
+    def test_sentry_server_is_enabled_when_url_set(self, mock_settings):
+        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/sse"
         server = SentryMCPServer()
 
         assert server.is_enabled() is True
 
     @patch("automation.agent.mcp.servers.settings")
-    def test_sentry_server_is_disabled_when_setting_false(self, mock_settings):
-        """Test that SentryMCPServer is disabled when SENTRY_ENABLED is False."""
-        from pydantic import SecretStr
-
-        mock_settings.SENTRY_ENABLED = False
-        mock_settings.SENTRY_ACCESS_TOKEN = SecretStr("test-token")
+    def test_sentry_server_is_disabled_when_url_none(self, mock_settings):
+        mock_settings.SENTRY_URL = None
         server = SentryMCPServer()
 
         assert server.is_enabled() is False
+
+    def test_sentry_server_tool_filter(self):
+        server = SentryMCPServer()
+
+        assert server.tool_filter is not None
+        assert server.tool_filter.mode == "allow"
+        assert "find_organizations" in server.tool_filter.items
+        assert "search_issues" in server.tool_filter.items
 
     @patch("automation.agent.mcp.servers.settings")
-    def test_sentry_server_is_disabled_when_no_token(self, mock_settings):
-        """Test that SentryMCPServer is disabled when no access token is provided."""
-        mock_settings.SENTRY_ENABLED = True
-        mock_settings.SENTRY_ACCESS_TOKEN = None
+    def test_sentry_get_connection_returns_correct_url(self, mock_settings):
+        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/sse"
         server = SentryMCPServer()
+        connection = server.get_connection()
 
-        assert server.is_enabled() is False
+        assert connection["transport"] == "sse"
+        assert connection["url"] == "http://mcp-sentry:8000/sse"
 
 
 class TestContext7MCPServer:
     def test_context7_server_has_correct_name(self):
-        """Test that Context7MCPServer has the correct name."""
         server = Context7MCPServer()
         assert server.name == "context7"
 
     @patch("automation.agent.mcp.servers.settings")
-    def test_context7_server_is_enabled_when_setting_true(self, mock_settings):
-        """Test that Context7MCPServer is enabled when CONTEXT7_ENABLED is True."""
-        mock_settings.CONTEXT7_ENABLED = True
+    def test_context7_server_is_enabled_when_url_set(self, mock_settings):
+        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/sse"
         server = Context7MCPServer()
 
         assert server.is_enabled() is True
 
     @patch("automation.agent.mcp.servers.settings")
-    def test_context7_server_is_disabled_when_setting_false(self, mock_settings):
-        """Test that Context7MCPServer is disabled when CONTEXT7_ENABLED is False."""
-        mock_settings.CONTEXT7_ENABLED = False
+    def test_context7_server_is_disabled_when_url_none(self, mock_settings):
+        mock_settings.CONTEXT7_URL = None
         server = Context7MCPServer()
 
         assert server.is_enabled() is False
 
-    def test_context7_server_proxy_config_includes_api_key_env(self):
-        """Test that Context7MCPServer proxy config includes the CONTEXT7_API_KEY env var."""
+    def test_context7_server_tool_filter(self):
         server = Context7MCPServer()
-        assert "CONTEXT7_API_KEY" in server.proxy_config.env
+
+        assert server.tool_filter is not None
+        assert server.tool_filter.mode == "allow"
+        assert "resolve-library-id" in server.tool_filter.items
+        assert "query-docs" in server.tool_filter.items
+
+    @patch("automation.agent.mcp.servers.settings")
+    def test_context7_get_connection_returns_correct_url(self, mock_settings):
+        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/sse"
+        server = Context7MCPServer()
+        connection = server.get_connection()
+
+        assert connection["transport"] == "sse"
+        assert connection["url"] == "http://mcp-context7:8000/sse"
