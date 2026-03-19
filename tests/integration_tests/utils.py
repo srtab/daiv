@@ -38,15 +38,16 @@ CODING_MODEL_NAMES = [
     ModelName.CLAUDE_SONNET_4_6,
     ModelName.CLAUDE_OPUS_4_5,
     ModelName.CLAUDE_OPUS_4_6,
-    ModelName.GPT_5_2,
     ModelName.GPT_5_3_CODEX,
+    ModelName.GPT_5_4,
     ModelName.Z_AI_GLM_5,
     ModelName.Z_AI_GLM_5_TURBO,
     ModelName.MINIMAX_M2_5,
+    ModelName.MINIMAX_M2_7,
     ModelName.MOONSHOTAI_KIMI_K2_5,
 ]
 
-FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_4_1]
+FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_5_4_MINI]
 
 
 def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
