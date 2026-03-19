@@ -1,8 +1,8 @@
 # MCP Tools
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. MCP servers run in an isolated container via [MCP Proxy](https://github.com/TBXark/mcp-proxy), keeping them separate from your application.
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container via [supergateway](https://github.com/supercorp-ai/supergateway), ensuring that a compromised or misbehaving server cannot affect others.
 
-## Available MCP servers
+## Built-in MCP servers
 
 ### Sentry
 
@@ -23,11 +23,10 @@ The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives 
 **Configuration:**
 
 ```bash
-MCP_SENTRY_ENABLED=true                     # Default: true
-MCP_SENTRY_ACCESS_TOKEN=your-sentry-token   # Required
-MCP_SENTRY_HOST=your-sentry-host            # Your Sentry instance URL
-MCP_SENTRY_VERSION=0.20.0                   # Default: 0.20.0
+MCP_SENTRY_URL=http://mcp-sentry:8000/sse   # Default; set to None to disable
 ```
+
+`SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
 
 ### Context7
 
@@ -45,30 +44,104 @@ The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) p
 **Configuration:**
 
 ```bash
-MCP_CONTEXT7_ENABLED=true                   # Default: true
-MCP_CONTEXT7_API_KEY=your-api-key           # Optional
-MCP_CONTEXT7_VERSION=latest                 # Default: latest
+MCP_CONTEXT7_URL=http://mcp-context7:8000/sse  # Default; set to None to disable
 ```
 
-## Proxy configuration
+Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
 
-All MCP servers run through a shared proxy:
+## User-defined MCP servers
 
-```bash
-MCP_PROXY_HOST=http://mcp-proxy:9090       # Default
-MCP_PROXY_ADDR=:9090                        # Address the proxy listens on
-MCP_PROXY_AUTH_TOKEN=your-auth-token        # Optional authentication
+You can connect additional MCP servers by providing a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
+
+Only `sse` and `http` (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.
+
+!!! note
+    When running in Docker, the config file must be accessible inside the container. Mount it as a volume and set `MCP_SERVERS_CONFIG_FILE` to the container path:
+
+    ```yaml
+    # docker-compose.yml
+    app:
+      volumes:
+        - ./mcp.json:/home/app/mcp.json:ro
+      environment:
+        MCP_SERVERS_CONFIG_FILE: /home/app/mcp.json
+    ```
+
+### Config file format
+
+```json
+{
+  "mcpServers": {
+    "my-internal-api": {
+      "type": "sse",
+      "url": "http://my-mcp-host:8080/sse",
+      "headers": {
+        "Authorization": "Bearer ${MY_API_TOKEN}"
+      }
+    },
+    "another-service": {
+      "type": "http",
+      "url": "http://another-host:9000/mcp",
+      "headers": {
+        "X-Api-Key": "${ANOTHER_API_KEY}"
+      }
+    }
+  }
+}
 ```
 
-## Custom MCP servers
+### Environment variable expansion
 
-!!! note "Coming soon"
-    Custom MCP server support is on the roadmap. You'll be able to register your own MCP servers to give DAIV access to internal tools and services.
+The `url` and `headers` values support environment variable expansion:
+
+- `${VAR}` — replaced with the value of `VAR`, kept as-is if unset
+- `${VAR:-default}` — replaced with the value of `VAR`, or `default` if unset
+
+This allows you to keep secrets out of the config file and inject them via environment variables.
+
+## Running custom MCP servers
+
+To add a custom stdio-based MCP server, wrap it with [supergateway](https://github.com/supercorp-ai/supergateway) in its own container. Each MCP server should run in a separate container for security isolation.
+
+Example `docker-compose.yml` service:
+
+```yaml
+mcp-my-tool:
+  image: supercorp/supergateway:latest
+  restart: unless-stopped
+  container_name: daiv-mcp-my-tool
+  command:
+    - --stdio
+    - "npx my-mcp-server@latest"
+    - --healthEndpoint
+    - "/healthz"
+  environment:
+    MY_TOOL_API_KEY: ${MY_TOOL_API_KEY:-}
+  healthcheck:
+    test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+```
+
+Then reference it in your config file:
+
+```json
+{
+  "mcpServers": {
+    "my-tool": {
+      "type": "sse",
+      "url": "http://mcp-my-tool:8000/sse"
+    }
+  }
+}
+```
 
 ## Security considerations
 
-MCP servers run in an isolated Docker container, but you should still follow [MCP security best practices](https://modelcontextprotocol.io/specification/draft/basic/security_best_practices):
-
-- **Store tokens securely** — use Docker secrets for sensitive values like `MCP_SENTRY_ACCESS_TOKEN`
-- **Configure authentication** — set `MCP_PROXY_AUTH_TOKEN` in production
+- **One container per MCP server** — each MCP runs in its own isolated container, so a vulnerability in one cannot compromise others
+- **Environment variable expansion** — use `${VAR}` syntax to inject secrets from the environment instead of hardcoding them in config files
+- **Store tokens securely** — use Docker secrets for sensitive values like access tokens
+- **Network segmentation** — MCP containers only need to reach the services they interact with; consider restricting their network access
 - **Review server permissions** — MCP servers may require network access to external services

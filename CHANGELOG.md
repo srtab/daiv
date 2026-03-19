@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `--update` flag to `setup_webhooks` command to update existing webhooks on demand.
 - Added `--repo-id` option to `setup_webhooks` command to restrict setup to a specific repository.
 - Added `allowed_usernames` option to `.daiv.yml` to restrict which users can interact with DAIV on a per-repository basis. Useful for public repositories where you want to limit who can trigger DAIV.
+- Added user-defined MCP server support via a JSON config file (`MCP_SERVERS_CONFIG_FILE`) following the Claude Code `.mcp.json` standard. Supports `sse` and `http` transport types with environment variable expansion.
 
 ### Fixed
 
@@ -22,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 - Increased Claude max output tokens from 4,096 to 16,384.
+
+### Removed
+
+- **BREAKING:** Removed the `mcp-proxy` container and its API configuration endpoint. Now MCP servers are configured with isolated per-MCP `supergateway` containers — each built-in MCP server (Sentry, Context7) now runs in its own container. Existing `docker-compose.yml` and stack files must be updated.
+- **BREAKING:** Removed `MCP_PROXY_HOST`, `MCP_PROXY_ADDR`, `MCP_PROXY_AUTH_TOKEN`, and `MCP_CONFIG_API_KEY` settings. MCP server credentials (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) are now configured on the MCP containers directly, not as DAIV application settings
 
 ## [2.0.0] - 2026-03-14
 
