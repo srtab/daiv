@@ -24,9 +24,12 @@ class ToolFilter(BaseModel):
 class UserMcpServer(BaseModel):
     """User-defined MCP server from config file (Claude Code .mcp.json format)."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     type: Literal["sse", "http"]
     url: str
     headers: dict[str, str] | None = None
+    tool_filter: ToolFilter | None = Field(None, alias="toolFilter")
 
 
 class UserMcpServersConfig(BaseModel):

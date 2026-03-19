@@ -145,15 +145,17 @@ class TestLoadUserServers:
     def test_no_config_file(self, mock_settings, registry):
         mock_settings.SERVERS_CONFIG_FILE = None
 
-        connections = registry._load_user_servers()
+        connections, filters = registry._load_user_servers()
         assert connections == {}
+        assert filters == {}
 
     @patch("automation.agent.mcp.registry.settings")
     def test_missing_config_file(self, mock_settings, registry):
         mock_settings.SERVERS_CONFIG_FILE = "/nonexistent/path.json"
 
-        connections = registry._load_user_servers()
+        connections, filters = registry._load_user_servers()
         assert connections == {}
+        assert filters == {}
 
     @patch("automation.agent.mcp.registry.settings")
     def test_invalid_json(self, mock_settings, registry, tmp_path):
@@ -161,8 +163,9 @@ class TestLoadUserServers:
         config_file.write_text("not json")
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
-        connections = registry._load_user_servers()
+        connections, filters = registry._load_user_servers()
         assert connections == {}
+        assert filters == {}
 
     @patch("automation.agent.mcp.registry.settings")
     def test_valid_sse_server(self, mock_settings, registry, tmp_path):
@@ -170,12 +173,13 @@ class TestLoadUserServers:
         config_file.write_text(json.dumps({"mcpServers": {"my-api": {"type": "sse", "url": "http://host:8080/sse"}}}))
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
-        connections = registry._load_user_servers()
+        connections, filters = registry._load_user_servers()
 
         assert len(connections) == 1
         assert "my-api" in connections
         assert connections["my-api"]["transport"] == "sse"
         assert connections["my-api"]["url"] == "http://host:8080/sse"
+        assert filters == {}
 
     @patch("automation.agent.mcp.registry.settings")
     def test_valid_http_server(self, mock_settings, registry, tmp_path):
@@ -183,7 +187,7 @@ class TestLoadUserServers:
         config_file.write_text(json.dumps({"mcpServers": {"my-api": {"type": "http", "url": "http://host:9000/mcp"}}}))
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
-        connections = registry._load_user_servers()
+        connections, filters = registry._load_user_servers()
 
         assert len(connections) == 1
         assert "my-api" in connections
@@ -206,7 +210,7 @@ class TestLoadUserServers:
         )
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
-        connections = registry._load_user_servers()
+        connections, _ = registry._load_user_servers()
 
         assert connections["my-api"]["headers"] == {"Authorization": "Bearer secret123"}
 
@@ -221,15 +225,47 @@ class TestLoadUserServers:
         )
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
-        connections = registry._load_user_servers()
+        connections, _ = registry._load_user_servers()
 
         assert connections["my-api"]["url"] == "http://fallback-host:8080/sse"
+
+    @patch("automation.agent.mcp.registry.settings")
+    def test_tool_filter_from_user_config(self, mock_settings, registry, tmp_path):
+        config_file = tmp_path / "mcp.json"
+        config_file.write_text(
+            json.dumps({
+                "mcpServers": {
+                    "my-api": {
+                        "type": "sse",
+                        "url": "http://host:8080/sse",
+                        "toolFilter": {"mode": "allow", "list": ["tool_a", "tool_b"]},
+                    }
+                }
+            })
+        )
+        mock_settings.SERVERS_CONFIG_FILE = str(config_file)
+
+        connections, filters = registry._load_user_servers()
+
+        assert "my-api" in filters
+        assert filters["my-api"].mode == "allow"
+        assert filters["my-api"].items == ["tool_a", "tool_b"]
 
     @patch("automation.agent.mcp.registry.settings")
     def test_get_connections_merges_builtin_and_user(self, mock_settings, tmp_path):
         """Test that get_connections_and_filters merges built-in and user-defined servers."""
         config_file = tmp_path / "mcp.json"
-        config_file.write_text(json.dumps({"mcpServers": {"user-api": {"type": "sse", "url": "http://user:8080/sse"}}}))
+        config_file.write_text(
+            json.dumps({
+                "mcpServers": {
+                    "user-api": {
+                        "type": "sse",
+                        "url": "http://user:8080/sse",
+                        "toolFilter": {"mode": "block", "list": ["dangerous_tool"]},
+                    }
+                }
+            })
+        )
         mock_settings.SERVERS_CONFIG_FILE = str(config_file)
 
         registry = MCPRegistry()
@@ -241,6 +277,7 @@ class TestLoadUserServers:
         assert "user-api" in connections
         assert len(connections) == 2
         assert "test_server" in filters
+        assert "user-api" in filters
 
 
 class TestExpandEnvVars:

@@ -84,11 +84,42 @@ Only `sse` and `http` (streamable HTTP) transport types are supported, since use
       "url": "http://another-host:9000/mcp",
       "headers": {
         "X-Api-Key": "${ANOTHER_API_KEY}"
+      },
+      "toolFilter": {
+        "mode": "allow",
+        "list": ["search", "get_document"]
       }
     }
   }
 }
 ```
+
+Each server entry supports:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | Transport type: `sse` or `http` (streamable HTTP) |
+| `url` | Yes | URL of the MCP server |
+| `headers` | No | HTTP headers (supports env var expansion) |
+| `toolFilter` | No | Restrict which tools are exposed (see below) |
+
+### Tool filtering
+
+Use `toolFilter` to control which tools from a server are available to the agent:
+
+- **`mode: "allow"`** — only tools in the `list` are exposed
+- **`mode: "block"`** — all tools except those in the `list` are exposed
+
+```json
+{
+  "toolFilter": {
+    "mode": "allow",
+    "list": ["tool_a", "tool_b"]
+  }
+}
+```
+
+If `toolFilter` is omitted, all tools from the server are available.
 
 ### Environment variable expansion
 

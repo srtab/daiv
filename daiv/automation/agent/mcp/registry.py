@@ -75,41 +75,43 @@ class MCPRegistry:
                 if server.tool_filter is not None:
                     filters[server.name] = server.tool_filter
 
-        user_servers = self._load_user_servers()
-        collisions = connections.keys() & user_servers.keys()
+        user_connections, user_filters = self._load_user_servers()
+        collisions = connections.keys() & user_connections.keys()
         if collisions:
             logger.warning("User-defined MCP server(s) override built-in: %s", collisions)
-        connections.update(user_servers)
+        connections.update(user_connections)
+        filters.update(user_filters)
 
         return connections, filters
 
-    def _load_user_servers(self) -> dict[str, Connection]:
+    def _load_user_servers(self) -> tuple[dict[str, Connection], dict[str, ToolFilter]]:
         """
         Load user-defined MCP servers from the JSON config file.
         """
         if not settings.SERVERS_CONFIG_FILE:
-            return {}
+            return {}, {}
 
         try:
             with pathlib.Path(settings.SERVERS_CONFIG_FILE).open() as f:
                 raw = json.load(f)
         except FileNotFoundError:
             logger.warning("MCP servers config file not found: %s", settings.SERVERS_CONFIG_FILE)
-            return {}
+            return {}, {}
         except OSError:
             logger.exception("Cannot read MCP servers config file: %s", settings.SERVERS_CONFIG_FILE)
-            return {}
+            return {}, {}
         except json.JSONDecodeError:
             logger.error("Invalid JSON in MCP servers config file: %s", settings.SERVERS_CONFIG_FILE)
-            return {}
+            return {}, {}
 
         try:
             config = UserMcpServersConfig.model_validate(raw)
         except ValidationError:
             logger.exception("Invalid MCP servers config: %s", settings.SERVERS_CONFIG_FILE)
-            return {}
+            return {}, {}
 
         connections: dict[str, Connection] = {}
+        filters: dict[str, ToolFilter] = {}
         for name, server in config.mcp_servers.items():
             url = _expand_env_vars(server.url)
             headers = {k: _expand_env_vars(v) for k, v in server.headers.items()} if server.headers else None
@@ -119,7 +121,10 @@ class MCPRegistry:
             elif server.type == "http":
                 connections[name] = StreamableHttpConnection(transport="streamable_http", url=url, headers=headers)
 
-        return connections
+            if server.tool_filter is not None:
+                filters[name] = server.tool_filter
+
+        return connections, filters
 
 
 mcp_registry = MCPRegistry()
