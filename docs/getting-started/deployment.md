@@ -17,7 +17,7 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 * **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
 * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](../features/sandbox.md))
-* **MCP Servers** — isolated containers for MCP tools via [supergateway](https://github.com/nicedoctor/supergateway) (see [MCP Tools](../customization/mcp-tools.md))
+* **MCP Servers** — isolated containers for MCP tools via [supergateway](https://github.com/supercorp-ai/supergateway) (see [MCP Tools](../customization/mcp-tools.md))
 
 ---
 
