@@ -65,7 +65,7 @@ compilemessages:
 	uv run django-admin compilemessages
 
 integration-tests:
-	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m sandbox
+	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
 
 swebench:
 	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10

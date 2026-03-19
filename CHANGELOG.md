@@ -21,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
+- Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 - Increased Claude max output tokens from 4,096 to 16,384.
 
 ### Removed
 
+- Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
 - **BREAKING:** Removed the `mcp-proxy` container and its API configuration endpoint. Now MCP servers are configured with isolated per-MCP `supergateway` containers — each built-in MCP server (Sentry, Context7) now runs in its own container. Existing `docker-compose.yml` and stack files must be updated.
 - **BREAKING:** Removed `MCP_PROXY_HOST`, `MCP_PROXY_ADDR`, `MCP_PROXY_AUTH_TOKEN`, and `MCP_CONFIG_API_KEY` settings. MCP server credentials (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) are now configured on the MCP containers directly, not as DAIV application settings
 
