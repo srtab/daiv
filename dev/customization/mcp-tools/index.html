@@ -800,15 +800,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#available-mcp-servers" class="md-nav__link">
+  <a href="#built-in-mcp-servers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Available MCP servers
+        Built-in MCP servers
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Available MCP servers">
+    <nav class="md-nav" aria-label="Built-in MCP servers">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -839,21 +839,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#proxy-configuration" class="md-nav__link">
+  <a href="#user-defined-mcp-servers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Proxy configuration
+        User-defined MCP servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="User-defined MCP servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#config-file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config file format
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-mcp-servers" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#tool-filtering" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom MCP servers
+        Tool filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable-expansion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variable expansion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-custom-mcp-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running custom MCP servers
       
     </span>
   </a>
@@ -1079,15 +1118,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#available-mcp-servers" class="md-nav__link">
+  <a href="#built-in-mcp-servers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Available MCP servers
+        Built-in MCP servers
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Available MCP servers">
+    <nav class="md-nav" aria-label="Built-in MCP servers">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1118,21 +1157,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#proxy-configuration" class="md-nav__link">
+  <a href="#user-defined-mcp-servers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Proxy configuration
+        User-defined MCP servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="User-defined MCP servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#config-file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config file format
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-mcp-servers" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#tool-filtering" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom MCP servers
+        Tool filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable-expansion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variable expansion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-custom-mcp-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running custom MCP servers
       
     </span>
   </a>
@@ -1224,8 +1302,8 @@
 
 
 <h1 id="mcp-tools">MCP Tools</h1>
-<p><a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> tools extend DAIV's agent with access to external services. MCP servers run in an isolated container via <a href="https://github.com/TBXark/mcp-proxy">MCP Proxy</a>, keeping them separate from your application.</p>
-<h2 id="available-mcp-servers">Available MCP servers</h2>
+<p><a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container via <a href="https://github.com/supercorp-ai/supergateway">supergateway</a>, ensuring that a compromised or misbehaving server cannot affect others.</p>
+<h2 id="built-in-mcp-servers">Built-in MCP servers</h2>
 <h3 id="sentry">Sentry</h3>
 <p>The <a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server</a> gives DAIV access to your error tracking data.</p>
 <p><strong>Available tools:</strong></p>
@@ -1261,14 +1339,9 @@
 </table>
 <p><strong>Use cases:</strong> Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span>
-<span class="normal"><a href="#__codelineno-0-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nv">MCP_SENTRY_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                     </span><span class="c1"># Default: true</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nv">MCP_SENTRY_ACCESS_TOKEN</span><span class="o">=</span>your-sentry-token<span class="w">   </span><span class="c1"># Required</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nv">MCP_SENTRY_HOST</span><span class="o">=</span>your-sentry-host<span class="w">            </span><span class="c1"># Your Sentry instance URL</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="nv">MCP_SENTRY_VERSION</span><span class="o">=</span><span class="m">0</span>.20.0<span class="w">                   </span><span class="c1"># Default: 0.20.0</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nv">MCP_SENTRY_URL</span><span class="o">=</span>http://mcp-sentry:8000/sse<span class="w">   </span><span class="c1"># Default; set to None to disable</span>
 </code></pre></div></td></tr></table></div>
+<p><code>SENTRY_ACCESS_TOKEN</code> is consumed by the <code>mcp-sentry</code> container — add it to your secrets env file. <code>SENTRY_HOST</code> is set as a regular environment variable on the container.</p>
 <h3 id="context7">Context7</h3>
 <p>The <a href="https://www.npmjs.com/package/@upstash/context7-mcp">Context7 MCP Server</a> provides up-to-date library documentation lookup.</p>
 <p><strong>Available tools:</strong></p>
@@ -1292,30 +1365,191 @@
 </table>
 <p><strong>Use cases:</strong> Looking up current API documentation, finding code examples for libraries used in the project.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nv">MCP_CONTEXT7_ENABLED</span><span class="o">=</span><span class="nb">true</span><span class="w">                   </span><span class="c1"># Default: true</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="nv">MCP_CONTEXT7_API_KEY</span><span class="o">=</span>your-api-key<span class="w">           </span><span class="c1"># Optional</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nv">MCP_CONTEXT7_VERSION</span><span class="o">=</span>latest<span class="w">                 </span><span class="c1"># Default: latest</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nv">MCP_CONTEXT7_URL</span><span class="o">=</span>http://mcp-context7:8000/sse<span class="w">  </span><span class="c1"># Default; set to None to disable</span>
 </code></pre></div></td></tr></table></div>
-<h2 id="proxy-configuration">Proxy configuration</h2>
-<p>All MCP servers run through a shared proxy:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="nv">MCP_PROXY_HOST</span><span class="o">=</span>http://mcp-proxy:9090<span class="w">       </span><span class="c1"># Default</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nv">MCP_PROXY_ADDR</span><span class="o">=</span>:9090<span class="w">                        </span><span class="c1"># Address the proxy listens on</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="nv">MCP_PROXY_AUTH_TOKEN</span><span class="o">=</span>your-auth-token<span class="w">        </span><span class="c1"># Optional authentication</span>
-</code></pre></div></td></tr></table></div>
-<h2 id="custom-mcp-servers">Custom MCP servers</h2>
+<p>Context7 credentials (<code>CONTEXT7_API_KEY</code>) are consumed by the <code>mcp-context7</code> container. Add them to your secrets env file.</p>
+<h2 id="user-defined-mcp-servers">User-defined MCP servers</h2>
+<p>You can connect additional MCP servers by providing a JSON config file following the <a href="https://docs.anthropic.com/en/docs/claude-code/mcp">Claude Code <code>.mcp.json</code> standard</a>. Set the file path via the <code>MCP_SERVERS_CONFIG_FILE</code> environment variable.</p>
+<p>Only <code>sse</code> and <code>http</code> (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.</p>
 <div class="admonition note">
-<p class="admonition-title">Coming soon</p>
-<p>Custom MCP server support is on the roadmap. You'll be able to register your own MCP servers to give DAIV access to internal tools and services.</p>
+<p class="admonition-title">Note</p>
+<p>When running in Docker, the config file must be accessible inside the container. Mount it as a volume and set <code>MCP_SERVERS_CONFIG_FILE</code> to the container path:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="c1"># docker-compose.yml</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./mcp.json:/home/app/mcp.json:ro</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="w">    </span><span class="nt">MCP_SERVERS_CONFIG_FILE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/app/mcp.json</span>
+</code></pre></div></td></tr></table></div>
 </div>
-<h2 id="security-considerations">Security considerations</h2>
-<p>MCP servers run in an isolated Docker container, but you should still follow <a href="https://modelcontextprotocol.io/specification/draft/basic/security_best_practices">MCP security best practices</a>:</p>
+<h3 id="config-file-format">Config file format</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-3-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-3-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-3-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-3-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-3-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-3-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-3-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-3-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-3-10">10</a></span>
+<span class="normal"><a href="#__codelineno-3-11">11</a></span>
+<span class="normal"><a href="#__codelineno-3-12">12</a></span>
+<span class="normal"><a href="#__codelineno-3-13">13</a></span>
+<span class="normal"><a href="#__codelineno-3-14">14</a></span>
+<span class="normal"><a href="#__codelineno-3-15">15</a></span>
+<span class="normal"><a href="#__codelineno-3-16">16</a></span>
+<span class="normal"><a href="#__codelineno-3-17">17</a></span>
+<span class="normal"><a href="#__codelineno-3-18">18</a></span>
+<span class="normal"><a href="#__codelineno-3-19">19</a></span>
+<span class="normal"><a href="#__codelineno-3-20">20</a></span>
+<span class="normal"><a href="#__codelineno-3-21">21</a></span>
+<span class="normal"><a href="#__codelineno-3-22">22</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="w">    </span><span class="nt">&quot;my-internal-api&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sse&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://my-mcp-host:8080/sse&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">      </span><span class="nt">&quot;headers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">        </span><span class="nt">&quot;Authorization&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${MY_API_TOKEN}&quot;</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8"></a><span class="w">      </span><span class="p">}</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10"></a><span class="w">    </span><span class="nt">&quot;another-service&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12"></a><span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://another-host:9000/mcp&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13"></a><span class="w">      </span><span class="nt">&quot;headers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14"></a><span class="w">        </span><span class="nt">&quot;X-Api-Key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${ANOTHER_API_KEY}&quot;</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15"></a><span class="w">      </span><span class="p">},</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16"></a><span class="w">      </span><span class="nt">&quot;toolFilter&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17"></a><span class="w">        </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18"></a><span class="w">        </span><span class="nt">&quot;list&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;search&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;get_document&quot;</span><span class="p">]</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19"></a><span class="w">      </span><span class="p">}</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Each server entry supports:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>Yes</td>
+<td>Transport type: <code>sse</code> or <code>http</code> (streamable HTTP)</td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td>Yes</td>
+<td>URL of the MCP server</td>
+</tr>
+<tr>
+<td><code>headers</code></td>
+<td>No</td>
+<td>HTTP headers (supports env var expansion)</td>
+</tr>
+<tr>
+<td><code>toolFilter</code></td>
+<td>No</td>
+<td>Restrict which tools are exposed (see below)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tool-filtering">Tool filtering</h3>
+<p>Use <code>toolFilter</code> to control which tools from a server are available to the agent:</p>
 <ul>
-<li><strong>Store tokens securely</strong> — use Docker secrets for sensitive values like <code>MCP_SENTRY_ACCESS_TOKEN</code></li>
-<li><strong>Configure authentication</strong> — set <code>MCP_PROXY_AUTH_TOKEN</code> in production</li>
+<li><strong><code>mode: "allow"</code></strong> — only tools in the <code>list</code> are exposed</li>
+<li><strong><code>mode: "block"</code></strong> — all tools except those in the <code>list</code> are exposed</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span>
+<span class="normal"><a href="#__codelineno-4-5">5</a></span>
+<span class="normal"><a href="#__codelineno-4-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;toolFilter&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">    </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">    </span><span class="nt">&quot;list&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tool_a&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tool_b&quot;</span><span class="p">]</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>If <code>toolFilter</code> is omitted, all tools from the server are available.</p>
+<h3 id="environment-variable-expansion">Environment variable expansion</h3>
+<p>The <code>url</code> and <code>headers</code> values support environment variable expansion:</p>
+<ul>
+<li><code>${VAR}</code> — replaced with the value of <code>VAR</code>, kept as-is if unset</li>
+<li><code>${VAR:-default}</code> — replaced with the value of <code>VAR</code>, or <code>default</code> if unset</li>
+</ul>
+<p>This allows you to keep secrets out of the config file and inject them via environment variables.</p>
+<h2 id="running-custom-mcp-servers">Running custom MCP servers</h2>
+<p>To add a custom stdio-based MCP server, wrap it with <a href="https://github.com/supercorp-ai/supergateway">supergateway</a> in its own container. Each MCP server should run in a separate container for security isolation.</p>
+<p>Example <code>docker-compose.yml</code> service:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-5-10">10</a></span>
+<span class="normal"><a href="#__codelineno-5-11">11</a></span>
+<span class="normal"><a href="#__codelineno-5-12">12</a></span>
+<span class="normal"><a href="#__codelineno-5-13">13</a></span>
+<span class="normal"><a href="#__codelineno-5-14">14</a></span>
+<span class="normal"><a href="#__codelineno-5-15">15</a></span>
+<span class="normal"><a href="#__codelineno-5-16">16</a></span>
+<span class="normal"><a href="#__codelineno-5-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">mcp-my-tool</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">supercorp/supergateway:latest</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-mcp-my-tool</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">  </span><span class="nt">command</span><span class="p">:</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--stdio</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;npx</span><span class="nv"> </span><span class="s">my-mcp-server@latest&quot;</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--healthEndpoint</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;/healthz&quot;</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="w">    </span><span class="nt">MY_TOOL_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_TOOL_API_KEY:-}</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13"></a><span class="w">    </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;wget&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--spider&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;-q&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;http://localhost:8000/healthz&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14"></a><span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16"></a><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17"></a><span class="w">    </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+</code></pre></div></td></tr></table></div>
+<p>Then reference it in your config file:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span>
+<span class="normal"><a href="#__codelineno-6-5">5</a></span>
+<span class="normal"><a href="#__codelineno-6-6">6</a></span>
+<span class="normal"><a href="#__codelineno-6-7">7</a></span>
+<span class="normal"><a href="#__codelineno-6-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">    </span><span class="nt">&quot;my-tool&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sse&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://mcp-my-tool:8000/sse&quot;</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h2 id="security-considerations">Security considerations</h2>
+<ul>
+<li><strong>One container per MCP server</strong> — each MCP runs in its own isolated container, so a vulnerability in one cannot compromise others</li>
+<li><strong>Environment variable expansion</strong> — use <code>${VAR}</code> syntax to inject secrets from the environment instead of hardcoding them in config files</li>
+<li><strong>Store tokens securely</strong> — use Docker secrets for sensitive values like access tokens</li>
+<li><strong>Network segmentation</strong> — MCP containers only need to reach the services they interact with; consider restricting their network access</li>
 <li><strong>Review server permissions</strong> — MCP servers may require network access to external services</li>
 </ul>
 
@@ -1340,7 +1574,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 17, 2026 23:52:29 UTC">March 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 19, 2026 15:40:48 UTC">March 19, 2026</span>
   </span>
 
     
@@ -1350,7 +1584,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 17, 2026 23:52:29 UTC">March 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 19, 2026 15:40:48 UTC">March 19, 2026</span>
   </span>
 
     
