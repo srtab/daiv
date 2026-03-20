@@ -105,14 +105,13 @@ Analyzes the repository structure and generates an `AGENTS.md` file with guidanc
 
 Walks you through creating a new custom skill for your repository. See [Agent Skills](../customization/agent-skills.md) for more on custom skills.
 
-## Custom skills
+## Custom commands (skills)
 
-You can create your own skills by adding them to your repository. Custom skills appear alongside built-in ones in `/help` and are invoked the same way.
+Custom slash commands are implemented as **skills**. Creating a skill automatically registers it as a command — there is no separate registration step.
 
-Skills live in one of these directories:
+To create a custom command like `/my-command`:
 
-- `.agents/skills/`
-- `.cursor/skills/`
-- `.claude/skills/`
+1. Create `.agents/skills/my-command/SKILL.md` with YAML frontmatter
+2. Invoke it with `@daiv /my-command`
 
-For details on creating custom skills, see [Agent Skills](../customization/agent-skills.md).
+Custom commands appear alongside built-in ones in `/help` and are invoked the same way. For the full guide on creating skills, see [Agent Skills](../customization/agent-skills.md).

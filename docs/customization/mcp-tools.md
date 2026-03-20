@@ -51,7 +51,9 @@ Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` con
 
 ## User-defined MCP servers
 
-You can connect additional MCP servers by providing a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
+DAIV can connect to any MCP server that implements the [Model Context Protocol](https://modelcontextprotocol.io/). If you need to build a custom server, see the [MCP server documentation](https://modelcontextprotocol.io/docs/concepts/servers). This section covers how to connect an existing server to DAIV.
+
+Provide a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
 
 Only `sse` and `http` (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.
 
