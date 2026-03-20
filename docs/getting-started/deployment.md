@@ -169,6 +169,12 @@ services:
       - openrouter_api_key
     networks:
       - internal
+    healthcheck:
+      test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       <<: *deploy_defaults
       replicas: 1 (10)
@@ -187,6 +193,12 @@ services:
       - openrouter_api_key
     networks:
       - internal
+    healthcheck:
+      test: grep -q 'crontask' /proc/*/cmdline 2>/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       <<: *deploy_defaults
 
@@ -401,6 +413,12 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/daiv/start-worker
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
     deploy:
       replicas: 1 (15)
@@ -413,6 +431,12 @@ services:
     <<: *x_app_default
     container_name: daiv-scheduler
     command: sh /home/daiv/start-crontask
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'crontask' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
     depends_on:
       app:
