@@ -71,6 +71,12 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/app/docker/start-worker
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
     deploy:
       mode: replicated
@@ -80,6 +86,12 @@ services:
     <<: *x_app_default
     container_name: daiv-scheduler
     command: sh /home/app/docker/start-crontask
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'crontask' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
 
   gitlab:
