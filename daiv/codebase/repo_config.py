@@ -202,6 +202,12 @@ class RepositoryConfig(BaseModel):
     context_file_name: str | None = Field(
         default="AGENTS.md", description="File name to load from the repository in the format of https://agents.md/."
     )
+    suggest_context_file: bool = Field(
+        default=True,
+        description=(
+            "Suggest creating a context file (e.g. AGENTS.md) when DAIV opens a merge request and the file is missing."
+        ),
+    )
 
     # Codebase restrictions
     omit_content_patterns: tuple[str, ...] = Field(

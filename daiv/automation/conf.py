@@ -41,6 +41,11 @@ class AutomationSettings(BaseSettings):
         default=None, description="Web search API key. Only applies if WEB_SEARCH_ENGINE is set to 'tavily'."
     )
 
+    # Context file suggestion settings
+    SUGGEST_CONTEXT_FILE_ENABLED: bool = Field(
+        default=True, description="Enable/disable suggesting a context file (e.g. AGENTS.md) on new merge requests."
+    )
+
     # Web fetch settings
     WEB_FETCH_ENABLED: bool = Field(default=True, description="Enable/disable the native web_fetch tool.")
     WEB_FETCH_MODEL_NAME: ModelName | str = Field(

@@ -199,6 +199,12 @@ This section documents the environment variables for each LLM provider.
 
 This section documents the environment variables for each tool configuration used by AI agents.
 
+### Context File Suggestion
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` | Enable/disable suggesting an `AGENTS.md` file on new merge requests | `true` | `false` |
+
 ### Web Search
 
 | Variable                        | Description                                                    | Default        | Example |
