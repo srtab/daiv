@@ -209,7 +209,7 @@ class GitChangePublisher(ChangePublisher):
         )
 
     def _suggest_context_file(self, merge_request: MergeRequest) -> None:
-        if not automation_settings.SUGGEST_CONTEXT_FILE_ENABLED:
+        if not automation_settings.SUGGEST_CONTEXT_FILE_ENABLED or not self.ctx.config.suggest_context_file:
             return
 
         context_file_name = self.ctx.config.context_file_name

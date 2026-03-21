@@ -29,6 +29,7 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     ctx.repository.html_url = "https://gitlab.com/owner/repo"
     ctx.repository.git_platform = git_platform
     ctx.config.context_file_name = context_file_name
+    ctx.config.suggest_context_file = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
 
@@ -75,6 +76,16 @@ class TestSuggestContextFile:
 
     def test_skips_when_context_file_name_empty(self):
         publisher = _make_publisher(context_file_name="")
+        mr = _make_merge_request()
+
+        publisher._suggest_context_file(mr)
+
+        publisher.client.get_repository_file.assert_not_called()
+        publisher.client.create_merge_request_comment.assert_not_called()
+
+    def test_skips_when_disabled_per_repo(self):
+        publisher = _make_publisher()
+        publisher.ctx.config.suggest_context_file = False
         mr = _make_merge_request()
 
         publisher._suggest_context_file(mr)

@@ -70,16 +70,16 @@ When DAIV creates a merge request for a repository that doesn't have an [`AGENTS
 
 If the created issue has the `daiv` label, DAIV will pick it up and use the `/init` skill to analyze your repository and generate the `AGENTS.md` file automatically.
 
-To disable this suggestion globally, set the environment variable:
+To disable this suggestion for a specific repository, add the following to `.daiv.yml`:
+
+```yaml
+suggest_context_file: false
+```
+
+To disable it globally across all repositories, set the environment variable:
 
 ```
 AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False
-```
-
-To disable it for a specific repository, set `context_file_name: null` in `.daiv.yml`:
-
-```yaml
-context_file_name: null
 ```
 
 ## Configuration
