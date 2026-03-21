@@ -220,12 +220,13 @@ services:
     image: supercorp/supergateway:latest
     command:
       - --stdio
-      - "npx @sentry/mcp-server@latest"
+      - "npx @sentry/mcp-server@latest --access-token=$$(cat /run/secrets/sentry_access_token)" (9)
       - --healthEndpoint
       - "/healthz"
     environment:
-      SENTRY_ACCESS_TOKEN: your-sentry-token (9)
       SENTRY_HOST: your-sentry-host
+    secrets:
+      - sentry_access_token
     networks:
       - internal
     healthcheck:
@@ -277,6 +278,8 @@ secrets:
     external: true
   openrouter_api_key:
     external: true
+  sentry_access_token:
+    external: true
 ```
 
 </div>
@@ -289,7 +292,7 @@ secrets:
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
-9.   Set your Sentry access token and host. These MCP services are optional — remove them if not needed. For production, inject these values from a secure credential manager rather than hardcoding them
+9.   The Sentry access token is read from the Docker secret at runtime via `--access-token`. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
 10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 3: Deploy the stack
@@ -511,7 +514,7 @@ volumes:
 11.  **Use the same API key** as defined in annotation 9
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
-14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your secrets env file. These MCP services are optional — remove them if not needed
+14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
 15.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 
 ### Step 2: Run the compose file
