@@ -1,0 +1,5 @@
+#### :bulb: Tip: Add an `{{ context_file_name }}` file
+
+This repository doesn't have an [`{{ context_file_name }}`](https://agents.md/) file yet. Adding one helps {{ bot_name }} and other AI agents understand your project better -- including build commands, repo layout, and important invariants.
+
+:point_right: [**Create an issue to track this**]({{ issue_url }})

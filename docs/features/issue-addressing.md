@@ -64,6 +64,24 @@ After a plan is executed, running a second plan on the same issue will update th
 
 If an unexpected error occurs during execution, DAIV creates a **draft** merge/pull request to preserve any changes already made.
 
+## AGENTS.md suggestion
+
+When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
+
+If the created issue has the `daiv` label, DAIV will pick it up and use the `/init` skill to analyze your repository and generate the `AGENTS.md` file automatically.
+
+To disable this suggestion globally, set the environment variable:
+
+```
+AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False
+```
+
+To disable it for a specific repository, set `context_file_name: null` in `.daiv.yml`:
+
+```yaml
+context_file_name: null
+```
+
 ## Configuration
 
 Issue addressing is enabled by default. To disable it, add the following to your `.daiv.yml`:
