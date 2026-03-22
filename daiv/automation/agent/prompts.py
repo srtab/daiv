@@ -127,7 +127,7 @@ You have been invoked in the following environment:
     "mustache",
 )
 
-REPO_RELATIVE_SYSTEM_REMIMDER = (
+REPO_RELATIVE_SYSTEM_REMINDER = (
     'Reminder: Never output "/repo/" in user-visible output. All user-visible paths must be repo-relative.'
 )
 

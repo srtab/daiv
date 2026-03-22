@@ -42,3 +42,17 @@ class TestEnsureNonEmptyResponse:
 
         assert result is not None
         assert result["messages"][0].tool_calls[0]["name"] == NO_OP_TOOL_NAME
+
+    async def test_does_not_mutate_original_message(self):
+        msg = AIMessage(content="", id="original-id")
+        state = {"messages": [msg]}
+        result = await ensure_non_empty_response.aafter_model(state, None)
+
+        assert result is not None
+        # Original message must remain untouched
+        assert msg.tool_calls == []
+        # Patched message is a copy with the same id (for LangGraph's reducer to replace it)
+        patched_msg = result["messages"][0]
+        assert patched_msg.id == "original-id"
+        assert patched_msg is not msg
+        assert len(patched_msg.tool_calls) == 1

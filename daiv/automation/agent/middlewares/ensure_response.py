@@ -31,7 +31,7 @@ async def ensure_non_empty_response(state: AgentState, runtime) -> dict[str, Any
     logger.warning("LLM returned an empty response, injecting no_op tool call to retry.")
 
     tc_id = str(uuid4())
-    last_msg.tool_calls = [{"name": NO_OP_TOOL_NAME, "args": {}, "id": tc_id}]
+    patched_msg = last_msg.model_copy(update={"tool_calls": [{"name": NO_OP_TOOL_NAME, "args": {}, "id": tc_id}]})
     no_op_tool_msg = ToolMessage(
         content=(
             "No operation performed. "
@@ -43,4 +43,4 @@ async def ensure_non_empty_response(state: AgentState, runtime) -> dict[str, Any
         tool_call_id=tc_id,
     )
 
-    return {"messages": [last_msg, no_op_tool_msg]}
+    return {"messages": [patched_msg, no_op_tool_msg]}

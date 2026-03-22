@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
+- Fixed `PullRequestMetadata.branch` validation to reject invalid branch names (e.g., names with spaces or uppercase characters) that previously passed the incomplete regex.
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
 
 ### Changed

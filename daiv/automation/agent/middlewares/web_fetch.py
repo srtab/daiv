@@ -106,15 +106,23 @@ def _is_valid_http_url(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+_MAX_REDIRECTS = 5
+
+
 async def _fetch_url_text(
-    url: str, *, timeout_seconds: int, proxy_url: str | None, extra_headers: dict[str, str] | None = None
+    url: str,
+    *,
+    timeout_seconds: int,
+    proxy_url: str | None,
+    extra_headers: dict[str, str] | None = None,
+    _redirects_left: int = _MAX_REDIRECTS,
 ) -> tuple[str, str, str]:
     """
     Returns (final_url, content_type, page_raw).
     """
     from httpx import AsyncClient, HTTPError
 
-    # SSRF protection: block private/local addresses
+    # SSRF protection: block private/local addresses (checked on every redirect to guard against DNS rebinding).
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
     if _is_private_or_local(hostname):
@@ -135,9 +143,16 @@ async def _fetch_url_text(
             # Special format required by the webfetch tool prompt.
             raise RuntimeError(f"<redirect_url>{redirect_url}</redirect_url>")
 
+        if _redirects_left <= 0:
+            raise ValueError(f"Too many redirects while fetching {url}")
+
         # Same-host redirects are fine to follow automatically (e.g., path normalization).
         return await _fetch_url_text(
-            redirect_url, timeout_seconds=timeout_seconds, proxy_url=proxy_url, extra_headers=extra_headers
+            redirect_url,
+            timeout_seconds=timeout_seconds,
+            proxy_url=proxy_url,
+            extra_headers=extra_headers,
+            _redirects_left=_redirects_left - 1,
         )
 
     if response.status_code >= 400:
