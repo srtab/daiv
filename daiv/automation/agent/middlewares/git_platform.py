@@ -716,6 +716,10 @@ async def github_tool(
 
     args = ["gh"]
     args += splitted_subcommand
+    # The "api" resource is intentionally excluded from GITHUB_CLI_ALLOW_COMMANDS
+    # (and therefore blocked by _is_allowed_cli_command above) because it would
+    # bypass the --repo scoping applied below. If "api" were ever allowed, it
+    # must NOT receive the --repo flag and would need its own access controls.
     if resource != "api":
         args += ["--repo", runtime.context.repository.slug]
 

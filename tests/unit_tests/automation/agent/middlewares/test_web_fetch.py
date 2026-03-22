@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+import pytest
 from pydantic import SecretStr
 
 from automation.agent.middlewares import web_fetch as web_fetch_module
@@ -76,6 +77,14 @@ async def test_fetch_url_text_same_host_redirect_is_followed(httpx_mock):
         mock_settings.WEB_FETCH_MAX_CONTENT_CHARS = 999_999
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://site.test", "prompt": ""})
     assert result == "Contents of https://site.test:\nRedirected"
+
+
+async def test_fetch_url_text_same_host_redirect_depth_limit(httpx_mock):
+    for i in range(web_fetch_module._MAX_REDIRECTS + 1):
+        httpx_mock.add_response(url=f"https://site.test/{i}", status_code=302, headers={"location": f"/{i + 1}"})
+
+    with pytest.raises(ValueError, match="Too many redirects"):
+        await web_fetch_module._fetch_url_text("https://site.test/0", timeout_seconds=1, proxy_url=None)
 
 
 async def test_cache_key_for_response():

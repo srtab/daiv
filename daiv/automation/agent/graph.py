@@ -33,7 +33,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMIMDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent
 from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform
@@ -96,7 +96,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         + cast("str", daiv_system_prompt.content).strip()
         + "\n\n"
         + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMIMDER
+        + REPO_RELATIVE_SYSTEM_REMINDER
     )
 
 
