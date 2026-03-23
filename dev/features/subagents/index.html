@@ -692,6 +692,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Custom subagents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#writing-a-good-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing a good description
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1126,6 +1187,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Custom subagents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#writing-a-good-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing a good description
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1233,7 +1355,109 @@
 </ul>
 <p>Subagents run within the same conversation context. Their findings are returned to the main agent, which uses them to continue the task.</p>
 <h2 id="custom-subagents">Custom subagents</h2>
-<p>Custom subagents are on the roadmap. In the future, you'll be able to define your own specialized subagents to extend DAIV's capabilities for your specific workflows.</p>
+<p>You can define your own specialized subagents on a per-repository basis. Custom subagents are markdown files stored in <code>.agents/subagents/</code> at the repository root — one file per subagent.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span>
+<span class="normal"><a href="#__codelineno-0-4">4</a></span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span>
+<span class="normal"><a href="#__codelineno-0-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>├── .agents/
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a>│   └── subagents/
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       ├── my-agent.md
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a>│       └── data-analyst.md
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>└── src/
+</code></pre></div></td></tr></table></div>
+<h3 id="file-format">File format</h3>
+<p>Each <code>.md</code> file contains YAML frontmatter with the subagent's metadata, followed by a markdown body that becomes the subagent's system prompt:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-1-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-1-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-1-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-1-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-1-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-1-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-1-10">10</a></span>
+<span class="normal"><a href="#__codelineno-1-11">11</a></span>
+<span class="normal"><a href="#__codelineno-1-12">12</a></span>
+<span class="normal"><a href="#__codelineno-1-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>---
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>name: database-migration
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a>description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="gu">model: openrouter:anthropic/claude-sonnet-4.6  # optional</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="gu">---</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a>You are a database migration specialist. When given a task:
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a>
+<a id="__codelineno-1-9" name="__codelineno-1-9"></a><span class="k">1.</span> Review the current schema by reading model files
+<a id="__codelineno-1-10" name="__codelineno-1-10"></a><span class="k">2.</span> Identify all affected tables and relationships
+<a id="__codelineno-1-11" name="__codelineno-1-11"></a><span class="k">3.</span> Plan the migration steps in order
+<a id="__codelineno-1-12" name="__codelineno-1-12"></a><span class="k">4.</span> Check for data loss risks
+<a id="__codelineno-1-13" name="__codelineno-1-13"></a><span class="k">5.</span> Suggest rollback strategies
+</code></pre></div></td></tr></table></div>
+<h3 id="required-fields">Required fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Unique identifier for the subagent. The main agent uses this when delegating tasks.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>What this subagent does. The main agent uses this to decide when to delegate — be specific and include trigger phrases.</td>
+</tr>
+</tbody>
+</table>
+<p>The markdown body (after the frontmatter) is <strong>required</strong> and becomes the subagent's system prompt.</p>
+<h3 id="optional-fields">Optional fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model</code></td>
+<td>Override the model used by this subagent. Use the <code>provider:model-name</code> format (e.g., <code>openrouter:anthropic/claude-haiku-4.5</code>). If not specified, the main agent's model is used.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="capabilities">Capabilities</h3>
+<p>Custom subagents have the same capabilities as the built-in general-purpose subagent:</p>
+<ul>
+<li>Filesystem operations (read, search, edit)</li>
+<li>Git platform tools (GitLab/GitHub)</li>
+<li>Web search and fetch (if enabled)</li>
+<li>Sandbox command execution (if enabled)</li>
+<li>Task tracking</li>
+</ul>
+<h3 id="writing-a-good-description">Writing a good description</h3>
+<p>The <code>description</code> field is how the main agent decides whether to delegate to your subagent. Include specific trigger phrases:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span>
+<span class="normal"><a href="#__codelineno-2-7">7</a></span>
+<span class="normal"><a href="#__codelineno-2-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="c1"># Good — specific triggers the agent can match</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">  </span><span class="no">Specialized agent for API endpoint design and implementation.</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="w">  </span><span class="no">Use when the task involves creating new REST endpoints, modifying</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="w">  </span><span class="no">API responses, or designing request/response schemas.</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="c1"># Bad — too vague</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with API stuff.</span>
+</code></pre></div></td></tr></table></div>
 
 
 
@@ -1256,7 +1480,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 21, 2026 23:39:30 UTC">March 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 23, 2026 07:19:16 UTC">March 23, 2026</span>
   </span>
 
     
@@ -1266,7 +1490,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 21, 2026 23:39:30 UTC">March 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 23, 2026 07:19:16 UTC">March 23, 2026</span>
   </span>
 
     
