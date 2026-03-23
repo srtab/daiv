@@ -21,7 +21,7 @@ from langchain.agents.middleware import (
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.conf import settings
-from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, ModelName
+from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import FilesystemMiddleware
@@ -34,7 +34,7 @@ from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
-from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent
+from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
 from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
@@ -169,6 +169,18 @@ async def create_daiv_agent(
         ),
         create_explore_subagent(backend),
     ]
+
+    # Load custom subagents from the repository
+    custom_subagents = await load_custom_subagents(
+        model=model,
+        backend=backend,
+        runtime=ctx,
+        sources=[f"/{agent_path.name}/{source}" for source in SUBAGENTS_SOURCES],
+        sandbox_enabled=_sandbox_enabled,
+        web_search_enabled=_web_search_enabled,
+        web_fetch_enabled=_web_fetch_enabled,
+    )
+    subagents.extend(custom_subagents)
 
     agent_conditional_middlewares = []
 

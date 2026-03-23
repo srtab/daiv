@@ -1,5 +1,8 @@
+import logging
+import re
 from typing import TYPE_CHECKING
 
+import yaml
 from deepagents.graph import SubAgent
 from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
@@ -22,6 +25,8 @@ if TYPE_CHECKING:
 
     from codebase.context import RuntimeCtx
 
+logger = logging.getLogger("daiv.agent")
+
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
 
 GENERAL_PURPOSE_SYSTEM_PROMPT = """You are an agent for DAIV. Given the user's message, you should use the tools available to complete the task. Do exactly what has been asked. When you complete the task respond with a detailed writeup.
@@ -32,16 +37,16 @@ GENERAL_PURPOSE_SYSTEM_PROMPT = """You are an agent for DAIV. Given the user's m
 """  # noqa: E501
 
 
-def create_general_purpose_subagent(
+def _build_general_purpose_middleware(
     model: BaseChatModel,
     backend: BackendProtocol,
     runtime: RuntimeCtx,
-    sandbox_enabled: bool = True,
-    web_search_enabled: bool = True,
-    web_fetch_enabled: bool = True,
-) -> SubAgent:
+    sandbox_enabled: bool,
+    web_search_enabled: bool,
+    web_fetch_enabled: bool,
+) -> list:
     """
-    Create the general purpose subagent for the DAIV agent.
+    Build the middleware stack for a general-purpose subagent.
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
@@ -73,11 +78,27 @@ def create_general_purpose_subagent(
     if sandbox_enabled:
         middleware.append(SandboxMiddleware(close_session=False))
 
+    return middleware
+
+
+def create_general_purpose_subagent(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    sandbox_enabled: bool = True,
+    web_search_enabled: bool = True,
+    web_fetch_enabled: bool = True,
+) -> SubAgent:
+    """
+    Create the general purpose subagent for the DAIV agent.
+    """
     return SubAgent(
         name="general-purpose",
         description=GENERAL_PURPOSE_DESCRIPTION,
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
-        middleware=middleware,
+        middleware=_build_general_purpose_middleware(
+            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled
+        ),
         model=model,
         tools=[],
     )
@@ -152,3 +173,142 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> SubAgent:
         model=model,
         tools=[],
     )
+
+
+# Names reserved for built-in subagents. Custom subagents may not use these names.
+BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({"general-purpose", "explore"})
+
+FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
+    """
+    Parse YAML frontmatter and body from a subagent markdown file.
+
+    Args:
+        content: The full file content.
+        file_path: Path to the file (for logging).
+
+    Returns:
+        Tuple of (frontmatter dict, body string), or None if parsing fails.
+    """
+    match = FRONTMATTER_PATTERN.match(content)
+    if not match:
+        logger.warning("Skipping %s: no valid YAML frontmatter found", file_path)
+        return None
+
+    try:
+        frontmatter = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as e:
+        logger.warning("Invalid YAML in %s: %s", file_path, e)
+        return None
+
+    if not isinstance(frontmatter, dict):
+        logger.warning("Skipping %s: frontmatter is not a mapping", file_path)
+        return None
+
+    name = str(frontmatter.get("name", "")).strip()
+    description = str(frontmatter.get("description", "")).strip()
+    if not name or not description:
+        logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
+        return None
+
+    if name in BUILTIN_SUBAGENT_NAMES:
+        logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
+        return None
+
+    frontmatter["name"] = name
+    frontmatter["description"] = description
+
+    body = content[match.end() :].strip()
+    if not body:
+        logger.warning("Skipping %s: empty body (system prompt)", file_path)
+        return None
+
+    return frontmatter, body
+
+
+async def load_custom_subagents(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    sources: list[str],
+    sandbox_enabled: bool = True,
+    web_search_enabled: bool = True,
+    web_fetch_enabled: bool = True,
+) -> list[SubAgent]:
+    """
+    Load custom subagents from markdown files in the given source paths.
+
+    Each source path is scanned for .md files. Each file should contain YAML frontmatter
+    with ``name`` and ``description`` fields, and a markdown body that becomes the system prompt.
+
+    Args:
+        model: The default model to use for custom subagents.
+        backend: The filesystem backend.
+        runtime: The runtime context.
+        sources: List of paths to scan for subagent definitions.
+        sandbox_enabled: Whether to enable the sandbox middleware.
+        web_search_enabled: Whether to enable web search middleware.
+        web_fetch_enabled: Whether to enable web fetch middleware.
+
+    Returns:
+        List of SubAgent dicts for the loaded custom subagents.
+    """
+    subagents: list[SubAgent] = []
+
+    for source_path in sources:
+        try:
+            items = await backend.als_info(source_path)
+        except Exception:
+            logger.debug("Could not list %s, skipping custom subagents from this source", source_path)
+            continue
+
+        md_files = [item["path"] for item in items if not item.get("is_dir") and item["path"].endswith(".md")]
+        if not md_files:
+            continue
+
+        responses = await backend.adownload_files(md_files)
+
+        for file_path, response in zip(md_files, responses, strict=True):
+            if response.error:
+                continue
+            if response.content is None:
+                continue
+
+            try:
+                content = response.content.decode("utf-8")
+            except UnicodeDecodeError as e:
+                logger.warning("Error decoding %s: %s", file_path, e)
+                continue
+
+            parsed = _parse_subagent_frontmatter(content, file_path)
+            if parsed is None:
+                continue
+
+            frontmatter, body = parsed
+
+            subagent_model = model
+            if frontmatter_model := str(frontmatter.get("model", "")).strip():
+                try:
+                    subagent_model = BaseAgent.get_model(model=frontmatter_model)
+                except Exception:
+                    logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                    continue
+
+            subagents.append(
+                SubAgent(
+                    name=frontmatter["name"],
+                    description=frontmatter["description"],
+                    system_prompt=body,
+                    middleware=_build_general_purpose_middleware(
+                        subagent_model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled
+                    ),
+                    model=subagent_model,
+                    tools=[],
+                )
+            )
+
+            logger.info("Loaded custom subagent '%s' from %s", frontmatter["name"], file_path)
+
+    return subagents

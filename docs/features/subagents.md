@@ -42,4 +42,73 @@ Subagents run within the same conversation context. Their findings are returned 
 
 ## Custom subagents
 
-Custom subagents are on the roadmap. In the future, you'll be able to define your own specialized subagents to extend DAIV's capabilities for your specific workflows.
+You can define your own specialized subagents on a per-repository basis. Custom subagents are markdown files stored in `.agents/subagents/` at the repository root — one file per subagent.
+
+```
+your-repository/
+├── .agents/
+│   └── subagents/
+│       ├── my-agent.md
+│       └── data-analyst.md
+└── src/
+```
+
+### File format
+
+Each `.md` file contains YAML frontmatter with the subagent's metadata, followed by a markdown body that becomes the subagent's system prompt:
+
+```markdown
+---
+name: database-migration
+description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
+model: openrouter:anthropic/claude-sonnet-4.6  # optional
+---
+
+You are a database migration specialist. When given a task:
+
+1. Review the current schema by reading model files
+2. Identify all affected tables and relationships
+3. Plan the migration steps in order
+4. Check for data loss risks
+5. Suggest rollback strategies
+```
+
+### Required fields
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier for the subagent. The main agent uses this when delegating tasks. |
+| `description` | What this subagent does. The main agent uses this to decide when to delegate — be specific and include trigger phrases. |
+
+The markdown body (after the frontmatter) is **required** and becomes the subagent's system prompt.
+
+### Optional fields
+
+| Field | Description |
+|-------|-------------|
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. |
+
+### Capabilities
+
+Custom subagents have the same capabilities as the built-in general-purpose subagent:
+
+- Filesystem operations (read, search, edit)
+- Git platform tools (GitLab/GitHub)
+- Web search and fetch (if enabled)
+- Sandbox command execution (if enabled)
+- Task tracking
+
+### Writing a good description
+
+The `description` field is how the main agent decides whether to delegate to your subagent. Include specific trigger phrases:
+
+```yaml
+# Good — specific triggers the agent can match
+description: >
+  Specialized agent for API endpoint design and implementation.
+  Use when the task involves creating new REST endpoints, modifying
+  API responses, or designing request/response schemas.
+
+# Bad — too vague
+description: Helps with API stuff.
+```

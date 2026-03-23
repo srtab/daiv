@@ -13,6 +13,12 @@ AGENTS_SKILLS_PATH = ".agents/skills"
 # Paths where the skills are stored in repository.
 SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, AGENTS_SKILLS_PATH]
 
+# Path where the custom subagents are stored in repository.
+AGENTS_SUBAGENTS_PATH = ".agents/subagents"
+
+# Paths where the custom subagents are stored in repository.
+SUBAGENTS_SOURCES = [AGENTS_SUBAGENTS_PATH]
+
 # Path where the memory is stored in repository.
 AGENTS_MEMORY_PATH = ".agents/AGENTS.md"
 
