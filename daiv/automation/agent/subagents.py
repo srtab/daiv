@@ -175,6 +175,9 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> SubAgent:
     )
 
 
+# Names reserved for built-in subagents. Custom subagents may not use these names.
+BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({"general-purpose", "explore"})
+
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -208,6 +211,10 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
     description = str(frontmatter.get("description", "")).strip()
     if not name or not description:
         logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
+        return None
+
+    if name in BUILTIN_SUBAGENT_NAMES:
+        logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
         return None
 
     frontmatter["name"] = name

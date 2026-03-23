@@ -310,6 +310,26 @@ class TestCustomSubagents:
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
         assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
 
+    @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore"])
+    async def test_skips_builtin_name_collision(self, tmp_path: Path, mock_model, mock_runtime_ctx, reserved_name):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / f"{reserved_name}.md").write_text(
+            _make_subagent_md(name=reserved_name, description="Trying to override a built-in subagent")
+        )
+        (subagents_dir / "custom.md").write_text(_make_subagent_md(name="custom", description="Custom agent"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        result = await load_custom_subagents(
+            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+        )
+
+        names = {s["name"] for s in result}
+        assert reserved_name not in names
+        assert "custom" in names
+
     async def test_skips_invalid_model(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from deepagents.backends.filesystem import FilesystemBackend
 
