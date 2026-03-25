@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,6 +42,10 @@ class DAIVAgentSettings(BaseSettings):
     EXPLORE_MODEL_NAME: ModelName | str = Field(
         default=ModelName.CLAUDE_HAIKU_4_5,
         description="Model for the explore subagent, a fast model with capabilities to call tools.",
+    )
+    CUSTOM_SKILLS_PATH: Path | None = Field(
+        default=Path.home() / "data" / "skills",
+        description="Path to custom global skills directory. Set to None to disable.",
     )
 
 
