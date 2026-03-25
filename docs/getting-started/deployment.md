@@ -169,6 +169,8 @@ services:
       - openrouter_api_key
     networks:
       - internal
+    # volumes:  (16)
+    #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -294,6 +296,7 @@ secrets:
 8.   **Optional**: Remove this volume if you don't need private registry access
 9.   The Sentry access token is read from the Docker secret at runtime via `--access-token`. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
 10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+16.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
 
 ### Step 3: Deploy the stack
 
@@ -416,6 +419,8 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/daiv/start-worker
+    # volumes:  (17)
+    #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
       interval: 30s
@@ -516,6 +521,7 @@ volumes:
 13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
 15.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+17.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
 
 ### Step 2: Run the compose file
 

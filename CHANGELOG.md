@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added user-defined MCP server support via a JSON config file (`MCP_SERVERS_CONFIG_FILE`) following the Claude Code `.mcp.json` standard. Supports `sse` and `http` transport types with environment variable expansion.
 - Added automatic suggestion to add an `AGENTS.md` file when DAIV creates a merge request for a repository that doesn't have one. The suggestion includes a one-click link to create a pre-filled issue. Can be disabled globally via `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False` or per-repository by setting `context_file_name: null` in `.daiv.yml`.
 - Added support for custom subagents defined per-repository. Place markdown files in `.agents/subagents/` with YAML frontmatter (`name`, `description`, optional `model`) and a body that becomes the subagent's system prompt. Custom subagents have the same capabilities as the built-in general-purpose subagent.
+- Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
 
 ### Fixed
 
