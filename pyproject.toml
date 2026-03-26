@@ -160,6 +160,11 @@ lint.isort.split-on-trailing-comma = false
 [tool.pyproject-fmt]
 keep_full_version = true
 
+[tool.ty]
+environment.python-version = "3.14"
+src.exclude = [ "**/tests/**", "**/docs/**" ]
+rules.unresolved-import = "ignore"
+
 [tool.pytest]
 ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 ini_options.pythonpath = "daiv"
@@ -187,8 +192,3 @@ OPENAI_API_KEY = "openai-api-key"
 CODEBASE_GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 CODEBASE_GITHUB_INSTALLATION_ID = "123456"
 NINJA_SKIP_REGISTRY = true
-
-[tool.ty]
-environment.python-version = "3.14"
-src.exclude = [ "**/tests/**", "**/docs/**" ]
-rules.unresolved-import = "ignore"
