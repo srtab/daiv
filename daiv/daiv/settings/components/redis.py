@@ -1,8 +1,10 @@
+from decouple import config
 from get_docker_secret import get_docker_secret
 
 DJANGO_REDIS_URL = get_docker_secret("DJANGO_REDIS_URL")
 DJANGO_REDIS_SESSION_URL = get_docker_secret("DJANGO_REDIS_SESSION_URL", default=DJANGO_REDIS_URL)
 DJANGO_REDIS_CHECKPOINT_URL = get_docker_secret("DJANGO_REDIS_CHECKPOINT_URL", default=DJANGO_REDIS_URL)
+DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = config("DJANGO_REDIS_CHECKPOINT_TTL_MINUTES", default=60 * 24 * 7, cast=int)
 
 _REDIS_OPTIONS = {
     "socket_connect_timeout": 5,
