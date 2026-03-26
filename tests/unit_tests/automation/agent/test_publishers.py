@@ -153,24 +153,6 @@ class TestBuildIssueCreationUrl:
         assert "labels" in params
         assert params["labels"][0] == BOT_AUTO_LABEL
 
-    def test_gitlab_url_contains_agents_md_link(self):
-        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
-
-        url = publisher._build_issue_creation_url("AGENTS.md")
-
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-        assert "https://agents.md/" in params["issue[description]"][0]
-
-    def test_github_url_contains_agents_md_link(self):
-        publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
-
-        url = publisher._build_issue_creation_url("AGENTS.md")
-
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-        assert "https://agents.md/" in params["body"][0]
-
 
 class TestPublishSuggestsContextFile:
     @pytest.fixture

@@ -252,10 +252,7 @@ class GitChangePublisher(ChangePublisher):
         The issue body is kept minimal so the /init skill handles the details.
         """
         title = f"Add `{context_file_name}` to the repository"
-        body = (
-            f"Create an `{context_file_name}` file for this repository. "
-            f"See https://agents.md/ for more information on the format."
-        )
+        body = f"Create an `{context_file_name}` file for this repository."
 
         html_url = self.ctx.repository.html_url
 
