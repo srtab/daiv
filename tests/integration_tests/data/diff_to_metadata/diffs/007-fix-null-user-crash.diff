@@ -1,0 +1,16 @@
+diff --git a/src/services/notification.ts b/src/services/notification.ts
+index aaa1111..bbb2222 100644
+--- a/src/services/notification.ts
++++ b/src/services/notification.ts
+@@ -8,7 +8,10 @@ import { sendEmail } from "../email";
+ export async function notifyUser(
+   userId: string,
+   message: string,
+ ): Promise<void> {
+   const user = await getUser(userId);
+-  await sendEmail(user.email, message);
++  if (!user) {
++    throw new Error(`User not found: ${userId}`);
++  }
++  await sendEmail(user.email, message);
+ }

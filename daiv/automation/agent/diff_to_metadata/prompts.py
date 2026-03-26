@@ -20,8 +20,10 @@ You MUST follow these rules:
    - If multiple conventions exist, choose the one that best matches the change type.
    - If conventions are ambiguous, choose the safest option and keep it simple.
 5) If the additional context or diff references an issue/ticket identifier
-   (e.g., ABC-123, CAL-204), incorporate it into branch and commit_message
-   following the memory conventions.
+   (e.g., ABC-123, CAL-204) or an external service URL (e.g., Sentry issue,
+   Jira ticket, error-tracking link), incorporate identifiers into branch
+   and commit_message following the memory conventions, and list all
+   referenced IDs and URLs in the PR description.
    - If no convention exists, prefix: "<TICKET-ID> <type>: <summary>".
 6) Only if memory is missing or has no relevant guidance, fall back to these defaults:
    - branch: <type>/<short-kebab-summary> where type ∈ {feat, fix, chore, docs, refactor, test}
@@ -50,8 +52,11 @@ Field rules:
 - description: Markdown with:
   1) a brief overview paragraph (1-3 sentences)
   2) a "**Key Changes:**" section with up to 6 bullet points
-  Focus only on describing the actual code changes visible in the diff.
-  Do NOT include meta-commentary about the issue, prompt, or source of information.
+  3) if the additional context provides issue/ticket IDs or external URLs
+     (e.g., Sentry issues, Jira tickets, error-tracking links),
+     append a "**References:**" section listing each ID or URL.
+  Focus the key-changes section on describing the actual code changes visible in the diff.
+  Do NOT include meta-commentary about the prompt or source of information.
 - commit_message:
   - MUST follow the memory convention if one exists (including any ticket/issue prefix or wrapper).
   - Otherwise use: "<type>: <summary>" (Conventional Commits), single line.
