@@ -75,7 +75,7 @@ dev = [
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.2",
   "ruff==0.15.7",
-  "ty==0.0.25",
+  "ty==0.0.26",
   "types-pyyaml==6.0.12.20250915",
   "watchdog==6.0.0",
 ]
