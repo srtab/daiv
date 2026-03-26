@@ -15,7 +15,7 @@ from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-from .base import CHECKPOINT_TTL_MINUTES, BaseManager
+from .base import BaseManager
 
 if TYPE_CHECKING:
     from codebase.base import Issue
@@ -86,7 +86,8 @@ class IssueAddressorManager(BaseManager):
             )
 
         async with AsyncRedisSaver.from_conn_string(
-            django_settings.DJANGO_REDIS_CHECKPOINT_URL, ttl={"default_ttl": CHECKPOINT_TTL_MINUTES}
+            django_settings.DJANGO_REDIS_CHECKPOINT_URL,
+            ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
         ) as checkpointer:
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx,

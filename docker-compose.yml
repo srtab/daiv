@@ -42,7 +42,7 @@ services:
 
   redis:
     image: redis:8.6-alpine
-    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy noeviction
+    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy volatile-ttl
     restart: unless-stopped
     container_name: daiv-redis
     healthcheck:
