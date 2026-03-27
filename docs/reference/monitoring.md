@@ -82,9 +82,15 @@ All runs include two tags:
 ```json
 {
   "author": "username",
+  "triggered_by": "username",
+  "trigger": "label",
+  "repository": "group/project",
+  "git_platform": "gitlab",
   "issue_id": 42,
   "labels": ["daiv", "bug"],
-  "scope": "Issue"
+  "scope": "Issue",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
 }
 ```
 
@@ -93,17 +99,92 @@ All runs include two tags:
 ```json
 {
   "author": "reviewer-username",
+  "triggered_by": "commenter-username",
+  "trigger": "mention",
+  "repository": "group/project",
+  "git_platform": "gitlab",
   "merge_request_id": 123,
-  "scope": "Merge Request"
+  "scope": "Merge Request",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
+}
+```
+
+**Job execution** (triggered via the Jobs API):
+
+```json
+{
+  "repo_id": "group/project",
+  "ref": "main",
+  "trigger": "job",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
 }
 ```
 
 The `scope` field distinguishes how the agent was triggered: `Issue`, `Merge Request`, or `Global`.
 
+### Metadata fields reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `author` | string | User who created the issue or merge request |
+| `triggered_by` | string | User who triggered the agent (may differ from author for mentions) |
+| `trigger` | string | How the agent was triggered: `label`, `mention`, or `job` |
+| `repository` | string | Repository slug (e.g. `group/project`) |
+| `git_platform` | string | Git platform: `gitlab` or `github` |
+| `scope` | string | Conversation scope: `Issue`, `Merge Request`, or `Global` |
+| `model` | string | Primary model used for the agent run |
+| `thinking_level` | string or null | Thinking level: `low`, `medium`, `high`, or `null` if disabled |
+| `issue_id` | int | Issue IID (issue triggers only) |
+| `merge_request_id` | int | Merge request ID (MR triggers only) |
+| `labels` | list | Issue labels, lowercased (issue triggers only) |
+
+---
+
+## Custom dashboard
+
+DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.
+
+### Setup
+
+```bash
+python manage.py setup_langsmith_dashboard --project <project-name>
+```
+
+The command creates a single dashboard named **DAIV Monitoring** with 27 charts organized into 8 groups:
+
+| Group | Charts | What it tracks |
+|-------|--------|----------------|
+| **Overview** | Trace Volume, Error Rate, Trigger Breakdown | High-level activity and reliability |
+| **Latency** | P50/P99 by Scope, by Repository | Response times |
+| **Cost** | Total/Prompt/Completion Cost, Token Usage, P99 Cost | Spend tracking |
+| **Platform** | Volume and Error Rate by Platform, Top Repos | Platform and repository breakdown |
+| **Tools** | Subagent Usage, Tool Calls, Tool Errors, MCP Tools | Agent internals |
+| **LLM** | Call Count, Latency, Token Usage | Model-level metrics |
+| **Model** | Volume, Latency, Cost, Error Rate by Model | Per-model comparison |
+| **DiffToMetadata** | Volume, Latency, Error Rate | Diff-to-metadata pipeline health |
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project` | LangSmith project name (default: `LANGCHAIN_PROJECT` or `LANGSMITH_PROJECT` env var) |
+| `--recreate` | Delete the existing dashboard and recreate it from scratch |
+
+### Recreating the dashboard
+
+To update the dashboard after upgrading DAIV (which may add new charts):
+
+```bash
+python manage.py setup_langsmith_dashboard --recreate
+```
+
 ### Dashboard tips
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
+- **By model** — group by `model` to compare performance across models (e.g. `claude-sonnet-4-6` vs `claude-opus-4-6`)
 - **Performance** — monitor execution time and token usage per run
 
 ---

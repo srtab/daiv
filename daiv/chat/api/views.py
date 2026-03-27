@@ -7,6 +7,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
+from automation.agent.conf import settings as agent_settings
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -48,7 +49,14 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
 
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
     config = RunnableConfig(
-        metadata={"model_id": MODEL_ID, "chat_stream": payload.stream, "repo_id": repo_id, "ref": ref}
+        metadata={
+            "model_id": MODEL_ID,
+            "chat_stream": payload.stream,
+            "repo_id": repo_id,
+            "ref": ref,
+            "model": agent_settings.MODEL_NAME,
+            "thinking_level": agent_settings.THINKING_LEVEL,
+        }
     )
 
     if payload.stream:
