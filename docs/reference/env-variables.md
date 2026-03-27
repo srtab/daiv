@@ -263,6 +263,14 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-4-5` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
 
+### Jobs API
+
+The [Jobs API](../features/jobs-api.md) allows programmatic agent execution. Variables use the `JOBS_` prefix.
+
+| Variable | Description | Default |
+|-------------------------------|----------------------------------------------|------------------------|
+| `JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
+
 ### Diff to Metadata
 
 Generates pull request titles, descriptions, and commit messages from diffs. Variables use the `DIFF_TO_METADATA_` prefix.
