@@ -544,6 +544,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/slash-commands/" class="md-nav__link">
         
   
@@ -1061,6 +1089,67 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#metadata-fields-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata fields reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setup_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recreating-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recreating the dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dashboard-tips" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1330,6 +1419,67 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#metadata-fields-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata fields reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setup_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recreating-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recreating the dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dashboard-tips" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1567,34 +1717,222 @@
 </table>
 <h3 id="metadata-by-trigger">Metadata by trigger</h3>
 <p><strong>Issue addressing</strong> (triggered by labelled issues):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
-<span class="normal"><a href="#__codelineno-4-2">2</a></span>
-<span class="normal"><a href="#__codelineno-4-3">3</a></span>
-<span class="normal"><a href="#__codelineno-4-4">4</a></span>
-<span class="normal"><a href="#__codelineno-4-5">5</a></span>
-<span class="normal"><a href="#__codelineno-4-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-4-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-4-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-4-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-4-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-4-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-4-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-4-10">10</a></span>
+<span class="normal"><a href="#__codelineno-4-11">11</a></span>
+<span class="normal"><a href="#__codelineno-4-12">12</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;username&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;issue_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;daiv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bug&quot;</span><span class="p">],</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Issue&quot;</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="p">}</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;triggered_by&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;username&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;trigger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;repository&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;group/project&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="w">  </span><span class="nt">&quot;git_platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gitlab&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">  </span><span class="nt">&quot;issue_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="w">  </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;daiv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bug&quot;</span><span class="p">],</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Issue&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <p><strong>Comment addressing</strong> (triggered by <code>@daiv</code> mentions on merge requests):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
-<span class="normal"><a href="#__codelineno-5-2">2</a></span>
-<span class="normal"><a href="#__codelineno-5-3">3</a></span>
-<span class="normal"><a href="#__codelineno-5-4">4</a></span>
-<span class="normal"><a href="#__codelineno-5-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-5-10">10</a></span>
+<span class="normal"><a href="#__codelineno-5-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reviewer-username&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;merge_request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Merge Request&quot;</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="p">}</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;triggered_by&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;commenter-username&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;trigger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;mention&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">  </span><span class="nt">&quot;repository&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;group/project&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">  </span><span class="nt">&quot;git_platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gitlab&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">  </span><span class="nt">&quot;merge_request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Merge Request&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Job execution</strong> (triggered via the Jobs API):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span>
+<span class="normal"><a href="#__codelineno-6-5">5</a></span>
+<span class="normal"><a href="#__codelineno-6-6">6</a></span>
+<span class="normal"><a href="#__codelineno-6-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;repo_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;group/project&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;trigger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;job&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <p>The <code>scope</code> field distinguishes how the agent was triggered: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code>.</p>
+<h3 id="metadata-fields-reference">Metadata fields reference</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>author</code></td>
+<td>string</td>
+<td>User who created the issue or merge request</td>
+</tr>
+<tr>
+<td><code>triggered_by</code></td>
+<td>string</td>
+<td>User who triggered the agent (may differ from author for mentions)</td>
+</tr>
+<tr>
+<td><code>trigger</code></td>
+<td>string</td>
+<td>How the agent was triggered: <code>label</code>, <code>mention</code>, or <code>job</code></td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>string</td>
+<td>Repository slug (e.g. <code>group/project</code>)</td>
+</tr>
+<tr>
+<td><code>git_platform</code></td>
+<td>string</td>
+<td>Git platform: <code>gitlab</code> or <code>github</code></td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td>string</td>
+<td>Conversation scope: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code></td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>string</td>
+<td>Primary model used for the agent run</td>
+</tr>
+<tr>
+<td><code>thinking_level</code></td>
+<td>string or null</td>
+<td>Thinking level: <code>low</code>, <code>medium</code>, <code>high</code>, or <code>null</code> if disabled</td>
+</tr>
+<tr>
+<td><code>issue_id</code></td>
+<td>int</td>
+<td>Issue IID (issue triggers only)</td>
+</tr>
+<tr>
+<td><code>merge_request_id</code></td>
+<td>int</td>
+<td>Merge request ID (MR triggers only)</td>
+</tr>
+<tr>
+<td><code>labels</code></td>
+<td>list</td>
+<td>Issue labels, lowercased (issue triggers only)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="custom-dashboard">Custom dashboard</h2>
+<p>DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.</p>
+<h3 id="setup_1">Setup</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--project<span class="w"> </span>&lt;project-name&gt;
+</code></pre></div></td></tr></table></div>
+<p>The command creates a single dashboard named <strong>DAIV Monitoring</strong> with 27 charts organized into 8 groups:</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Charts</th>
+<th>What it tracks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Overview</strong></td>
+<td>Trace Volume, Error Rate, Trigger Breakdown</td>
+<td>High-level activity and reliability</td>
+</tr>
+<tr>
+<td><strong>Latency</strong></td>
+<td>P50/P99 by Scope, by Repository</td>
+<td>Response times</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>Total/Prompt/Completion Cost, Token Usage, P99 Cost</td>
+<td>Spend tracking</td>
+</tr>
+<tr>
+<td><strong>Platform</strong></td>
+<td>Volume and Error Rate by Platform, Top Repos</td>
+<td>Platform and repository breakdown</td>
+</tr>
+<tr>
+<td><strong>Tools</strong></td>
+<td>Subagent Usage, Tool Calls, Tool Errors, MCP Tools</td>
+<td>Agent internals</td>
+</tr>
+<tr>
+<td><strong>LLM</strong></td>
+<td>Call Count, Latency, Token Usage</td>
+<td>Model-level metrics</td>
+</tr>
+<tr>
+<td><strong>Model</strong></td>
+<td>Volume, Latency, Cost, Error Rate by Model</td>
+<td>Per-model comparison</td>
+</tr>
+<tr>
+<td><strong>DiffToMetadata</strong></td>
+<td>Volume, Latency, Error Rate</td>
+<td>Diff-to-metadata pipeline health</td>
+</tr>
+</tbody>
+</table>
+<h3 id="options">Options</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--project</code></td>
+<td>LangSmith project name (default: <code>LANGCHAIN_PROJECT</code> or <code>LANGSMITH_PROJECT</code> env var)</td>
+</tr>
+<tr>
+<td><code>--recreate</code></td>
+<td>Delete the existing dashboard and recreate it from scratch</td>
+</tr>
+</tbody>
+</table>
+<h3 id="recreating-the-dashboard">Recreating the dashboard</h3>
+<p>To update the dashboard after upgrading DAIV (which may add new charts):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--recreate
+</code></pre></div></td></tr></table></div>
 <h3 id="dashboard-tips">Dashboard tips</h3>
 <ul>
 <li><strong>By trigger type</strong> — filter by <code>scope</code> or by metadata key <code>issue_id</code> vs <code>merge_request_id</code></li>
 <li><strong>By user</strong> — filter or group by <code>author</code></li>
+<li><strong>By model</strong> — group by <code>model</code> to compare performance across models (e.g. <code>claude-sonnet-4-6</code> vs <code>claude-opus-4-6</code>)</li>
 <li><strong>Performance</strong> — monitor execution time and token usage per run</li>
 </ul>
 <hr />
@@ -1602,10 +1940,10 @@
 <p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
 <h3 id="log-events">Log events</h3>
 <p><strong><code>bash_policy_denied</code></strong> — a command segment matched a disallow rule:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule=&#39;git push&#39;, segment=&#39;git push origin main&#39;)
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule=&#39;git push&#39;, segment=&#39;git push origin main&#39;)
 </code></pre></div></td></tr></table></div>
 <p><strong><code>bash_policy_parse_failed</code></strong> — the command string could not be parsed (fail-closed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason=&#39;Parse error: ...&#39;)
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason=&#39;Parse error: ...&#39;)
 </code></pre></div></td></tr></table></div>
 <h3 id="log-fields">Log fields</h3>
 <table>
@@ -1680,7 +2018,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 26, 2026 14:47:26 UTC">March 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 27, 2026 22:49:15 UTC">March 27, 2026</span>
   </span>
 
     
@@ -1690,7 +2028,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 26, 2026 14:47:26 UTC">March 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 27, 2026 22:49:15 UTC">March 27, 2026</span>
   </span>
 
     
