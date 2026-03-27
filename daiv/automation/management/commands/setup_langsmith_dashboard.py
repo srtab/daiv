@@ -1,11 +1,8 @@
-import logging
 import os
 
 from django.core.management.base import BaseCommand, CommandError
 
 from langsmith import Client
-
-logger = logging.getLogger("daiv.langsmith")
 
 DASHBOARD_TITLE = "DAIV Monitoring"
 DASHBOARD_DESCRIPTION = "Monitoring dashboard for DAIV agent traces, performance, cost, and tool usage"
@@ -400,13 +397,17 @@ class Command(BaseCommand):
         try:
             project = client.read_project(project_name=project_name)
         except Exception as exc:
-            raise CommandError(f"Could not find LangSmith project '{project_name}': {exc}") from exc
+            raise CommandError(f"Could not access LangSmith project '{project_name}': {exc}") from exc
 
         session_id = str(project.id)
         self.stdout.write(f"Using project '{project_name}' (session_id={session_id})")
 
         # Check for existing dashboard
-        existing_sections = self._list_sections(client)
+        try:
+            existing_sections = self._list_sections(client)
+        except Exception as exc:
+            raise CommandError(f"Could not list existing dashboards: {exc}") from exc
+
         existing = [s for s in existing_sections if s["title"] == DASHBOARD_TITLE]
 
         if existing and not recreate:
@@ -416,11 +417,18 @@ class Command(BaseCommand):
 
         if existing and recreate:
             for section in existing:
-                self._delete_section(client, section["id"])
+                try:
+                    self._delete_section(client, section["id"])
+                except Exception as exc:
+                    raise CommandError(f"Failed to delete existing dashboard '{section['id']}': {exc}") from exc
                 self.stdout.write(f"Deleted existing dashboard: {section['id']}")
 
         # Create a single dashboard (section)
-        dashboard = self._create_section(client, DASHBOARD_TITLE, DASHBOARD_DESCRIPTION)
+        try:
+            dashboard = self._create_section(client, DASHBOARD_TITLE, DASHBOARD_DESCRIPTION)
+        except Exception as exc:
+            raise CommandError(f"Failed to create dashboard '{DASHBOARD_TITLE}': {exc}") from exc
+
         section_id = dashboard["id"]
         self.stdout.write(f"Created dashboard: {DASHBOARD_TITLE}")
 
@@ -431,15 +439,22 @@ class Command(BaseCommand):
             for chart_def in group["charts"]:
                 title = f"{prefix}: {chart_def['title']}"
                 series = _inject_session_id(chart_def["series"], session_id)
-                self._create_chart(
-                    client,
-                    title=title,
-                    chart_type=chart_def["chart_type"],
-                    section_id=section_id,
-                    session_id=session_id,
-                    series=series,
-                    index=chart_index,
-                )
+                try:
+                    self._create_chart(
+                        client,
+                        title=title,
+                        chart_type=chart_def["chart_type"],
+                        section_id=section_id,
+                        session_id=session_id,
+                        series=series,
+                        index=chart_index,
+                    )
+                except Exception as exc:
+                    raise CommandError(
+                        f"Failed to create chart '{title}' (chart {chart_index + 1}). "
+                        f"Dashboard was partially created — re-run with --recreate to start fresh. "
+                        f"Error: {exc}"
+                    ) from exc
                 self.stdout.write(f"  Created chart: {title}")
                 chart_index += 1
 
