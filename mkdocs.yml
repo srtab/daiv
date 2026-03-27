@@ -92,6 +92,7 @@ nav:
   - Features:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
+    - Jobs API: features/jobs-api.md
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added async Jobs API (`POST /api/jobs`, `GET /api/jobs/{id}`) for programmatic agent execution with configurable per-user rate limiting (`JOBS_THROTTLE_RATE`). Enables scheduled CI pipelines, Slack bots, and scripted workflows to trigger DAIV agents without blocking.
 - Added `EnsureNonEmptyResponseMiddleware` to detect and recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
 - Added `--update` flag to `setup_webhooks` command to update existing webhooks on demand.
 - Added `--repo-id` option to `setup_webhooks` command to restrict setup to a specific repository.

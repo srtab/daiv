@@ -1,9 +1,7 @@
-from typing import TYPE_CHECKING, Literal
+from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
+from typing import Literal
 
 from ninja import Field, Schema
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class JobSubmitRequest(Schema):

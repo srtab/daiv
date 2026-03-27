@@ -1,25 +1,26 @@
 import logging
 import uuid as uuid_mod
-from typing import TYPE_CHECKING
+
+from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
 
 from chat.api.security import AuthBearer
+from jobs.conf import settings as jobs_settings
 from jobs.tasks import run_job_task
 
 from .schemas import JobStatusResponse, JobSubmitRequest, JobSubmitResponse
-
-if TYPE_CHECKING:
-    from django.http import HttpRequest
 
 logger = logging.getLogger("daiv.jobs")
 
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-@jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[AuthRateThrottle("20/hour")])
+@jobs_router.post(
+    "", response={202: JobSubmitResponse, 503: dict}, throttle=[AuthRateThrottle(jobs_settings.THROTTLE_RATE)]
+)
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """
     Submit a job to be processed asynchronously by the DAIV agent.
