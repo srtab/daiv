@@ -4,6 +4,7 @@ from django_tasks import task
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+from automation.agent.conf import settings as agent_settings
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -25,7 +26,15 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None) -> str
     logger.info("Starting job for repo_id=%s, ref=%s", repo_id, ref)
 
     input_data = {"messages": [HumanMessage(content=prompt)]}
-    config = RunnableConfig(metadata={"repo_id": repo_id, "ref": ref, "trigger": "job"})
+    config = RunnableConfig(
+        metadata={
+            "repo_id": repo_id,
+            "ref": ref,
+            "trigger": "job",
+            "model": agent_settings.MODEL_NAME,
+            "thinking_level": agent_settings.THINKING_LEVEL,
+        }
+    )
 
     try:
         async with set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx:

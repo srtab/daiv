@@ -228,11 +228,9 @@ class CommentsAddressorManager(BaseManager):
             django_settings.DJANGO_REDIS_CHECKPOINT_URL,
             ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
         ) as checkpointer:
+            agent_kwargs = get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent)
             daiv_agent = await create_daiv_agent(
-                ctx=self.ctx,
-                checkpointer=checkpointer,
-                store=self.store,
-                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent),
+                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
             agent_config = RunnableConfig(
                 configurable={"thread_id": self.thread_id},
@@ -245,6 +243,8 @@ class CommentsAddressorManager(BaseManager):
                     "git_platform": self.client.git_platform.value,
                     "merge_request_id": self.merge_request.merge_request_id,
                     "scope": self.ctx.scope,
+                    "model": agent_kwargs["model_names"][0],
+                    "thinking_level": agent_kwargs["thinking_level"],
                 },
             )
 
