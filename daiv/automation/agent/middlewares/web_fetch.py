@@ -6,8 +6,6 @@ import logging
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urljoin, urlparse, urlunparse
 
-from django.core.cache import cache
-
 import markdownify
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -166,12 +164,22 @@ def _cache_key_for_response(*, url: str, prompt: str) -> str:
     return f"web_fetch:response:{digest}"
 
 
+try:
+    from django.core.cache import cache as _cache
+except Exception:
+    _cache = None
+
+
 def _get_cached_response(*, url: str, prompt: str) -> str | None:
-    return cache.get(_cache_key_for_response(url=url, prompt=prompt))
+    if _cache is None:
+        return None
+    return _cache.get(_cache_key_for_response(url=url, prompt=prompt))
 
 
 def _set_cached_response(*, url: str, prompt: str, response: str) -> None:
-    cache.set(_cache_key_for_response(url=url, prompt=prompt), response, timeout=settings.WEB_FETCH_CACHE_TTL_SECONDS)
+    if _cache is None:
+        return
+    _cache.set(_cache_key_for_response(url=url, prompt=prompt), response, timeout=settings.WEB_FETCH_CACHE_TTL_SECONDS)
 
 
 async def _fetch_markdown_for_url(url: str) -> str:

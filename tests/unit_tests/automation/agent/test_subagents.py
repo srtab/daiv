@@ -11,6 +11,7 @@ from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
+from codebase.context import RuntimeCtx
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,8 +32,10 @@ class TestGeneralPurposeSubagent:
 
     @pytest.fixture
     def mock_runtime_ctx(self):
-        """Create a mock runtime context."""
-        return Mock()
+        """Create a mock runtime context that passes isinstance(ctx, RuntimeCtx) checks."""
+        mock = Mock()
+        mock.__class__ = RuntimeCtx
+        return mock
 
     def test_returns_subagent(self, mock_model, mock_backend, mock_runtime_ctx):
         """Test that create_general_purpose_subagent returns a SubAgent."""
@@ -95,7 +98,9 @@ class TestCustomSubagents:
 
     @pytest.fixture
     def mock_runtime_ctx(self):
-        return Mock()
+        mock = Mock()
+        mock.__class__ = RuntimeCtx
+        return mock
 
     async def test_loads_custom_subagent(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from deepagents.backends.filesystem import FilesystemBackend

@@ -9,7 +9,7 @@ from codebase.repo_config import (
 
 
 class RepositoryConfigTest:
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_from_cache(self, mock_cache):
         repo_id = "test_repo"
         cached_config = {
@@ -28,7 +28,7 @@ class RepositoryConfigTest:
         assert config.slash_commands.enabled is True
         mock_cache.get.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_from_repo(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
@@ -53,7 +53,7 @@ class RepositoryConfigTest:
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_with_default_values(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
@@ -70,13 +70,13 @@ class RepositoryConfigTest:
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_invalidate_cache(self, mock_cache):
         repo_id = "test_repo"
         RepositoryConfig.invalidate_cache(repo_id)
         mock_cache.delete.assert_called_once_with(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_with_invalid_yaml(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
@@ -93,7 +93,7 @@ class RepositoryConfigTest:
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_with_partial_yaml(self, mock_cache, mock_repo_client):
         repo_id = "test_repo"
         mock_cache.get.return_value = None
@@ -112,7 +112,7 @@ class RepositoryConfigTest:
             f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
         )
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_with_models_section(self, mock_cache, mock_repo_client):
         """Test that models configuration is parsed correctly from YAML."""
         repo_id = "test_repo"
@@ -133,7 +133,7 @@ class RepositoryConfigTest:
         assert config.models.agent.thinking_level == "low"
         assert config.models.diff_to_metadata.model == "openrouter:openai/gpt-4.1-mini"
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_get_config_with_partial_models_section(self, mock_cache, mock_repo_client):
         """Test that partial models configuration works correctly."""
         repo_id = "test_repo"
@@ -150,7 +150,7 @@ class RepositoryConfigTest:
         assert config.models.agent.model == "openrouter:anthropic/claude-haiku-4.5"
         assert config.models.agent.thinking_level is not None
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_sandbox_command_policy_defaults(self, mock_cache, mock_repo_client):
         """Test that sandbox.command_policy defaults to empty allow/disallow lists."""
         repo_id = "test_repo"
@@ -163,7 +163,7 @@ class RepositoryConfigTest:
         assert config.sandbox.command_policy.disallow == ()
         assert config.sandbox.command_policy.allow == ()
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_sandbox_command_policy_parses_from_yaml(self, mock_cache, mock_repo_client):
         """Test that sandbox.command_policy is parsed from YAML correctly."""
         repo_id = "test_repo"
@@ -185,7 +185,7 @@ class RepositoryConfigTest:
         assert "curl" in config.sandbox.command_policy.disallow
         assert "my-safe-cmd" in config.sandbox.command_policy.allow
 
-    @patch("codebase.repo_config.cache")
+    @patch("django.core.cache.cache")
     def test_sandbox_command_policy_partial_yaml_uses_defaults(self, mock_cache, mock_repo_client):
         """Test that a partial command_policy section merges with defaults."""
         repo_id = "test_repo"

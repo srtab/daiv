@@ -18,7 +18,7 @@ from langgraph.types import Command
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import AGENTS_SKILLS_PATH, BUILTIN_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
-from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.context import AgentCtx, LocalRuntimeCtx, RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
@@ -121,7 +121,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(
-        self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
+        self, state: DAIVSkillsState, runtime: Runtime[AgentCtx], config: RunnableConfig
     ) -> SkillsStateUpdate | dict | None:
         """
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
@@ -133,13 +133,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
+        is_local = isinstance(runtime.context, LocalRuntimeCtx)
+
         # We need to always copy builtin and custom global skills before calling the super method to make them available
         # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
         # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
         # will be raised.
-        builtin_skills, custom_global_skills = await self._copy_global_skills(
-            agent_path=Path(runtime.context.gitrepo.working_dir)
-        )
+        builtin_skills, custom_global_skills = await self._copy_global_skills(is_local=is_local)
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -161,8 +161,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
 
+        # Builtin slash commands only apply in platform mode (they need scope, repository, issue, etc.)
         builtin_slash_commands = None
-        if runtime.context.config.slash_commands.enabled:
+        if isinstance(runtime.context, RuntimeCtx) and runtime.context.config.slash_commands.enabled:
             builtin_slash_commands = await self._apply_builtin_slash_commands(
                 state["messages"], runtime.context, skills_metadata
             )
@@ -177,7 +178,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self, *, is_local: bool = False) -> tuple[list[str], list[str]]:
         """
         Copy builtin and custom global skills to the project skills directory if they don't exist.
 
@@ -189,13 +190,19 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         with the same name in the project skills directory and committing them to the repository.
 
         Args:
-            agent_path: The path to the agent's repository.
+            is_local: Whether running in local/ACP mode (no repo subdirectory prefix).
 
         Returns:
             A tuple of (builtin skill names, custom global skill names).
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
+        # In platform mode, sources have a repo prefix (e.g., /repo/.cursor/skills).
+        # Extract the common prefix from the first source to build the skills destination path.
+        if not is_local and self.sources:
+            prefix = str(Path(self.sources[0]).parent.parent)
+            project_skills_path = Path(f"{prefix}/{AGENTS_SKILLS_PATH}")
+        else:
+            project_skills_path = Path(f"/{AGENTS_SKILLS_PATH}")
 
         builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, project_skills_path, files_to_upload)
 
@@ -269,7 +276,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     @override
     async def awrap_model_call(
-        self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
+        self, request: ModelRequest[AgentCtx], handler: Callable[[ModelRequest[AgentCtx]], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         """Filter write tools when the active skill declares read-only mode."""
         active_mode = request.state.get("active_skill_mode")
@@ -391,7 +398,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],
-            runtime: ToolRuntime[RuntimeCtx, SkillsState],
+            runtime: ToolRuntime[AgentCtx, SkillsState],
             skill_args: Annotated[str | None, "Optional arguments to pass to the skill."] = None,
         ) -> str | Command:
             """

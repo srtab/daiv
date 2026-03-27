@@ -4,8 +4,6 @@ import logging
 from io import StringIO
 from typing import TYPE_CHECKING
 
-from django.core.cache import cache
-
 import yaml
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from yaml.parser import ParserError
@@ -262,6 +260,8 @@ class RepositoryConfig(BaseModel):
         Returns:
             RepositoryConfig: The configuration for the repository.
         """
+        from django.core.cache import cache
+
         from codebase.clients import RepoClient
 
         cache_key = f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}"
@@ -298,5 +298,7 @@ class RepositoryConfig(BaseModel):
         """
         Invalidate cache for a specific repository.
         """
+        from django.core.cache import cache
+
         cache.delete(f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}")
         logger.info("Invalidated cache for repository %s", repo_id)

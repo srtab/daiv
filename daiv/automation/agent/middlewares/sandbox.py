@@ -5,7 +5,6 @@ import io
 import json
 import logging
 import tarfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
@@ -15,7 +14,7 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.context import AgentCtx, get_working_dir  # noqa: TC001
 from codebase.utils import GitManager
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
@@ -25,6 +24,7 @@ from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartS
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from pathlib import Path
 
     from langgraph.runtime import Runtime
 
@@ -143,7 +143,7 @@ Git safety (highest priority):
 
 
 @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
-async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
+async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[AgentCtx]) -> str:
     """
     Tool to run a list of Bash commands in a persistent shell session.
     """
@@ -151,7 +151,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     if denial_error:
         return denial_error
 
-    repo_working_dir = Path(runtime.context.gitrepo.working_dir)
+    repo_working_dir = get_working_dir(runtime.context)
 
     response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
     if response is None:
@@ -161,16 +161,19 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
         )
 
     if response.patch:
-        try:
-            GitManager(runtime.context.gitrepo).apply_patch(response.patch)
-        except Exception:
-            logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
-            return "error: Failed to persist the changes. The bash tool is not working properly."
+        if runtime.context.gitrepo is not None:
+            try:
+                GitManager(runtime.context.gitrepo).apply_patch(response.patch)
+            except Exception:
+                logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
+                return "error: Failed to persist the changes. The bash tool is not working properly."
+        else:
+            logger.warning("[%s] No git repo available, skipping patch application.", bash_tool.name)
 
     return json.dumps([result.model_dump(mode="json") for result in response.results])
 
 
-def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
+def _check_command_policy(command: str, runtime: ToolRuntime[AgentCtx]) -> str | None:
     """
     Parse *command* with Parable and evaluate it against the effective policy.
 
@@ -335,13 +338,13 @@ class SandboxMiddleware(AgentMiddleware):
         self.close_session = close_session
         self.tools = [bash_tool]
 
-    async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
+    async def abefore_agent(self, state: StateT, runtime: Runtime[AgentCtx]) -> dict[str, str] | None:
         """
         Prepare state for lazy sandbox session start.
 
         Args:
             state (StateT): The state of the agent.
-            runtime (Runtime[RuntimeCtx]): The runtime context.
+            runtime (Runtime[AgentCtx]): The runtime context.
 
         Returns:
             dict[str, str] | None: The state updates with the sandbox session ID.
@@ -364,13 +367,13 @@ class SandboxMiddleware(AgentMiddleware):
         )
         return {"session_id": session_id}
 
-    async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
+    async def aafter_agent(self, state: StateT, runtime: Runtime[AgentCtx]) -> dict[str, str] | None:
         """
         Close the sandbox session after the agent finishes the execution loop.
 
         Args:
             state (StateT): The state of the agent.
-            runtime (Runtime[RuntimeCtx]): The runtime context.
+            runtime (Runtime[AgentCtx]): The runtime context.
 
         Returns:
             dict[str, str] | None: The state updates with the closed sandbox session ID.

@@ -128,9 +128,9 @@ class TestWebSearchTool:
 
 
 class TestWebSearchMiddleware:
-    @patch("automation.agent.middlewares.web_search.timezone")
-    async def test_system_prompt_contains_current_year(self, mock_timezone):
-        mock_timezone.now.return_value = datetime(2026, 3, 14)
+    @patch("automation.agent.middlewares.web_search.datetime")
+    async def test_system_prompt_contains_current_year(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 3, 14)
 
         middleware = WebSearchMiddleware()
         request = MagicMock()
@@ -146,9 +146,9 @@ class TestWebSearchMiddleware:
         assert "2025" in system_prompt  # previous year in the "NOT" example
         assert "2024" not in system_prompt
 
-    @patch("automation.agent.middlewares.web_search.timezone")
-    async def test_system_prompt_does_not_contain_hardcoded_year(self, mock_timezone):
-        mock_timezone.now.return_value = datetime(2030, 1, 1)
+    @patch("automation.agent.middlewares.web_search.datetime")
+    async def test_system_prompt_does_not_contain_hardcoded_year(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2030, 1, 1)
 
         middleware = WebSearchMiddleware()
         request = MagicMock()
@@ -166,9 +166,9 @@ class TestWebSearchMiddleware:
         assert "2025" not in system_prompt
         assert "2026" not in system_prompt
 
-    @patch("automation.agent.middlewares.web_search.timezone")
-    async def test_system_prompt_appended_to_base_prompt(self, mock_timezone):
-        mock_timezone.now.return_value = datetime(2026, 6, 15)
+    @patch("automation.agent.middlewares.web_search.datetime")
+    async def test_system_prompt_appended_to_base_prompt(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 6, 15)
 
         middleware = WebSearchMiddleware()
         request = MagicMock()
@@ -183,9 +183,9 @@ class TestWebSearchMiddleware:
         assert system_prompt.startswith("Base prompt\n\n")
         assert "## Web Search tool" in system_prompt
 
-    @patch("automation.agent.middlewares.web_search.timezone")
-    async def test_handler_called_with_overridden_request(self, mock_timezone):
-        mock_timezone.now.return_value = datetime(2026, 3, 14)
+    @patch("automation.agent.middlewares.web_search.datetime")
+    async def test_handler_called_with_overridden_request(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 3, 14)
 
         middleware = WebSearchMiddleware()
         request = MagicMock()

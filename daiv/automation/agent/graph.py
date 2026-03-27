@@ -1,7 +1,6 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-
-from django.utils import timezone
 
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.memory import MemoryMiddleware
@@ -37,7 +36,7 @@ from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_RE
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
 from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform
-from codebase.context import RuntimeCtx
+from codebase.context import AgentCtx, LocalRuntimeCtx, RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
 
@@ -71,33 +70,45 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     Returns:
         str: The dynamic prompt for the DAIV system.
     """
-    context = cast("RuntimeCtx", request.runtime.context)
-    agent_path = Path(context.gitrepo.working_dir)
+    context: AgentCtx = request.runtime.context
+    is_local = isinstance(context, LocalRuntimeCtx)
 
-    daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
-        current_date=timezone.now().strftime("%d %B, %Y"),
-        bot_name=BOT_NAME,
-        bot_username=context.bot_username,
-        repository_url=context.repository.html_url,
-        gitlab_platform=context.git_platform == GitPlatform.GITLAB,
-        github_platform=context.git_platform == GitPlatform.GITHUB,
-        bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
-        working_directory=f"/{agent_path.name}/",
-        current_branch=get_repo_ref(context.gitrepo),
-    )
+    # Build shared template kwargs, then extend with mode-specific ones
+    kwargs: dict = {
+        "current_date": datetime.now(UTC).strftime("%d %B, %Y"),
+        "bot_name": BOT_NAME,
+        "bot_username": context.bot_username,
+        "bash_tool_enabled": BASH_TOOL_NAME in {tool.name for tool in request.tools},
+        "local_mode": is_local,
+    }
+
+    if is_local:
+        kwargs["working_directory"] = str(context.working_dir)
+        kwargs["current_branch"] = get_repo_ref(context.gitrepo) if context.gitrepo else ""
+    else:
+        context = cast("RuntimeCtx", context)
+        agent_path = Path(context.gitrepo.working_dir)
+        kwargs["working_directory"] = f"/{agent_path.name}/"
+        kwargs["current_branch"] = get_repo_ref(context.gitrepo)
+        kwargs["repository_url"] = context.repository.html_url
+        kwargs["gitlab_platform"] = context.git_platform == GitPlatform.GITLAB
+        kwargs["github_platform"] = context.git_platform == GitPlatform.GITHUB
+
+    daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(**kwargs)
 
     inherited_system_prompt = ""
     if request.system_prompt:
         inherited_system_prompt = request.system_prompt + "\n\n"
 
-    return (
-        OUTPUT_INVARIANTS_SYSTEM_PROMPT
-        + "\n\n"
-        + cast("str", daiv_system_prompt.content).strip()
-        + "\n\n"
-        + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMINDER
-    )
+    prompt_parts = [cast("str", daiv_system_prompt.content).strip()]
+
+    if not is_local:
+        prompt_parts.insert(0, OUTPUT_INVARIANTS_SYSTEM_PROMPT)
+        prompt_parts.append(inherited_system_prompt + REPO_RELATIVE_SYSTEM_REMINDER)
+    elif inherited_system_prompt:
+        prompt_parts.append(inherited_system_prompt.rstrip())
+
+    return "\n\n".join(prompt_parts)
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -111,7 +122,7 @@ async def create_daiv_agent(
     model_names: Sequence[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
     thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
     *,
-    ctx: RuntimeCtx,
+    ctx: AgentCtx,
     auto_commit_changes: bool = True,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
@@ -128,7 +139,7 @@ async def create_daiv_agent(
     Args:
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
-        ctx: The runtime context.
+        ctx: The runtime context (platform or local).
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
@@ -141,6 +152,7 @@ async def create_daiv_agent(
     Returns:
         The DAIV agent.
     """
+    is_local = isinstance(ctx, LocalRuntimeCtx)
 
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
     fallback_models = [
@@ -154,8 +166,17 @@ async def create_daiv_agent(
         web_search_enabled if web_search_enabled is not None else automation_settings.WEB_SEARCH_ENABLED
     )
 
-    agent_path = Path(ctx.gitrepo.working_dir)
-    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    if is_local:
+        agent_path = ctx.working_dir
+        backend = FilesystemBackend(root_dir=agent_path, virtual_mode=True)
+    else:
+        agent_path = Path(ctx.gitrepo.working_dir)
+        backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+
+    # Build path prefix for filesystem sources
+    # For platform mode: /repo/ (agent_path.name inside the parent root)
+    # For local mode: / (the cwd itself is the root)
+    path_prefix = f"/{agent_path.name}" if not is_local else ""
 
     # Create subagents list to be shared between middlewares
     subagents = [
@@ -175,7 +196,7 @@ async def create_daiv_agent(
         model=model,
         backend=backend,
         runtime=ctx,
-        sources=[f"/{agent_path.name}/{source}" for source in SUBAGENTS_SOURCES],
+        sources=[f"{path_prefix}/{source}" for source in SUBAGENTS_SOURCES],
         sandbox_enabled=_sandbox_enabled,
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
@@ -199,16 +220,22 @@ async def create_daiv_agent(
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         MemoryMiddleware(
             backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+            sources=[f"{path_prefix}/{ctx.config.context_file_name}", f"{path_prefix}/{AGENTS_MEMORY_PATH}"],
         ),
         SkillsMiddleware(
-            backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
+            backend=backend, sources=[f"{path_prefix}/{source}" for source in SKILLS_SOURCES], subagents=subagents
         ),
         SubAgentMiddleware(backend=backend, subagents=subagents),
         *agent_conditional_middlewares,
         FilesystemMiddleware(backend=backend),
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(git_platform=ctx.git_platform),
+    ]
+
+    # Git middlewares only apply in platform mode
+    if not is_local:
+        agent_middleware.append(GitMiddleware(auto_commit_changes=auto_commit_changes))
+        agent_middleware.append(GitPlatformMiddleware(git_platform=ctx.git_platform))
+
+    agent_middleware.extend([
         SummarizationMiddleware(
             model=model,
             backend=backend,
@@ -222,13 +249,13 @@ async def create_daiv_agent(
         ensure_non_empty_response,
         PatchToolCallsMiddleware(),
         dynamic_daiv_system_prompt,
-    ]
+    ])
 
     return create_agent(
         model,
         tools=await MCPToolkit.get_tools(),
         middleware=agent_middleware,
-        context_schema=RuntimeCtx,
+        context_schema=type(ctx),
         checkpointer=checkpointer,
         store=store,
         debug=debug,

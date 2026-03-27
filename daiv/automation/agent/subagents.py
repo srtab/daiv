@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
 
-    from codebase.context import RuntimeCtx
+    from codebase.context import AgentCtx
 
 logger = logging.getLogger("daiv.agent")
 
@@ -40,7 +40,7 @@ GENERAL_PURPOSE_SYSTEM_PROMPT = """You are an agent for DAIV. Given the user's m
 def _build_general_purpose_middleware(
     model: BaseChatModel,
     backend: BackendProtocol,
-    runtime: RuntimeCtx,
+    runtime: AgentCtx,
     sandbox_enabled: bool,
     web_search_enabled: bool,
     web_fetch_enabled: bool,
@@ -49,13 +49,20 @@ def _build_general_purpose_middleware(
     Build the middleware stack for a general-purpose subagent.
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
+    from codebase.context import RuntimeCtx
 
     _summarization_defaults = compute_summarization_defaults(model)
 
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend),
-        GitPlatformMiddleware(git_platform=runtime.git_platform),
+    ]
+
+    # Git platform middleware only applies in platform mode
+    if isinstance(runtime, RuntimeCtx):
+        middleware.append(GitPlatformMiddleware(git_platform=runtime.git_platform))
+
+    middleware.extend([
         SummarizationMiddleware(
             model=model,
             backend=backend,
@@ -67,7 +74,7 @@ def _build_general_purpose_middleware(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
-    ]
+    ])
 
     if web_search_enabled:
         middleware.append(WebSearchMiddleware())
@@ -84,7 +91,7 @@ def _build_general_purpose_middleware(
 def create_general_purpose_subagent(
     model: BaseChatModel,
     backend: BackendProtocol,
-    runtime: RuntimeCtx,
+    runtime: AgentCtx,
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
@@ -231,7 +238,7 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
 async def load_custom_subagents(
     model: BaseChatModel,
     backend: BackendProtocol,
-    runtime: RuntimeCtx,
+    runtime: AgentCtx,
     sources: list[str],
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,

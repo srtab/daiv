@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 import textwrap
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
-
-from django.utils import timezone
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
@@ -159,7 +158,7 @@ class WebSearchMiddleware(AgentMiddleware):
         """
         Update the system prompt with the web search system prompt.
         """
-        current_year = timezone.now().year
+        current_year = datetime.now(UTC).year
         web_search_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(current_year=current_year, previous_year=current_year - 1)
         request = request.override(system_prompt=request.system_prompt + "\n\n" + web_search_prompt)
         return await handler(request)

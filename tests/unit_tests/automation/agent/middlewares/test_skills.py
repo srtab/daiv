@@ -128,7 +128,7 @@ class TestSkillsMiddleware:
         middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
-            await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            await middleware._copy_global_skills(is_local=False)
 
         project_skills = tmp_path / repo_name / AGENTS_SKILLS_PATH
         assert (project_skills / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
@@ -172,7 +172,7 @@ class TestSkillsMiddleware:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("pathlib.Path.exists", new=fake_exists),
         ):
-            await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            await middleware._copy_global_skills(is_local=False)
 
         # SKILL.md should not be overwritten, but other files should still be uploaded.
         assert project_skill_md.read_text() == _make_skill_md(name="skill-one", description="existing")
@@ -194,7 +194,7 @@ class TestSkillsMiddleware:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             pytest.raises(RuntimeError, match="Failed to upload skill: boom"),
         ):
-            await middleware._copy_global_skills(agent_path=tmp_path / "repoX")
+            await middleware._copy_global_skills(is_local=False)
 
     def test_format_skills_list_marks_builtin_and_global(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
@@ -569,7 +569,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills(is_local=False)
 
         assert "global-skill" in custom_global_names
         assert "global-skill" not in builtin_names
@@ -631,7 +631,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", None),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills(is_local=False)
 
         assert builtin_names == ["skill-one"]
         assert custom_global_names == []
@@ -651,7 +651,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", tmp_path / "nonexistent"),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills(is_local=False)
 
         assert builtin_names == ["skill-one"]
         assert custom_global_names == []
