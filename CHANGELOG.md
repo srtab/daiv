@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
+
 ### Added
 
 - Added `EnsureNonEmptyResponseMiddleware` to detect and recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
