@@ -43,6 +43,10 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 * **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
+* **`allauth_github_client_id`** - GitHub OAuth App client ID (see [Authentication](../reference/env-variables.md#authentication))
+* **`allauth_github_secret`** - GitHub OAuth App secret
+* **`allauth_gitlab_client_id`** - GitLab OAuth Application ID (see [Authentication](../reference/env-variables.md#authentication))
+* **`allauth_gitlab_secret`** - GitLab OAuth Application secret
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -147,6 +151,10 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
+      - allauth_github_client_id
+      - allauth_github_secret
+      - allauth_gitlab_client_id
+      - allauth_gitlab_secret
     networks:
       - internal
       - external
@@ -282,6 +290,14 @@ secrets:
     external: true
   sentry_access_token:
     external: true
+  allauth_github_client_id:
+    external: true
+  allauth_github_secret:
+    external: true
+  allauth_gitlab_client_id:
+    external: true
+  allauth_gitlab_secret:
+    external: true
 ```
 
 </div>
@@ -370,6 +386,11 @@ x-app-defaults: &x_app_default
     OPENROUTER_API_KEY: openrouter-api-key (8)
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
+    # Authentication (at least one social provider recommended)
+    ALLAUTH_GITHUB_CLIENT_ID: github-client-id
+    ALLAUTH_GITHUB_SECRET: github-secret
+    ALLAUTH_GITLAB_CLIENT_ID: gitlab-client-id
+    ALLAUTH_GITLAB_SECRET: gitlab-secret
 
 services:
   db:
@@ -628,7 +649,7 @@ server {
 systemctl restart nginx
 ```
 
-**Verify the configuration** by accessing your domain in a web browser. You should see the DAIV interface.
+**Verify the configuration** by accessing your domain in a web browser. You should see the DAIV login page at `https://your-domain/accounts/login/`.
 
 ---
 

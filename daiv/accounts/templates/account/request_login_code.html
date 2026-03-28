@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sign in with email — DAIV{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)"></div>
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px"></div>
+
+    <div class="relative w-full max-w-[380px]">
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.png' %}" alt="DAIV" class="h-10">
+            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">Enter your email to sign in</p>
+        </div>
+
+        <form method="post" class="animate-fade-up" style="animation-delay: 100ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                {% for field in form %}
+                <div>
+                    {% if field.errors %}
+                    <p class="mb-2 text-[14px] text-red-400">{{ field.errors.0 }}</p>
+                    {% endif %}
+                    <input type="{{ field.field.widget.input_type|default:'text' }}"
+                           name="{{ field.html_name }}"
+                           id="{{ field.id_for_label }}"
+                           value="{{ field.value|default:'' }}"
+                           {% if field.field.required %}required{% endif %}
+                           placeholder="you@company.com"
+                           class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                </div>
+                {% endfor %}
+                <button type="submit"
+                        class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                    Send login code
+                </button>
+            </div>
+        </form>
+
+        <p class="animate-fade-up mt-6 text-center text-[14px] text-gray-500" style="animation-delay: 180ms">
+            <a href="{% url 'account_login' %}" class="text-gray-400 transition-colors hover:text-white">Back to sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

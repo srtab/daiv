@@ -169,6 +169,9 @@ state-snapshots.txt
 
 request.json
 
+# Tailwind CSS build output
+daiv/accounts/static/accounts/css/styles.css
+
 # SWE-bench
 daiv-traces/
 predictions.json

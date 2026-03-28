@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Sign out — DAIV{% endblock %}
+
+{% block content %}
+<div class="flex min-h-dvh items-center justify-center px-4">
+    <div class="w-full max-w-[380px] text-center">
+        <div class="animate-fade-up">
+            <h2 class="text-lg font-semibold text-white">Sign out</h2>
+            <p class="mt-2 text-[14px] text-gray-500">Are you sure you want to sign out?</p>
+        </div>
+        <form method="post" class="animate-fade-up mt-6 flex gap-3" style="animation-delay: 80ms">
+            {% csrf_token %}
+            <a href="{% url 'dashboard' %}"
+               class="flex-1 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="flex-1 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                Sign out
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

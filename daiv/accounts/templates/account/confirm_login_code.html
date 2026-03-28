@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Enter code — DAIV{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)"></div>
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px"></div>
+
+    <div class="relative w-full max-w-[380px]">
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.png' %}" alt="DAIV" class="h-10">
+        </div>
+
+        <!-- Icon + message -->
+        <div class="animate-fade-up mb-8 text-center" style="animation-delay: 80ms">
+            <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
+                <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
+                </svg>
+            </div>
+            <h2 class="text-[16px] font-semibold text-white">Check your email</h2>
+            <p class="mt-2 text-[14px] font-light text-gray-400">
+                We sent a login code to your inbox.<br>Enter it below to continue.
+            </p>
+        </div>
+
+        <form method="post" class="animate-fade-up" style="animation-delay: 160ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                {% for field in form %}
+                <div>
+                    {% if field.errors %}
+                    <p class="mb-2 text-[14px] text-red-400">{{ field.errors.0 }}</p>
+                    {% endif %}
+                    <input type="text"
+                           name="{{ field.html_name }}"
+                           id="{{ field.id_for_label }}"
+                           value="{{ field.value|default:'' }}"
+                           {% if field.field.required %}required{% endif %}
+                           autocomplete="one-time-code"
+                           inputmode="numeric"
+                           placeholder="Enter code"
+                           class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3.5 text-center text-lg font-semibold tracking-[0.3em] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                </div>
+                {% endfor %}
+                <button type="submit"
+                        class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                    Verify &amp; sign in
+                </button>
+            </div>
+        </form>
+
+        <p class="animate-fade-up mt-6 text-center text-[14px] text-gray-500" style="animation-delay: 220ms">
+            <a href="{% url 'account_login' %}" class="text-gray-400 transition-colors hover:text-white">Back to sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

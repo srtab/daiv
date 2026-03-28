@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% load static socialaccount %}
+
+{% block title %}Sign in — DAIV{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <!-- Background: radial spotlight -->
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)">
+    </div>
+
+    <!-- Background: dot grid -->
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px">
+    </div>
+
+    <!-- Background: geometric accent lines -->
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -right-32 top-[20%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -right-16 top-[28%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+        <div class="absolute -left-32 bottom-[25%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+    </div>
+
+    <!-- Card -->
+    <div class="relative w-full max-w-[380px]">
+
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.png' %}" alt="DAIV" class="h-10">
+            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">Sign in to your account</p>
+        </div>
+
+        <!-- Social providers -->
+        {% get_providers as socialaccount_providers %}
+        {% if socialaccount_providers %}
+        <div class="animate-fade-up space-y-2.5" style="animation-delay: 80ms">
+            {% for provider in socialaccount_providers %}
+            {% if provider.id == "github" %}
+            <a href="{% provider_login_url provider.id process='login' %}"
+               class="group flex w-full items-center justify-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] font-medium text-gray-200 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white">
+                <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
+                </svg>
+                Continue with GitHub
+            </a>
+            {% elif provider.id == "gitlab" %}
+            <a href="{% provider_login_url provider.id process='login' %}"
+               class="group flex w-full items-center justify-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] font-medium text-gray-200 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white">
+                <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="m18.88 9.7-.95-2.93-1.88-5.8a.38.38 0 0 0-.73 0L13.44 6.77H6.56L4.68.97a.38.38 0 0 0-.73 0L2.07 6.77 1.12 9.7a.76.76 0 0 0 .28.85L10 16.58l8.6-6.03a.76.76 0 0 0 .28-.85"/>
+                </svg>
+                Continue with GitLab
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        <!-- Divider -->
+        <div class="animate-fade-up relative my-7" style="animation-delay: 140ms">
+            <div class="absolute inset-0 flex items-center">
+                <div class="w-full border-t border-white/[0.06]"></div>
+            </div>
+            <div class="relative flex justify-center">
+                <span class="bg-[#030712] px-4 text-[12px] font-medium uppercase tracking-[0.2em] text-gray-500">or</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Login code form -->
+        <form method="post" action="{% url 'account_request_login_code' %}"
+              class="animate-fade-up" style="animation-delay: 200ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                <div class="relative">
+                    <input type="email" name="email" id="email" required autocomplete="email"
+                           placeholder="you@company.com"
+                           class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                </div>
+                <button type="submit"
+                        class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                    Continue with email
+                </button>
+            </div>
+            <p class="mt-4 text-center text-[12px] font-light tracking-wide text-gray-500">
+                We'll send a one-time code to your inbox
+            </p>
+        </form>
+    </div>
+</div>
+{% endblock %}
