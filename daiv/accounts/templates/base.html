@@ -25,17 +25,16 @@
         </div>
         {% endfor %}
     </div>
-    <script>
-        setTimeout(function() {
-            document.querySelectorAll('[data-message]').forEach(function(el, i) {
-                setTimeout(function() {
-                    el.style.transition = 'opacity 0.3s, transform 0.3s';
-                    el.style.opacity = '0';
-                    el.style.transform = 'translateY(-8px)';
-                    setTimeout(function() { el.remove(); }, 300);
-                }, i * 100);
-            });
-        }, 5000);
+    <script type="module">
+        const dismiss = () => document.querySelectorAll('[data-message]').forEach((el, i) => {
+            setTimeout(() => {
+                el.style.transition = 'opacity 0.3s, transform 0.3s';
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-8px)';
+                setTimeout(() => el.remove(), 300);
+            }, i * 100);
+        });
+        setTimeout(dismiss, 5000);
     </script>
     {% endif %}
     {% block content %}{% endblock %}
