@@ -1,3 +1,5 @@
+ARG TAILWIND_VERSION="v4.1.7"
+
 #########################################################################################################
 # Python compile image
 #########################################################################################################
@@ -34,6 +36,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Python build image
 #########################################################################################################
 FROM python:3.14.2-slim-bookworm AS python-builder
+
+ARG TAILWIND_VERSION
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -94,7 +98,7 @@ RUN chmod +x entrypoint start-app start-worker start-crontask \
   && mkdir -p data/media data/static \
   # Build Tailwind CSS
   && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
-  && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/v4.1.7/tailwindcss-linux-${ARCH}" \
+  && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \
   && chmod +x "tailwindcss-linux-${ARCH}" \
   && ./"tailwindcss-linux-${ARCH}" -i app/accounts/static_src/css/input.css -o app/accounts/static/accounts/css/styles.css --minify \
   && rm "tailwindcss-linux-${ARCH}"

@@ -1,4 +1,8 @@
+ARG TAILWIND_VERSION="v4.1.7"
+
 FROM debian:bookworm-slim
+
+ARG TAILWIND_VERSION
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -63,8 +67,7 @@ RUN uv sync \
     && mkdir -p /home/app/data
 
 # Install Tailwind CSS standalone CLI (v4)
-RUN TAILWIND_VERSION="v4.1.7" \
-    && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
+RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
     && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \
     && chmod +x "tailwindcss-linux-${ARCH}" \
     && mv "tailwindcss-linux-${ARCH}" /home/app/.local/bin/tailwindcss
