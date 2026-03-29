@@ -6,7 +6,7 @@ from codebase.api.router import router as codebase_router
 
 from . import __version__
 
-api = NinjaAPI(version=__version__, title="Daiv API", docs_url="/docs/")
+api = NinjaAPI(version=__version__, title="Daiv API", docs_url="/docs/", urls_namespace="api")
 api.add_router("/codebase", codebase_router)
 api.add_router("/chat", chat_router)
 api.add_router("/models", models_router)
