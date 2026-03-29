@@ -1,4 +1,4 @@
-ARG TAILWIND_VERSION="v4.1.7"
+ARG TAILWIND_VERSION="v4.2.2"
 
 FROM debian:bookworm-slim
 
