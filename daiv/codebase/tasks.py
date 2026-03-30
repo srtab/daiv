@@ -30,7 +30,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 @task(dedup=True)
 async def address_issue_task(
     repo_id: str, issue_iid: int, mention_comment_id: str | None = None, ref: str | None = None
-):
+) -> dict[str, bool]:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
@@ -43,13 +43,13 @@ async def address_issue_task(
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)
     async with set_runtime_ctx(repo_id, scope=Scope.ISSUE, ref=ref, issue=issue) as runtime_ctx:
-        await IssueAddressorManager.address_issue(
+        return await IssueAddressorManager.address_issue(
             issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
         )
 
 
 @task(dedup=True)
-async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_comment_id: str):
+async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_comment_id: str) -> dict[str, bool]:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
@@ -63,6 +63,6 @@ async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_
     async with set_runtime_ctx(
         repo_id, scope=Scope.MERGE_REQUEST, ref=merge_request.source_branch, merge_request=merge_request
     ) as runtime_ctx:
-        await CommentsAddressorManager.address_comments(
+        return await CommentsAddressorManager.address_comments(
             merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx
         )

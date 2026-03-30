@@ -14,4 +14,5 @@ include(
     "components/logs.py",
     "components/debug.py",
     "components/tasks.py",
+    "components/allauth.py",
 )

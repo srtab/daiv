@@ -110,6 +110,29 @@ Variables marked with:
 !!! note "Global policy vs. repository policy"
     `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` set global defaults. Per-repository overrides are defined in the `.daiv.yml` `sandbox.command_policy` section and are merged at evaluation time. Built-in safety rules (blocking `git commit`, `git push`, etc.) cannot be overridden by either mechanism.
 
+### Authentication
+
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in via social providers (GitHub, GitLab) or passwordless login-by-code for existing accounts. Configure at least one social provider.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `ALLAUTH_GITHUB_CLIENT_ID` :material-lock: | GitHub OAuth App client ID | *(none)* | `Iv1.abc123` |
+| `ALLAUTH_GITHUB_SECRET` :material-lock: | GitHub OAuth App secret | *(none)* | |
+| `ALLAUTH_GITLAB_CLIENT_ID` :material-lock: | GitLab OAuth Application ID | *(none)* | |
+| `ALLAUTH_GITLAB_SECRET` :material-lock: | GitLab OAuth Application secret | *(none)* | |
+| `ALLAUTH_GITLAB_URL` | GitLab instance URL (for OAuth redirects to the user's browser) | `https://gitlab.com` | `https://gitlab.example.com` |
+| `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)* | `http://gitlab:8929` |
+| `EMAIL_BACKEND` | Django email backend for login-by-code emails | `django.core.mail.backends.console.EmailBackend` | `django.core.mail.backends.smtp.EmailBackend` |
+| `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
+
+!!! info "Setting up social providers"
+    **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
+
+    **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
+
+!!! note
+    Social providers are only registered when **both** client ID and secret are set. If only one is configured, a warning is logged and the provider button is not shown on the login page.
+
 ### Other
 
 | Variable                | Description                        | Default        | Example         |
@@ -117,7 +140,7 @@ Variables marked with:
 | `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://app:8000` | `https://daiv.example.com` |
 
 !!! note
-    The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform. Make sure that the URL is accessible from the Git platform.
+    The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.
 
 ---
 
