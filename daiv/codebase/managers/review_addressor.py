@@ -13,7 +13,6 @@ from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.publishers import GitChangePublisher
 from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
 from core.constants import BOT_NAME
@@ -199,7 +198,9 @@ class CommentsAddressorManager(BaseManager):
         )
 
     @classmethod
-    async def address_comments(cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
+    async def address_comments(
+        cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx
+    ) -> dict[str, bool]:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
@@ -207,16 +208,20 @@ class CommentsAddressorManager(BaseManager):
             merge_request (MergeRequest): The merge request.
             mention_comment_id (str): The mention comment id.
             runtime_ctx (RuntimeCtx): The runtime context.
+
+        Returns:
+            A dict with ``code_changes`` indicating whether code was published.
         """
         manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
         try:
-            await manager._address_comments()
+            return await manager._address_comments()
         except Exception:
             logger.exception("Error addressing comments for merge request: %d", merge_request.merge_request_id)
             manager._add_unable_to_address_review_note()
+            return {"code_changes": False}
 
-    async def _address_comments(self):
+    async def _address_comments(self) -> dict[str, bool]:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
@@ -263,20 +268,14 @@ class CommentsAddressorManager(BaseManager):
                     context=self.ctx,
                 )
             except Exception:
-                snapshot = await daiv_agent.aget_state(config=agent_config)
-
-                # If and unexpect error occurs while addressing the review, a draft merge request is created to avoid
-                # losing the changes made by the agent.
-                publisher = GitChangePublisher(self.ctx)
-                merge_request = snapshot.values.get("merge_request")
-                merge_request = await publisher.publish(
-                    merge_request=merge_request, as_draft=(merge_request is None or merge_request.draft)
+                draft_published = await self._recover_draft(
+                    daiv_agent,
+                    agent_config,
+                    entity_label="merge request",
+                    entity_id=self.merge_request.merge_request_id,
                 )
-
-                if merge_request:
-                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": merge_request})
-
-                self._add_unable_to_address_review_note(draft_published=bool(merge_request))
+                self._add_unable_to_address_review_note(draft_published=draft_published)
+                return {"code_changes": draft_published}
             else:
                 if (
                     result
@@ -287,6 +286,8 @@ class CommentsAddressorManager(BaseManager):
                     self._leave_comment(response_text)
                 else:
                     self._add_unable_to_address_review_note()
+
+                return await self._read_code_changes(daiv_agent, agent_config)
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
         """

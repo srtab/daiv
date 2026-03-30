@@ -9,7 +9,6 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.publishers import GitChangePublisher
 from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
@@ -40,7 +39,9 @@ class IssueAddressorManager(BaseManager):
         self.mention_comment_id = mention_comment_id
 
     @classmethod
-    async def address_issue(cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
+    async def address_issue(
+        cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx
+    ) -> dict[str, bool]:
         """
         Address the issue.
 
@@ -48,16 +49,20 @@ class IssueAddressorManager(BaseManager):
             issue (Issue): The issue object.
             mention_comment_id (str | None): The mention comment id. Defaults to None.
             runtime_ctx (RuntimeCtx): The runtime context.
+
+        Returns:
+            A dict with ``code_changes`` indicating whether code was published.
         """
         manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
         try:
-            await manager._address_issue()
+            return await manager._address_issue()
         except Exception as e:
             logger.exception("Error addressing issue %d: %s", issue.iid, e)
             manager._add_unable_to_address_issue_note()
+            return {"code_changes": False}
 
-    async def _address_issue(self):
+    async def _address_issue(self) -> dict[str, bool]:
         """
         Process the issue by addressing it with the appropriate actions.
         """
@@ -114,22 +119,11 @@ class IssueAddressorManager(BaseManager):
             try:
                 result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
             except Exception:
-                snapshot = await daiv_agent.aget_state(config=agent_config)
-
-                # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
-                # losing the changes made by the agent.
-                snapshot_mr = snapshot.values.get("merge_request")
-
-                publisher = GitChangePublisher(self.ctx)
-                published_mr = await publisher.publish(
-                    merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
+                draft_published = await self._recover_draft(
+                    daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
                 )
-
-                # If the draft merge request is created successfully, we update the state to reflect the new MR.
-                if published_mr:
-                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": published_mr})
-
-                self._add_unable_to_address_issue_note(draft_published=bool(published_mr))
+                self._add_unable_to_address_issue_note(draft_published=draft_published)
+                return {"code_changes": draft_published}
             else:
                 if (
                     result
@@ -140,6 +134,8 @@ class IssueAddressorManager(BaseManager):
                     self._leave_comment(response_text)
                 else:
                     self._add_unable_to_address_issue_note()
+
+                return await self._read_code_changes(daiv_agent, agent_config)
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """

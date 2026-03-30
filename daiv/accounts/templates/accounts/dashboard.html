@@ -28,7 +28,28 @@
             <p class="mt-1.5 text-[14px] font-light text-gray-500">Welcome back, {{ user.name|default:user.email }}</p>
         </div>
 
-        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2" style="animation-delay: 100ms">
+        <!-- Period filter -->
+        <div class="animate-fade-up mt-8 flex items-center gap-1" style="animation-delay: 100ms">
+            {% for p in periods %}
+            <a href="?period={{ p.key }}"
+               class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                      {% if p.key == current_period %}bg-white/[0.08] text-white{% else %}text-gray-500 hover:bg-white/[0.04] hover:text-gray-300{% endif %}">
+                {{ p.label }}
+            </a>
+            {% endfor %}
+        </div>
+
+        <!-- Counters -->
+        <div class="animate-fade-up mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5" style="animation-delay: 150ms">
+            {% for counter in counters %}
+            <div class="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
+                <p class="text-[26px] font-bold tracking-tight tabular-nums text-white">{{ counter.value }}</p>
+                <p class="mt-0.5 text-[12px] font-medium tracking-wide text-gray-500 uppercase">{{ counter.label }}</p>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="animate-fade-up mt-4 grid gap-4 sm:grid-cols-2" style="animation-delay: 250ms">
             <!-- API Docs card -->
             <a href="{% url 'api:openapi-view' %}"
                class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">

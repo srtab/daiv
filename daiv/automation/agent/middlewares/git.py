@@ -12,7 +12,7 @@ from langsmith import get_current_run_tree
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, GitPushPermissionError, get_repo_ref
+from codebase.utils import GitManager, get_repo_ref
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -56,6 +56,11 @@ class GitState(AgentState):
     merge_request: Annotated[MergeRequest | None, PrivateStateAttr]
     """
     The merge request used to commit the changes.
+    """
+
+    code_changes: Annotated[bool, PrivateStateAttr]
+    """
+    Whether the agent produced code changes that were published to the repository.
     """
 
 
@@ -118,7 +123,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
                 merge_request = None
 
-        return {"merge_request": merge_request}
+        return {"merge_request": merge_request, "code_changes": False}
 
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
@@ -153,17 +158,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
 
         publisher = GitChangePublisher(runtime.context)
-        try:
-            merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
-        except GitPushPermissionError as e:
-            logger.warning("[%s] Failed to publish changes due to git push permissions: %s", self.name, e)
-            return None
+        merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
 
         if merge_request:
             if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
                 # If an issue resulted in a merge request, we send it to LangSmith for tracking.
                 rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
-            return {"merge_request": merge_request}
+            return {"merge_request": merge_request, "code_changes": True}
 
         return None
