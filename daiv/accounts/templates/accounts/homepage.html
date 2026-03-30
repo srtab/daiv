@@ -3,6 +3,27 @@
 
 {% block title %}DAIV — Open-source async SWE agent for your Git platform{% endblock %}
 
+{% block head_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DAIV",
+  "description": "Open-source async software engineering agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux",
+  "license": "https://github.com/srtab/daiv/blob/main/LICENSE",
+  "url": "https://github.com/srtab/daiv",
+  "codeRepository": "https://github.com/srtab/daiv",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+{% endblock %}
+
 {% block content %}
 <!-- Navigation -->
 <nav aria-label="Main navigation" class="sticky top-0 z-40 border-b border-white/[0.06] bg-[#030712]/80 backdrop-blur-md">
@@ -11,7 +32,7 @@
             <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
         </a>
         <div class="flex items-center gap-5">
-            <a href="https://srtab.github.io/daiv/latest/"
+            <a href="https://srtab.github.io/daiv/latest/" rel="noopener noreferrer"
                class="hidden text-[14px] text-gray-400 transition-colors duration-200 hover:text-white sm:inline">Documentation</a>
             <a href="{% url 'account_login' %}"
                class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
@@ -54,7 +75,7 @@
 
         <!-- Headline -->
         <h1 class="animate-fade-up mt-8 text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl" style="animation-delay: 80ms">
-            Your async SWE agent,<br>native to your Git platform
+            DAIV — your async SWE agent,<br>native to your Git platform
         </h1>
 
         <!-- Subheadline -->
@@ -66,11 +87,11 @@
 
         <!-- CTAs -->
         <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
-            <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/"
+            <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/" rel="noopener noreferrer"
                class="w-full rounded-xl bg-white px-6 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98] sm:w-auto">
                 Get started
             </a>
-            <a href="https://github.com/srtab/daiv"
+            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer"
                class="group flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-6 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white sm:w-auto">
                 <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
@@ -322,11 +343,11 @@
                 Self-host with Docker Compose or Docker Swarm. Connect your GitLab or GitHub instance and start automating.
             </p>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-                <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/"
+                <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/" rel="noopener noreferrer"
                    class="w-full rounded-xl bg-white px-6 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98] sm:w-auto">
                     Read the docs
                 </a>
-                <a href="https://github.com/srtab/daiv"
+                <a href="https://github.com/srtab/daiv" rel="noopener noreferrer"
                    class="group flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-6 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white sm:w-auto">
                     <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
@@ -344,9 +365,9 @@
     <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
         <p class="text-[13px] text-gray-600">DAIV &mdash; Open-source async SWE agent</p>
         <div class="flex items-center gap-6">
-            <a href="https://srtab.github.io/daiv/latest/" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">Documentation</a>
-            <a href="https://github.com/srtab/daiv" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">GitHub</a>
-            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">License</a>
+            <a href="https://srtab.github.io/daiv/latest/" rel="noopener noreferrer" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">Documentation</a>
+            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">GitHub</a>
+            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" rel="noopener noreferrer" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">License</a>
         </div>
     </div>
 </footer>
