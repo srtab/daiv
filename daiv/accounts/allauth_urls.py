@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from allauth.account import views as account_views
 from allauth.socialaccount import views as socialaccount_views
@@ -15,6 +16,9 @@ urlpatterns = [
     path("gitlab/login/callback/", oauth2_callback, name="gitlab_callback"),
     # Account views (login, logout, login-by-code only — no signup, password,
     # or email management routes).
+    # Stub so allauth's login view can reverse("account_signup") without error;
+    # actual signup is disabled — visitors land back on the login page.
+    path("signup/", RedirectView.as_view(pattern_name="account_login", permanent=False), name="account_signup"),
     path("login/", account_views.login, name="account_login"),
     path("logout/", account_views.logout, name="account_logout"),
     path("login/code/", account_views.request_login_code, name="account_request_login_code"),
