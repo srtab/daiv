@@ -1,0 +1,34 @@
+# DAIV
+
+> Documentation for DAIV
+
+DAIV is an open-source async software engineering agent that integrates natively with GitLab and GitHub through webhooks. Create an issue, get a merge request. Mention DAIV in a review, get the fix. Licensed under Apache 2.0.
+
+
+## Getting Started
+
+- [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md): How to deploy DAIV with Docker
+- [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md): Setting up GitLab or GitHub integration
+- [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md): Configuring LLM providers
+
+## Features
+
+- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md): Automated issue-to-merge-request workflow
+- [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md): AI-powered pull request reviews and fixes
+- [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): REST API for programmatic agent triggering
+- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and custom skills
+- [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution
+- [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): Secure sandboxed code execution
+
+## Customization
+
+- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md): Per-repository configuration
+- [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md): Creating custom agent skills
+- [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md): MCP tool integrations
+
+## Reference
+
+- [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md): Environment variables reference
+- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md): Agent architecture overview
+- [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md): Monitoring and observability
+

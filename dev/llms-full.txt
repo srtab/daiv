@@ -1,0 +1,3285 @@
+# DAIV
+
+> Documentation for DAIV
+
+DAIV is an open-source async software engineering agent that integrates natively with GitLab and GitHub through webhooks. Create an issue, get a merge request. Mention DAIV in a review, get the fix. Licensed under Apache 2.0.
+
+
+# Getting Started
+
+# Deployment
+
+This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
+
+## What You'll Deploy
+
+**DAIV requires several core services to function properly**. You'll deploy these services using container orchestration:
+
+**Required services:**
+
+- **[PostgreSQL](https://www.postgresql.org/)** — stores application data
+- **[Redis](https://redis.io/)** — handles caching
+- **[DAIV Application](https://github.com/srtab/daiv)** — main API
+- **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** — background task processor
+
+**Optional services:**
+
+- **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
+- **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md))
+- **MCP Servers** — isolated containers for MCP tools via [supergateway](https://github.com/supercorp-ai/supergateway) (see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md))
+
+______________________________________________________________________
+
+## Docker Swarm (*Recommended*)
+
+**Docker Swarm provides better production deployment capabilities** including service discovery, load balancing, and rolling updates. This guide covers single-server deployment, but you can extend it to multiple servers using the [Docker Swarm documentation](https://docs.docker.com/engine/swarm/swarm-tutorial/).
+
+**Prerequisites**
+
+- [Docker installed](https://docs.docker.com/engine/install/) with [Swarm enabled](https://docs.docker.com/engine/swarm/swarm-tutorial/)
+- Internet connection to pull container images
+- Basic understanding of Docker Swarm
+
+### Step 1: Create Docker Secrets
+
+**Before deploying, you must create these Docker secrets**. These secrets store sensitive configuration data securely:
+
+**Required Secrets:**
+
+- **`django_secret_key`** - Random secret key for Django ([generate one here](https://djecrety.ir/))
+- **`db_password`** - Random password for the PostgreSQL database
+- **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
+- **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
+- **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
+- **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
+- **`allauth_github_client_id`** - GitHub OAuth App client ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
+- **`allauth_github_secret`** - GitHub OAuth App secret
+- **`allauth_gitlab_client_id`** - GitLab OAuth Application ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
+- **`allauth_gitlab_secret`** - GitLab OAuth Application secret
+
+**Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
+
+```
+docker secret create django_secret_key <secret_key>
+```
+
+Additional Secrets May Be Required
+
+These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for additional secrets needed for specific features or services.
+
+### Step 2: Create `stack.yml` file
+
+**Create your deployment configuration file**. This YAML file defines all services, networks, and volumes needed for DAIV.
+
+Customize Environment Variables
+
+**Replace all annotated values with your own configuration**. See the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for complete configuration options.
+
+```
+x-app-environment-defaults: &app_environment_defaults
+  # DJANGO
+  DJANGO_SETTINGS_MODULE: daiv.settings.production
+  DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
+  DJANGO_REDIS_URL: redis://daiv_redis:6379/0
+  DJANGO_REDIS_SESSION_URL: redis://daiv_redis:6379/1
+  DJANGO_REDIS_CHECKPOINT_URL: redis://daiv_redis:6379/2
+  DAIV_EXTERNAL_URL: https://your-hostname.com (2)
+  # DATABASE
+  DB_NAME: daiv
+  DB_USER: daiv_admin
+  DB_HOST: daiv_db
+  DB_SSLMODE: prefer
+  # CODEBASE
+  CODEBASE_CLIENT: gitlab
+  CODEBASE_GITLAB_URL: https://gitlab.com (3)
+  # SANDBOX
+  DAIV_SANDBOX_URL: http://sandbox:8000 (4)
+
+x-deploy-defaults: &deploy_defaults
+  replicas: 1
+  update_config:
+    order: start-first
+    delay: 60s
+    failure_action: rollback
+  rollback_config:
+    parallelism: 0
+  restart_policy:
+    condition: any
+    window: 120s
+
+services:
+  db:
+    image: postgres:17.6
+    environment:
+      - POSTGRES_DB=daiv
+      - POSTGRES_USER=daiv_admin
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    networks:
+      - internal
+    secrets:
+      - db_password
+    volumes:
+      - db-volume:/var/lib/postgresql/data
+    stop_grace_period: 30s
+    healthcheck:
+      test: pg_isready -q -d $$POSTGRES_DB -U $$POSTGRES_USER
+      interval: 10s
+      start_period: 120s
+    deploy:
+      replicas: 1
+      update_config:
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        parallelism: 0
+      restart_policy:
+        condition: any
+        window: 120s
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - internal
+    volumes:
+      - redis-volume:/data
+    healthcheck:
+      test: redis-cli ping || exit 1
+      interval: 10s
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+
+  app:
+    image: ghcr.io/srtab/daiv:latest (5)
+    environment:
+      <<: *app_environment_defaults
+    secrets:
+      - django_secret_key
+      - db_password
+      - codebase_gitlab_auth_token
+      - codebase_gitlab_webhook_secret
+      - daiv_sandbox_api_key
+      - openrouter_api_key
+      - allauth_github_client_id
+      - allauth_github_secret
+      - allauth_gitlab_client_id
+      - allauth_gitlab_secret
+    networks:
+      - internal
+      - external
+    ports:
+      - "8000:8000"
+    deploy:
+      <<: *deploy_defaults
+
+  worker:
+    image: ghcr.io/srtab/daiv:latest (5)
+    command: sh /home/daiv/start-worker
+    environment:
+      <<: *app_environment_defaults
+    secrets:
+      - django_secret_key
+      - db_password
+      - codebase_gitlab_auth_token
+      - codebase_gitlab_webhook_secret
+      - daiv_sandbox_api_key
+      - openrouter_api_key
+    networks:
+      - internal
+    # volumes:  (16)
+    #   - ./custom-skills:/home/daiv/data/skills:ro
+    healthcheck:
+      test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+      replicas: 1 (10)
+
+  scheduler:
+    image: ghcr.io/srtab/daiv:latest (5)
+    command: sh /home/daiv/start-crontask
+    environment:
+      <<: *app_environment_defaults
+    secrets:
+      - django_secret_key
+      - db_password
+      - codebase_gitlab_auth_token
+      - codebase_gitlab_webhook_secret
+      - daiv_sandbox_api_key
+      - openrouter_api_key
+    networks:
+      - internal
+    healthcheck:
+      test: grep -q 'crontask' /proc/*/cmdline 2>/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+
+  sandbox:
+    image: ghcr.io/srtab/daiv-sandbox:latest (5)
+    environment:
+      DAIV_SANDBOX_KEEP_TEMPLATE: true (6)
+    networks:
+      - internal
+    secrets:
+      - daiv_sandbox_api_key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock (7)
+      - $HOME/.docker/config.json:/home/app/.docker/config.json (8)
+    deploy:
+      <<: *deploy_defaults
+
+  mcp-sentry:
+    image: supercorp/supergateway:latest
+    command:
+      - --stdio
+      - "npx @sentry/mcp-server@latest --access-token=$$(cat /run/secrets/sentry_access_token)" (9)
+      - --healthEndpoint
+      - "/healthz"
+    environment:
+      SENTRY_HOST: your-sentry-host
+    secrets:
+      - sentry_access_token
+    networks:
+      - internal
+    healthcheck:
+      test: wget --spider -q http://localhost:8000/healthz || exit 1
+      interval: 30s
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+
+  mcp-context7:
+    image: supercorp/supergateway:latest
+    command:
+      - --stdio
+      - "npx @upstash/context7-mcp@latest"
+      - --healthEndpoint
+      - "/healthz"
+    networks:
+      - internal
+    healthcheck:
+      test: wget --spider -q http://localhost:8000/healthz || exit 1
+      interval: 30s
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+
+
+networks:
+  internal:
+    driver: overlay
+  external:
+    driver: overlay
+
+volumes:
+  db-volume:
+    driver: local
+  redis-volume:
+    driver: local
+
+secrets:
+  django_secret_key:
+    external: true
+  db_password:
+    external: true
+  codebase_gitlab_auth_token:
+    external: true
+  codebase_gitlab_webhook_secret:
+    external: true
+  daiv_sandbox_api_key:
+    external: true
+  openrouter_api_key:
+    external: true
+  sentry_access_token:
+    external: true
+  allauth_github_client_id:
+    external: true
+  allauth_github_secret:
+    external: true
+  allauth_gitlab_client_id:
+    external: true
+  allauth_gitlab_secret:
+    external: true
+```
+
+1. Replace `your-hostname.com` with your domain name. Don't include the schema (e.g., use `daiv.com` not `https://daiv.com`). Keep `app` and `127.0.0.1` for internal service communication.
+1. Replace with your full domain URL including schema (e.g., `https://your-hostname.com`)
+1. Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
+1. Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
+1. **Recommended**: Replace `latest` with a specific version tag for production deployments
+1. See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
+1. **Required**: Sandbox needs Docker socket access to create isolated containers
+1. **Optional**: Remove this volume if you don't need private registry access
+1. The Sentry access token is read from the Docker secret at runtime via `--access-token`. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
+1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+
+### Step 3: Deploy the stack
+
+**Deploy your DAIV stack** by running this command from the directory containing your `stack.yml` file:
+
+```
+docker stack deploy -c stack.yml daiv
+```
+
+**Monitor deployment progress** with these commands:
+
+```
+# Check service status with full details
+docker stack ps daiv --no-trunc
+
+# Or check running containers
+docker ps
+```
+
+Deployment Time
+
+**Services may take several minutes to become fully healthy**, especially during the initial deployment when images are being pulled and databases are being initialized.
+
+### Step 4: Next steps
+
+Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) to connect your first repository.
+
+______________________________________________________________________
+
+## Docker Compose
+
+**Docker Compose provides simpler deployment** suitable for development environments or smaller production setups. This method uses a single configuration file to manage all services.
+
+**Prerequisites**
+
+- [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/)
+- Internet connection to pull container images
+
+### Step 1: Create `docker-compose.yml` file
+
+**Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
+
+Environment Variable Configuration
+
+**Replace all annotated values with your specific configuration**. See the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for additional options.
+
+```
+x-app-defaults: &x_app_default
+  image: ghcr.io/srtab/daiv:latest
+  restart: unless-stopped
+  environment:
+    DJANGO_SETTINGS_MODULE: daiv.settings.production
+    DJANGO_SECRET_KEY: secret-key (1)
+    DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
+    DJANGO_REDIS_URL: redis://redis:6379/0
+    DJANGO_REDIS_SESSION_URL: redis://redis:6379/1
+    DJANGO_REDIS_CHECKPOINT_URL: redis://redis:6379/2
+    DAIV_EXTERNAL_URL: https://your-hostname.com (12)
+    # Database settings
+    DB_HOST: db
+    DB_NAME: daiv
+    DB_USER: daiv
+    DB_PASSWORD: daivpass (3)
+    DB_SSLMODE: prefer
+    # Codebase settings
+    CODEBASE_CLIENT: gitlab
+    CODEBASE_GITLAB_URL: https://gitlab.com (4)
+    CODEBASE_GITLAB_AUTH_TOKEN: gitlab-auth-token (5)
+    CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret (6)
+    # LLM Providers settings
+    OPENROUTER_API_KEY: openrouter-api-key (8)
+    # Sandbox settings
+    DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
+    # Authentication (at least one social provider recommended)
+    ALLAUTH_GITHUB_CLIENT_ID: github-client-id
+    ALLAUTH_GITHUB_SECRET: github-secret
+    ALLAUTH_GITLAB_CLIENT_ID: gitlab-client-id
+    ALLAUTH_GITLAB_SECRET: gitlab-secret
+
+services:
+  db:
+    image: postgres:17.6
+    container_name: daiv-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: daiv
+      POSTGRES_USER: daiv
+      POSTGRES_PASSWORD: daivpass (10)
+    volumes:
+      - db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daiv -d daiv"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    restart: unless-stopped
+    container_name: daiv-redis
+    volumes:
+      - redis-volume:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    <<: *x_app_default
+    container_name: daiv-app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+      sandbox:
+        condition: service_healthy
+
+  worker:
+    <<: *x_app_default
+    command: sh /home/daiv/start-worker
+    # volumes:  (17)
+    #   - ./custom-skills:/home/daiv/data/skills:ro
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports: []
+    deploy:
+      replicas: 1 (15)
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+
+  scheduler:
+    <<: *x_app_default
+    container_name: daiv-scheduler
+    command: sh /home/daiv/start-crontask
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'crontask' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports: []
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+
+  sandbox:
+    image: ghcr.io/srtab/daiv-sandbox:latest
+    restart: unless-stopped
+    container_name: daiv-sandbox
+    group_add:
+      - 987 (13)
+    environment:
+      DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (11)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  mcp-sentry:
+    image: supercorp/supergateway:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-sentry
+    command:
+      - --stdio
+      - "npx @sentry/mcp-server@latest"
+      - --healthEndpoint
+      - "/healthz"
+    env_file:
+      - config.secrets.env (14)
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  mcp-context7:
+    image: supercorp/supergateway:latest
+    restart: unless-stopped
+    container_name: daiv-mcp-context7
+    command:
+      - --stdio
+      - "npx @upstash/context7-mcp@latest"
+      - --healthEndpoint
+      - "/healthz"
+    env_file:
+      - config.secrets.env
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  db-volume:
+    driver: local
+  redis-volume:
+    driver: local
+```
+
+1. **[Generate a Django secret key](https://djecrety.ir/)** - Use a cryptographically secure random string
+1. **Replace with your domain name** - Don't include schema (e.g., `daiv.com`)
+1. **Generate a secure random password** for the database
+1. **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
+1. **Create a GitLab personal access token** with `api` scope permissions (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
+1. **Generate a random webhook secret** for GitLab webhook validation
+1. **Get an OpenRouter API key** for LLM model access
+1. **Generate a random API key** for Sandbox service authentication
+1. **Use the same password** as defined in annotation 3
+1. **Use the same API key** as defined in annotation 9
+1. **Include the full URL with schema** (e.g., `https://your-hostname.com`)
+1. **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
+1. **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
+1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+
+### Step 2: Run the compose file
+
+**Start all DAIV services** by running this command from the directory containing your `docker-compose.yml`:
+
+```
+docker compose up -d
+```
+
+**Check service status** to ensure everything is running correctly:
+
+```
+docker compose ps
+```
+
+### Step 3: Next steps
+
+Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) to connect your first repository.
+
+______________________________________________________________________
+
+## Reverse Proxy
+
+**Configure a reverse proxy** to provide secure external access to your DAIV instance. This setup enables HTTPS access and proper domain routing.
+
+**This guide covers Nginx configuration**. Basic Nginx knowledge is assumed.
+
+Contributions Welcome
+
+**Only Nginx configuration is provided currently**. Contributions for Apache, Traefik, and other reverse proxy configurations are welcome!
+
+**Prerequisites**
+
+- [Nginx installed](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-open-source/)
+- Valid SSL certificate for your domain
+- Domain name pointing to your server
+
+### Step 1: Configure Nginx
+
+**Create a new Nginx configuration file** at `/etc/nginx/conf.d/daiv.conf` (path may vary by operating system).
+
+**Add this configuration and customize the annotated values**:
+
+```
+upstream daiv-instance {
+  server internal-ip:8000;  (1)
+}
+
+server {
+  listen              443 ssl;
+  listen              [::]:443 ssl;
+
+  http2               on;
+
+  server_name         your-hostname.com;  (2)
+
+  # SSL Configuration.
+  # You can use this https://ssl-config.mozilla.org/ to generate
+  # the correct ssl configuration for your server.
+  ssl_certificate      /etc/pki/tls/certs/ssl.crt;  (3)
+  ssl_certificate_key  /etc/pki/tls/private/ssl.key;  (4)
+
+  ssl_protocols TLSv1.3;
+  ssl_ecdh_curve X25519:prime256v1:secp384r1;
+  ssl_prefer_server_ciphers off;
+
+  location / {
+    proxy_pass              http://daiv-instance;
+    proxy_set_header        Host $host;
+    proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header        X-Forwarded-Proto $scheme;
+    proxy_set_header        X-Real-IP $remote_addr;
+    proxy_redirect          off;
+    proxy_buffering         off;
+    proxy_connect_timeout   60;
+    proxy_send_timeout      60;
+    proxy_read_timeout      60;
+
+    add_header Strict-Transport-Security "max-age=63072000" always;
+  }
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80;
+
+    return 301 https://$host$request_uri;
+}
+```
+
+1. **Set the internal IP** of your DAIV instance. Use `localhost` or `127.0.0.1` if running on the same server
+1. **Replace with your domain name** (e.g., `daiv.example.com`)
+1. **Update the SSL certificate path** - Location varies by operating system
+1. **Update the SSL certificate key path** - Location varies by operating system
+
+### Step 2: Restart Nginx
+
+**Apply the configuration changes** by restarting Nginx:
+
+```
+systemctl restart nginx
+```
+
+**Verify the configuration** by accessing your domain in a web browser. You should see the DAIV login page at `https://your-domain/accounts/login/`.
+
+______________________________________________________________________
+
+## Next steps
+
+Your DAIV instance is now running and accessible. Continue with:
+
+1. **[Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)** — connect DAIV to your GitLab or GitHub repositories
+1. **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
+1. **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+
+# Platform Setup
+
+This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.
+
+DAIV supports both platforms:
+
+- **[GitLab](#gitlab-configuration)** — GitLab.com or self-hosted GitLab instances
+- **[GitHub](#github-configuration)** — GitHub.com or GitHub Enterprise
+
+______________________________________________________________________
+
+## GitLab Configuration
+
+### Prerequisites
+
+Before configuring a GitLab repository, ensure you have:
+
+- **DAIV installed and running** - Follow the [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) guide first
+- **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
+- **GitLab personal access token** - With `api` scope permissions
+
+### Step 1: Create GitLab Personal Access Token
+
+DAIV needs a GitLab personal access token to interact with your repositories.
+
+1. **Navigate to GitLab Settings**:
+
+   - Go to your GitLab instance (e.g., `https://gitlab.com`)
+   - Click your avatar → **Edit profile** → **Access Tokens**
+
+1. **Create New Token**:
+
+   - **Name**: `DAIV Integration`
+   - **Expiration**: Set according to your security policy (recommended: 1 year)
+   - **Scopes**: Select `api` (full API access)
+   - Click **Create personal access token**
+
+1. **Copy the Token**:
+
+   - **Important**: Copy and save the token immediately - you won't see it again
+   - The token format looks like: `glpat-xxxxxxxxxxxxxxxxxxxx`
+
+Token Security
+
+Store your token securely. Never commit it to version control or share it publicly.
+
+### Step 2: Configure Environment Variables
+
+Add your GitLab token and webhook secret to DAIV's environment configuration.
+
+#### For Docker Compose Setup
+
+Edit your `docker-compose.yml` file:
+
+```
+x-app-defaults: &x_app_default
+  # ...
+  environment:
+    CODEBASE_GITLAB_URL: https://gitlab.com # or your GitLab instance URL
+    CODEBASE_GITLAB_AUTH_TOKEN: glpat-xxxxxxxxxxxxxxxxxxxx # Your personal access token
+    CODEBASE_GITLAB_WEBHOOK_SECRET: your-webhook-secret-here # Random secret for webhook validation
+  # ...
+```
+
+#### For Docker Swarm Setup
+
+Create Docker secrets:
+
+```
+# Create secrets for GitLab integration
+echo "glpat-xxxxxxxxxxxxxxxxxxxx" | docker secret create codebase_gitlab_auth_token -
+echo "your-webhook-secret-here" | docker secret create codebase_gitlab_webhook_secret -
+```
+
+Generating Webhook Secret
+
+Generate a secure random webhook secret:
+
+```
+openssl rand -hex 32
+```
+
+### Step 3: Repository Webhooks
+
+DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
+
+DAIV automatically creates webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To update existing webhooks, run `django-admin setup_webhooks --update`.
+
+Verifying webhook setup
+
+To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/` with the following trigger events:
+
+- ✅ Push events
+- ✅ Issues events
+- ✅ Comments (Note events)
+
+Click **Test** → **Push events** to verify connectivity.
+
+### Step 4: Configure Repository Behavior
+
+To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
+
+For complete configuration options, see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md).
+
+### Step 5: Test the Integration
+
+Verify that DAIV is properly connected to your repository.
+
+1. **Create a Test Issue**:
+
+   - Go to your GitLab repository
+   - Create a new issue with title: "Add hello world function"
+   - Add the `daiv` label to the issue
+
+1. **Wait for DAIV Response**:
+
+   - DAIV should automatically comment with a plan to address the issue
+   - Check the issue comments for DAIV's response
+
+Tip
+
+For more on how issue addressing works, see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md).
+
+### Troubleshooting
+
+**Webhook delivery fails**:
+
+- Verify the webhook URL is accessible from GitLab
+- Check SSL certificate validity
+- Review firewall settings
+
+**Issues not being processed**:
+
+- Ensure the `daiv` label is added to issues
+- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
+- Check DAIV logs for errors
+
+**No response to merge request comments**:
+
+- Verify webhook events include "Comments (Note events)"
+- Check that webhook secret matches environment variable
+- Review repository permissions
+
+______________________________________________________________________
+
+## GitHub Configuration
+
+### Prerequisites
+
+Before configuring a GitHub repository, ensure you have:
+
+- **DAIV installed and running** - Follow the [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) guide first
+- **GitHub repository or organization access** - Admin permissions to create and install GitHub Apps
+- **GitHub account** - On GitHub.com or GitHub Enterprise
+
+### Step 1: Create GitHub App
+
+DAIV uses GitHub App authentication to securely interact with your repositories.
+
+1. **Navigate to GitHub App Settings**:
+
+   - For personal account: Go to **Settings** → **Developer settings** → **GitHub Apps** → **New GitHub App**
+   - For organization: Go to **Organization Settings** → **Developer settings** → **GitHub Apps** → **New GitHub App**
+
+1. **Configure GitHub App**:
+
+   **Basic Information:**
+
+   - **GitHub App name**: `DAIV` (or `DAIV - YourOrgName`)
+   - **Homepage URL**: Your DAIV instance URL (e.g., `https://daiv.example.com`)
+   - **Webhook URL**: `https://your-daiv-instance.com/api/codebase/callbacks/github/`
+   - **Webhook secret**: Generate a secure random secret (save this for later)
+
+   ```
+   openssl rand -hex 32
+   ```
+
+   **Permissions:**
+
+   - **Repository permissions:**
+   - Contents: **Read & Write** (to create branches and commits)
+   - Issues: **Read & Write** (to read and comment on issues)
+   - Pull requests: **Read & Write** (to create and update pull requests)
+   - Metadata: **Read-only** (automatically selected)
+   - **Subscribe to events:**
+   - ✅ Push
+   - ✅ Issues
+   - ✅ Issue comment
+   - ✅ Pull request review
+
+   Centralized Webhook Configuration
+
+   Unlike GitLab where webhooks are configured per repository, GitHub Apps use centralized webhook configuration. The webhook you configure here will automatically apply to all repositories where you install the app.
+
+1. **Create the App**:
+
+   - Click **Create GitHub App**
+   - You'll be redirected to the app's settings page
+
+1. **Generate Private Key**:
+
+   - Scroll down to **Private keys** section
+   - Click **Generate a private key**
+   - Save the downloaded `.pem` file securely
+
+1. **Note App ID**:
+
+   - At the top of the app settings page, note the **App ID** (you'll need this)
+
+### Step 2: Install GitHub App
+
+Install the GitHub App on repositories where you want DAIV to work:
+
+1. **Navigate to Install App**:
+
+   - Go to your GitHub App settings page
+   - Click **Install App** in the left sidebar
+   - Select your account or organization
+
+1. **Choose Repository Access**:
+
+   - Select **All repositories** or **Only select repositories**
+   - Choose the repositories you want DAIV to access
+   - Click **Install**
+
+1. **Note Installation ID**:
+
+   - After installation, check the URL: `https://github.com/settings/installations/INSTALLATION_ID`
+   - Note the **Installation ID** from the URL or use the GitHub API to find it
+
+### Step 3: Configure Environment Variables
+
+Add your GitHub App credentials to DAIV's environment configuration.
+
+#### For Docker Compose Setup
+
+Edit your `docker-compose.yml` file:
+
+```
+x-app-defaults: &x_app_default
+  # ...
+  environment:
+    CODEBASE_CLIENT: github
+    CODEBASE_GITHUB_APP_ID: 123456 # Your GitHub App ID
+    CODEBASE_GITHUB_INSTALLATION_ID: 789012 # Your Installation ID
+    CODEBASE_GITHUB_WEBHOOK_SECRET: your-webhook-secret-here # The secret you generated
+    # For GitHub Enterprise, also set:
+    # CODEBASE_GITHUB_URL: https://github.your-company.com
+  # ...
+```
+
+For the private key, you have two options:
+
+**Option 1: Use Docker secrets (recommended)**
+
+```
+# Create secret from the downloaded .pem file
+docker secret create codebase_github_private_key /path/to/your-private-key.pem
+```
+
+**Option 2: Set as environment variable**
+
+```
+x-app-defaults: &x_app_default
+  environment:
+    CODEBASE_GITHUB_PRIVATE_KEY: |
+      -----BEGIN RSA PRIVATE KEY-----
+      Your private key content here...
+      -----END RSA PRIVATE KEY-----
+```
+
+#### For Docker Swarm Setup
+
+Create Docker secrets:
+
+```
+# Create secrets for GitHub integration
+echo "123456" | docker secret create codebase_github_app_id -
+echo "789012" | docker secret create codebase_github_installation_id -
+docker secret create codebase_github_private_key /path/to/your-private-key.pem
+echo "your-webhook-secret-here" | docker secret create codebase_github_webhook_secret -
+```
+
+Private Key Format
+
+The private key must be in PEM format. Keep the entire key including the header and footer lines (`-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`).
+
+### Step 4: Verify Webhook Configuration
+
+Webhooks are configured at the GitHub App level and automatically apply to all repositories where the app is installed. The webhook configuration you set up in Step 1 should already be active.
+
+#### Verify Webhook Settings
+
+1. **Check Webhook Configuration**:
+
+   - Go to your GitHub App settings page
+   - Scroll down to the **Webhook** section
+   - Verify the following settings:
+     - **Webhook URL**: `https://your-daiv-instance.com/api/codebase/callbacks/github/`
+     - **Webhook secret**: The secret you generated earlier
+     - **SSL verification**: Enabled (unless using self-signed certificates)
+     - **Active**: Checked
+
+1. **Verify Subscribed Events**:
+
+   - Scroll down to **Permissions & events** section
+   - Under **Subscribe to events**, ensure these are checked:
+     - ✅ Push
+     - ✅ Issues
+     - ✅ Issue comment
+     - ✅ Pull request review
+
+1. **Test Webhook Delivery**:
+
+   - Create a test issue in one of your repositories where the app is installed
+   - Go back to your GitHub App settings
+   - Click on **Advanced** → **Recent Deliveries**
+   - Check for successful deliveries (200 response code)
+   - If you see a delivery, click on it to view the request and response details
+
+Troubleshooting Webhook Delivery
+
+If webhook deliveries are failing:
+
+- Verify the webhook URL is accessible from GitHub
+- Check that SSL certificates are valid (or disable SSL verification for testing)
+- Ensure the webhook secret in GitHub App matches `CODEBASE_GITHUB_WEBHOOK_SECRET`
+- Review DAIV logs for incoming webhook requests
+
+### Step 5: Configure Repository Behavior
+
+To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
+
+For complete configuration options, see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md).
+
+### Step 6: Test the Integration
+
+Verify that DAIV is properly connected to your GitHub repository.
+
+1. **Create a Test Issue**:
+
+   - Go to your GitHub repository
+   - Create a new issue with title: "Add hello world function"
+   - Add the `daiv` label to the issue
+
+1. **Wait for DAIV Response**:
+
+   - DAIV should automatically comment with a plan to address the issue
+   - Check the issue comments for DAIV's response
+
+Tip
+
+For more on how issue addressing works, see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md).
+
+### Troubleshooting
+
+**Issues not being processed**:
+
+- Ensure the `daiv` label exists and is added to issues
+- Verify the GitHub App has proper permissions (Issues: Read & Write)
+- Check DAIV logs for errors
+- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
+
+**No response to comments**:
+
+- Verify webhook events include "Issue comments" and "Pull request reviews"
+- Check that webhook secret matches environment variable
+- Ensure the app is installed on the repository
+
+**Authentication errors**:
+
+- Verify the private key format is correct (PEM format with header/footer)
+- Check App ID and Installation ID are correct
+- Ensure the GitHub App is installed on the target repositories
+
+______________________________________________________________________
+
+## Next steps
+
+With your repository connected, you can now:
+
+- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
+- **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+- **[Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)** — learn how DAIV handles issues
+- **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)** — learn how DAIV reviews code
+
+# LLM Providers
+
+DAIV supports the following LLM providers:
+
+- [OpenRouter](https://openrouter.ai) (**default**)
+- [OpenAI](https://openai.com)
+- [Anthropic](https://anthropic.com)
+- [Google Gemini](https://gemini.google.com)
+
+You can mix providers — for example, use OpenRouter for the main agent and a direct provider for a specific model override.
+
+## How models are specified
+
+Models use a **prefix system** to identify the provider:
+
+| Prefix        | Provider               | Example                                  |
+| ------------- | ---------------------- | ---------------------------------------- |
+| `openrouter:` | OpenRouter             | `openrouter:anthropic/claude-sonnet-4.6` |
+| `claude`      | Anthropic (direct)     | `claude-sonnet-4.6`                      |
+| `gpt-`, `o4`  | OpenAI (direct)        | `gpt-5.3-codex`                          |
+| `gemini`      | Google Gemini (direct) | `gemini-2.5-pro-preview-05-06`           |
+
+DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
+
+### Default models
+
+| Role             | Model             | Provider   |
+| ---------------- | ----------------- | ---------- |
+| Main agent       | Claude Sonnet 4.6 | OpenRouter |
+| Max mode         | Claude Opus 4.6   | OpenRouter |
+| Explore subagent | Claude Haiku 4.5  | OpenRouter |
+| Fallback         | GPT 5.3 Codex     | OpenRouter |
+
+All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+
+______________________________________________________________________
+
+## OpenRouter
+
+OpenRouter is the **default provider** for DAIV. It provides access to models from multiple vendors with built-in fallback support.
+
+**Setup:**
+
+1. Obtain an API key from [OpenRouter Settings](https://openrouter.ai/settings/keys)
+
+1. Set the environment variable:
+
+   ```
+   OPENROUTER_API_KEY=your-api-key-here
+   ```
+
+**Model format:**
+
+Use the `openrouter:` prefix followed by the [model name from OpenRouter](https://openrouter.ai/models):
+
+```
+openrouter:anthropic/claude-sonnet-4.6
+openrouter:openai/gpt-5.3-codex
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```
+models:
+  agent:
+    model: "openrouter:anthropic/claude-sonnet-4.6"
+```
+
+______________________________________________________________________
+
+## OpenAI
+
+**Setup:**
+
+1. Obtain an API key from [OpenAI](https://platform.openai.com/api-keys)
+
+1. Set the environment variable:
+
+   ```
+   OPENAI_API_KEY=your-api-key-here
+   ```
+
+**Model format:**
+
+Use the [model name from OpenAI](https://platform.openai.com/docs/models) directly (no prefix needed):
+
+```
+gpt-5.3-codex
+o4-mini
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```
+models:
+  agent:
+    model: "gpt-5.3-codex"
+```
+
+______________________________________________________________________
+
+## Anthropic
+
+**Setup:**
+
+1. Obtain an API key from [Anthropic](https://console.anthropic.com/settings/keys)
+
+1. Set the environment variable:
+
+   ```
+   ANTHROPIC_API_KEY=your-api-key-here
+   ```
+
+**Model format:**
+
+Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) directly (no prefix needed):
+
+```
+claude-sonnet-4.6
+claude-opus-4.6
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```
+models:
+  agent:
+    model: "claude-sonnet-4.6"
+```
+
+Warning
+
+We love Anthropic, but unfortunately their API is very unstable and often returns errors. Also, the rate limits could be exceeded very quickly.
+
+______________________________________________________________________
+
+## Google Gemini
+
+**Setup:**
+
+1. Obtain an API key from [AI Studio](https://aistudio.google.com/apikey)
+
+1. Set the environment variable:
+
+   ```
+   GOOGLE_API_KEY=your-api-key-here
+   ```
+
+**Model format:**
+
+Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) directly (no prefix needed):
+
+```
+gemini-2.5-pro-preview-05-06
+gemini-2.4-flash-preview-04-17
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```
+models:
+  agent:
+    model: "gemini-2.5-pro-preview-05-06"
+```
+# Features
+
+# Issue Addressing
+
+Issue Addressing converts issue descriptions into working code. DAIV reads the issue, generates an implementation plan, waits for your approval, and opens a merge request (GitLab) or pull request (GitHub) with the changes.
+
+## How it works
+
+1. You create or update an issue and add a DAIV label
+1. DAIV analyzes the issue title, description, and any attached images
+1. DAIV posts a plan as a comment on the issue
+1. You review and approve the plan
+1. DAIV implements the changes and opens a merge/pull request
+
+```
+graph TD
+    A["Create issue with daiv label"] --> B["DAIV analyzes issue"]
+    B --> C["Plan posted as comment"]
+    C --> D{"Approve?"}
+    D -- "@daiv proceed" --> E["DAIV implements changes"]
+    D -- "Update issue" --> B
+    E --> F["Merge/Pull request created"]
+```
+
+## Triggering
+
+Add any of the following labels to an issue to trigger DAIV:
+
+| Label       | Behavior                                                                    |
+| ----------- | --------------------------------------------------------------------------- |
+| `daiv`      | Generates a plan and waits for approval before implementing                 |
+| `daiv-auto` | Generates a plan and executes it immediately without waiting for approval   |
+| `daiv-max`  | Uses a more capable model with deeper reasoning (see [Max mode](#max-mode)) |
+
+Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combine them — for example, `daiv-auto` + `daiv-max` will auto-execute using the more capable model.
+
+## Plan approval
+
+By default, DAIV uses a **human-in-the-loop** approach. After generating a plan, it waits for explicit approval before making code changes.
+
+To approve a plan, comment on the issue:
+
+```
+@daiv proceed
+```
+
+You can also provide feedback or additional instructions in your approval comment, and DAIV will take them into account during implementation.
+
+Tip
+
+If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.
+
+## Max mode
+
+The `daiv-max` label switches DAIV to a more capable model with a higher thinking level:
+
+| Setting        | Standard                              | Max                                 |
+| -------------- | ------------------------------------- | ----------------------------------- |
+| Model          | Configurable (default: Claude Sonnet) | Configurable (default: Claude Opus) |
+| Thinking level | Configurable (default: medium)        | Configurable (default: high)        |
+
+This is useful for complex issues that require more sophisticated analysis. Both the standard and max models can be configured via environment variables.
+
+## Re-running
+
+After a plan is executed, running a second plan on the same issue will update the existing merge/pull request rather than creating a new one.
+
+If an unexpected error occurs during execution, DAIV creates a **draft** merge/pull request to preserve any changes already made.
+
+## AGENTS.md suggestion
+
+When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
+
+If the created issue has the `daiv` label, DAIV will pick it up and use the `/init` skill to analyze your repository and generate the `AGENTS.md` file automatically.
+
+To disable this suggestion for a specific repository, add the following to `.daiv.yml`:
+
+```
+suggest_context_file: false
+```
+
+To disable it globally across all repositories, set the environment variable:
+
+```
+AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False
+```
+
+## Configuration
+
+Issue addressing is enabled by default. To disable it, add the following to your `.daiv.yml`:
+
+```
+issue_addressing:
+  enabled: false
+```
+
+# Pull Request Assistant
+
+The Pull Request Assistant helps you address code review feedback directly within merge requests (GitLab) or pull requests (GitHub). Mention DAIV in a comment and it will apply changes, answer questions, or fix failing pipelines.
+
+Note
+
+On GitLab this works on **Merge Requests**, on GitHub on **Pull Requests**. This page uses "pull request" to refer to both.
+
+## How to use
+
+Mention DAIV in any comment on a pull request:
+
+```
+@daiv <your request>
+```
+
+Replace `daiv` with your DAIV bot's username if it differs.
+
+DAIV reacts with an eyes emoji to confirm it received your request, then processes it and replies or pushes changes to the branch.
+
+### Where to comment
+
+You can mention DAIV in two places:
+
+- **Inline on the diff** — comment directly on specific lines of code
+- **General discussion** — comment in the pull request conversation
+
+DAIV has context of the diff and the comment's position, so inline comments give it precise context about what you're referring to.
+
+## What it can do
+
+### Apply code changes
+
+Ask DAIV to modify code based on your review feedback:
+
+```
+@daiv use Redis instead of in-memory storage
+```
+
+```
+@daiv add error handling for the case when the API returns null
+```
+
+```
+@daiv move this logic to a separate helper function
+```
+
+### Answer questions
+
+Ask DAIV about the code to help you make review decisions:
+
+```
+@daiv why is this import inside the method instead of at the top?
+```
+
+```
+@daiv is this approach thread-safe?
+```
+
+### Fix failing pipelines
+
+When CI/CD fails, ask DAIV to investigate and fix it:
+
+```
+@daiv the pipeline is failing, can you fix it?
+```
+
+DAIV will inspect the pipeline logs, identify the root cause, and push a fix to the branch.
+
+## Conversation continuity
+
+DAIV maintains context across multiple interactions on the same pull request. You can have a back-and-forth conversation — each new mention builds on previous context, so DAIV understands the full history of changes and discussions.
+
+Tip
+
+If DAIV starts drifting or gets stuck, you can use `@daiv /clear` to reset the conversation and start fresh.
+
+## Configuration
+
+The pull request assistant is enabled by default. To disable it, add the following to your `.daiv.yml`:
+
+```
+pull_request_assistant:
+  enabled: false
+```
+
+# Jobs API
+
+The Jobs API lets you trigger DAIV agents programmatically — outside of the usual git webhook flow. Submit a prompt, get a job ID, and poll for the result.
+
+This is useful when you want to:
+
+- **Run agents on a schedule** — e.g., a GitLab CI pipeline that runs nightly
+- **Chain agent tasks** — e.g., triage tickets, then create issues from the report
+- **Trigger from external tools** — Slack bots, scripts, or custom integrations
+- **Run ad-hoc tasks** — quick one-off agent executions via curl
+
+## Authentication
+
+The Jobs API uses **API key authentication** via Bearer tokens — the same mechanism used by the chat completions API.
+
+### Creating an API key
+
+```
+python manage.py create_api_key <username> --name "my-key"
+```
+
+This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later.
+
+### Using the key
+
+Pass the key in the `Authorization` header:
+
+```
+curl -X POST https://daiv.example.com/api/jobs \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '...'
+```
+
+## Rate limiting
+
+Job submissions are rate-limited per authenticated user. The default limit is **20 requests per hour**. When exceeded, the API returns `429 Too Many Requests`.
+
+The rate can be configured via the `JOBS_THROTTLE_RATE` environment variable:
+
+```
+JOBS_THROTTLE_RATE=50/hour
+```
+
+Valid formats: `N/second`, `N/minute`, `N/hour`, `N/day` (or short forms: `N/s`, `N/m`, `N/h`, `N/d`).
+
+## Endpoints
+
+### Submit a job
+
+```
+POST /api/jobs
+```
+
+**Request body:**
+
+| Field     | Type   | Required | Description                                                       |
+| --------- | ------ | -------- | ----------------------------------------------------------------- |
+| `repo_id` | string | yes      | Repository identifier (e.g., `group/project`)                     |
+| `prompt`  | string | yes      | The prompt to send to the agent                                   |
+| `ref`     | string | no       | Git ref (branch/tag). Defaults to the repository's default branch |
+
+**Example:**
+
+```
+curl -s -X POST https://daiv.example.com/api/jobs \
+  -H "Authorization: Bearer $DAIV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_id": "mygroup/myproject",
+    "prompt": "List all Python files and summarize the project structure"
+  }'
+```
+
+**Response (202 Accepted):**
+
+```
+{
+  "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5"
+}
+```
+
+### Poll job status
+
+```
+GET /api/jobs/{job_id}
+```
+
+**Response (200 OK):**
+
+```
+{
+  "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
+  "status": "SUCCESSFUL",
+  "result": "Here are the Python files...",
+  "error": null,
+  "created_at": "2026-03-27T18:22:39.012Z",
+  "started_at": "2026-03-27T18:22:39.401Z",
+  "finished_at": "2026-03-27T18:22:52.402Z"
+}
+```
+
+**Status values:**
+
+| Status       | Meaning                                                 |
+| ------------ | ------------------------------------------------------- |
+| `READY`      | Job is queued, waiting for a worker                     |
+| `RUNNING`    | Agent is executing                                      |
+| `SUCCESSFUL` | Completed — `result` contains the agent's output        |
+| `FAILED`     | Agent encountered an error — `error` contains a message |
+
+**Error responses:**
+
+| Code  | When                        |
+| ----- | --------------------------- |
+| `404` | Job ID not found or invalid |
+| `401` | Missing or invalid API key  |
+
+## Job lifecycle
+
+```
+stateDiagram-v2
+    [*] --> READY: POST /api/jobs
+    READY --> RUNNING: Worker picks up job
+    RUNNING --> SUCCESSFUL: Agent completes
+    RUNNING --> FAILED: Agent errors
+```
+
+Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's full text output.
+
+## Examples
+
+### Simple script
+
+```
+#!/bin/bash
+DAIV_URL="https://daiv.example.com"
+API_KEY="your-api-key"
+
+# Submit
+JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_id":"mygroup/myproject","prompt":"List all TODO comments"}' \
+  | jq -r '.job_id')
+
+echo "Job submitted: $JOB_ID"
+
+# Poll until done
+while true; do
+  RESPONSE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \
+    -H "Authorization: Bearer $API_KEY")
+  STATUS=$(echo "$RESPONSE" | jq -r '.status')
+
+  case "$STATUS" in
+    SUCCESSFUL) echo "$RESPONSE" | jq -r '.result'; break ;;
+    FAILED)     echo "Job failed"; exit 1 ;;
+    *)          sleep 10 ;;
+  esac
+done
+```
+
+### GitLab CI — Scheduled pipeline with chaining
+
+Use the Jobs API from a scheduled GitLab CI pipeline to chain two agent tasks: triage support tickets, then create issues from the report.
+
+```
+# .gitlab-ci.yml
+triage-and-create-issues:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    # Step 1: Triage tickets
+    - |
+      JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \
+        -H "Authorization: Bearer $DAIV_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "repo_id": "mygroup/myproject",
+          "prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."
+        }' | jq -r '.job_id')
+
+    # Step 2: Poll until done
+    - |
+      while true; do
+        STATUS=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \
+          -H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.status')
+        [ "$STATUS" = "SUCCESSFUL" ] && break
+        [ "$STATUS" = "FAILED" ] && exit 1
+        sleep 30
+      done
+      TRIAGE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \
+        -H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.result')
+
+    # Step 3: Chain — create issues from the triage report
+    - |
+      curl -s -X POST "$DAIV_URL/api/jobs" \
+        -H "Authorization: Bearer $DAIV_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \
+          '{repo_id: "mygroup/myproject", prompt: $prompt}')"
+```
+
+Tip
+
+Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project settings. Mark the API key as **masked** and **protected**.
+
+# Slash Commands & Skills
+
+DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are **skills** — modular capabilities that give DAIV specialized expertise for specific tasks.
+
+From your perspective, both work the same way:
+
+```
+@daiv /<command> [arguments]
+```
+
+Use `/help` to see everything available in the current context.
+
+## Built-in commands
+
+These commands have fixed behavior and are always available:
+
+| Command                     | Scopes          | Description                                                        |
+| --------------------------- | --------------- | ------------------------------------------------------------------ |
+| `/help`                     | Issues, MRs/PRs | Lists all available commands and skills                            |
+| `/agents`                   | Issues, MRs/PRs | Lists available subagents with descriptions                        |
+| `/clear`                    | Issues, MRs/PRs | Resets the conversation context to start fresh                     |
+| `/clone-to-topics <topics>` | Issues only     | Clones the issue to all repositories matching the specified topics |
+
+### /help
+
+```
+@daiv /help
+```
+
+Shows all available slash commands **and** skills for the current scope. The output includes both built-in commands and any skills (built-in or custom) available in the repository.
+
+### /agents
+
+```
+@daiv /agents
+```
+
+Lists the available subagents with their names and descriptions. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for details.
+
+### /clear
+
+```
+@daiv /clear
+```
+
+Clears the conversation history for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting.
+
+### /clone-to-topics
+
+```
+@daiv /clone-to-topics backend, api
+```
+
+Clones the current issue (title, description, and labels) to all repositories matching **all** the specified topics. The current repository is excluded. Only available on issues.
+
+## Built-in skills
+
+Skills are invoked the same way as commands. DAIV ships with the following built-in skills:
+
+| Skill             | Description                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| `/plan`           | Explores the codebase in read-only mode and produces an implementation plan                  |
+| `/code-review`    | Reviews a merge/pull request for correctness, tests, performance, security, and architecture |
+| `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks      |
+| `/init`           | Analyzes the repository and generates or updates an `AGENTS.md` guidance file                |
+| `/skill-creator`  | Guides you through creating a new custom skill                                               |
+
+### /plan
+
+```
+@daiv /plan implement rate limiting for the API
+```
+
+DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the `daiv-auto` label (see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)).
+
+### /code-review
+
+```
+@daiv /code-review
+```
+
+Reviews the current merge/pull request diff for correctness, test coverage, performance, security issues, and architecture concerns. Posts numbered findings grouped by severity.
+
+### /security-audit
+
+```
+@daiv /security-audit
+```
+
+Performs a dedicated security scan of the code changes, looking for injection flaws, hardcoded secrets, authentication issues, and data handling risks.
+
+### /init
+
+```
+@daiv /init
+```
+
+Analyzes the repository structure and generates an `AGENTS.md` file with guidance for AI coding agents, following the recommendations from [the AGENTS.md research paper](https://arxiv.org/abs/2602.11988). If one already exists, it updates it.
+
+### /skill-creator
+
+```
+@daiv /skill-creator
+```
+
+Walks you through creating a new custom skill for your repository. See [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) for more on custom skills.
+
+## Custom commands (skills)
+
+Custom slash commands are implemented as **skills**. Creating a skill automatically registers it as a command — there is no separate registration step.
+
+To create a custom command like `/my-command`:
+
+1. Create `.agents/skills/my-command/SKILL.md` with YAML frontmatter
+1. Invoke it with `@daiv /my-command`
+
+Custom commands appear alongside built-in ones in `/help` and are invoked the same way. For the full guide on creating skills, see [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md).
+
+# Subagents
+
+DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.
+
+You can see the available subagents by running `/agents` on any issue or merge/pull request.
+
+## Available subagents
+
+### General-purpose
+
+A full-capability agent for researching complex questions, searching for code, and executing multi-step tasks. It has access to the same tools as the main agent:
+
+- Filesystem operations (read, search, edit)
+- Git platform tools (GitLab/GitHub)
+- Web search and fetch
+- Sandbox command execution
+- Task tracking
+
+The main agent delegates to the general-purpose subagent when a task requires multiple rounds of searching and reasoning — for example, investigating a bug across several files or researching how an external library works before making changes.
+
+### Explore
+
+A fast, read-only agent specialized for codebase navigation. It can:
+
+- Find files by glob patterns (e.g., `src/components/**/*.tsx`)
+- Search code for keywords and regex patterns
+- Read and analyze file contents
+
+It **cannot** modify files, run commands, or access external resources. This constraint makes it fast and safe for quick lookups.
+
+The main agent delegates to the explore subagent when it needs to quickly locate files, understand code structure, or gather context before making decisions. You can control the depth of exploration with thoroughness levels: "quick", "medium", or "very thorough".
+
+## How delegation works
+
+The main agent chooses which subagent to use based on the task:
+
+- **Need to find a file or understand code structure?** → Explore subagent
+- **Need to research, run commands, or do multi-step work?** → General-purpose subagent
+- **Need to make code changes directly?** → Main agent handles it itself
+
+Subagents run within the same conversation context. Their findings are returned to the main agent, which uses them to continue the task.
+
+## Custom subagents
+
+You can define your own specialized subagents on a per-repository basis. Custom subagents are markdown files stored in `.agents/subagents/` at the repository root — one file per subagent.
+
+```
+your-repository/
+├── .agents/
+│   └── subagents/
+│       ├── my-agent.md
+│       └── data-analyst.md
+└── src/
+```
+
+### File format
+
+Each `.md` file contains YAML frontmatter with the subagent's metadata, followed by a markdown body that becomes the subagent's system prompt:
+
+```
+---
+name: database-migration
+description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
+model: openrouter:anthropic/claude-sonnet-4.6  # optional
+---
+
+You are a database migration specialist. When given a task:
+
+1. Review the current schema by reading model files
+2. Identify all affected tables and relationships
+3. Plan the migration steps in order
+4. Check for data loss risks
+5. Suggest rollback strategies
+```
+
+### Required fields
+
+| Field         | Description                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `name`        | Unique identifier for the subagent. The main agent uses this when delegating tasks.                                     |
+| `description` | What this subagent does. The main agent uses this to decide when to delegate — be specific and include trigger phrases. |
+
+The markdown body (after the frontmatter) is **required** and becomes the subagent's system prompt.
+
+### Optional fields
+
+| Field   | Description                                                                                                                                                                       |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. |
+
+### Capabilities
+
+Custom subagents have the same capabilities as the built-in general-purpose subagent:
+
+- Filesystem operations (read, search, edit)
+- Git platform tools (GitLab/GitHub)
+- Web search and fetch (if enabled)
+- Sandbox command execution (if enabled)
+- Task tracking
+
+### Writing a good description
+
+The `description` field is how the main agent decides whether to delegate to your subagent. Include specific trigger phrases:
+
+```
+# Good — specific triggers the agent can match
+description: >
+  Specialized agent for API endpoint design and implementation.
+  Use when the task involves creating new REST endpoints, modifying
+  API responses, or designing request/response schemas.
+
+# Bad — too vague
+description: Helps with API stuff.
+```
+
+# Sandbox
+
+The sandbox gives DAIV's agent the ability to execute shell commands inside an isolated Docker container. This lets it run tests, install dependencies, execute linters, inspect git history, and perform other operations that require a real shell environment.
+
+The sandbox is powered by [daiv-sandbox](https://github.com/srtab/daiv-sandbox/), a companion service that manages container sessions.
+
+## What the agent can do
+
+With the sandbox enabled, DAIV can:
+
+- Run tests and linters to validate changes
+- Install and update dependencies (npm, pip, uv, etc.)
+- Inspect git state (`git status`, `git diff`, `git log`)
+- Execute build scripts and generators
+- Run any command allowed by the command policy
+
+Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
+
+## Command policy
+
+Not all commands are safe for an AI agent to run. The sandbox enforces a layered command policy that controls what's allowed.
+
+### Built-in safety rules
+
+The following commands are **always blocked** and cannot be overridden:
+
+| Category               | Blocked commands                                                         |
+| ---------------------- | ------------------------------------------------------------------------ |
+| Git history mutation   | `git commit`, `git push`, `git reset`, `git rebase`, `git filter-branch` |
+| Git index manipulation | `git add`, `git hash-object`, `git update-index`                         |
+| Destructive operations | `git clean`, `git checkout .`, `git restore .`                           |
+| Branch/tag deletion    | `git branch -D`, `git tag -d`                                            |
+| Git configuration      | `git config`                                                             |
+| Platform CLI tools     | `gitlab`, `gh`, `python -m gitlab`                                       |
+
+These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.
+
+### Per-repository rules
+
+You can add custom allow and disallow rules in your `.daiv.yml`:
+
+```
+sandbox:
+  command_policy:
+    allow:
+      - "npm install"
+      - "pytest"
+    disallow:
+      - "rm -rf"
+```
+
+### Precedence
+
+When a command is evaluated, rules are checked in this order:
+
+1. **Built-in disallow** — always wins, cannot be overridden
+1. **Repository disallow** — cannot be overridden by allow
+1. **Repository allow** — permits commands not caught by 1 or 2
+1. **Default** — everything else is allowed
+
+## Configuration
+
+The sandbox is configured per-repository in `.daiv.yml`:
+
+```
+sandbox:
+  base_image: "python:3.12-bookworm"  # Docker image (set to null to disable)
+  network_enabled: false               # Allow network access
+  ephemeral: false                     # Ephemeral sessions
+  memory_bytes: 4294967296             # Memory limit (4 GB)
+  cpus: 2.0                            # CPU limit
+  command_policy:
+    allow: []
+    disallow: []
+```
+
+| Option                    | Default                | Description                                                                             |
+| ------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| `base_image`              | `python:3.12-bookworm` | Docker image for the sandbox. Set to `null` to disable the sandbox for this repository. |
+| `network_enabled`         | `false`                | Whether the container can access the network.                                           |
+| `ephemeral`               | `false`                | Whether sessions are ephemeral (no state persistence).                                  |
+| `memory_bytes`            | `null` (unlimited)     | Memory limit in bytes.                                                                  |
+| `cpus`                    | `null` (unlimited)     | CPU limit.                                                                              |
+| `command_policy.allow`    | `[]`                   | Commands to explicitly allow.                                                           |
+| `command_policy.disallow` | `[]`                   | Commands to explicitly block.                                                           |
+
+## Custom base image
+
+The `base_image` option is one of the most powerful sandbox settings. By providing your own Docker image, you give the agent access to your project's exact toolchain — the same runtimes, package managers, and utilities your team uses every day.
+
+### Requirements
+
+Your base image **must include `git`**. The sandbox mounts the repository and the agent relies on git to inspect the codebase (e.g., `git diff`, `git log`, `git status`). Without it, many sandbox operations will fail.
+
+### Examples
+
+| Project type   | Recommended image                | Why                                       |
+| -------------- | -------------------------------- | ----------------------------------------- |
+| Python         | `python:3.12-bookworm` (default) | Includes pip, git, and common build tools |
+| Node.js        | `node:22-bookworm`               | Includes npm/npx and git                  |
+| Go             | `golang:1.23-bookworm`           | Includes go toolchain and git             |
+| Multi-language | Your own image                   | Pre-install all runtimes and dependencies |
+
+### Building your own image
+
+For the best experience, create an image with your project's dependencies pre-installed. This avoids the agent spending time on `npm install` or `pip install` on every task.
+
+```
+FROM python:3.12-bookworm
+
+# Ensure git is available
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Pre-install project dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+```
+
+Then reference it in `.daiv.yml`:
+
+```
+sandbox:
+  base_image: "your-registry.example.com/your-project-sandbox:latest"
+```
+
+Tip
+
+Pre-installing dependencies in your image makes the agent significantly faster — it can jump straight into running tests or builds instead of waiting for package installation.
+# Customization
+
+# Repository Config
+
+Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of the default branch.
+
+## Full example
+
+```
+# Repository settings
+default_branch: main
+context_file_name: "AGENTS.md"
+suggest_context_file: true
+
+# Access control
+allowed_usernames:
+  - alice
+  - bob
+
+# Files the agent can see but won't read
+omit_content_patterns:
+  - "*.min.js"
+  - "*.svg"
+  - "*.lock"
+
+# Feature toggles
+issue_addressing:
+  enabled: true
+
+pull_request_assistant:
+  enabled: true
+
+slash_commands:
+  enabled: true
+
+# Sandbox
+sandbox:
+  base_image: "python:3.12-bookworm"
+  ephemeral: false
+  network_enabled: false
+  cpus: 2.0
+  memory_bytes: 4294967296
+  command_policy:
+    allow: []
+    disallow: []
+
+# Model overrides
+models:
+  agent:
+    model: "openrouter:anthropic/claude-sonnet-4.6"
+    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    thinking_level: "medium"
+  diff_to_metadata:
+    model: "openrouter:anthropic/claude-sonnet-4.6"
+    fallback_model: "openrouter:openai/gpt-5.3-codex"
+```
+
+## Repository settings
+
+| Option                 | Type          | Default            | Description                                                                                                                                                                                             |
+| ---------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                |
+| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://arxiv.org/abs/2602.11988) guidance file. Set to `null` to disable.                                                                                                      |
+| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://srtab.github.io/daiv/dev/features/issue-addressing/#agentsmd-suggestion). |
+
+Tip
+
+The `AGENTS.md` file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the `/init` skill — see [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/#init).
+
+## Access control
+
+Restrict which users can interact with DAIV on this repository. This is particularly useful for **public repositories** where you want to prevent arbitrary users from triggering DAIV.
+
+| Option              | Type        | Default | Description                                                                 |
+| ------------------- | ----------- | ------- | --------------------------------------------------------------------------- |
+| `allowed_usernames` | `list[str]` | `[]`    | Usernames allowed to interact with DAIV. When empty, all users are allowed. |
+
+```
+allowed_usernames:
+  - alice
+  - bob
+  - charlie
+```
+
+When the list is empty or omitted, **all users** can interact with DAIV (default behavior). When populated, only the listed users can trigger DAIV through issues, comments, and merge request reviews. Username matching is case-insensitive.
+
+Tip
+
+Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
+
+## File access
+
+Control which files DAIV can read.
+
+| Option                  | Type        | Default                                                        | Description                                                                                                             |
+| ----------------------- | ----------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `omit_content_patterns` | `list[str]` | `["*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"]` | Files matching these patterns are visible to the agent but their content is not read. Useful for large generated files. |
+
+Patterns follow [fnmatch](https://docs.python.org/3/library/fnmatch.html) syntax.
+
+## Feature toggles
+
+All features are enabled by default. Disable any you don't need:
+
+```
+issue_addressing:
+  enabled: false
+
+pull_request_assistant:
+  enabled: false
+
+slash_commands:
+  enabled: false
+```
+
+| Section                  | Option    | Default | Description                                                                                         |
+| ------------------------ | --------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `issue_addressing`       | `enabled` | `true`  | [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)             |
+| `pull_request_assistant` | `enabled` | `true`  | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) |
+| `slash_commands`         | `enabled` | `true`  | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)        |
+
+## Sandbox
+
+Configure the sandbox for command execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for a full explanation of what the sandbox does and how the command policy works.
+
+| Option                            | Type            | Default                | Description                                |
+| --------------------------------- | --------------- | ---------------------- | ------------------------------------------ |
+| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable.    |
+| `sandbox.ephemeral`               | `bool`          | `false`                | Ephemeral sessions (no state persistence). |
+| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                      |
+| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                                 |
+| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                     |
+| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.     |
+| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.                 |
+
+## Branch naming and commit conventions
+
+DAIV generates branch names and commit messages automatically. You can define your conventions in `AGENTS.md`:
+
+```
+## Branch naming
+Use: pr/<issue-id>-<kebab-summary>
+
+## Commit messages
+Use: (<ISSUE-ID>) <type>: <summary>
+Where <type> is one of: feat, fix, chore, docs, refactor, test
+```
+
+If no conventions are defined, DAIV defaults to:
+
+- **Branches**: `<type>/<short-kebab-summary>`
+- **Commits**: Conventional Commits style `<type>: <short summary>`
+
+## Model overrides
+
+Override the default models on a per-repository basis. Useful for using smaller models on simple projects or larger models on complex ones.
+
+Configuration priority (highest to lowest):
+
+1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode)
+1. **`.daiv.yml` models section** — per-repository overrides
+1. **Environment variables** — global defaults
+
+### Agent
+
+The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.
+
+| Option                        | Type                                               | Default             | Description                               |
+| ----------------------------- | -------------------------------------------------- | ------------------- | ----------------------------------------- |
+| `models.agent.model`          | `str`                                              | `claude-sonnet-4.6` | Primary model.                            |
+| `models.agent.fallback_model` | `str`                                              | `gpt-5.3-codex`     | Fallback if the primary model fails.      |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| null` | `medium`            | Thinking depth. Set to `null` to disable. |
+
+### Diff to metadata
+
+Generates pull request titles, descriptions, and commit messages from diffs.
+
+| Option                                   | Type  | Default             | Description                          |
+| ---------------------------------------- | ----- | ------------------- | ------------------------------------ |
+| `models.diff_to_metadata.model`          | `str` | `claude-sonnet-4.6` | Primary model.                       |
+| `models.diff_to_metadata.fallback_model` | `str` | `gpt-5.3-codex`     | Fallback if the primary model fails. |
+
+Note
+
+The diff to metadata agent reads your `AGENTS.md` file to follow your branch naming and commit message conventions.
+
+# Agent Skills
+
+Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.
+
+DAIV ships with [built-in skills](https://srtab.github.io/daiv/dev/features/slash-commands/#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own.
+
+## How skills work
+
+Skills use a **progressive disclosure** pattern:
+
+1. **At startup** — DAIV reads the `name` and `description` from each skill's YAML frontmatter (~100 tokens per skill)
+1. **When triggered** — DAIV reads the full `SKILL.md` content and follows its instructions
+1. **As needed** — the agent accesses supporting files bundled with the skill (scripts, templates, configs)
+
+This keeps context usage minimal until a skill is actually needed.
+
+## Directory structure
+
+Skills can live in any of these directories at the repository root:
+
+- `.agents/skills/`
+- `.cursor/skills/`
+- `.claude/skills/`
+
+DAIV scans all three and loads skills from each. If multiple directories contain a skill with the same name, the last one loaded wins.
+
+```
+your-repository/
+├── .agents/
+│   └── skills/
+│       ├── my-custom-skill/
+│       │   ├── SKILL.md           # Required
+│       │   └── scripts/
+│       │       └── helper.py      # Optional supporting files
+│       └── plan/                   # Built-in (auto-copied, gitignored)
+│           └── SKILL.md
+└── src/
+```
+
+Built-in skills are automatically copied to `.agents/skills/` at agent startup with a `.gitignore` to prevent them from being committed. You can override any built-in skill by creating one with the same name and committing it to the repository.
+
+## Custom global skills
+
+Custom global skills are user-defined skills that are available across **all repositories**, unlike per-repository skills. They follow the same directory format as built-in skills (a directory containing a `SKILL.md` file) and are loaded from a configurable path on the host filesystem.
+
+### Setup
+
+1. Create a directory with your custom skills on the host machine:
+
+   ```
+   custom-skills/
+   ├── my-workflow/
+   │   ├── SKILL.md
+   │   └── scripts/
+   │       └── helper.py
+   └── team-review/
+       └── SKILL.md
+   ```
+
+1. Mount it as a Docker volume into the DAIV worker container at `/home/daiv/data/skills/`:
+
+   ```
+   # In your docker-compose.yml or stack.yml
+   worker:
+     volumes:
+       - ./custom-skills:/home/daiv/data/skills:ro
+   ```
+
+   The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent)).
+
+### Override priority
+
+Skills are resolved in this order (highest priority wins):
+
+1. **Per-repository skills** — committed in the repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/`
+1. **Custom global skills** — mounted via Docker volume
+1. **Built-in skills** — shipped with DAIV
+
+This means custom global skills override built-in skills with the same name, and per-repository skills override both.
+
+### Notes
+
+- Skills are copied at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
+- Custom global skills are marked with a `<global>` tag in the agent's system prompt so the LLM can distinguish them from built-in and per-repository skills.
+
+## Creating a skill
+
+### SKILL.md format
+
+Every skill requires a `SKILL.md` file with YAML frontmatter:
+
+```
+---
+name: my-skill
+description: Brief description of what this skill does and when the agent should use it
+---
+
+# My Skill
+
+## Instructions
+
+1. First, do this
+2. Then, do that
+3. Finally, verify the result
+```
+
+### Required fields
+
+| Field         | Constraints                                                                 | Description                                                                                                                |
+| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | Max 64 chars, lowercase alphanumeric and hyphens, must match directory name | Unique identifier for the skill. This is what users type after `/`.                                                        |
+| `description` | Max 1024 chars                                                              | What the skill does **and when to use it**. The agent matches user requests against this text, so include trigger phrases. |
+
+### Optional fields
+
+| Field           | Description                                                   |
+| --------------- | ------------------------------------------------------------- |
+| `license`       | License name or reference to a bundled license file           |
+| `compatibility` | Environment requirements (max 500 chars)                      |
+| `metadata`      | Arbitrary key-value pairs for additional properties           |
+| `allowed-tools` | Space-delimited list of tool names the skill recommends using |
+
+### Writing a good description
+
+The `description` field is how the agent decides whether to use your skill. Include specific trigger phrases:
+
+```
+# Good — includes trigger phrases the agent can match
+description: >
+  Diagnose and fix CI/CD pipeline failures. Use when the user mentions
+  "pipeline is failing", "CI broken", "fix the build", or "debug the tests".
+
+# Bad — too vague for the agent to match
+description: Helps with CI/CD issues.
+```
+
+## Authoring best practices
+
+### Be specific and actionable
+
+Tell the agent exactly what steps to follow:
+
+```
+## Instructions
+
+1. Fetch the merge request diff using the platform tools
+2. For each changed file, check for:
+   - Missing error handling
+   - Unvalidated inputs
+   - Hardcoded credentials
+3. Report findings grouped by severity (High / Medium / Low)
+```
+
+### Bundle supporting files
+
+Skills can include helper scripts, templates, and reference documents. Reference them using relative paths from the skill directory:
+
+```
+my-skill/
+├── SKILL.md
+├── scripts/
+│   └── validate.py
+└── templates/
+    └── report.md
+```
+
+```
+## Resources
+- Run `scripts/validate.py` to check prerequisites
+- Use `templates/report.md` as the output format
+```
+
+### Use the skill-creator
+
+DAIV includes a built-in `/skill-creator` skill that walks you through creating a new skill:
+
+```
+@daiv /skill-creator
+```
+
+## Example: changelog skill
+
+````
+---
+name: changelog
+description: >
+  Update the CHANGELOG.md file when changes are made. Use when the user
+  asks to "update the changelog", "add a changelog entry", or after
+  completing a feature implementation.
+---
+
+# Changelog Maintenance
+
+## Instructions
+
+1. Read `CHANGELOG.md` from the repository root
+2. Determine the change type: Added, Changed, Fixed, Removed
+3. Add an entry under the `[Unreleased]` section
+4. Follow the existing format and style in the file
+5. Keep entries concise — one line per change
+
+## Format
+
+Use [Keep a Changelog](https://keepachangelog.com/) format:
+
+```markdown
+## [Unreleased]
+
+### Added
+- New feature description
+````
+
+````
+
+## Security considerations
+
+Use skills from trusted sources only
+
+Skills provide agents with instructions and access to scripts. Only use skills you created yourself or obtained from trusted sources.
+
+- **Audit all files** in a skill before committing it to your repository
+- **Review scripts carefully** — any executable code in a skill can be run by the agent
+- **Check external references** — skills that fetch data from external URLs pose additional risk```
+````
+
+# MCP Tools
+
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container via [supergateway](https://github.com/supercorp-ai/supergateway), ensuring that a compromised or misbehaving server cannot affect others.
+
+## Built-in MCP servers
+
+### Sentry
+
+The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives DAIV access to your error tracking data.
+
+**Available tools:**
+
+| Tool                 | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `find_organizations` | Discover Sentry organizations                   |
+| `find_projects`      | List projects in an organization                |
+| `search_issues`      | Search for issues by query                      |
+| `search_events`      | Search for events                               |
+| `get_issue_details`  | Get detailed information about a specific issue |
+
+**Use cases:** Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.
+
+**Configuration:**
+
+```
+MCP_SENTRY_URL=http://mcp-sentry:8000/sse   # Default; set to None to disable
+```
+
+`SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
+
+### Context7
+
+The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) provides up-to-date library documentation lookup.
+
+**Available tools:**
+
+| Tool                 | Description                                |
+| -------------------- | ------------------------------------------ |
+| `resolve-library-id` | Resolve a library name to its Context7 ID  |
+| `query-docs`         | Query documentation for a specific library |
+
+**Use cases:** Looking up current API documentation, finding code examples for libraries used in the project.
+
+**Configuration:**
+
+```
+MCP_CONTEXT7_URL=http://mcp-context7:8000/sse  # Default; set to None to disable
+```
+
+Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
+
+## User-defined MCP servers
+
+DAIV can connect to any MCP server that implements the [Model Context Protocol](https://modelcontextprotocol.io/). If you need to build a custom server, see the [MCP server documentation](https://modelcontextprotocol.io/docs/concepts/servers). This section covers how to connect an existing server to DAIV.
+
+Provide a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
+
+Only `sse` and `http` (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.
+
+Note
+
+When running in Docker, the config file must be accessible inside the container. Mount it as a volume and set `MCP_SERVERS_CONFIG_FILE` to the container path:
+
+```
+# docker-compose.yml
+app:
+  volumes:
+    - ./mcp.json:/home/app/mcp.json:ro
+  environment:
+    MCP_SERVERS_CONFIG_FILE: /home/app/mcp.json
+```
+
+### Config file format
+
+```
+{
+  "mcpServers": {
+    "my-internal-api": {
+      "type": "sse",
+      "url": "http://my-mcp-host:8080/sse",
+      "headers": {
+        "Authorization": "Bearer ${MY_API_TOKEN}"
+      }
+    },
+    "another-service": {
+      "type": "http",
+      "url": "http://another-host:9000/mcp",
+      "headers": {
+        "X-Api-Key": "${ANOTHER_API_KEY}"
+      },
+      "toolFilter": {
+        "mode": "allow",
+        "list": ["search", "get_document"]
+      }
+    }
+  }
+}
+```
+
+Each server entry supports:
+
+| Field        | Required | Description                                       |
+| ------------ | -------- | ------------------------------------------------- |
+| `type`       | Yes      | Transport type: `sse` or `http` (streamable HTTP) |
+| `url`        | Yes      | URL of the MCP server                             |
+| `headers`    | No       | HTTP headers (supports env var expansion)         |
+| `toolFilter` | No       | Restrict which tools are exposed (see below)      |
+
+### Tool filtering
+
+Use `toolFilter` to control which tools from a server are available to the agent:
+
+- **`mode: "allow"`** — only tools in the `list` are exposed
+- **`mode: "block"`** — all tools except those in the `list` are exposed
+
+```
+{
+  "toolFilter": {
+    "mode": "allow",
+    "list": ["tool_a", "tool_b"]
+  }
+}
+```
+
+If `toolFilter` is omitted, all tools from the server are available.
+
+### Environment variable expansion
+
+The `url` and `headers` values support environment variable expansion:
+
+- `${VAR}` — replaced with the value of `VAR`, kept as-is if unset
+- `${VAR:-default}` — replaced with the value of `VAR`, or `default` if unset
+
+This allows you to keep secrets out of the config file and inject them via environment variables.
+
+## Running custom MCP servers
+
+To add a custom stdio-based MCP server, wrap it with [supergateway](https://github.com/supercorp-ai/supergateway) in its own container. Each MCP server should run in a separate container for security isolation.
+
+Example `docker-compose.yml` service:
+
+```
+mcp-my-tool:
+  image: supercorp/supergateway:latest
+  restart: unless-stopped
+  container_name: daiv-mcp-my-tool
+  command:
+    - --stdio
+    - "npx my-mcp-server@latest"
+    - --healthEndpoint
+    - "/healthz"
+  environment:
+    MY_TOOL_API_KEY: ${MY_TOOL_API_KEY:-}
+  healthcheck:
+    test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+```
+
+Then reference it in your config file:
+
+```
+{
+  "mcpServers": {
+    "my-tool": {
+      "type": "sse",
+      "url": "http://mcp-my-tool:8000/sse"
+    }
+  }
+}
+```
+
+## Security considerations
+
+- **One container per MCP server** — each MCP runs in its own isolated container, so a vulnerability in one cannot compromise others
+- **Environment variable expansion** — use `${VAR}` syntax to inject secrets from the environment instead of hardcoding them in config files
+- **Store tokens securely** — use Docker secrets for sensitive values like access tokens
+- **Network segmentation** — MCP containers only need to reach the services they interact with; consider restricting their network access
+- **Review server permissions** — MCP servers may require network access to external services
+# Reference
+
+# Environment Variables
+
+DAIV provides a large number of environment variables to configure its behavior. This page lists all supported variables.
+
+Variables marked with:
+
+- are sensitive (such as API keys, passwords, and tokens) and should be declared using Docker secrets or a secure credential manager.
+- are required and should be declared.
+
+______________________________________________________________________
+
+## Core
+
+### General
+
+| Variable               | Description                           | Default  | Example                 |
+| ---------------------- | ------------------------------------- | -------- | ----------------------- |
+| `DJANGO_DEBUG`         | Toggle Django debug mode              | `False`  | `True`                  |
+| `DJANGO_SECRET_KEY`    | Secret key for Django                 | *(none)* | `super-secret-key`      |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated list of allowed hosts | `*`      | `example.com,localhost` |
+
+Danger
+
+Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.
+
+Info
+
+The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowed to access the application. Make sure to include the host where the application is running to increase security.
+
+### Uvicorn
+
+| Variable       | Description                     | Default   | Example   |
+| -------------- | ------------------------------- | --------- | --------- |
+| `UVICORN_HOST` | Host to bind the Uvicorn server | `0.0.0.0` | `0.0.0.0` |
+| `UVICORN_PORT` | Port to bind the Uvicorn server | `8000`    | `8000`    |
+
+### Database
+
+| Variable           | Description                       | Default     | Example      |
+| ------------------ | --------------------------------- | ----------- | ------------ |
+| `DB_NAME`          | Database name                     | *(none)*    | `daiv`       |
+| `DB_USER`          | Database user                     | *(none)*    | `daiv_admin` |
+| `DB_PASSWORD`      | Database password                 | *(none)*    |              |
+| `DB_HOST`          | Database host                     | `localhost` | `db`         |
+| `DB_PORT`          | Database port                     | `5432`      | `5432`       |
+| `DB_SSLMODE`       | PostgreSQL SSL mode               | `require`   | `prefer`     |
+| `DB_POOL_MAX_SIZE` | Maximum size of a connection pool | `15`        | `30`         |
+
+### Redis
+
+| Variable                              | Description                                           | Default                     | Example                |
+| ------------------------------------- | ----------------------------------------------------- | --------------------------- | ---------------------- |
+| `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                 | *(none)*                    | `redis://redis:6379/0` |
+| `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)              | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
+| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
+| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data          | `10080` (7 days)            | `1440`                 |
+
+### Sentry
+
+| Variable                      | Description                 | Default  | Example |
+| ----------------------------- | --------------------------- | -------- | ------- |
+| `SENTRY_DSN`                  | Sentry DSN                  | *(none)* |         |
+| `SENTRY_DEBUG`                | Enable Sentry debug mode    | `False`  | `True`  |
+| `SENTRY_ENABLE_LOGS`          | Enable Sentry logs          | `False`  | `True`  |
+| `SENTRY_TRACES_SAMPLE_RATE`   | Sentry traces sample rate   | `0.0`    | `1.0`   |
+| `SENTRY_PROFILES_SAMPLE_RATE` | Sentry profiles sample rate | `0.0`    | `1.0`   |
+| `SENTRY_SEND_DEFAULT_PII`     | Enable Sentry default PII   | `False`  | `True`  |
+| `NODE_HOSTNAME`               | Node hostname for Sentry    | *(none)* |         |
+| `SERVICE_NAME`                | Service name for Sentry     | *(none)* |         |
+
+Note
+
+`NODE_HOSTNAME` and `SERVICE_NAME` are used to identify the node and service that is reporting the error.
+
+### Logging
+
+| Variable               | Description          | Default   | Example |
+| ---------------------- | -------------------- | --------- | ------- |
+| `DJANGO_LOGGING_LEVEL` | Django logging level | `WARNING` | `DEBUG` |
+
+### Monitoring (LangSmith)
+
+| Variable             | Description              | Default                           | Example                              |
+| -------------------- | ------------------------ | --------------------------------- | ------------------------------------ |
+| `LANGSMITH_TRACING`  | Enable LangSmith tracing | `false`                           | `true`                               |
+| `LANGSMITH_PROJECT`  | LangSmith project name   | `default`                         | `daiv-production`                    |
+| `LANGSMITH_API_KEY`  | LangSmith API key        | *(none)*                          | `lsv2_pt_...`                        |
+| `LANGSMITH_ENDPOINT` | LangSmith API endpoint   | `https://api.smith.langchain.com` | `https://eu.api.smith.langchain.com` |
+
+Note
+
+LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`). The `LANGSMITH_API_KEY` supports Docker secrets via the `_FILE` suffix. For setup details, see [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md).
+
+### Sandbox (client-side)
+
+| Variable                               | Description                                                                                     | Default                | Example                   |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------- | ------------------------- |
+| `DAIV_SANDBOX_URL`                     | URL of the sandbox service                                                                      | `http://sandbox:8000`  | `http://sandbox:8000`     |
+| `DAIV_SANDBOX_TIMEOUT`                 | Timeout for sandbox requests in seconds                                                         | `600`                  | `600`                     |
+| `DAIV_SANDBOX_API_KEY`                 | API key for sandbox requests                                                                    | *(none)*               | `random-api-key`          |
+| `DAIV_SANDBOX_BASE_IMAGE`              | Default base image for sandbox sessions                                                         | `python:3.12-bookworm` | `node:18-alpine`          |
+| `DAIV_SANDBOX_EPHEMERAL`               | Default ephemeral setting for sandbox sessions                                                  | `False`                | `True`                    |
+| `DAIV_SANDBOX_NETWORK_ENABLED`         | Default network setting for sandbox sessions                                                    | `False`                | `True`                    |
+| `DAIV_SANDBOX_CPU`                     | Default CPU limit for sandbox sessions (CPUs)                                                   | `None`                 | `1.0`                     |
+| `DAIV_SANDBOX_MEMORY`                  | Default memory limit for sandbox sessions (bytes)                                               | `None`                 | `1073741824`              |
+| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`)   | `""` (none)            | `"curl wget npm publish"` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW`    | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none)            | `"my-safe-tool"`          |
+
+Info
+
+Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for server-side configuration of the sandbox service.
+
+Global policy vs. repository policy
+
+`DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` set global defaults. Per-repository overrides are defined in the `.daiv.yml` `sandbox.command_policy` section and are merged at evaluation time. Built-in safety rules (blocking `git commit`, `git push`, etc.) cannot be overridden by either mechanism.
+
+### Authentication
+
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in via social providers (GitHub, GitLab) or passwordless login-by-code for existing accounts. Configure at least one social provider.
+
+| Variable                    | Description                                                                                | Default                                          | Example                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------ | --------------------------------------------- |
+| `ALLAUTH_GITHUB_CLIENT_ID`  | GitHub OAuth App client ID                                                                 | *(none)*                                         | `Iv1.abc123`                                  |
+| `ALLAUTH_GITHUB_SECRET`     | GitHub OAuth App secret                                                                    | *(none)*                                         |                                               |
+| `ALLAUTH_GITLAB_CLIENT_ID`  | GitLab OAuth Application ID                                                                | *(none)*                                         |                                               |
+| `ALLAUTH_GITLAB_SECRET`     | GitLab OAuth Application secret                                                            | *(none)*                                         |                                               |
+| `ALLAUTH_GITLAB_URL`        | GitLab instance URL (for OAuth redirects to the user's browser)                            | `https://gitlab.com`                             | `https://gitlab.example.com`                  |
+| `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)*                                         | `http://gitlab:8929`                          |
+| `EMAIL_BACKEND`             | Django email backend for login-by-code emails                                              | `django.core.mail.backends.console.EmailBackend` | `django.core.mail.backends.smtp.EmailBackend` |
+| `DEFAULT_FROM_EMAIL`        | Sender address for login-by-code emails                                                    | `noreply@daiv.dev`                               | `noreply@example.com`                         |
+
+Setting up social providers
+
+**GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
+
+**GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
+
+Note
+
+Social providers are only registered when **both** client ID and secret are set. If only one is configured, a warning is logged and the provider button is not shown on the login page.
+
+### Other
+
+| Variable            | Description                      | Default            | Example                    |
+| ------------------- | -------------------------------- | ------------------ | -------------------------- |
+| `DAIV_EXTERNAL_URL` | External URL of the application. | `https://app:8000` | `https://daiv.example.com` |
+
+Note
+
+The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.
+
+______________________________________________________________________
+
+## Codebase
+
+### General
+
+| Variable                      | Description                                              | Default       | Example                      |
+| ----------------------------- | -------------------------------------------------------- | ------------- | ---------------------------- |
+| `CODEBASE_CLIENT`             | Client to use for codebase operations                    | `gitlab`      | `gitlab`, `github`, or `swe` |
+| `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *`               |
+
+Note
+
+Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.
+
+The `swe` client type is designed for SWE-bench style evaluations and clones public OSS repositories to temporary directories without requiring credentials. It uses ephemeral temporary clones per run and does not cache repositories across runs. Repository identifiers should be in the format `owner/name` (e.g., `psf/requests`).
+
+### GitLab Integration
+
+| Variable                         | Description                                | Default  | Example                 |
+| -------------------------------- | ------------------------------------------ | -------- | ----------------------- |
+| `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                 | *(none)* | `https://gitlab.com`    |
+| `CODEBASE_GITLAB_AUTH_TOKEN`     | Authentication token for GitLab            | *(none)* | `glpat-xyz`             |
+| `CODEBASE_GITLAB_WEBHOOK_SECRET` | Secret token for GitLab webhook validation | *(none)* | `random-webhook-secret` |
+
+Note
+
+The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a personal access token with the `api` scope.
+
+### GitHub Integration
+
+| Variable                          | Description                                | Default  | Example                 |
+| --------------------------------- | ------------------------------------------ | -------- | ----------------------- |
+| `CODEBASE_GITHUB_URL`             | URL of the GitHub instance                 | *(none)* | `https://github.com`    |
+| `CODEBASE_GITHUB_APP_ID`          | GitHub App ID                              | *(none)* | `123456`                |
+| `CODEBASE_GITHUB_INSTALLATION_ID` | GitHub App Installation ID                 | *(none)* | `789012`                |
+| `CODEBASE_GITHUB_PRIVATE_KEY`     | GitHub App private key (PEM format)        | *(none)* |                         |
+| `CODEBASE_GITHUB_WEBHOOK_SECRET`  | Secret token for GitHub webhook validation | *(none)* | `random-webhook-secret` |
+
+Note
+
+GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.
+
+Info
+
+For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to your GitHub Enterprise URL (e.g., `https://github.your-company.com`). For GitHub.com, this variable can be omitted.
+
+______________________________________________________________________
+
+## Automation: LLM Providers
+
+This section documents the environment variables for each LLM provider.
+
+Note
+
+At least one of the [supported providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md) should be configured to use the automation features.
+
+### OpenRouter (*default*)
+
+| Variable              | Description             | Default                        | Example |
+| --------------------- | ----------------------- | ------------------------------ | ------- |
+| `OPENROUTER_API_KEY`  | OpenRouter API key      | *(none)*                       |         |
+| `OPENROUTER_API_BASE` | OpenRouter API base URL | `https://openrouter.ai/api/v1` |         |
+
+### Anthropic
+
+| Variable            | Description       | Default  | Example |
+| ------------------- | ----------------- | -------- | ------- |
+| `ANTHROPIC_API_KEY` | Anthropic API key | *(none)* |         |
+
+### OpenAI
+
+| Variable         | Description    | Default  | Example |
+| ---------------- | -------------- | -------- | ------- |
+| `OPENAI_API_KEY` | OpenAI API key | *(none)* |         |
+
+### Google
+
+| Variable         | Description    | Default  | Example |
+| ---------------- | -------------- | -------- | ------- |
+| `GOOGLE_API_KEY` | Google API key | *(none)* |         |
+
+## Automation: Tools
+
+This section documents the environment variables for each tool configuration used by AI agents.
+
+### Context File Suggestion
+
+| Variable                                  | Description                                                         | Default | Example |
+| ----------------------------------------- | ------------------------------------------------------------------- | ------- | ------- |
+| `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` | Enable/disable suggesting an `AGENTS.md` file on new merge requests | `true`  | `false` |
+
+### Web Search
+
+| Variable                            | Description                                         | Default      | Example  |
+| ----------------------------------- | --------------------------------------------------- | ------------ | -------- |
+| `AUTOMATION_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                | `true`       | `false`  |
+| `AUTOMATION_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search | `5`          |          |
+| `AUTOMATION_WEB_SEARCH_ENGINE`      | Web search engine to use (`duckduckgo`, `tavily`)   | `duckduckgo` | `tavily` |
+| `AUTOMATION_WEB_SEARCH_API_KEY`     | Web search API key (required if engine is `tavily`) | *(none)*     |          |
+
+### Web Fetch
+
+The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content.
+
+| Variable                                 | Description                                                       | Default            | Example                                    |
+| ---------------------------------------- | ----------------------------------------------------------------- | ------------------ | ------------------------------------------ |
+| `AUTOMATION_WEB_FETCH_ENABLED`           | Enable/disable the native `web_fetch` tool                        | `true`             | `false`                                    |
+| `AUTOMATION_WEB_FETCH_MODEL_NAME`        | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-4-5` | `openrouter:openai/gpt-4.1-mini`           |
+| `AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                          | `900`              | `1800`                                     |
+| `AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS`   | HTTP timeout for fetching (seconds)                               | `15`               | `30`                                       |
+| `AUTOMATION_WEB_FETCH_PROXY_URL`         | Optional proxy URL for web fetch HTTP requests                    | *(none)*           | `http://proxy:8080`                        |
+| `AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass         | `50000`            | `80000`                                    |
+| `AUTOMATION_WEB_FETCH_AUTH_HEADERS`      | Domain-to-headers mapping for authenticated fetches (JSON)        | `{}`               | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+
+### MCP Tools
+
+MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. Each MCP server runs in its own isolated container.
+
+| Variable                  | Description                                                                | Default                        | Example                     |
+| ------------------------- | -------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
+| `MCP_SERVERS_CONFIG_FILE` | Path to user-defined MCP servers JSON config file                          | *(none)*                       | `/path/to/mcp.json`         |
+| `MCP_SENTRY_URL`          | SSE URL for the Sentry supergateway container (set to `None` to disable)   | `http://mcp-sentry:8000/sse`   | `http://localhost:8001/sse` |
+| `MCP_CONTEXT7_URL`        | SSE URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/sse` | `http://localhost:8002/sse` |
+
+Info
+
+For detailed MCP server configuration including user-defined servers, see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
+
+______________________________________________________________________
+
+## Automation: Agents
+
+These variables control the models and behavior of DAIV's agents. You can also override models per repository via `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+
+### DAIV Agent
+
+The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
+
+| Variable                         | Description                                                             | Default             |
+| -------------------------------- | ----------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`     | Maximum recursion depth for agent execution                             | `500`               |
+| `DAIV_AGENT_MODEL_NAME`          | Primary model for agent tasks                                           | `claude-sonnet-4-6` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails                               | `gpt-5-3-codex`     |
+| `DAIV_AGENT_THINKING_LEVEL`      | Extended thinking level (`low`, `medium`, `high`, or `None` to disable) | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`      | Model used when the `daiv-max` label is present                         | `claude-opus-4-6`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`  | Thinking level for `daiv-max` tasks                                     | `high`              |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME`  | Model for the explore subagent (fast, read-only)                        | `claude-haiku-4-5`  |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`  | Path to custom global skills directory. Set to `None` to disable.       | `~/data/skills`     |
+
+### Jobs API
+
+The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution. Variables use the `JOBS_` prefix.
+
+| Variable             | Description                                                                                                 | Default   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- | --------- |
+| `JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
+
+### Diff to Metadata
+
+Generates pull request titles, descriptions, and commit messages from diffs. Variables use the `DIFF_TO_METADATA_` prefix.
+
+| Variable                               | Description                                   | Default            |
+| -------------------------------------- | --------------------------------------------- | ------------------ |
+| `DIFF_TO_METADATA_MODEL_NAME`          | Primary model for diff-to-metadata generation | `claude-haiku-4-5` |
+| `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails     | `gpt-4-1-mini`     |
+
+# Agent Architecture
+
+DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
+
+## Overview
+
+DAIV's architecture consists of:
+
+- **One main agent** — handles all tasks (issue addressing, code review, slash commands)
+- **Two subagents** — general-purpose (full tools) and explore (read-only, fast)
+- **Middleware stack** — modular capabilities injected based on configuration
+- **MCP servers** — external tool integrations (Sentry, Context7)
+
+```
+graph TB
+    WH[Webhook Event] --> CB[Callback Handler]
+    CB --> TQ[Task Queue]
+    JOB[Jobs API] --> TQ
+    TQ --> MGR[Manager / Task]
+    MGR --> AGENT[DAIV Agent]
+
+    AGENT --> MW[Middleware Stack]
+    MW --> FS[Filesystem Tools]
+    MW --> GIT[Git Tools]
+    MW --> GP[Git Platform Tools]
+    MW --> SB[Sandbox]
+    MW --> WS[Web Search / Fetch]
+    MW --> SK[Skills]
+    MW --> SA[Subagents]
+    MW --> MCP[MCP Tools]
+
+    SA --> GPAgent[General-Purpose]
+    SA --> EXAgent[Explore]
+
+    AGENT --> PUB[Git Change Publisher]
+    PUB --> COMMIT[Commit & Push]
+    PUB --> MR[Create / Update MR]
+```
+
+## End-to-end flow
+
+1. **Trigger** — a webhook event from GitLab/GitHub, or a [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) request
+1. **Dispatch** — the callback handler (webhooks) or API view (jobs) enqueues a background task
+1. **Context setup** — the task sets up the runtime context (repository, branch, scope) and creates the agent
+1. **Agent execution** — LangGraph runs the agent loop: call LLM → execute tools → repeat
+1. **Output** — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)
+
+### Managers
+
+Two managers orchestrate the agent:
+
+| Manager                    | Trigger                 | Purpose                              |
+| -------------------------- | ----------------------- | ------------------------------------ |
+| `IssueAddressorManager`    | Issue with `daiv` label | Plans and implements issue solutions |
+| `CommentsAddressorManager` | `@daiv` mention on MR   | Responds to code review comments     |
+
+Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.
+
+## Tools
+
+The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
+
+### Filesystem
+
+| Tool         | Description                     |
+| ------------ | ------------------------------- |
+| `glob`       | Find files by pattern matching  |
+| `grep`       | Search file contents with regex |
+| `read_file`  | Read file contents              |
+| `edit_file`  | Modify existing files           |
+| `write_file` | Create new files                |
+| `ls`         | List directory contents         |
+
+### Git platform
+
+| Tool                | Description                                                   |
+| ------------------- | ------------------------------------------------------------- |
+| `gitlab` / `github` | Inspect issues, merge requests, pipeline status, and job logs |
+
+### Sandbox
+
+| Tool   | Description                                                 |
+| ------ | ----------------------------------------------------------- |
+| `bash` | Execute commands in a persistent, isolated Docker container |
+
+Commands are evaluated against a [command policy](https://srtab.github.io/daiv/dev/features/sandbox/index.md) before execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for details.
+
+### Web
+
+| Tool         | Description                                                             |
+| ------------ | ----------------------------------------------------------------------- |
+| `web_search` | Search the web (DuckDuckGo or Tavily)                                   |
+| `web_fetch`  | Fetch a URL, convert to markdown, and answer a prompt about its content |
+
+### Skills
+
+| Tool    | Description                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------- |
+| `skill` | Execute a [skill](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) (slash command) |
+
+### MCP
+
+External tools provided via [MCP servers](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md) (Sentry error tracking, Context7 documentation lookup).
+
+## Middlewares
+
+Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.
+
+### Always enabled
+
+| Middleware                         | Purpose                                                |
+| ---------------------------------- | ------------------------------------------------------ |
+| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)        |
+| `GitMiddleware`                    | Branch management, auto-commit, MR creation            |
+| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)         |
+| `SkillsMiddleware`                 | Skill loading and slash command execution              |
+| `SubAgentMiddleware`               | Delegates tasks to subagents                           |
+| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context               |
+| `TodoListMiddleware`               | Task tracking within conversations                     |
+| `SummarizationMiddleware`          | Compresses conversation history when it grows too long |
+| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                    |
+| `ToolCallLoggingMiddleware`        | Logs all tool calls                                    |
+| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                |
+
+### Conditionally enabled
+
+| Middleware                 | Condition                                                |
+| -------------------------- | -------------------------------------------------------- |
+| `SandboxMiddleware`        | Sandbox is configured (`DAIV_SANDBOX_BASE_IMAGE` is set) |
+| `WebSearchMiddleware`      | `AUTOMATION_WEB_SEARCH_ENABLED` is `true`                |
+| `WebFetchMiddleware`       | `AUTOMATION_WEB_FETCH_ENABLED` is `true`                 |
+| `ModelFallbackMiddleware`  | A fallback model is configured                           |
+| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                |
+
+## Subagents
+
+The main agent can delegate work to two subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
+
+| Subagent        | Model                   | Tools                | Use case                                     |
+| --------------- | ----------------------- | -------------------- | -------------------------------------------- |
+| General-purpose | Same as main agent      | Full tool access     | Complex searches, multi-step research        |
+| Explore         | Claude Haiku 4.5 (fast) | Read-only filesystem | Quick file lookups, code structure questions |
+
+## Dynamic system prompt
+
+The agent's system prompt is assembled at runtime and includes:
+
+- Current date
+- Bot username
+- Repository URL and git platform
+- Current branch and default branch
+- Available tools and their descriptions
+- Loaded skill metadata
+- `AGENTS.md` content (if present in the repository)
+
+This ensures the agent always has up-to-date context about the repository it's working in.
+
+## Model configuration
+
+Models are resolved at three levels (highest priority first):
+
+1. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
+1. **Repository config** — `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides)
+1. **Environment variables** — global defaults (`DAIV_AGENT_*`)
+
+See [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent) for all agent model settings.
+
+# Monitoring
+
+DAIV supports [LangSmith](https://smith.langchain.com) for tracing agent executions. This page covers how to set it up and what data is available.
+
+______________________________________________________________________
+
+## Setup
+
+### 1. Get an API key
+
+1. Sign in at [smith.langchain.com](https://smith.langchain.com)
+1. Go to **Settings** → **API Keys** → **Create API Key**
+1. Copy the key (format: `lsv2_pt_...`)
+
+### 2. Configure environment variables
+
+#### Docker Compose
+
+```
+x-app-defaults: &x_app_default
+  # ...
+  environment:
+    LANGSMITH_TRACING: true
+    LANGSMITH_PROJECT: daiv-production
+    LANGSMITH_API_KEY: lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy
+  # ...
+```
+
+#### Docker Swarm
+
+```
+# Environment
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=daiv-production
+LANGSMITH_API_KEY_FILE=/run/secrets/langsmith_api_key
+```
+
+```
+# Create secret
+echo "lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy" | docker secret create langsmith_api_key -
+```
+
+EU endpoint
+
+If you're in Europe, set `LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com`.
+
+### 3. Restart services
+
+```
+# Docker Compose
+docker compose restart
+
+# Docker Swarm
+docker stack deploy -c stack.yml daiv
+```
+
+### 4. Verify
+
+1. Create a test issue with the `daiv` label
+1. Open your LangSmith project — traces should appear within a few minutes
+
+See [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#monitoring-langsmith) for all LangSmith-related variables.
+
+______________________________________________________________________
+
+## Trace tags and metadata
+
+Every agent run includes tags and metadata that make it easy to filter and build dashboards in LangSmith.
+
+### Tags
+
+All runs include two tags:
+
+| Tag          | Description                       | Example            |
+| ------------ | --------------------------------- | ------------------ |
+| Agent name   | Always `DAIV Agent`               | `DAIV Agent`       |
+| Git platform | The platform handling the request | `gitlab`, `github` |
+
+### Metadata by trigger
+
+**Issue addressing** (triggered by labelled issues):
+
+```
+{
+  "author": "username",
+  "triggered_by": "username",
+  "trigger": "label",
+  "repository": "group/project",
+  "git_platform": "gitlab",
+  "issue_id": 42,
+  "labels": ["daiv", "bug"],
+  "scope": "Issue",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
+}
+```
+
+**Comment addressing** (triggered by `@daiv` mentions on merge requests):
+
+```
+{
+  "author": "reviewer-username",
+  "triggered_by": "commenter-username",
+  "trigger": "mention",
+  "repository": "group/project",
+  "git_platform": "gitlab",
+  "merge_request_id": 123,
+  "scope": "Merge Request",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
+}
+```
+
+**Job execution** (triggered via the Jobs API):
+
+```
+{
+  "repo_id": "group/project",
+  "ref": "main",
+  "trigger": "job",
+  "model": "claude-sonnet-4-6",
+  "thinking_level": "medium"
+}
+```
+
+The `scope` field distinguishes how the agent was triggered: `Issue`, `Merge Request`, or `Global`.
+
+### Metadata fields reference
+
+| Field              | Type           | Description                                                        |
+| ------------------ | -------------- | ------------------------------------------------------------------ |
+| `author`           | string         | User who created the issue or merge request                        |
+| `triggered_by`     | string         | User who triggered the agent (may differ from author for mentions) |
+| `trigger`          | string         | How the agent was triggered: `label`, `mention`, or `job`          |
+| `repository`       | string         | Repository slug (e.g. `group/project`)                             |
+| `git_platform`     | string         | Git platform: `gitlab` or `github`                                 |
+| `scope`            | string         | Conversation scope: `Issue`, `Merge Request`, or `Global`          |
+| `model`            | string         | Primary model used for the agent run                               |
+| `thinking_level`   | string or null | Thinking level: `low`, `medium`, `high`, or `null` if disabled     |
+| `issue_id`         | int            | Issue IID (issue triggers only)                                    |
+| `merge_request_id` | int            | Merge request ID (MR triggers only)                                |
+| `labels`           | list           | Issue labels, lowercased (issue triggers only)                     |
+
+______________________________________________________________________
+
+## Custom dashboard
+
+DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.
+
+### Setup
+
+```
+python manage.py setup_langsmith_dashboard --project <project-name>
+```
+
+The command creates a single dashboard named **DAIV Monitoring** with 27 charts organized into 8 groups:
+
+| Group              | Charts                                              | What it tracks                      |
+| ------------------ | --------------------------------------------------- | ----------------------------------- |
+| **Overview**       | Trace Volume, Error Rate, Trigger Breakdown         | High-level activity and reliability |
+| **Latency**        | P50/P99 by Scope, by Repository                     | Response times                      |
+| **Cost**           | Total/Prompt/Completion Cost, Token Usage, P99 Cost | Spend tracking                      |
+| **Platform**       | Volume and Error Rate by Platform, Top Repos        | Platform and repository breakdown   |
+| **Tools**          | Subagent Usage, Tool Calls, Tool Errors, MCP Tools  | Agent internals                     |
+| **LLM**            | Call Count, Latency, Token Usage                    | Model-level metrics                 |
+| **Model**          | Volume, Latency, Cost, Error Rate by Model          | Per-model comparison                |
+| **DiffToMetadata** | Volume, Latency, Error Rate                         | Diff-to-metadata pipeline health    |
+
+### Options
+
+| Flag         | Description                                                                          |
+| ------------ | ------------------------------------------------------------------------------------ |
+| `--project`  | LangSmith project name (default: `LANGCHAIN_PROJECT` or `LANGSMITH_PROJECT` env var) |
+| `--recreate` | Delete the existing dashboard and recreate it from scratch                           |
+
+### Recreating the dashboard
+
+To update the dashboard after upgrading DAIV (which may add new charts):
+
+```
+python manage.py setup_langsmith_dashboard --recreate
+```
+
+### Dashboard tips
+
+- **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
+- **By user** — filter or group by `author`
+- **By model** — group by `model` to compare performance across models (e.g. `claude-sonnet-4-6` vs `claude-opus-4-6`)
+- **Performance** — monitor execution time and token usage per run
+
+______________________________________________________________________
+
+## Bash command policy logs
+
+DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the `daiv.tools` logger.
+
+### Log events
+
+**`bash_policy_denied`** — a command segment matched a disallow rule:
+
+```
+[bash] bash_policy_denied: command denied (id=<call_id>, reason=default_disallow, rule='git push', segment='git push origin main')
+```
+
+**`bash_policy_parse_failed`** — the command string could not be parsed (fail-closed):
+
+```
+[bash] bash_policy_parse_failed: command could not be parsed (id=<call_id>, reason='Parse error: ...')
+```
+
+### Log fields
+
+| Field             | Description                                                  |
+| ----------------- | ------------------------------------------------------------ |
+| `event`           | `bash_policy_denied` or `bash_policy_parse_failed`           |
+| `reason_category` | `default_disallow`, `repo_disallow`, or `parse_failure`      |
+| `matched_rule`    | The rule prefix that triggered denial (e.g. `"git push"`)    |
+| `denied_segment`  | The specific argv segment that was blocked                   |
+| `tool_call_id`    | The agent tool-call ID for correlation with LangSmith traces |
+
+### Monitoring recommendations
+
+- **Alert on high denial rates** — a spike in `bash_policy_denied` may indicate the agent is repeatedly attempting prohibited operations.
+- **Tune policy rules** — use `reason_category` to distinguish built-in denials from custom repo-level denials and adjust `.daiv.yml` accordingly.
+- **Correlate with LangSmith** — the `tool_call_id` links each denial to the full agent trace for deeper investigation.
+
+______________________________________________________________________
+
+## Troubleshooting
+
+**No traces appearing**:
+
+- Verify `LANGSMITH_TRACING=true` is set
+- Check the API key is correct
+- Ensure network connectivity to LangSmith endpoints
+- Review application logs for authentication errors
+
+**Incomplete trace data**:
+
+- Verify the project name matches across all services
+- Ensure Docker secrets are properly mounted (Swarm deployments)
