@@ -15,7 +15,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 ACCOUNT_LOGIN_METHODS = {"email"}
-ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_SIGNUP_FIELDS = ["email*"]
 # Email verification is skipped because users authenticate via social providers
 # (which verify emails) or via login-by-code (which proves email ownership).
 ACCOUNT_EMAIL_VERIFICATION = "none"
