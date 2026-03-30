@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code for existing users, and a styled dark-themed login page. Includes a post-login dashboard with API key management (create, list, revoke).
 - Added activity counters to the dashboard showing jobs processed, success rate, issues resolved, MRs assisted, and active API keys, with a temporal filter (7d/30d/90d/all time).
-
 - Added `setup_langsmith_dashboard` management command to create a pre-configured LangSmith custom dashboard with 27 monitoring charts covering trace volume, latency, cost, tool usage, model comparison, and pipeline health. Supports `--project` and `--recreate` options.
 - Added `model` and `thinking_level` metadata to all LangSmith traces, enabling per-model dashboards and A/B comparison when switching between models.
 - Added async Jobs API (`POST /api/jobs`, `GET /api/jobs/{id}`) for programmatic agent execution with configurable per-user rate limiting (`JOBS_THROTTLE_RATE`). Enables scheduled CI pipelines, Slack bots, and scripted workflows to trigger DAIV agents without blocking.
