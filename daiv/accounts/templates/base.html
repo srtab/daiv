@@ -4,9 +4,26 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}DAIV{% endblock %}</title>
+    {% block meta_description %}<meta name="description" content="DAIV is an open-source async SWE agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.">{% endblock %}
+    {% block meta_robots %}{% endblock %}
+    {% block canonical %}{% endblock %}
+    {% block open_graph %}
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="DAIV — Open-source async SWE agent for your Git platform">
+    <meta property="og:description" content="DAIV integrates directly with GitLab and GitHub through webhooks. Create an issue, get a merge request. No context switching, no separate tools.">
+    <meta property="og:site_name" content="DAIV">
+    {% endblock %}
+    <meta name="twitter:card" content="summary">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="DAIV" />
+    <link rel="manifest" href="/site.webmanifest" />
+    {% block head_extra %}{% endblock %}
     {% load static %}
     <link rel="stylesheet" href="{% static 'accounts/css/styles.css' %}">
 </head>

@@ -1,0 +1,29 @@
+# DAIV
+
+> Open-source async software engineering agent for GitLab and GitHub.
+
+DAIV turns issues into working code. You create an issue, DAIV analyzes your codebase, posts an implementation plan, and after approval, opens a merge request with the changes. If reviewers request changes, mention DAIV in a comment and it applies the fix.
+
+- License: Apache 2.0
+- Source: https://github.com/srtab/daiv
+- Documentation: https://srtab.github.io/daiv/latest/
+- Documentation for LLMs: https://srtab.github.io/daiv/latest/llms.txt
+
+## Capabilities
+
+- Issue-to-merge-request automation with human-in-the-loop approval
+- Slash commands and custom skills invoked from issues and merge requests
+- Secure sandboxed code execution in isolated Docker containers
+- MCP (Model Context Protocol) tool integrations for external services
+- Specialized subagents for exploration and execution
+- Multi-provider LLM support (OpenRouter, Anthropic, OpenAI, Google Gemini)
+- Jobs API for programmatic agent triggering and CI/CD integration
+- Per-repository configuration and custom skill authoring
+
+## How It Works
+
+1. You create an issue describing what you need
+2. DAIV analyzes the codebase and posts an implementation plan as a comment
+3. You review and approve the plan
+4. DAIV implements the changes and opens a merge request
+5. Reviewers can request changes by mentioning DAIV in review comments

@@ -30,6 +30,7 @@ DJANGO_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.sites",
+    "django.contrib.sitemaps",
     "django.contrib.messages",
     "django.contrib.staticfiles",
 ]
@@ -102,7 +103,6 @@ SESSION_COOKIE_SECURE = True
 # SECURITY - https://docs.djangoproject.com/en/dev/ref/middleware/#module-django.middleware.security
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_HSTS_INCLUDE_SUBDOMAINS = False
 SECURE_HSTS_PRELOAD = True
@@ -118,6 +118,7 @@ X_FRAME_OPTIONS = "DENY"
 STATIC_URL = "/static/"
 STATIC_ROOT = Path.home() / "data" / "static"
 STORAGES = {"staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}}
+WHITENOISE_ROOT = Path(__file__).resolve().parents[2] / "public"
 
 
 # EMAIL
