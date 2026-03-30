@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static dashboard_tags %}
 
 {% block title %}Dashboard — DAIV{% endblock %}
 
@@ -43,7 +43,7 @@
         <div class="animate-fade-up mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5" style="animation-delay: 150ms">
             {% for counter in counters %}
             <div class="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
-                <p class="text-[26px] font-bold tracking-tight tabular-nums text-white">{{ counter.value }}</p>
+                <p class="text-[26px] font-bold tracking-tight tabular-nums {{ counter.value|success_rate_color }}">{{ counter.value }}</p>
                 <p class="mt-0.5 text-[12px] font-medium tracking-wide text-gray-500 uppercase">{{ counter.label }}</p>
             </div>
             {% endfor %}

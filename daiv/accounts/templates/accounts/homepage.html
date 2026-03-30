@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}DAIV — Open-source async SWE agent for your Git platform{% endblock %}
+
+{% block content %}
+<!-- Navigation -->
+<nav aria-label="Main navigation" class="sticky top-0 z-40 border-b border-white/[0.06] bg-[#030712]/80 backdrop-blur-md">
+    <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+        <a href="/" class="flex items-center">
+            <img src="{% static 'accounts/img/logo.png' %}" alt="DAIV" class="h-7">
+        </a>
+        <div class="flex items-center gap-5">
+            <a href="https://srtab.github.io/daiv/latest/"
+               class="hidden text-[14px] text-gray-400 transition-colors duration-200 hover:text-white sm:inline">Documentation</a>
+            <a href="{% url 'account_login' %}"
+               class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                Sign in
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main>
+<!-- Hero -->
+<section class="relative flex min-h-[85vh] items-center justify-center overflow-hidden px-4">
+    <!-- Background: radial spotlight -->
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)">
+    </div>
+
+    <!-- Background: dot grid -->
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px">
+    </div>
+
+    <!-- Background: geometric accent lines -->
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -right-32 top-[20%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -right-16 top-[28%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+        <div class="absolute -left-32 bottom-[25%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+    </div>
+
+    <div class="relative max-w-3xl text-center">
+        <!-- Badge -->
+        <div class="animate-fade-up">
+            <span class="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03] px-4 py-1.5 text-[13px] text-gray-400">
+                Open-source
+                <span class="h-1 w-1 rounded-full bg-gray-600"></span>
+                Apache 2.0
+            </span>
+        </div>
+
+        <!-- Headline -->
+        <h1 class="animate-fade-up mt-8 text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl" style="animation-delay: 80ms">
+            Your async SWE agent,<br>native to your Git platform
+        </h1>
+
+        <!-- Subheadline -->
+        <p class="animate-fade-up mx-auto mt-6 max-w-2xl text-base font-light text-gray-400 sm:text-lg" style="animation-delay: 160ms">
+            DAIV integrates directly with GitLab and GitHub through webhooks.
+            Create an issue, get a merge request. Mention DAIV in a review, get the fix.
+            No context switching, no separate tools.
+        </p>
+
+        <!-- CTAs -->
+        <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
+            <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/"
+               class="w-full rounded-xl bg-white px-6 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98] sm:w-auto">
+                Get started
+            </a>
+            <a href="https://github.com/srtab/daiv"
+               class="group flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-6 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white sm:w-auto">
+                <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
+                </svg>
+                View on GitHub
+            </a>
+        </div>
+
+        <!-- Platform icons -->
+        <div class="animate-fade-up mt-14 flex items-center justify-center gap-8" style="animation-delay: 320ms">
+            <div class="flex flex-col items-center gap-2">
+                <svg class="h-8 w-8 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
+                </svg>
+                <span class="text-[11px] font-medium uppercase tracking-[0.15em] text-gray-600">GitHub</span>
+            </div>
+            <span class="text-[16px] font-light text-gray-700">+</span>
+            <div class="flex flex-col items-center gap-2">
+                <svg class="h-8 w-8 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="m18.88 9.7-.95-2.93-1.88-5.8a.38.38 0 0 0-.73 0L13.44 6.77H6.56L4.68.97a.38.38 0 0 0-.73 0L2.07 6.77 1.12 9.7a.76.76 0 0 0 .28.85L10 16.58l8.6-6.03a.76.76 0 0 0 .28-.85"/>
+                </svg>
+                <span class="text-[11px] font-medium uppercase tracking-[0.15em] text-gray-600">GitLab</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How it Works -->
+<section class="border-t border-white/[0.06] py-24">
+    <div class="mx-auto max-w-5xl px-6">
+        <div class="animate-fade-up">
+            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-500">How it works</p>
+            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">From issue to merge request, hands-free</h2>
+            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+                DAIV turns your issues into working code. You stay in control at every step.
+            </p>
+        </div>
+
+        <div class="mt-16 space-y-6">
+            <!-- Step 1 -->
+            <div class="animate-fade-up flex gap-6" style="animation-delay: 80ms">
+                <div class="flex flex-col items-center">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">1</span>
+                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+                </div>
+                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
+                    <h3 class="text-[15px] font-semibold text-white">You create an issue</h3>
+                    <p class="mt-1.5 text-[14px] text-gray-500">Write what you need in plain language. Add context, attach screenshots, reference files. That's all.</p>
+                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+                        <p class="text-[12px] font-medium text-gray-600">Issue #142</p>
+                        <p class="mt-1 text-[14px] text-gray-300">Add rate limiting to the API endpoints</p>
+                        <div class="mt-2 flex gap-2">
+                            <span class="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] text-gray-500">daiv</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="animate-fade-up flex gap-6" style="animation-delay: 160ms">
+                <div class="flex flex-col items-center">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">2</span>
+                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+                </div>
+                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
+                    <h3 class="text-[15px] font-semibold text-white">DAIV posts a plan</h3>
+                    <p class="mt-1.5 text-[14px] text-gray-500">Analyzes your codebase, reads relevant files, and proposes implementation steps as a comment on the issue.</p>
+                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+                        <p class="text-[12px] font-medium text-gray-600">@daiv commented</p>
+                        <div class="mt-2 space-y-1.5 text-[13px] text-gray-400">
+                            <p>1. Add Redis-based rate limiter middleware</p>
+                            <p>2. Configure per-endpoint limits in settings</p>
+                            <p>3. Return 429 with Retry-After header</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="animate-fade-up flex gap-6" style="animation-delay: 240ms">
+                <div class="flex flex-col items-center">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">3</span>
+                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+                </div>
+                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
+                    <h3 class="text-[15px] font-semibold text-white">You approve</h3>
+                    <p class="mt-1.5 text-[14px] text-gray-500">Review the plan. Comment when ready. Or update the issue and DAIV re-plans. Human-in-the-loop by default.</p>
+                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+                        <p class="text-[12px] font-medium text-gray-600">You commented</p>
+                        <p class="mt-1 text-[14px] text-gray-300">@daiv proceed</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="animate-fade-up flex gap-6" style="animation-delay: 320ms">
+                <div class="flex flex-col items-center">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">4</span>
+                </div>
+                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
+                    <h3 class="text-[15px] font-semibold text-white">Code lands in a merge request</h3>
+                    <p class="mt-1.5 text-[14px] text-gray-500">DAIV implements the plan and opens a merge request. If reviewers request changes, just mention DAIV in a comment.</p>
+                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+                        <div class="flex items-center gap-2">
+                            <span class="rounded-md border border-emerald-800/50 bg-emerald-950/60 px-2 py-0.5 text-[11px] text-emerald-300">Ready for review</span>
+                        </div>
+                        <p class="mt-2 text-[14px] text-gray-300">Add rate limiting to API endpoints</p>
+                        <p class="mt-1 text-[12px] text-gray-600">feat/142-rate-limiting &rarr; main</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Capabilities -->
+<section class="border-t border-white/[0.06] py-24">
+    <div class="mx-auto max-w-5xl px-6">
+        <div class="animate-fade-up">
+            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-500">Capabilities</p>
+            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">More than just code generation</h2>
+            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+                A complete engineering assistant that fits into your existing workflow.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-4 sm:grid-cols-2">
+            <!-- Slash Commands -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 80ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25z"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Slash Commands & Skills</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Invoke <code class="text-gray-400">/plan</code>, <code class="text-gray-400">/code-review</code>, <code class="text-gray-400">/security-audit</code> from any issue or MR. Built-in skills cover common tasks. Create your own for anything else.</p>
+            </div>
+
+            <!-- Sandbox -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 120ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Secure Sandbox</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Tests, builds, and linters run in isolated Docker containers. Full shell access for the agent, strict safety policies for you.</p>
+            </div>
+
+            <!-- MCP -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 160ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.959.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 0 1-.61-.58v0Z"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">MCP Tool Integrations</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Connect external services via Model Context Protocol. Sentry error tracking, documentation lookup, or your own custom servers.</p>
+            </div>
+
+            <!-- Subagents -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 200ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Subagents</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Specialized agents for exploration vs. execution. The main agent delegates automatically — fast read-only lookups or complex multi-step work.</p>
+            </div>
+
+            <!-- Multi-provider -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 240ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Multi-provider LLMs</h3>
+                <p class="mt-1 text-[14px] text-gray-500">OpenRouter, Anthropic, OpenAI, Google Gemini. Mix providers, swap models, no vendor lock-in.</p>
+            </div>
+
+            <!-- Jobs API -->
+            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 280ms">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/>
+                    </svg>
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Jobs API</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Trigger agents programmatically via REST. Schedule nightly runs, chain tasks from CI/CD, or integrate with Slack bots.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Why DAIV -->
+<section class="border-t border-white/[0.06] py-24">
+    <div class="mx-auto max-w-5xl px-6">
+        <div class="animate-fade-up">
+            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-500">Why DAIV</p>
+            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Built different</h2>
+            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+                AI coding tools that require a separate app break your flow. DAIV meets you where you already work.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-3">
+            <div class="animate-fade-up" style="animation-delay: 80ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">Native to your Git platform</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">No new UI to learn. DAIV works inside GitLab and GitHub issues and merge requests.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 120ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">Human-in-the-loop</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">Plans require approval before execution. You review, you decide, DAIV implements.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 160ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">Fully extensible</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 200ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">No vendor lock-in</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">Choose your LLM provider. Switch models without changing anything else. Self-host the entire stack.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 240ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">Secure by default</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">Sandboxed execution with command policies. Git history mutation is always blocked.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 280ms">
+                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
+                <h3 class="text-[15px] font-semibold text-white">Open-source, Apache 2.0</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-500">Read the code, modify it, deploy it on your infrastructure. No black boxes.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA Banner -->
+<section class="border-t border-white/[0.06] py-24">
+    <div class="mx-auto max-w-5xl px-6">
+        <div class="animate-fade-up rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center sm:p-16">
+            <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Deploy DAIV in minutes</h2>
+            <p class="mx-auto mt-4 max-w-xl text-[16px] font-light text-gray-400">
+                Self-host with Docker Compose or Docker Swarm. Connect your GitLab or GitHub instance and start automating.
+            </p>
+            <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
+                <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/"
+                   class="w-full rounded-xl bg-white px-6 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98] sm:w-auto">
+                    Read the docs
+                </a>
+                <a href="https://github.com/srtab/daiv"
+                   class="group flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-6 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white sm:w-auto">
+                    <svg class="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clip-rule="evenodd"/>
+                    </svg>
+                    View on GitHub
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+</main>
+
+<!-- Footer -->
+<footer class="border-t border-white/[0.06] py-8">
+    <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
+        <p class="text-[13px] text-gray-600">DAIV &mdash; Open-source async SWE agent</p>
+        <div class="flex items-center gap-6">
+            <a href="https://srtab.github.io/daiv/latest/" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">Documentation</a>
+            <a href="https://github.com/srtab/daiv" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">GitHub</a>
+            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" class="text-[13px] text-gray-500 transition-colors duration-200 hover:text-white">License</a>
+        </div>
+    </div>
+</footer>
+{% endblock %}
