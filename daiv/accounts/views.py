@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
 from django.db.models import Count, Q
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
@@ -17,6 +17,13 @@ from accounts.forms import APIKeyCreateForm
 from accounts.models import APIKey
 
 logger = logging.getLogger(__name__)
+
+
+def homepage(request):
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    return render(request, "accounts/homepage.html")
+
 
 ISSUE_TASK_PATH = "codebase.tasks.address_issue_task"
 MR_TASK_PATH = "codebase.tasks.address_mr_comments_task"
@@ -57,7 +64,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             {"label": "Jobs processed", "value": total},
             {"label": "Success rate", "value": f"{round(stats['successful'] / total * 100)}%" if total else "—"},
             {"label": "Issues resolved", "value": stats["issues"]},
-            {"label": "MRs assisted", "value": stats["mrs"]},
+            {"label": "MR reviews addressed", "value": stats["mrs"]},
             {"label": "Active API keys", "value": active_api_keys},
         ]
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
