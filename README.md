@@ -1,4 +1,6 @@
-<h1 align="center">DAIV</h1>
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="DAIV" width="400">
+</p>
 <p align="center"><strong>Open-source async SWE agent for your Git platform</strong></p>
 <p align="center">
   <img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml" alt="Python Version">
