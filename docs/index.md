@@ -1,4 +1,6 @@
-<h1 align="center" style="font-size: 4rem; font-weight: 800; letter-spacing: -0.02em;">DAIV</h1>
+<p align="center">
+  <img src="assets/logo.svg" alt="DAIV" width="400">
+</p>
 
 <p align="center">
   <strong>Open-source async SWE agent for your Git platform</strong>
