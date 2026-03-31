@@ -56,6 +56,14 @@ services:
     ports:
       - "6379:6379"
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: daiv-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   app:
     <<: *x_app_default
     container_name: daiv-app

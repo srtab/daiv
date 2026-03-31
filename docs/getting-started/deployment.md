@@ -42,6 +42,7 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 * **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](platform-setup.md#gitlab-configuration))
 * **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
 * **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
+* **`email_host_password`** - SMTP authentication password (if your relay requires authentication)
 * **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
 * **`allauth_github_client_id`** - GitHub OAuth App client ID (see [Authentication](../reference/env-variables.md#authentication))
 * **`allauth_github_secret`** - GitHub OAuth App secret
@@ -83,6 +84,10 @@ x-app-environment-defaults: &app_environment_defaults
   # CODEBASE
   CODEBASE_CLIENT: gitlab
   CODEBASE_GITLAB_URL: https://gitlab.com (3)
+  # EMAIL
+  EMAIL_HOST: smtp.example.com
+  EMAIL_PORT: 587
+  EMAIL_USE_TLS: true
   # SANDBOX
   DAIV_SANDBOX_URL: http://sandbox:8000 (4)
 
@@ -151,6 +156,7 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
+      - email_host_password
       - allauth_github_client_id
       - allauth_github_secret
       - allauth_gitlab_client_id
@@ -175,6 +181,7 @@ services:
       - codebase_gitlab_webhook_secret
       - daiv_sandbox_api_key
       - openrouter_api_key
+      - email_host_password
     networks:
       - internal
     # volumes:  (16)
@@ -288,6 +295,8 @@ secrets:
     external: true
   openrouter_api_key:
     external: true
+  email_host_password:
+    external: true
   sentry_access_token:
     external: true
   allauth_github_client_id:
@@ -384,6 +393,10 @@ x-app-defaults: &x_app_default
     CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret (6)
     # LLM Providers settings
     OPENROUTER_API_KEY: openrouter-api-key (8)
+    # Email settings
+    EMAIL_HOST: smtp.example.com
+    EMAIL_PORT: 587
+    EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
     # Authentication (at least one social provider recommended)

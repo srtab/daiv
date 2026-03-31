@@ -122,7 +122,12 @@ DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Us
 | `ALLAUTH_GITLAB_SECRET` :material-lock: | GitLab OAuth Application secret | *(none)* | |
 | `ALLAUTH_GITLAB_URL` | GitLab instance URL (for OAuth redirects to the user's browser) | `https://gitlab.com` | `https://gitlab.example.com` |
 | `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)* | `http://gitlab:8929` |
-| `EMAIL_BACKEND` | Django email backend for login-by-code emails | `django.core.mail.backends.console.EmailBackend` | `django.core.mail.backends.smtp.EmailBackend` |
+| `EMAIL_BACKEND` | Django email backend for login-by-code emails | `django.core.mail.backends.smtp.EmailBackend` | `django.core.mail.backends.console.EmailBackend` |
+| `EMAIL_HOST` | SMTP server hostname | `localhost` | `smtp.example.com` |
+| `EMAIL_PORT` | SMTP server port | `25` | `587` |
+| `EMAIL_HOST_USER` | SMTP authentication username | *(empty)* | `user@example.com` |
+| `EMAIL_HOST_PASSWORD` :material-lock: | SMTP authentication password | *(empty)* | |
+| `EMAIL_USE_TLS` | Use TLS for SMTP connection | `False` | `True` |
 | `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
 
 !!! info "Setting up social providers"
