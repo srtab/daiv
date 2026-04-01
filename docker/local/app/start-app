@@ -13,9 +13,9 @@ if [ ! -f "$CERT_DIR/cert.key" ] || [ ! -f "$CERT_DIR/cert.crt" ]; then
 fi
 
 django-admin compilemessages --ignore=.venv
-django-admin migrate --noinput
-django-admin setup_default_site
-django-admin setup_checkpoint_saver
+django-admin migrate --noinput --skip-checks
+django-admin setup_default_site --skip-checks
+django-admin setup_checkpoint_saver --skip-checks
 
 # Build Tailwind CSS and collect static files (use `make tailwind-watch` for hot reload)
 tailwindcss -i daiv/accounts/static_src/css/input.css -o daiv/accounts/static/accounts/css/styles.css --minify

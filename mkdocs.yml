@@ -72,6 +72,7 @@ plugins:
         - features/issue-addressing.md: Automated issue-to-merge-request workflow
         - features/pull-request-assistant.md: AI-powered pull request reviews and fixes
         - features/jobs-api.md: REST API for programmatic agent triggering
+        - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
         - features/slash-commands.md: Slash commands and custom skills
         - features/subagents.md: Specialized subagents for exploration and execution
         - features/sandbox.md: Secure sandboxed code execution
@@ -122,6 +123,7 @@ nav:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
     - Jobs API: features/jobs-api.md
+    - Merge Metrics: features/merge-metrics.md
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md

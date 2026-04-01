@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added code merge analytics that tracks lines added/removed, files changed, and DAIV vs human attribution whenever a MR/PR is merged to a default branch. Metrics are displayed in the dashboard under a new "Code Velocity" section with the same period filters.
 - Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code for existing users, and a styled dark-themed login page. Includes a post-login dashboard with API key management (create, list, revoke).
 - Added activity counters to the dashboard showing jobs processed, success rate, issues resolved, MRs assisted, and active API keys, with a temporal filter (7d/30d/90d/all time).
 - Added `setup_langsmith_dashboard` management command to create a pre-configured LangSmith custom dashboard with 27 monitoring charts covering trace volume, latency, cost, tool usage, model comparison, and pipeline health. Supports `--project` and `--recreate` options.

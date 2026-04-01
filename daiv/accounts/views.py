@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views import View
@@ -15,6 +15,7 @@ from django_tasks_db.models import DBTaskResult
 
 from accounts.forms import APIKeyCreateForm
 from accounts.models import APIKey
+from codebase.models import MergeMetric
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +66,63 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             {"label": "Success rate", "value": f"{round(stats['successful'] / total * 100)}%" if total else "—"},
             {"label": "Issues resolved", "value": stats["issues"]},
             {"label": "MR reviews addressed", "value": stats["mrs"]},
-            {"label": "Active API keys", "value": active_api_keys},
         ]
+        context["active_api_keys"] = active_api_keys
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
+
+        # Merge metrics
+        merges = MergeMetric.objects.all()
+        if days is not None:
+            merges = merges.filter(merged_at__gte=timezone.now() - timedelta(days=days))
+
+        merge_stats = merges.aggregate(
+            total=Count("id"),
+            total_added=Sum("lines_added", default=0),
+            total_removed=Sum("lines_removed", default=0),
+            daiv_added=Sum("daiv_lines_added", default=0),
+            daiv_removed=Sum("daiv_lines_removed", default=0),
+            total_commits_sum=Sum("total_commits", default=0),
+            daiv_commits_sum=Sum("daiv_commits", default=0),
+        )
+
+        merge_total = merge_stats["total"]
+        daiv_lines = merge_stats["daiv_added"] + merge_stats["daiv_removed"]
+        total_lines = merge_stats["total_added"] + merge_stats["total_removed"]
+        daiv_line_pct = f"{round(daiv_lines / total_lines * 100)}%" if total_lines else "—"
+        total_commits = merge_stats["total_commits_sum"]
+        daiv_commit_pct = f"{round(merge_stats['daiv_commits_sum'] / total_commits * 100)}%" if total_commits else "—"
+
+        context["merge_counters"] = [
+            {
+                "label": "Total merges",
+                "value": merge_total,
+                "tooltip": "Number of MRs/PRs merged into default branches.",
+            },
+            {
+                "label": "Lines added",
+                "value": merge_stats["total_added"],
+                "tooltip": "Total lines added across all merged MRs/PRs.",
+            },
+            {
+                "label": "Lines removed",
+                "value": merge_stats["total_removed"],
+                "tooltip": "Total lines removed across all merged MRs/PRs.",
+            },
+            {
+                "label": "DAIV contribution",
+                "value": daiv_line_pct,
+                "tooltip": "Percentage of total lines (added + removed) authored by DAIV, based on commit authorship.",
+                "plain": True,
+            },
+            {
+                "label": "DAIV commit share",
+                "value": daiv_commit_pct,
+                "tooltip": "Percentage of total commits authored by DAIV across all merged MRs/PRs.",
+                "plain": True,
+            },
+        ]
+
         return context
 
 

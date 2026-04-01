@@ -57,10 +57,9 @@ class IssueAddressorManager(BaseManager):
 
         try:
             return await manager._address_issue()
-        except Exception as e:
-            logger.exception("Error addressing issue %d: %s", issue.iid, e)
+        except Exception:
             manager._add_unable_to_address_issue_note()
-            return {"code_changes": False}
+            raise
 
     async def _address_issue(self) -> dict[str, bool]:
         """
@@ -123,7 +122,7 @@ class IssueAddressorManager(BaseManager):
                     daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
                 )
                 self._add_unable_to_address_issue_note(draft_published=draft_published)
-                return {"code_changes": draft_published}
+                raise
             else:
                 if (
                     result
@@ -133,6 +132,11 @@ class IssueAddressorManager(BaseManager):
                 ):
                     self._leave_comment(response_text)
                 else:
+                    logger.warning(
+                        "Agent returned empty response for issue %d (result keys: %s)",
+                        self.issue.iid,
+                        list(result.keys()) if result else None,
+                    )
                     self._add_unable_to_address_issue_note()
 
                 return await self._read_code_changes(daiv_agent, agent_config)

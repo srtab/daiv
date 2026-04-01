@@ -9,7 +9,16 @@ from typing import TYPE_CHECKING
 
 from git import Repo
 
-from codebase.base import Discussion, GitPlatform, Issue, MergeRequest, Repository, User
+from codebase.base import (
+    Discussion,
+    GitPlatform,
+    Issue,
+    MergeRequest,
+    MergeRequestCommit,
+    MergeRequestDiffStats,
+    Repository,
+    User,
+)
 from codebase.clients import RepoClient
 from codebase.clients.utils import safe_slug
 
@@ -255,6 +264,18 @@ class SWERepoClient(RepoClient):
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
+
+    def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge request diff stats")
+
+    def get_merge_request_commits(self, repo_id: str, merge_request_id: int) -> list[MergeRequestCommit]:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge request commits")
+
+    def get_bot_commit_email(self) -> str:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support bot commit email")
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """Not supported for SWE client."""

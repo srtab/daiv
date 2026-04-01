@@ -10,12 +10,15 @@ from urllib.parse import urlparse
 
 from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
+from gitlab.exceptions import GitlabError
 
 from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
     MergeRequest,
+    MergeRequestCommit,
+    MergeRequestDiffStats,
     Note,
     NoteDiffPosition,
     NotePosition,
@@ -207,6 +210,7 @@ class GitLabClient(RepoClient):
             "push_events": True,
             "issues_events": True,
             "note_events": True,
+            "merge_requests_events": True,
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
@@ -540,6 +544,91 @@ class GitLabClient(RepoClient):
             to_return = merge_request.notes.create({"body": body}).id
 
         return to_return
+
+    def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
+        """
+        Get diff statistics for a merge request by parsing the diff content.
+
+        GitLab's MR API does not expose aggregate line counts, so stats are computed
+        by parsing the unified diff. Note that GitLab may truncate diffs for very
+        large MRs, so stats may be incomplete in those cases.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID.
+
+        Returns:
+            The diff statistics (lines added, lines removed, files changed).
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        mr = project.mergerequests.get(merge_request_id)
+        changes = mr.changes()
+
+        if changes.get("overflow"):
+            logger.warning("Diff changes overflow for %s!%d — stats will be incomplete", repo_id, merge_request_id)
+
+        lines_added = 0
+        lines_removed = 0
+        file_changes = changes.get("changes", [])
+        for change in file_changes:
+            diff_text = change.get("diff", "")
+            for line in diff_text.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    lines_added += 1
+                elif line.startswith("-") and not line.startswith("---"):
+                    lines_removed += 1
+
+        return MergeRequestDiffStats(
+            lines_added=lines_added, lines_removed=lines_removed, files_changed=len(file_changes)
+        )
+
+    def get_merge_request_commits(self, repo_id: str, merge_request_id: int) -> list[MergeRequestCommit]:
+        """
+        Get the pre-squash commit list for a merge request with per-commit stats.
+
+        Uses N+1 API calls: 1 for the commit list + 1 per commit for stats.
+        Caps at 100 commits to avoid excessive API usage.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID.
+
+        Returns:
+            List of commits with author email and line stats.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        mr = project.mergerequests.get(merge_request_id)
+        commits = list(mr.commits(get_all=True))
+
+        if len(commits) > 100:
+            logger.warning("MR %s!%d has %d commits, capping at 100 for stats", repo_id, merge_request_id, len(commits))
+            commits = commits[:100]
+
+        result: list[MergeRequestCommit] = []
+        for commit_ref in commits:
+            try:
+                full_commit = project.commits.get(commit_ref.id)
+                stats = full_commit.stats or {}
+            except GitlabError:
+                logger.warning(
+                    "Failed to fetch stats for commit %s in %s!%d, skipping", commit_ref.id, repo_id, merge_request_id
+                )
+                stats = {}
+            result.append(
+                MergeRequestCommit(
+                    sha=commit_ref.id,
+                    author_email=commit_ref.author_email or "",
+                    lines_added=stats.get("additions", 0),
+                    lines_removed=stats.get("deletions", 0),
+                )
+            )
+        return result
+
+    def get_bot_commit_email(self) -> str:
+        """
+        Return the email address DAIV uses when authoring commits on GitLab.
+        """
+        return self._get_commit_email()
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """
