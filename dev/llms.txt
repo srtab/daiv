@@ -16,6 +16,7 @@ DAIV is an open-source async software engineering agent that integrates natively
 - [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md): Automated issue-to-merge-request workflow
 - [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md): AI-powered pull request reviews and fixes
 - [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): REST API for programmatic agent triggering
+- [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md): Code merge analytics and DAIV contribution tracking
 - [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and custom skills
 - [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution
 - [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): Secure sandboxed code execution

@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/agent-architecture/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/merge-metrics/">
       
       
-        <link rel="prev" href="../env-variables/">
+        <link rel="prev" href="../jobs-api/">
       
       
-        <link rel="next" href="../monitoring/">
+        <link rel="next" href="../slash-commands/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Agent Architecture - DAIV</title>
+        <title>Merge Metrics - DAIV</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent-architecture" class="md-skip">
+        <a href="#merge-metrics" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agent Architecture
+              Merge Metrics
             
           </span>
         </div>
@@ -438,18 +438,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -470,7 +472,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -488,7 +490,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/issue-addressing/" class="md-nav__link">
+      <a href="../issue-addressing/" class="md-nav__link">
         
   
   
@@ -516,7 +518,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/pull-request-assistant/" class="md-nav__link">
+      <a href="../pull-request-assistant/" class="md-nav__link">
         
   
   
@@ -544,7 +546,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/jobs-api/" class="md-nav__link">
+      <a href="../jobs-api/" class="md-nav__link">
         
   
   
@@ -569,10 +571,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../features/merge-metrics/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge Metrics
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -588,6 +617,148 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attribution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attribution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixed-authorship" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed authorship
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#squash-merges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Squash merges
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#webhook-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Webhook events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#updating-existing-webhooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updating existing webhooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diff-stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diff stats
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data model
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -600,7 +771,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/slash-commands/" class="md-nav__link">
+      <a href="../slash-commands/" class="md-nav__link">
         
   
   
@@ -628,7 +799,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/subagents/" class="md-nav__link">
+      <a href="../subagents/" class="md-nav__link">
         
   
   
@@ -656,7 +827,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/sandbox/" class="md-nav__link">
+      <a href="../sandbox/" class="md-nav__link">
         
   
   
@@ -826,20 +997,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
@@ -860,7 +1029,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -878,7 +1047,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../env-variables/" class="md-nav__link">
+      <a href="../../reference/env-variables/" class="md-nav__link">
         
   
   
@@ -903,37 +1072,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Agent Architecture
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
   
@@ -949,220 +1091,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Overview
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        End-to-end flow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="End-to-end flow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managers
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tools
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dynamic system prompt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model configuration
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1175,7 +1103,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../monitoring/" class="md-nav__link">
+      <a href="../../reference/monitoring/" class="md-nav__link">
         
   
   
@@ -1257,10 +1185,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        How it works
       
     </span>
   </a>
@@ -1268,22 +1196,44 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
+  <a href="#dashboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End-to-end flow
+        Dashboard
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="End-to-end flow">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attribution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attribution">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
+  <a href="#mixed-authorship" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Managers
+        Mixed authorship
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#squash-merges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Squash merges
       
     </span>
   </a>
@@ -1296,22 +1246,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
+  <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tools
+        Setup
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Tools">
+    <nav class="md-nav" aria-label="Setup">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
+  <a href="#webhook-events" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filesystem
+        Webhook events
       
     </span>
   </a>
@@ -1319,54 +1269,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
+  <a href="#updating-existing-webhooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
+        Updating existing webhooks
       
     </span>
   </a>
@@ -1379,49 +1285,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
+  <a href="#diff-stats" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
+        Diff stats
       
     </span>
   </a>
@@ -1429,21 +1296,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
+  <a href="#data-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dynamic system prompt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model configuration
+        Data model
       
     </span>
   </a>
@@ -1493,10 +1349,10 @@
     
     
       <li class="md-path__item">
-        <a href="../env-variables/" class="md-path__link">
+        <a href="../issue-addressing/" class="md-path__link">
           
   <span class="md-ellipsis">
-    Reference
+    Features
   </span>
 
         </a>
@@ -1515,7 +1371,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/reference/agent-architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/merge-metrics.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1523,309 +1379,213 @@
   
 
 
-<h1 id="agent-architecture">Agent Architecture</h1>
-<p>DAIV uses a single AI agent built on <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework from <a href="https://python.langchain.com/">LangChain</a> with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a>. This page covers the technical architecture for those who want to understand how DAIV works under the hood.</p>
-<h2 id="overview">Overview</h2>
-<p>DAIV's architecture consists of:</p>
-<ul>
-<li><strong>One main agent</strong> — handles all tasks (issue addressing, code review, slash commands)</li>
-<li><strong>Two subagents</strong> — general-purpose (full tools) and explore (read-only, fast)</li>
-<li><strong>Middleware stack</strong> — modular capabilities injected based on configuration</li>
-<li><strong>MCP servers</strong> — external tool integrations (Sentry, Context7)</li>
-</ul>
-<pre class="mermaid"><code>graph TB
-    WH[Webhook Event] --&gt; CB[Callback Handler]
-    CB --&gt; TQ[Task Queue]
-    JOB[Jobs API] --&gt; TQ
-    TQ --&gt; MGR[Manager / Task]
-    MGR --&gt; AGENT[DAIV Agent]
+<h1 id="merge-metrics">Merge Metrics</h1>
+<p>DAIV automatically tracks code merge activity across your repositories. Every time a merge request (GitLab) or pull request (GitHub) is merged into a default branch, DAIV records diff statistics and attributes code changes to DAIV or human authors at the commit level.</p>
+<hr />
+<h2 id="how-it-works">How it works</h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Platform as GitLab / GitHub
+    participant Webhook as DAIV Webhook
+    participant Task as Background Task
+    participant DB as Database
+    participant Dashboard as Dashboard
 
-    AGENT --&gt; MW[Middleware Stack]
-    MW --&gt; FS[Filesystem Tools]
-    MW --&gt; GIT[Git Tools]
-    MW --&gt; GP[Git Platform Tools]
-    MW --&gt; SB[Sandbox]
-    MW --&gt; WS[Web Search / Fetch]
-    MW --&gt; SK[Skills]
-    MW --&gt; SA[Subagents]
-    MW --&gt; MCP[MCP Tools]
-
-    SA --&gt; GPAgent[General-Purpose]
-    SA --&gt; EXAgent[Explore]
-
-    AGENT --&gt; PUB[Git Change Publisher]
-    PUB --&gt; COMMIT[Commit &amp; Push]
-    PUB --&gt; MR[Create / Update MR]</code></pre>
-<h2 id="end-to-end-flow">End-to-end flow</h2>
+    Platform-&gt;&gt;Webhook: MR/PR merged event
+    Webhook-&gt;&gt;Webhook: Verify target is default branch
+    Webhook-&gt;&gt;Task: Enqueue record_merge_metrics_task
+    Task-&gt;&gt;Platform: Fetch diff stats + pre-squash commit list
+    Task-&gt;&gt;Task: Classify commits by author email
+    Task-&gt;&gt;DB: Store MergeMetric with split attribution
+    Dashboard-&gt;&gt;DB: Aggregate metrics by period
+    Dashboard-&gt;&gt;Dashboard: Display Code Velocity</code></pre>
 <ol>
-<li><strong>Trigger</strong> — a webhook event from GitLab/GitHub, or a <a href="../../features/jobs-api/">Jobs API</a> request</li>
-<li><strong>Dispatch</strong> — the callback handler (webhooks) or API view (jobs) enqueues a background task</li>
-<li><strong>Context setup</strong> — the task sets up the runtime context (repository, branch, scope) and creates the agent</li>
-<li><strong>Agent execution</strong> — LangGraph runs the agent loop: call LLM → execute tools → repeat</li>
-<li><strong>Output</strong> — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)</li>
+<li><strong>Webhook receives a merge event</strong> — GitLab sends a <code>merge_request</code> webhook with <code>action: merge</code>; GitHub sends a <code>pull_request</code> webhook with <code>action: closed</code> and <code>merged: true</code>.</li>
+<li><strong>Default branch filter</strong> — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.</li>
+<li><strong>Background task</strong> — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.</li>
+<li><strong>Commit-based attribution</strong> — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.</li>
+<li><strong>Dashboard</strong> — The metrics are displayed in the "Code Velocity" section of the dashboard at <code>/dashboard/</code>, using the same period filter (7d / 30d / 90d / All time) as the agent activity counters.</li>
 </ol>
-<h3 id="managers">Managers</h3>
-<p>Two managers orchestrate the agent:</p>
+<hr />
+<h2 id="dashboard">Dashboard</h2>
+<p>The Code Velocity section shows five counters:</p>
 <table>
 <thead>
 <tr>
-<th>Manager</th>
-<th>Trigger</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>IssueAddressorManager</code></td>
-<td>Issue with <code>daiv</code> label</td>
-<td>Plans and implements issue solutions</td>
-</tr>
-<tr>
-<td><code>CommentsAddressorManager</code></td>
-<td><code>@daiv</code> mention on MR</td>
-<td>Responds to code review comments</td>
-</tr>
-</tbody>
-</table>
-<p>Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.</p>
-<h2 id="tools">Tools</h2>
-<p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
-<h3 id="filesystem">Filesystem</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
+<th>Counter</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>glob</code></td>
-<td>Find files by pattern matching</td>
+<td><strong>Total merges</strong></td>
+<td>Total MRs/PRs merged to default branches</td>
 </tr>
 <tr>
-<td><code>grep</code></td>
-<td>Search file contents with regex</td>
+<td><strong>Lines added</strong></td>
+<td>Total lines added across all merges</td>
 </tr>
 <tr>
-<td><code>read_file</code></td>
-<td>Read file contents</td>
+<td><strong>Lines removed</strong></td>
+<td>Total lines removed across all merges</td>
 </tr>
 <tr>
-<td><code>edit_file</code></td>
-<td>Modify existing files</td>
+<td><strong>DAIV contribution</strong></td>
+<td>Percentage of total lines (added + removed) authored by DAIV</td>
 </tr>
 <tr>
-<td><code>write_file</code></td>
-<td>Create new files</td>
-</tr>
-<tr>
-<td><code>ls</code></td>
-<td>List directory contents</td>
+<td><strong>DAIV commit share</strong></td>
+<td>Percentage of total commits authored by DAIV</td>
 </tr>
 </tbody>
 </table>
-<h3 id="git-platform">Git platform</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>gitlab</code> / <code>github</code></td>
-<td>Inspect issues, merge requests, pipeline status, and job logs</td>
-</tr>
-</tbody>
-</table>
-<h3 id="sandbox">Sandbox</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>bash</code></td>
-<td>Execute commands in a persistent, isolated Docker container</td>
-</tr>
-</tbody>
-</table>
-<p>Commands are evaluated against a <a href="../../features/sandbox/">command policy</a> before execution. See <a href="../../features/sandbox/">Sandbox</a> for details.</p>
-<h3 id="web">Web</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>web_search</code></td>
-<td>Search the web (DuckDuckGo or Tavily)</td>
-</tr>
-<tr>
-<td><code>web_fetch</code></td>
-<td>Fetch a URL, convert to markdown, and answer a prompt about its content</td>
-</tr>
-</tbody>
-</table>
-<h3 id="skills">Skills</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>skill</code></td>
-<td>Execute a <a href="../../customization/agent-skills/">skill</a> (slash command)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="mcp">MCP</h3>
-<p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
-<h2 id="middlewares">Middlewares</h2>
-<p>Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.</p>
-<h3 id="always-enabled">Always enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>FilesystemMiddleware</code></td>
-<td>File operations (glob, grep, read, edit, write)</td>
-</tr>
-<tr>
-<td><code>GitMiddleware</code></td>
-<td>Branch management, auto-commit, MR creation</td>
-</tr>
-<tr>
-<td><code>GitPlatformMiddleware</code></td>
-<td>Git platform CLI tool (issues, MRs, pipelines)</td>
-</tr>
-<tr>
-<td><code>SkillsMiddleware</code></td>
-<td>Skill loading and slash command execution</td>
-</tr>
-<tr>
-<td><code>SubAgentMiddleware</code></td>
-<td>Delegates tasks to subagents</td>
-</tr>
-<tr>
-<td><code>MemoryMiddleware</code></td>
-<td>Loads <code>AGENTS.md</code> and repository context</td>
-</tr>
-<tr>
-<td><code>TodoListMiddleware</code></td>
-<td>Task tracking within conversations</td>
-</tr>
-<tr>
-<td><code>SummarizationMiddleware</code></td>
-<td>Compresses conversation history when it grows too long</td>
-</tr>
-<tr>
-<td><code>AnthropicPromptCachingMiddleware</code></td>
-<td>Prompt caching for Anthropic models</td>
-</tr>
-<tr>
-<td><code>ToolCallLoggingMiddleware</code></td>
-<td>Logs all tool calls</td>
-</tr>
-<tr>
-<td><code>PatchToolCallsMiddleware</code></td>
-<td>Fixes malformed tool calls from the LLM</td>
-</tr>
-</tbody>
-</table>
-<h3 id="conditionally-enabled">Conditionally enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Condition</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SandboxMiddleware</code></td>
-<td>Sandbox is configured (<code>DAIV_SANDBOX_BASE_IMAGE</code> is set)</td>
-</tr>
-<tr>
-<td><code>WebSearchMiddleware</code></td>
-<td><code>AUTOMATION_WEB_SEARCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>WebFetchMiddleware</code></td>
-<td><code>AUTOMATION_WEB_FETCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>ModelFallbackMiddleware</code></td>
-<td>A fallback model is configured</td>
-</tr>
-<tr>
-<td><code>HumanInTheLoopMiddleware</code></td>
-<td>Plan approval is required (non-auto mode)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="subagents">Subagents</h2>
-<p>The main agent can delegate work to two subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
-<table>
-<thead>
-<tr>
-<th>Subagent</th>
-<th>Model</th>
-<th>Tools</th>
-<th>Use case</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>General-purpose</td>
-<td>Same as main agent</td>
-<td>Full tool access</td>
-<td>Complex searches, multi-step research</td>
-</tr>
-<tr>
-<td>Explore</td>
-<td>Claude Haiku 4.5 (fast)</td>
-<td>Read-only filesystem</td>
-<td>Quick file lookups, code structure questions</td>
-</tr>
-</tbody>
-</table>
-<h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
-<p>The agent's system prompt is assembled at runtime and includes:</p>
+<p>All counters respect the period filter at the top of the dashboard.</p>
+<hr />
+<h2 id="attribution">Attribution</h2>
+<p>DAIV identifies its own commits by matching the commit author email against its configured bot email:</p>
 <ul>
-<li>Current date</li>
-<li>Bot username</li>
-<li>Repository URL and git platform</li>
-<li>Current branch and default branch</li>
-<li>Available tools and their descriptions</li>
-<li>Loaded skill metadata</li>
-<li><code>AGENTS.md</code> content (if present in the repository)</li>
+<li><strong>GitLab</strong>: The bot's commit email (configured via <code>commit_email</code>, <code>public_email</code>, <code>email</code>, or fallback <code>{username}@users.noreply.gitlab.com</code>)</li>
+<li><strong>GitHub</strong>: <code>{user_id}+{app_slug}[bot]@users.noreply.github.com</code></li>
 </ul>
-<p>This ensures the agent always has up-to-date context about the repository it's working in.</p>
-<h2 id="model-configuration">Model configuration</h2>
-<p>Models are resolved at three levels (highest priority first):</p>
-<ol>
-<li><strong>Issue labels</strong> — <code>daiv-max</code> switches to a stronger model with higher thinking</li>
-<li><strong>Repository config</strong> — <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a></li>
-<li><strong>Environment variables</strong> — global defaults (<code>DAIV_AGENT_*</code>)</li>
-</ol>
-<p>See <a href="../env-variables/#daiv-agent">Environment Variables</a> for all agent model settings.</p>
+<h3 id="mixed-authorship">Mixed authorship</h3>
+<p>A single MR/PR can contain commits from both DAIV and human authors. For example, a human creates an MR, then asks DAIV to make follow-up changes via <code>@daiv</code>. The attribution correctly splits lines between DAIV and human based on individual commit authorship.</p>
+<h3 id="squash-merges">Squash merges</h3>
+<p>When a MR/PR is squash-merged, the individual commits are collapsed into a single commit on the target branch. However, the platform API retains the original pre-squash commit list, so DAIV can still analyze individual commit authorship for accurate attribution.</p>
+<hr />
+<h2 id="setup">Setup</h2>
+<p>Merge metrics collection is enabled automatically. No configuration is required.</p>
+<h3 id="webhook-events">Webhook events</h3>
+<p>DAIV registers the necessary webhook events on both platforms:</p>
+<ul>
+<li><strong>GitLab</strong>: <code>merge_requests_events</code> (added alongside existing <code>push_events</code>, <code>issues_events</code>, <code>note_events</code>)</li>
+<li><strong>GitHub</strong>: <code>pull_request</code> (added alongside existing <code>push</code>, <code>issues</code>, <code>pull_request_review</code>, <code>issue_comment</code>)</li>
+</ul>
+<h3 id="updating-existing-webhooks">Updating existing webhooks</h3>
+<p>If you already have DAIV connected to repositories, existing webhooks need to be updated to include the new event types.</p>
+<p><strong>GitLab</strong> — Run the setup command with the <code>--update</code> flag:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>manage.py<span class="w"> </span>setup_webhooks<span class="w"> </span>--update
+</code></pre></div></td></tr></table></div>
+<p>The periodic webhook setup cron task does <strong>not</strong> pass <code>--update</code> by default, so this one-time manual step is needed after deploying the update.</p>
+<p><strong>GitHub</strong> — Update the webhook events in your GitHub App configuration to include <code>Pull requests</code> (if not already enabled). Alternatively, re-run webhook setup for your repositories.</p>
+<hr />
+<h2 id="diff-stats">Diff stats</h2>
+<p>The way diff statistics are collected differs between platforms:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>MR-level stats</th>
+<th>Per-commit stats</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GitLab</strong></td>
+<td>Parses unified diff text from <code>mr.changes()</code> API</td>
+<td>Fetches <code>project.commits.get(sha).stats</code> per commit (N+1 calls, capped at 100 commits)</td>
+</tr>
+<tr>
+<td><strong>GitHub</strong></td>
+<td>Reads <code>pr.additions</code>, <code>pr.deletions</code>, <code>pr.changed_files</code> directly</td>
+<td>Fetches <code>commit.stats</code> per commit via lazy loading (N+1 calls, handled by PyGithub)</td>
+</tr>
+</tbody>
+</table>
+<p>If fetching diff stats or commits fails (e.g., due to API rate limits or network errors), the merge is still recorded with zero counts rather than being lost.</p>
+<hr />
+<h2 id="data-model">Data model</h2>
+<p>Each merge event is stored as a <code>MergeMetric</code> record:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repo_id</code></td>
+<td>string</td>
+<td>Repository identifier (e.g., <code>group/project</code> or <code>owner/repo</code>)</td>
+</tr>
+<tr>
+<td><code>merge_request_iid</code></td>
+<td>integer</td>
+<td>MR IID (GitLab) or PR number (GitHub)</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td>string</td>
+<td>Merge request title (max 512 chars)</td>
+</tr>
+<tr>
+<td><code>lines_added</code></td>
+<td>integer</td>
+<td>Total lines added in the merge</td>
+</tr>
+<tr>
+<td><code>lines_removed</code></td>
+<td>integer</td>
+<td>Total lines removed in the merge</td>
+</tr>
+<tr>
+<td><code>files_changed</code></td>
+<td>integer</td>
+<td>Number of files changed</td>
+</tr>
+<tr>
+<td><code>daiv_lines_added</code></td>
+<td>integer</td>
+<td>Lines added in DAIV-authored commits</td>
+</tr>
+<tr>
+<td><code>daiv_lines_removed</code></td>
+<td>integer</td>
+<td>Lines removed in DAIV-authored commits</td>
+</tr>
+<tr>
+<td><code>human_lines_added</code></td>
+<td>integer</td>
+<td>Lines added in human-authored commits</td>
+</tr>
+<tr>
+<td><code>human_lines_removed</code></td>
+<td>integer</td>
+<td>Lines removed in human-authored commits</td>
+</tr>
+<tr>
+<td><code>total_commits</code></td>
+<td>integer</td>
+<td>Total number of commits in the MR</td>
+</tr>
+<tr>
+<td><code>daiv_commits</code></td>
+<td>integer</td>
+<td>Number of commits authored by DAIV</td>
+</tr>
+<tr>
+<td><code>merged_at</code></td>
+<td>datetime</td>
+<td>When the merge occurred</td>
+</tr>
+<tr>
+<td><code>source_branch</code></td>
+<td>string</td>
+<td>Source branch name</td>
+</tr>
+<tr>
+<td><code>target_branch</code></td>
+<td>string</td>
+<td>Target branch name</td>
+</tr>
+<tr>
+<td><code>platform</code></td>
+<td>enum</td>
+<td><code>gitlab</code> or <code>github</code></td>
+</tr>
+</tbody>
+</table>
+<p>Records are unique per <code>(repo_id, merge_request_iid, platform)</code>. Duplicate webhook deliveries are handled via upsert.</p>
 
 
 
