@@ -51,7 +51,7 @@ dependencies = [
   "python-gitlab==8.2.0",
   "pyyaml==6.0.3",
   "redis==7.4.0",
-  "sentry-sdk==2.56.0",
+  "sentry-sdk==2.57.0",
   "unidiff==0.7.5",
   "uvicorn[standard]==0.42.0",
   "whitenoise==6.12.0",
