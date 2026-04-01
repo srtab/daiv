@@ -217,9 +217,8 @@ class CommentsAddressorManager(BaseManager):
         try:
             return await manager._address_comments()
         except Exception:
-            logger.exception("Error addressing comments for merge request: %d", merge_request.merge_request_id)
             manager._add_unable_to_address_review_note()
-            return {"code_changes": False}
+            raise
 
     async def _address_comments(self) -> dict[str, bool]:
         """
@@ -275,7 +274,7 @@ class CommentsAddressorManager(BaseManager):
                     entity_id=self.merge_request.merge_request_id,
                 )
                 self._add_unable_to_address_review_note(draft_published=draft_published)
-                return {"code_changes": draft_published}
+                raise
             else:
                 if (
                     result
@@ -285,6 +284,11 @@ class CommentsAddressorManager(BaseManager):
                 ):
                     self._leave_comment(response_text)
                 else:
+                    logger.warning(
+                        "Agent returned empty response for merge request %d (result keys: %s)",
+                        self.merge_request.merge_request_id,
+                        list(result.keys()) if result else None,
+                    )
                     self._add_unable_to_address_review_note()
 
                 return await self._read_code_changes(daiv_agent, agent_config)

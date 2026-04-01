@@ -8,7 +8,16 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import Discussion, GitPlatform, Issue, MergeRequest, Repository, User
+from codebase.base import (
+    Discussion,
+    GitPlatform,
+    Issue,
+    MergeRequest,
+    MergeRequestCommit,
+    MergeRequestDiffStats,
+    Repository,
+    User,
+)
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -165,6 +174,50 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
+        """
+        Get diff statistics for a merge request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID (GitLab) or number (GitHub).
+
+        Returns:
+            The diff statistics (lines added, lines removed, files changed).
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_commits(self, repo_id: str, merge_request_id: int) -> list[MergeRequestCommit]:
+        """
+        Get the pre-squash commit list for a merge request with per-commit stats.
+
+        The platform API retains commits even after the source branch is deleted
+        or squash-merged, making this reliable for attribution.
+
+        Note: GitHub limits the commits endpoint to 250 per PR; GitLab results
+        are capped at 100 to avoid excessive API usage.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID (GitLab) or number (GitHub).
+
+        Returns:
+            List of commits with author email and line stats.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_bot_commit_email(self) -> str:
+        """
+        Return the email address DAIV uses when authoring commits.
+
+        Returns:
+            The bot's commit email address.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         pass
 
@@ -219,7 +272,7 @@ class RepoClient(abc.ABC):
         Get the repository client based on the configuration.
 
         Args:
-            client_slug: The client slug to use.
+            git_platform: The git platform to use (defaults to the configured client).
 
         Returns:
             The repository client instance.

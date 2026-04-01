@@ -2,10 +2,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 from github import UnknownObjectException
+from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
-from codebase.base import GitPlatform, Repository, User
+from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
 from codebase.clients.base import Emoji
 from codebase.clients.github.client import GitHubClient
 
@@ -229,3 +230,88 @@ class TestGitHubClient:
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test[bot]")
         mock_writer.set_value.assert_any_call("user", "email", "123456+daiv-agent-test[bot]@users.noreply.github.com")
+
+    def test_get_merge_request_commits_returns_commit_list(self, github_client):
+        """Test that commits are returned with author email and stats."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_commit = Mock()
+        mock_commit.sha = "abc123"
+        mock_commit.commit.author.email = "dev@example.com"
+        mock_commit.stats.additions = 10
+        mock_commit.stats.deletions = 5
+        mock_pr.get_commits.return_value = [mock_commit]
+        mock_repo.get_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_commits("owner/repo", 1)
+
+        assert result == [
+            MergeRequestCommit(sha="abc123", author_email="dev@example.com", lines_added=10, lines_removed=5)
+        ]
+
+    def test_get_merge_request_commits_handles_none_author(self, github_client):
+        """Test that None commit.commit.author defaults to empty email."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_commit = Mock()
+        mock_commit.sha = "abc123"
+        mock_commit.commit = Mock(author=None)
+        mock_commit.stats.additions = 1
+        mock_commit.stats.deletions = 0
+        mock_pr.get_commits.return_value = [mock_commit]
+        mock_repo.get_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_commits("owner/repo", 1)
+
+        assert result[0].author_email == ""
+
+    def test_get_merge_request_commits_handles_none_stats(self, github_client):
+        """Test that None commit.stats defaults to zero line counts."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_commit = Mock()
+        mock_commit.sha = "abc123"
+        mock_commit.commit.author.email = "dev@example.com"
+        mock_commit.stats = None
+        mock_pr.get_commits.return_value = [mock_commit]
+        mock_repo.get_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_commits("owner/repo", 1)
+
+        assert result[0].lines_added == 0
+        assert result[0].lines_removed == 0
+
+    def test_get_merge_request_commits_per_commit_error_continues(self, github_client):
+        """Test that a per-commit stats failure skips stats but still includes the commit."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        commit1 = Mock()
+        commit1.sha = "abc"
+        commit1.commit.author.email = "dev@example.com"
+        type(commit1).stats = property(lambda self: (_ for _ in ()).throw(GithubException(500, "error", None)))
+        commit2 = Mock()
+        commit2.sha = "def"
+        commit2.commit.author.email = "dev@example.com"
+        commit2.stats.additions = 5
+        commit2.stats.deletions = 3
+        mock_pr.get_commits.return_value = [commit1, commit2]
+        mock_repo.get_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_commits("owner/repo", 1)
+
+        assert len(result) == 2
+        assert result[0].lines_added == 0  # failed commit gets zero stats
+        assert result[1].lines_added == 5
+
+    def test_get_bot_commit_email(self, github_client, monkeypatch):
+        """Test that bot commit email is formatted correctly."""
+        github_client.client_installation.app_slug = "daiv-bot"
+        monkeypatch.setattr(type(github_client), "current_user", User(id=12345, username="daiv-bot[bot]", name="DAIV"))
+
+        result = github_client.get_bot_commit_email()
+
+        assert result == "12345+daiv-bot[bot]@users.noreply.github.com"

@@ -10,7 +10,7 @@ from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, Label, Repository, User  # noqa: TC001
+from .models import Comment, Issue, Label, PullRequest, Repository, User  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -168,6 +168,41 @@ class IssueCommentCallback(GitHubCallback):
             and self.issue.state == "open"
             and self.action in ["created", "edited"]
             and note_mentions_daiv(self.comment.body, self._client.current_user)
+        )
+
+
+class PullRequestCallback(GitHubCallback):
+    """
+    GitHub Pull Request Webhook for tracking merge metrics.
+    """
+
+    action: str
+    pull_request: PullRequest
+
+    def accept_callback(self) -> bool:
+        """
+        Accept the webhook only when a pull request is merged into the default branch.
+        """
+        return (
+            self.action == "closed"
+            and self.pull_request.merged
+            and self.pull_request.base.ref == self.repository.default_branch
+        )
+
+    async def process_callback(self):
+        """
+        Enqueue a task to record merge metrics.
+        """
+        from codebase.tasks import record_merge_metrics_task
+
+        await record_merge_metrics_task.aenqueue(
+            repo_id=self.repository.full_name,
+            merge_request_iid=self.pull_request.number,
+            title=self.pull_request.title,
+            source_branch=self.pull_request.head.ref,
+            target_branch=self.pull_request.base.ref,
+            merged_at=self.pull_request.merged_at or "",
+            platform="github",
         )
 
 

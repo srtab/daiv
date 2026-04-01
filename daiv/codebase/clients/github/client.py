@@ -19,6 +19,8 @@ from codebase.base import (
     GitPlatform,
     Issue,
     MergeRequest,
+    MergeRequestCommit,
+    MergeRequestDiffStats,
     Note,
     NoteableType,
     NoteDiffPosition,
@@ -172,7 +174,7 @@ class GitHubClient(RepoClient):
         """
         Set webhooks for a repository.
         """
-        events = ["push", "issues", "pull_request_review", "issue_comment"]
+        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request"]
         config = {
             "url": url,
             "content_type": "json",
@@ -511,6 +513,71 @@ class GitHubClient(RepoClient):
         else:
             to_return = pr.create_issue_comment(body).id
         return to_return
+
+    def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
+        """
+        Get diff statistics for a pull request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The pull request number.
+
+        Returns:
+            The diff statistics (lines added, lines removed, files changed).
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+        return MergeRequestDiffStats(
+            lines_added=pr.additions, lines_removed=pr.deletions, files_changed=pr.changed_files
+        )
+
+    def get_merge_request_commits(self, repo_id: str, merge_request_id: int) -> list[MergeRequestCommit]:
+        """
+        Get the pre-squash commit list for a pull request with per-commit stats.
+
+        Accessing ``commit.stats`` triggers a lazy per-commit API call, so this
+        is effectively N+1 requests (same pattern as GitLab). GitHub limits
+        PR commits to 250, so no explicit cap is applied.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The pull request number.
+
+        Returns:
+            List of commits with author email and line stats.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+        result: list[MergeRequestCommit] = []
+        for commit in pr.get_commits():
+            author = commit.commit.author if commit.commit else None
+            try:
+                stats = commit.stats
+                lines_added = stats.additions if stats else 0
+                lines_removed = stats.deletions if stats else 0
+            except GithubException:
+                logger.warning(
+                    "Failed to fetch stats for commit %s in %s#%d, skipping", commit.sha, repo_id, merge_request_id
+                )
+                lines_added = 0
+                lines_removed = 0
+            result.append(
+                MergeRequestCommit(
+                    sha=commit.sha,
+                    author_email=(author.email if author else "") or "",
+                    lines_added=lines_added,
+                    lines_removed=lines_removed,
+                )
+            )
+        return result
+
+    def get_bot_commit_email(self) -> str:
+        """
+        Return the email address DAIV uses when authoring commits on GitHub.
+        """
+        bot_login = f"{self.client_installation.app_slug}[bot]"
+        bot_user_id = self.current_user.id
+        return f"{bot_user_id}+{bot_login}@users.noreply.github.com"
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """

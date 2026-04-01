@@ -3,7 +3,7 @@ import pytest
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
-from codebase.clients.gitlab.api.callbacks import IssueCallback, NoteCallback
+from codebase.clients.gitlab.api.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from codebase.clients.gitlab.api.models import (
     Issue,
     IssueAction,
@@ -11,6 +11,8 @@ from codebase.clients.gitlab.api.models import (
     Label,
     LabelChange,
     MergeRequest,
+    MergeRequestAction,
+    MergeRequestEvent,
     Note,
     NoteableType,
     NoteAction,
@@ -394,3 +396,123 @@ class TestNoteCallbackAllowlist:
 
         callback = create_note_callback("@daiv please review this code")
         assert callback.accept_callback() is True
+
+
+def create_merge_request_callback(
+    action: MergeRequestAction = MergeRequestAction.MERGE, state: str = "merged", target_branch: str = "main"
+) -> MergeRequestCallback:
+    """Helper to create a MergeRequestCallback instance."""
+    return MergeRequestCallback(
+        object_kind="merge_request",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+        object_attributes=MergeRequestEvent(
+            id=10,
+            iid=1,
+            title="Some MR",
+            state=state,
+            action=action,
+            source_branch="feat/something",
+            target_branch=target_branch,
+            author_id=2,
+            merged_at="2026-04-01T10:00:00Z",
+        ),
+    )
+
+
+class TestMergeRequestCallback:
+    """Tests for GitLab MergeRequestCallback."""
+
+    def test_accept_callback_on_merge(self):
+        """Test that callback is accepted when MR is merged."""
+        callback = create_merge_request_callback()
+        assert callback.accept_callback() is True
+
+    def test_reject_callback_on_open(self):
+        """Test that callback is rejected when MR is opened."""
+        callback = create_merge_request_callback(action=MergeRequestAction.OPEN, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_on_close(self):
+        """Test that callback is rejected when MR is closed."""
+        callback = create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_on_update(self):
+        """Test that callback is rejected when MR is updated."""
+        callback = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_when_state_not_merged(self):
+        """Test that callback is rejected when action is merge but state is not merged."""
+        callback = create_merge_request_callback(action=MergeRequestAction.MERGE, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_when_target_not_default_branch(self):
+        """Test that callback is rejected when MR targets a non-default branch."""
+        callback = create_merge_request_callback(target_branch="develop")
+        assert callback.accept_callback() is False
+
+    async def test_process_callback_enqueues_task(self):
+        """Test that process_callback enqueues the merge metrics task with correct args."""
+        from unittest.mock import AsyncMock, patch
+
+        callback = create_merge_request_callback()
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        mock_task.aenqueue.assert_called_once_with(
+            repo_id="group/repo",
+            merge_request_iid=1,
+            title="Some MR",
+            source_branch="feat/something",
+            target_branch="main",
+            merged_at="2026-04-01T10:00:00Z",
+            platform="gitlab",
+        )
+
+    def test_reject_callback_when_default_branch_is_none(self):
+        """Test that callback is rejected when project has no default branch."""
+        callback = MergeRequestCallback(
+            object_kind="merge_request",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch=None),
+            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+            object_attributes=MergeRequestEvent(
+                id=10,
+                iid=1,
+                title="Some MR",
+                state="merged",
+                action=MergeRequestAction.MERGE,
+                source_branch="feat/something",
+                target_branch="main",
+                author_id=2,
+            ),
+        )
+        assert callback.accept_callback() is False
+
+    async def test_process_callback_coalesces_none_merged_at(self):
+        """Test that process_callback passes empty string when merged_at is None."""
+        from unittest.mock import AsyncMock, patch
+
+        callback = MergeRequestCallback(
+            object_kind="merge_request",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+            object_attributes=MergeRequestEvent(
+                id=10,
+                iid=1,
+                title="Some MR",
+                state="merged",
+                action=MergeRequestAction.MERGE,
+                source_branch="feat/something",
+                target_branch="main",
+                author_id=2,
+                merged_at=None,
+            ),
+        )
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""

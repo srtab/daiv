@@ -15,6 +15,8 @@ from .models import (  # noqa: TC001
     IssueAction,
     IssueChanges,
     MergeRequest,
+    MergeRequestAction,
+    MergeRequestEvent,
     Note,
     NoteableType,
     NoteAction,
@@ -196,6 +198,44 @@ class NoteCallback(BaseCallback):
             and self.issue
             and self.issue.state == "opened"
             and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        )
+
+
+class MergeRequestCallback(BaseCallback):
+    """
+    Gitlab Merge Request Webhook for tracking merge metrics.
+    """
+
+    object_kind: Literal["merge_request"]
+    project: Project
+    user: User
+    object_attributes: MergeRequestEvent
+
+    def accept_callback(self) -> bool:
+        """
+        Accept the webhook only when a merge request is merged into the default branch.
+        """
+        return (
+            self.object_attributes.action == MergeRequestAction.MERGE
+            and self.object_attributes.state == "merged"
+            and bool(self.project.default_branch)
+            and self.object_attributes.target_branch == self.project.default_branch
+        )
+
+    async def process_callback(self):
+        """
+        Enqueue a task to record merge metrics.
+        """
+        from codebase.tasks import record_merge_metrics_task
+
+        await record_merge_metrics_task.aenqueue(
+            repo_id=self.project.path_with_namespace,
+            merge_request_iid=self.object_attributes.iid,
+            title=self.object_attributes.title,
+            source_branch=self.object_attributes.source_branch,
+            target_branch=self.object_attributes.target_branch,
+            merged_at=self.object_attributes.merged_at or "",
+            platform="gitlab",
         )
 
 
