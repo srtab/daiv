@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -35,6 +35,11 @@ PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "30d"
 
 
+def _format_pct(numerator: int, denominator: int) -> str:
+    """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
+    return f"{round(numerator / denominator * 100)}%" if denominator else "—"
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/dashboard.html"
 
@@ -45,39 +50,50 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if period not in PERIOD_DAYS:
             period = DEFAULT_PERIOD
         days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
+        today = localdate()
+        cutoff_date = today - timedelta(days=days) if days is not None else None
 
+        context["counters"] = self._get_activity_counters(cutoff_date, today)
+        context["active_api_keys"] = APIKey.objects.filter(user=self.request.user, revoked=False).count()
+        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
+        context["current_period"] = period
+        context["merge_counters"] = self._get_merge_counters(cutoff_date, today)
+
+        return context
+
+    def _get_activity_counters(self, cutoff_date: date | None, today: date) -> list[dict]:
         tasks = DBTaskResult.objects.filter(task_path__in=TASK_PATHS)
         if cutoff_date is not None:
             tasks = tasks.filter(enqueued_at__date__gte=cutoff_date)
 
         successful = Q(status=TaskResultStatus.SUCCESSFUL)
         code_changes = Q(return_value__code_changes=True)
+        today_q = Q(enqueued_at__date=today)
         stats = tasks.aggregate(
             total=Count("id"),
             successful=Count("id", filter=successful),
             issues=Count("id", filter=successful & code_changes & Q(task_path=ISSUE_TASK_PATH)),
             mrs=Count("id", filter=successful & code_changes & Q(task_path=MR_TASK_PATH)),
+            today_total=Count("id", filter=today_q),
+            today_issues=Count("id", filter=today_q & successful & code_changes & Q(task_path=ISSUE_TASK_PATH)),
+            today_mrs=Count("id", filter=today_q & successful & code_changes & Q(task_path=MR_TASK_PATH)),
         )
-        active_api_keys = APIKey.objects.filter(user=self.request.user, revoked=False).count()
 
         total = stats["total"]
-        context["counters"] = [
-            {"label": "Jobs processed", "value": total},
-            {"label": "Success rate", "value": f"{round(stats['successful'] / total * 100)}%" if total else "—"},
-            {"label": "Issues resolved", "value": stats["issues"]},
-            {"label": "MR reviews addressed", "value": stats["mrs"]},
+        return [
+            {"label": "Jobs processed", "value": total, "today": stats["today_total"]},
+            {"label": "Success rate", "value": _format_pct(stats["successful"], total)},
+            {"label": "Issues resolved", "value": stats["issues"], "today": stats["today_issues"]},
+            {"label": "MR reviews addressed", "value": stats["mrs"], "today": stats["today_mrs"]},
         ]
-        context["active_api_keys"] = active_api_keys
-        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
-        context["current_period"] = period
 
-        # Merge metrics
+    def _get_merge_counters(self, cutoff_date: date | None, today: date) -> list[dict]:
         merges = MergeMetric.objects.all()
         if cutoff_date is not None:
             merges = merges.filter(merged_at__date__gte=cutoff_date)
 
-        merge_stats = merges.aggregate(
+        today_q = Q(merged_at__date=today)
+        stats = merges.aggregate(
             total=Count("id"),
             total_added=Sum("lines_added", default=0),
             total_removed=Sum("lines_removed", default=0),
@@ -85,46 +101,47 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             daiv_removed=Sum("daiv_lines_removed", default=0),
             total_commits_sum=Sum("total_commits", default=0),
             daiv_commits_sum=Sum("daiv_commits", default=0),
+            today_total=Count("id", filter=today_q),
+            today_added=Sum("lines_added", default=0, filter=today_q),
+            today_removed=Sum("lines_removed", default=0, filter=today_q),
         )
 
-        merge_total = merge_stats["total"]
-        daiv_lines = merge_stats["daiv_added"] + merge_stats["daiv_removed"]
-        total_lines = merge_stats["total_added"] + merge_stats["total_removed"]
-        daiv_line_pct = f"{round(daiv_lines / total_lines * 100)}%" if total_lines else "—"
-        total_commits = merge_stats["total_commits_sum"]
-        daiv_commit_pct = f"{round(merge_stats['daiv_commits_sum'] / total_commits * 100)}%" if total_commits else "—"
+        total_lines = stats["total_added"] + stats["total_removed"]
+        daiv_lines = stats["daiv_added"] + stats["daiv_removed"]
+        total_commits = stats["total_commits_sum"]
 
-        context["merge_counters"] = [
+        return [
             {
                 "label": "Total merges",
-                "value": merge_total,
+                "value": stats["total"],
                 "tooltip": "Number of MRs/PRs merged into default branches.",
+                "today": stats["today_total"],
             },
             {
                 "label": "Lines added",
-                "value": merge_stats["total_added"],
+                "value": stats["total_added"],
                 "tooltip": "Total lines added across all merged MRs/PRs.",
+                "today": stats["today_added"],
             },
             {
                 "label": "Lines removed",
-                "value": merge_stats["total_removed"],
+                "value": stats["total_removed"],
                 "tooltip": "Total lines removed across all merged MRs/PRs.",
+                "today": stats["today_removed"],
             },
             {
                 "label": "DAIV contribution",
-                "value": daiv_line_pct,
+                "value": _format_pct(daiv_lines, total_lines),
                 "tooltip": "Percentage of total lines (added + removed) authored by DAIV, based on commit authorship.",
                 "plain": True,
             },
             {
                 "label": "DAIV commit share",
-                "value": daiv_commit_pct,
+                "value": _format_pct(stats["daiv_commits_sum"], total_commits),
                 "tooltip": "Percentage of total commits authored by DAIV across all merged MRs/PRs.",
                 "plain": True,
             },
         ]
-
-        return context
 
 
 class APIKeyListView(LoginRequiredMixin, TemplateView):

@@ -56,7 +56,12 @@
                     {% for counter in counters %}
                     <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
                         <span class="text-[13px] text-gray-500">{{ counter.label }}</span>
-                        <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
+                        <div class="text-right">
+                            <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
+                            {% if counter.today %}
+                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
+                            {% endif %}
+                        </div>
                     </div>
                     {% endfor %}
                 </div>
@@ -89,7 +94,12 @@
                             </span>
                             {% endif %}
                         </span>
-                        <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
+                        <div class="text-right">
+                            <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
+                            {% if counter.today %}
+                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
+                            {% endif %}
+                        </div>
                     </div>
                     {% endfor %}
                 </div>
