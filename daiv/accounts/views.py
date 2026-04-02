@@ -6,7 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
-from django.utils import timezone
+from django.utils.timezone import localdate
 from django.views import View
 from django.views.generic import TemplateView
 
@@ -45,10 +45,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if period not in PERIOD_DAYS:
             period = DEFAULT_PERIOD
         days = PERIOD_DAYS[period]
+        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
 
         tasks = DBTaskResult.objects.filter(task_path__in=TASK_PATHS)
-        if days is not None:
-            tasks = tasks.filter(enqueued_at__gte=timezone.now() - timedelta(days=days))
+        if cutoff_date is not None:
+            tasks = tasks.filter(enqueued_at__date__gte=cutoff_date)
 
         successful = Q(status=TaskResultStatus.SUCCESSFUL)
         code_changes = Q(return_value__code_changes=True)
@@ -73,8 +74,8 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         # Merge metrics
         merges = MergeMetric.objects.all()
-        if days is not None:
-            merges = merges.filter(merged_at__gte=timezone.now() - timedelta(days=days))
+        if cutoff_date is not None:
+            merges = merges.filter(merged_at__date__gte=cutoff_date)
 
         merge_stats = merges.aggregate(
             total=Count("id"),
