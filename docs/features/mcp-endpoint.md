@@ -1,40 +1,51 @@
 # MCP Endpoint
 
-DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint at `/mcp/`, allowing MCP clients like [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to connect directly to your DAIV instance via a remote URL with browser-based OAuth 2.0 authentication.
+DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint, allowing AI coding assistants to submit jobs and check results — all from within your editor or terminal.
 
-This is useful when you want to:
+No API keys needed — on first use, a browser window opens for you to log in with your existing DAIV account.
 
-- **Use DAIV from Claude Code** — submit jobs and check results directly from your terminal
-- **Connect any MCP client** — any tool that speaks MCP over Streamable HTTP can use DAIV as a remote server
-- **Leverage browser-based auth** — OAuth 2.0 with PKCE handles authentication via your existing DAIV login
+## Getting started
 
-## Authentication
+### Claude Code
 
-The MCP endpoint uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange). MCP clients handle the full flow automatically:
+```bash
+claude mcp add daiv --transport http https://daiv.example.com/mcp/
+```
 
-1. The client discovers OAuth endpoints via `/.well-known/oauth-authorization-server`
-2. The client registers itself via dynamic client registration (`/api/oauth/register`)
-3. The user is redirected to the browser to log in and authorize the client
-4. The client receives an access token and uses it for subsequent MCP requests
+### Cursor
 
-No manual API key creation is needed — the browser-based flow handles everything.
+Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 
-### OAuth endpoints
+```json
+{
+  "mcpServers": {
+    "daiv": {
+      "type": "streamable-http",
+      "url": "https://daiv.example.com/mcp/"
+    }
+  }
+}
+```
 
-| Endpoint | Description |
-|----------|-------------|
-| `/.well-known/oauth-authorization-server` | OAuth 2.0 metadata discovery (RFC 8414) |
-| `/api/oauth/register` | Dynamic client registration (RFC 7591) |
-| `/oauth/authorize/` | Authorization endpoint |
-| `/oauth/token/` | Token endpoint |
-| `/oauth/revoke_token/` | Token revocation |
+### Codex CLI
 
-### Token lifecycle
+Add to `.codex/config.toml` (project) or `~/.codex/config.toml` (global):
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Access token expiry | 1 hour | After expiry, the client uses the refresh token to obtain a new one |
-| Refresh token expiry | 24 hours | After expiry, the user must re-authenticate via the browser |
+```toml
+[mcp_servers.daiv]
+url = "https://daiv.example.com/mcp/"
+```
+
+!!! tip
+    Any MCP client that supports Streamable HTTP transport can connect to DAIV using the same `/mcp/` URL.
+
+## How it works
+
+1. **Add the server** — configure your MCP client with the DAIV URL (see above)
+2. **Log in** — on first use, a browser window opens for you to authorize access
+3. **Use DAIV tools** — submit jobs, check status, and list repositories directly from your editor
+
+Authentication is handled automatically via OAuth 2.0 — your client manages tokens and refreshes them as needed.
 
 ## Available tools
 
@@ -44,25 +55,11 @@ The MCP endpoint exposes the same capabilities as the [Jobs API](jobs-api.md):
 |------|-------------|
 | `submit_job` | Submit a prompt to the DAIV agent for a repository |
 | `get_job_status` | Poll the status and result of a submitted job |
-| `list_repositories` | Discover repositories that DAIV has access to |
 
-## Connecting from Claude Code
+## Usage examples
 
-Add the DAIV MCP server to Claude Code:
+Once connected, you can interact with DAIV naturally from your AI coding assistant:
 
-```bash
-claude mcp add daiv --transport http https://daiv.example.com/mcp/
-```
-
-On first use, Claude Code will open a browser window for you to log in and authorize access. After that, you can use DAIV tools directly from Claude Code.
-
-## Rate limiting
-
-The `/api/oauth/register` endpoint is unauthenticated by design (RFC 7591 — clients need it to obtain credentials before they can authenticate). It is rate-limited to **5 requests per minute per IP address** at the application level.
-
-## Security considerations
-
-- **HTTPS required** — always run the MCP endpoint behind a TLS-terminating reverse proxy
-- **PKCE enforced** — all OAuth flows require PKCE (`S256` challenge method) to prevent authorization code interception
-- **Scope-limited tokens** — access tokens are scoped to `mcp` and cannot access other parts of the application
-- **Rate-limited registration** — the unauthenticated `/api/oauth/register` endpoint is rate-limited to 5 requests per minute per IP address
+- *"Submit a job to mygroup/myproject: refactor the authentication module to use JWT tokens"*
+- *"Check the status of my last job"*
+- *"Ask DAIV to fix the broken CI pipeline in mygroup/myproject on the develop branch"*
