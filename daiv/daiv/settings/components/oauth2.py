@@ -10,6 +10,6 @@ OAUTH2_PROVIDER = {
     "ACCESS_TOKEN_EXPIRE_SECONDS": 3600,
     "REFRESH_TOKEN_EXPIRE_SECONDS": 86400,
     "ROTATE_REFRESH_TOKEN": True,
-    "OAUTH2_BACKEND_CLASS": "oauth2_provider.backends.OAuthLibCore",
+    "OAUTH2_BACKEND_CLASS": "oauth2_provider.oauth2_backends.OAuthLibCore",
     "OIDC_ENABLED": False,
 }

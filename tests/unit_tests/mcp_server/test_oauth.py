@@ -116,6 +116,35 @@ def test_register_client_empty_redirect_uris(rf):
     assert response.status_code == 400
 
 
+def test_register_client_non_string_redirect_uris(rf):
+    request = rf.post(
+        "/oauth/register/",
+        data=json.dumps({"client_name": "Test", "redirect_uris": [123, None]}),
+        content_type="application/json",
+    )
+
+    response = oauth_register_client(request)
+
+    assert response.status_code == 400
+    data = json.loads(response.content)
+    assert data["error"] == "invalid_client_metadata"
+
+
+@pytest.mark.django_db
+def test_register_client_default_client_name(rf):
+    request = rf.post(
+        "/oauth/register/",
+        data=json.dumps({"redirect_uris": ["http://localhost/callback"]}),
+        content_type="application/json",
+    )
+
+    response = oauth_register_client(request)
+
+    assert response.status_code == 201
+    data = json.loads(response.content)
+    assert data["client_name"] == "MCP Client"
+
+
 def test_register_client_invalid_auth_method(rf):
     request = rf.post(
         "/oauth/register/",

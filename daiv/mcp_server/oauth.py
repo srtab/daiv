@@ -42,7 +42,13 @@ def oauth_register_client(request: HttpRequest) -> JsonResponse:
     OAuth 2.0 Dynamic Client Registration (RFC 7591).
 
     MCP clients call this to register themselves as OAuth applications before
-    starting the authorization flow. No authentication is required.
+    starting the authorization flow. No authentication is required, as per
+    RFC 7591 open registration -- MCP clients need this endpoint to obtain
+    credentials before they can authenticate.
+
+    Note: Rate limiting should be enforced at the reverse proxy layer to
+    prevent abuse of this unauthenticated endpoint. See docs/features/mcp-endpoint.md
+    and docs/getting-started/deployment.md for the recommended Nginx configuration.
     """
     try:
         body = json.loads(request.body)
@@ -55,9 +61,12 @@ def oauth_register_client(request: HttpRequest) -> JsonResponse:
     client_name = body.get("client_name", "MCP Client")
     redirect_uris = body.get("redirect_uris", [])
 
-    if not isinstance(redirect_uris, list) or not redirect_uris:
+    if not isinstance(redirect_uris, list) or not redirect_uris or not all(isinstance(u, str) for u in redirect_uris):
         return JsonResponse(
-            {"error": "invalid_client_metadata", "error_description": "redirect_uris must be a non-empty array."},
+            {
+                "error": "invalid_client_metadata",
+                "error_description": "redirect_uris must be a non-empty array of strings.",
+            },
             status=HTTPStatus.BAD_REQUEST,
         )
 

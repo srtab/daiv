@@ -53,6 +53,19 @@ def expired_token(user, oauth_app):
 
 
 @pytest.fixture
+def wrong_scope_token(user, oauth_app):
+    from oauth2_provider.models import AccessToken
+
+    return AccessToken.objects.create(
+        user=user,
+        token="test-wrong-scope-token",  # noqa: S106
+        application=oauth_app,
+        expires=timezone.now() + timedelta(hours=1),
+        scope="read",
+    )
+
+
+@pytest.fixture
 def mock_app():
     return AsyncMock()
 
@@ -66,7 +79,7 @@ def _make_scope(path: str = "/mcp", headers: list[tuple[bytes, bytes]] | None = 
     return {"type": "http", "method": "POST", "path": path, "headers": headers or [], "query_string": b""}
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_valid_token_passes_through(middleware, mock_app, access_token):
     scope = _make_scope(headers=[(b"authorization", b"Bearer test-valid-token")])
     receive = AsyncMock()
@@ -78,7 +91,7 @@ async def test_valid_token_passes_through(middleware, mock_app, access_token):
     assert scope["user"].username == "testuser"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_missing_auth_header_returns_401(middleware, mock_app):
     scope = _make_scope()
     receive = AsyncMock()
@@ -87,12 +100,14 @@ async def test_missing_auth_header_returns_401(middleware, mock_app):
     await middleware(scope, receive, send)
 
     mock_app.assert_not_called()
-    # Verify 401 response was sent
+    # Verify 401 response was sent (first call is http.response.start with status)
     send_calls = send.call_args_list
-    assert any(b"401" in str(call).encode() for call in send_calls) or len(send_calls) > 0
+    assert len(send_calls) >= 1
+    start_message = send_calls[0][0][0]
+    assert start_message["status"] == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_invalid_token_returns_401(middleware, mock_app):
     scope = _make_scope(headers=[(b"authorization", b"Bearer invalid-token")])
     receive = AsyncMock()
@@ -101,9 +116,12 @@ async def test_invalid_token_returns_401(middleware, mock_app):
     await middleware(scope, receive, send)
 
     mock_app.assert_not_called()
+    send_calls = send.call_args_list
+    start_message = send_calls[0][0][0]
+    assert start_message["status"] == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_expired_token_returns_401(middleware, mock_app, expired_token):
     scope = _make_scope(headers=[(b"authorization", b"Bearer test-expired-token")])
     receive = AsyncMock()
@@ -112,9 +130,26 @@ async def test_expired_token_returns_401(middleware, mock_app, expired_token):
     await middleware(scope, receive, send)
 
     mock_app.assert_not_called()
+    send_calls = send.call_args_list
+    start_message = send_calls[0][0][0]
+    assert start_message["status"] == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
+async def test_wrong_scope_token_returns_401(middleware, mock_app, wrong_scope_token):
+    scope = _make_scope(headers=[(b"authorization", b"Bearer test-wrong-scope-token")])
+    receive = AsyncMock()
+    send = AsyncMock()
+
+    await middleware(scope, receive, send)
+
+    mock_app.assert_not_called()
+    send_calls = send.call_args_list
+    start_message = send_calls[0][0][0]
+    assert start_message["status"] == 401
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_non_bearer_auth_returns_401(middleware, mock_app):
     scope = _make_scope(headers=[(b"authorization", b"Basic dXNlcjpwYXNz")])
     receive = AsyncMock()
@@ -123,6 +158,9 @@ async def test_non_bearer_auth_returns_401(middleware, mock_app):
     await middleware(scope, receive, send)
 
     mock_app.assert_not_called()
+    send_calls = send.call_args_list
+    start_message = send_calls[0][0][0]
+    assert start_message["status"] == 401
 
 
 async def test_non_http_scope_passes_through(middleware, mock_app):

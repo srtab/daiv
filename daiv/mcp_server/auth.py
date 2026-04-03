@@ -1,14 +1,14 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django.contrib.auth.models import AnonymousUser
-
 from oauth2_provider.models import AccessToken
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
+
+    from accounts.models import User
 
 logger = logging.getLogger("daiv.mcp_server")
 
@@ -19,7 +19,8 @@ class OAuthTokenAuthMiddleware:
 
     Extracts the token from the Authorization header, validates it against
     django-oauth-toolkit's AccessToken model, and attaches the authenticated
-    user to the ASGI scope.
+    user to the ASGI scope. Non-HTTP scope types (e.g., lifespan) are passed
+    through without authentication.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -42,10 +43,18 @@ class OAuthTokenAuthMiddleware:
             await response(scope, receive, send)
             return
 
-        token_str = auth_header[7:]  # Strip "Bearer "
-        user = await _get_user_from_token(token_str)
+        token_str = auth_header[7:]
+        try:
+            user = await _get_user_from_token(token_str)
+        except Exception:
+            logger.exception("Failed to validate OAuth token")
+            response = JSONResponse(
+                {"error": "server_error", "error_description": "Authentication service unavailable."}, status_code=503
+            )
+            await response(scope, receive, send)
+            return
 
-        if user is None or isinstance(user, AnonymousUser):
+        if user is None:
             response = JSONResponse(
                 {"error": "invalid_token", "error_description": "The access token is invalid or expired."},
                 status_code=401,
@@ -58,7 +67,7 @@ class OAuthTokenAuthMiddleware:
         await self.app(scope, receive, send)
 
 
-async def _get_user_from_token(token_str: str) -> object | None:
+async def _get_user_from_token(token_str: str) -> User | None:
     """Validate an OAuth2 access token and return the associated user."""
     try:
         access_token = await AccessToken.objects.select_related("user").aget(token=token_str)
@@ -67,6 +76,10 @@ async def _get_user_from_token(token_str: str) -> object | None:
 
     if access_token.is_expired():
         logger.debug("Expired OAuth2 token used for MCP access")
+        return None
+
+    if "mcp" not in access_token.scope:
+        logger.debug("Token missing 'mcp' scope for MCP access")
         return None
 
     return access_token.user

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import uuid as uuid_mod
@@ -5,6 +6,7 @@ import uuid as uuid_mod
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from codebase.clients import RepoClient
 
@@ -17,6 +19,7 @@ mcp = FastMCP(
         "Use the available tools to submit jobs, check their status, and discover repositories."
     ),
     stateless_http=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
@@ -34,13 +37,13 @@ async def submit_job(repo_id: str, prompt: str, ref: str | None = None) -> str:
         ref: Optional git reference (branch name or commit SHA). Defaults to the repository's default branch.
 
     Returns:
-        A JSON string with the job_id for polling status.
+        A JSON string with either a 'job_id' key for polling status, or an 'error' key if submission failed.
     """
     try:
         result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref)
     except Exception:
         logger.exception("Failed to enqueue MCP job for repo_id=%s", repo_id)
-        return json.dumps({"error": "Failed to submit job. Please try again later."})
+        return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})
 
     logger.info("MCP job submitted: job_id=%s, repo_id=%s", result.id, repo_id)
     return json.dumps({"job_id": str(result.id)})
@@ -55,7 +58,8 @@ async def get_job_status(job_id: str) -> str:
         job_id: The job ID returned by submit_job.
 
     Returns:
-        A JSON string with the job status, result, and timing information.
+        A JSON string with the job status, result, and timing information (enqueued_at as 'created_at',
+        started_at, finished_at). Returns an error object if the job_id is invalid or not found.
     """
     try:
         job_uuid = uuid_mod.UUID(job_id)
@@ -66,6 +70,9 @@ async def get_job_status(job_id: str) -> str:
         db_result = await DBTaskResult.objects.aget(id=job_uuid, task_path=run_job_task.module_path)
     except DBTaskResult.DoesNotExist:
         return json.dumps({"error": "Job not found."})
+    except Exception:
+        logger.exception("Failed to retrieve job status for job_id=%s", job_id)
+        return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
 
     error = None
     if db_result.status == "FAILED":
@@ -83,7 +90,7 @@ async def get_job_status(job_id: str) -> str:
 
 
 @mcp.tool()
-def list_repositories(search: str | None = None, topics: list[str] | None = None) -> str:
+async def list_repositories(search: str | None = None, topics: list[str] | None = None) -> str:
     """
     List repositories that DAIV has access to.
 
@@ -94,15 +101,18 @@ def list_repositories(search: str | None = None, topics: list[str] | None = None
         topics: Optional list of topics to filter repositories.
 
     Returns:
-        A JSON string with the list of repositories including their IDs, names, and default branches.
+        A JSON string with the list of repositories including their IDs, names, default branches, URLs, and topics.
     """
     try:
         client = RepoClient.create_instance()
-        repos = client.list_repositories(search=search, topics=topics)
+        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
     except NotImplementedError:
-        # GitHub client does not support search
-        client = RepoClient.create_instance()
-        repos = client.list_repositories(topics=topics)
+        logger.warning(
+            "Repository search not supported by the current git platform client; "
+            "returning results without search filter (search=%s)",
+            search,
+        )
+        repos = await asyncio.to_thread(client.list_repositories, topics=topics)
     except Exception:
         logger.exception("Failed to list repositories")
         return json.dumps({"error": "Failed to list repositories."})
