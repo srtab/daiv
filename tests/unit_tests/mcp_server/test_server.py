@@ -4,9 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import get_job_status, list_repositories, submit_job
-
-from codebase.base import GitPlatform, Repository
+from mcp_server.server import get_job_status, submit_job
 
 
 @pytest.mark.django_db(transaction=True)
@@ -354,87 +352,3 @@ async def test_get_job_status_db_exception():
     data = json.loads(result)
     assert "error" in data
     assert "Failed to retrieve job status" in data["error"]
-
-
-async def test_list_repositories_success(mock_repo_client):
-    mock_repo_client.list_repositories.return_value = [
-        Repository(
-            pk=1,
-            slug="group/project",
-            name="project",
-            default_branch="main",
-            git_platform=GitPlatform.GITLAB,
-            clone_url="https://gitlab.com/group/project.git",
-            html_url="https://gitlab.com/group/project",
-            topics=["python"],
-        )
-    ]
-
-    result = await list_repositories()
-    data = json.loads(result)
-
-    assert "repositories" in data
-    assert len(data["repositories"]) == 1
-    assert data["repositories"][0]["repo_id"] == "group/project"
-    assert data["repositories"][0]["name"] == "project"
-    assert data["repositories"][0]["default_branch"] == "main"
-    assert data["repositories"][0]["topics"] == ["python"]
-    assert data["repositories"][0]["url"] == "https://gitlab.com/group/project"
-
-
-async def test_list_repositories_empty(mock_repo_client):
-    mock_repo_client.list_repositories.return_value = []
-
-    result = await list_repositories()
-    data = json.loads(result)
-
-    assert data["repositories"] == []
-
-
-async def test_list_repositories_with_search(mock_repo_client):
-    mock_repo_client.list_repositories.return_value = []
-
-    await list_repositories(search="test")
-    mock_repo_client.list_repositories.assert_called_with(search="test", topics=None)
-
-
-async def test_list_repositories_with_topics(mock_repo_client):
-    mock_repo_client.list_repositories.return_value = []
-
-    await list_repositories(topics=["python", "django"])
-    mock_repo_client.list_repositories.assert_called_with(search=None, topics=["python", "django"])
-
-
-async def test_list_repositories_not_implemented_fallback(mock_repo_client):
-    mock_repo_client.list_repositories.side_effect = [
-        NotImplementedError("Search not supported"),
-        [
-            Repository(
-                pk=1,
-                slug="group/project",
-                name="project",
-                default_branch="main",
-                git_platform=GitPlatform.GITLAB,
-                clone_url="https://gitlab.com/group/project.git",
-                html_url="https://gitlab.com/group/project",
-                topics=[],
-            )
-        ],
-    ]
-
-    result = await list_repositories(search="test", topics=["python"])
-    data = json.loads(result)
-
-    assert len(data["repositories"]) == 1
-    # Verify the retry call dropped the search parameter
-    assert mock_repo_client.list_repositories.call_count == 2
-    mock_repo_client.list_repositories.assert_called_with(topics=["python"])
-
-
-async def test_list_repositories_generic_exception(mock_repo_client):
-    mock_repo_client.list_repositories.side_effect = Exception("API error")
-
-    result = await list_repositories()
-    data = json.loads(result)
-
-    assert data["error"] == "Failed to list repositories."

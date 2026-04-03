@@ -8,15 +8,13 @@ from jobs.tasks import run_job_task
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from codebase.clients import RepoClient
-
 logger = logging.getLogger("daiv.mcp_server")
 
 mcp = FastMCP(
     name="DAIV",
     instructions=(
         "DAIV is an AI-powered development assistant that automates code issues, reviews, and pipeline repairs. "
-        "Use the available tools to submit jobs, check their status, and discover repositories."
+        "Use the available tools to submit jobs and check their status."
     ),
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -140,47 +138,3 @@ async def get_job_status(job_id: str, wait: bool = False) -> str:
         return await _poll_job_until_complete(job_id)
 
     return _build_job_response(db_result)
-
-
-@mcp.tool()
-async def list_repositories(search: str | None = None, topics: list[str] | None = None) -> str:
-    """
-    List repositories that DAIV has access to.
-
-    Use this to discover available repositories before submitting a job.
-
-    Args:
-        search: Optional search query to filter repositories by name.
-              Note: search may not be supported on all git platforms; if unsupported, all repositories are returned.
-        topics: Optional list of topics to filter repositories.
-
-    Returns:
-        A JSON string with the list of repositories including their IDs, names, default branches, URLs, and topics.
-    """
-    try:
-        client = RepoClient.create_instance()
-        try:
-            repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
-        except NotImplementedError:
-            logger.warning(
-                "Repository search not supported by the current git platform client; "
-                "returning results without search filter (search=%s)",
-                search,
-            )
-            repos = await asyncio.to_thread(client.list_repositories, topics=topics)
-    except Exception:
-        logger.exception("Failed to list repositories")
-        return json.dumps({"error": "Failed to list repositories."})
-
-    return json.dumps({
-        "repositories": [
-            {
-                "repo_id": repo.slug,
-                "name": repo.name,
-                "default_branch": repo.default_branch,
-                "url": repo.html_url,
-                "topics": repo.topics,
-            }
-            for repo in repos
-        ]
-    })
