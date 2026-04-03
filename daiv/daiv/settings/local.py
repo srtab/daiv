@@ -15,6 +15,7 @@ include(
     "components/debug.py",
     "components/tasks.py",
     "components/allauth.py",
+    "components/oauth2.py",
 )
 
 # Serve static files directly from app directories without collectstatic

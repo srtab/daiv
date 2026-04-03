@@ -5,5 +5,6 @@ include(
     "components/i18n.py",
     "components/tasks.py",
     "components/allauth.py",
+    "components/oauth2.py",
     "components/testing.py",
 )

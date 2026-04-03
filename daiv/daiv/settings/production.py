@@ -9,4 +9,5 @@ include(
     "components/tasks.py",
     "components/sentry.py",
     "components/allauth.py",
+    "components/oauth2.py",
 )
