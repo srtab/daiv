@@ -13,7 +13,7 @@ This is useful when you want to:
 The MCP endpoint uses **OAuth 2.0 with PKCE** (Proof Key for Code Exchange). MCP clients handle the full flow automatically:
 
 1. The client discovers OAuth endpoints via `/.well-known/oauth-authorization-server`
-2. The client registers itself via dynamic client registration (`/oauth/register/`)
+2. The client registers itself via dynamic client registration (`/api/oauth/register`)
 3. The user is redirected to the browser to log in and authorize the client
 4. The client receives an access token and uses it for subsequent MCP requests
 

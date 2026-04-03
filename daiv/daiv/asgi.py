@@ -5,7 +5,7 @@ Combines the Django ASGI application with the MCP server under /mcp.
 The MCP streamable HTTP app is wrapped with OAuth2 token validation middleware.
 
 For more information on this file, see
-https://docs.djangoproject.com/en/5.0/howto/deployment/asgi/
+https://docs.djangoproject.com/en/stable/howto/deployment/asgi/
 """
 
 import os
@@ -29,9 +29,9 @@ def _get_mcp_application() -> ASGIApp:
     """
     Lazily build the MCP ASGI application with OAuth auth middleware.
 
-    The returned Starlette app includes a built-in lifespan that manages
-    the MCP session manager. Lifespan events must be forwarded to this app
-    for proper startup and shutdown.
+    The underlying Starlette app includes a built-in lifespan that manages
+    the MCP session manager. Lifespan events are forwarded through the auth
+    middleware to reach it for proper startup and shutdown.
     """
     global _mcp_application
     if _mcp_application is not None:

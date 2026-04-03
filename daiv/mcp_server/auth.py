@@ -68,7 +68,10 @@ class OAuthTokenAuthMiddleware:
 
 
 async def _get_user_from_token(token_str: str) -> User | None:
-    """Validate an OAuth2 access token and return the associated user."""
+    """Validate an OAuth2 access token and return the associated user.
+
+    Returns None if the token does not exist, is expired, or lacks the required 'mcp' scope.
+    """
     try:
         access_token = await AccessToken.objects.select_related("user").aget(token=token_str)
     except AccessToken.DoesNotExist:
