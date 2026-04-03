@@ -34,7 +34,7 @@ def test_register_client_success(api_client):
     assert data["grant_types"] == ["authorization_code", "refresh_token"]
     assert data["response_types"] == ["code"]
     assert data["token_endpoint_auth_method"] == "none"  # noqa: S105
-    assert data["client_secret"] is None
+    assert "client_secret" not in data
 
 
 @pytest.mark.django_db

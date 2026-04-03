@@ -1,6 +1,7 @@
 from typing import Literal
 
 from ninja import Field, Schema
+from pydantic import model_serializer
 
 
 class ClientRegistrationRequest(Schema):
@@ -17,3 +18,8 @@ class ClientRegistrationResponse(Schema):
     response_types: list[str]
     token_endpoint_auth_method: str
     client_secret: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _exclude_none_fields(self, handler):
+        data = handler(self)
+        return {k: v for k, v in data.items() if v is not None}
