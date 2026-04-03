@@ -2,7 +2,7 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
-from mcp_server.oauth import oauth_metadata, oauth_register_client
+from mcp_server.oauth import oauth_metadata
 
 from accounts.views import homepage
 from core.views import HealthCheckView
@@ -25,7 +25,6 @@ urlpatterns = [
     path("accounts/api-keys/", include("accounts.api_keys_urls")),
     path("dashboard/", include("accounts.dashboard_urls")),
     path("api/", api.urls),
-    path("oauth/register/", oauth_register_client, name="oauth_register_client"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
     path("-/alive/", HealthCheckView.as_view(), name="health_check"),

@@ -654,38 +654,6 @@ server {
 3.   **Update the SSL certificate path** - Location varies by operating system
 4.   **Update the SSL certificate key path** - Location varies by operating system
 
-### Rate Limiting
-
-The MCP endpoint includes an unauthenticated client registration endpoint (`/oauth/register/`) required by the [OAuth 2.0 Dynamic Client Registration](https://datatracker.ietf.org/doc/html/rfc7591) protocol. To prevent abuse, add rate limiting at the Nginx level.
-
-**Add this to your `http` block** (typically in `/etc/nginx/nginx.conf`):
-
-```nginx
-# Rate limit zone for OAuth client registration (unauthenticated endpoint).
-# Allows 5 requests per minute per IP address.
-limit_req_zone $binary_remote_addr zone=oauth_register:10m rate=5r/m;
-```
-
-**Add this `location` block inside the `server` block**, before the `location /` catch-all:
-
-```nginx
-  location = /oauth/register/ {
-    limit_req zone=oauth_register burst=10 nodelay;
-    limit_req_status 429;
-
-    proxy_pass              http://daiv-instance;
-    proxy_set_header        Host $host;
-    proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header        X-Forwarded-Proto $scheme;
-    proxy_set_header        X-Real-IP $remote_addr;
-    proxy_redirect          off;
-  }
-```
-
-This limits each IP to **5 registration requests per minute** with a burst of 10. Adjust the `rate` and `burst` values based on your expected traffic.
-
-For more details on the MCP endpoint and its OAuth flow, see [MCP Endpoint](../features/mcp-endpoint.md).
-
 ### Step 2: Restart Nginx
 
 **Apply the configuration changes** by restarting Nginx:

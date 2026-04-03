@@ -105,14 +105,15 @@ async def list_repositories(search: str | None = None, topics: list[str] | None 
     """
     try:
         client = RepoClient.create_instance()
-        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
-    except NotImplementedError:
-        logger.warning(
-            "Repository search not supported by the current git platform client; "
-            "returning results without search filter (search=%s)",
-            search,
-        )
-        repos = await asyncio.to_thread(client.list_repositories, topics=topics)
+        try:
+            repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
+        except NotImplementedError:
+            logger.warning(
+                "Repository search not supported by the current git platform client; "
+                "returning results without search filter (search=%s)",
+                search,
+            )
+            repos = await asyncio.to_thread(client.list_repositories, topics=topics)
     except Exception:
         logger.exception("Failed to list repositories")
         return json.dumps({"error": "Failed to list repositories."})

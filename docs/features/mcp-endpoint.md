@@ -24,7 +24,7 @@ No manual API key creation is needed — the browser-based flow handles everythi
 | Endpoint | Description |
 |----------|-------------|
 | `/.well-known/oauth-authorization-server` | OAuth 2.0 metadata discovery (RFC 8414) |
-| `/oauth/register/` | Dynamic client registration (RFC 7591) |
+| `/api/oauth/register` | Dynamic client registration (RFC 7591) |
 | `/oauth/authorize/` | Authorization endpoint |
 | `/oauth/token/` | Token endpoint |
 | `/oauth/revoke_token/` | Token revocation |
@@ -58,13 +58,11 @@ On first use, Claude Code will open a browser window for you to log in and autho
 
 ## Rate limiting
 
-The `/oauth/register/` endpoint is unauthenticated by design (RFC 7591 — clients need it to obtain credentials before they can authenticate). To prevent abuse, **rate limiting should be configured at the reverse proxy layer**.
-
-See the [Reverse Proxy configuration](../getting-started/deployment.md#rate-limiting) for the recommended Nginx setup.
+The `/api/oauth/register` endpoint is unauthenticated by design (RFC 7591 — clients need it to obtain credentials before they can authenticate). It is rate-limited to **5 requests per minute per IP address** at the application level.
 
 ## Security considerations
 
 - **HTTPS required** — always run the MCP endpoint behind a TLS-terminating reverse proxy
 - **PKCE enforced** — all OAuth flows require PKCE (`S256` challenge method) to prevent authorization code interception
 - **Scope-limited tokens** — access tokens are scoped to `mcp` and cannot access other parts of the application
-- **Rate limit registration** — the unauthenticated `/oauth/register/` endpoint should be rate-limited at the reverse proxy to prevent resource exhaustion
+- **Rate-limited registration** — the unauthenticated `/api/oauth/register` endpoint is rate-limited to 5 requests per minute per IP address

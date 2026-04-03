@@ -78,7 +78,7 @@ async def _get_user_from_token(token_str: str) -> User | None:
         logger.debug("Expired OAuth2 token used for MCP access")
         return None
 
-    if "mcp" not in access_token.scope:
+    if not access_token.allow_scopes(["mcp"]):
         logger.debug("Token missing 'mcp' scope for MCP access")
         return None
 

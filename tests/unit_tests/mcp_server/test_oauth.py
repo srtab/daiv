@@ -3,7 +3,7 @@ import json
 from django.test import RequestFactory
 
 import pytest
-from mcp_server.oauth import oauth_metadata, oauth_register_client
+from mcp_server.oauth import oauth_metadata
 
 
 @pytest.fixture
@@ -29,6 +29,7 @@ def test_oauth_metadata_returns_expected_fields(rf):
     assert data["code_challenge_methods_supported"] == ["S256"]
     assert data["scopes_supported"] == ["mcp"]
     assert "issuer" in data
+    assert not data["issuer"].endswith("/")
 
 
 def test_oauth_metadata_contains_correct_endpoints(rf):
@@ -37,127 +38,7 @@ def test_oauth_metadata_contains_correct_endpoints(rf):
     response = oauth_metadata(request)
     data = json.loads(response.content)
 
-    assert "/oauth/authorize/" in data["authorization_endpoint"]
-    assert "/oauth/token/" in data["token_endpoint"]
-    assert "/oauth/register/" in data["registration_endpoint"]
-    assert "/oauth/revoke_token/" in data["revocation_endpoint"]
-
-
-@pytest.mark.django_db
-def test_register_client_success(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({"client_name": "Test MCP Client", "redirect_uris": ["http://localhost:8080/callback"]}),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 201
-    data = json.loads(response.content)
-    assert "client_id" in data
-    assert data["client_name"] == "Test MCP Client"
-    assert data["redirect_uris"] == ["http://localhost:8080/callback"]
-    assert data["grant_types"] == ["authorization_code", "refresh_token"]
-    assert data["response_types"] == ["code"]
-    assert data["token_endpoint_auth_method"] == "none"  # noqa: S105
-    assert "client_secret" not in data
-
-
-@pytest.mark.django_db
-def test_register_client_confidential(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({
-            "client_name": "Confidential Client",
-            "redirect_uris": ["http://localhost:8080/callback"],
-            "token_endpoint_auth_method": "client_secret_post",
-        }),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 201
-    data = json.loads(response.content)
-    assert "client_secret" in data
-    assert len(data["client_secret"]) > 0
-
-
-def test_register_client_invalid_json(rf):
-    request = rf.post("/oauth/register/", data="not json", content_type="application/json")
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 400
-    data = json.loads(response.content)
-    assert data["error"] == "invalid_client_metadata"
-
-
-def test_register_client_missing_redirect_uris(rf):
-    request = rf.post("/oauth/register/", data=json.dumps({"client_name": "Test"}), content_type="application/json")
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 400
-    data = json.loads(response.content)
-    assert data["error"] == "invalid_client_metadata"
-
-
-def test_register_client_empty_redirect_uris(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({"client_name": "Test", "redirect_uris": []}),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 400
-
-
-def test_register_client_non_string_redirect_uris(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({"client_name": "Test", "redirect_uris": [123, None]}),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 400
-    data = json.loads(response.content)
-    assert data["error"] == "invalid_client_metadata"
-
-
-@pytest.mark.django_db
-def test_register_client_default_client_name(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({"redirect_uris": ["http://localhost/callback"]}),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 201
-    data = json.loads(response.content)
-    assert data["client_name"] == "MCP Client"
-
-
-def test_register_client_invalid_auth_method(rf):
-    request = rf.post(
-        "/oauth/register/",
-        data=json.dumps({
-            "client_name": "Test",
-            "redirect_uris": ["http://localhost/callback"],
-            "token_endpoint_auth_method": "client_secret_basic",
-        }),
-        content_type="application/json",
-    )
-
-    response = oauth_register_client(request)
-
-    assert response.status_code == 400
-    data = json.loads(response.content)
-    assert data["error"] == "invalid_client_metadata"
+    assert data["authorization_endpoint"].endswith("/oauth/authorize/")
+    assert data["token_endpoint"].endswith("/oauth/token/")
+    assert data["registration_endpoint"].endswith("/api/oauth/register")
+    assert data["revocation_endpoint"].endswith("/oauth/revoke_token/")
