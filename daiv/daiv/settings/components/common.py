@@ -11,13 +11,14 @@ SITE_ID = 1
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "automation", "codebase", "core", "slash_commands"]
+LOCAL_APPS = ["accounts", "automation", "codebase", "core", "mcp_server", "slash_commands"]
 
 THIRD_PARTY_APPS = [
     "crontask",
     "django_extensions",
     "django_tasks",
     "django_tasks_db",
+    "oauth2_provider",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
