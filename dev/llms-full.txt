@@ -676,6 +676,10 @@ Your DAIV instance is now running and accessible. Continue with:
 1. **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
 1. **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
 
+First Login & User Management
+
+On a fresh install, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. After that, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+
 # Platform Setup
 
 This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.
@@ -2887,7 +2891,7 @@ Global policy vs. repository policy
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in via social providers (GitHub, GitLab) or passwordless login-by-code for existing accounts. Configure at least one social provider.
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login is allowed to bootstrap the initial admin account (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)). Configure at least one social provider.
 
 | Variable                    | Description                                                                                | Default                                       | Example                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------ |

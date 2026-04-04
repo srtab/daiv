@@ -666,3 +666,7 @@ Your DAIV instance is now running and accessible. Continue with:
 1. **[Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)** — connect DAIV to your GitLab or GitHub repositories
 1. **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
 1. **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+
+First Login & User Management
+
+On a fresh install, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. After that, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).

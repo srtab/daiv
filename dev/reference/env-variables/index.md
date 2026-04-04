@@ -116,7 +116,7 @@ Global policy vs. repository policy
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in via social providers (GitHub, GitLab) or passwordless login-by-code for existing accounts. Configure at least one social provider.
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login is allowed to bootstrap the initial admin account (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)). Configure at least one social provider.
 
 | Variable                    | Description                                                                                | Default                                       | Example                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------ |
