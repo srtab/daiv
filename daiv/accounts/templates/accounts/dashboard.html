@@ -12,6 +12,9 @@
                 <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
             </div>
             <div class="flex items-center gap-5">
+                {% if user.is_admin %}
+                <a href="{% url 'user_list' %}" class="text-[14px] text-gray-500 transition-colors hover:text-white">Users</a>
+                {% endif %}
                 <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
                 <a href="{% url 'account_logout' %}"
                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
@@ -108,7 +111,7 @@
         </div>
 
         <!-- Quick Links -->
-        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2" style="animation-delay: 300ms">
+        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 {% if user.is_admin %}lg:grid-cols-3{% endif %}" style="animation-delay: 300ms">
             <!-- API Docs card -->
             <a href="{% url 'api:openapi-view' %}"
                class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
@@ -120,6 +123,27 @@
                 <h3 class="text-[15px] font-semibold text-white">API Documentation</h3>
                 <p class="mt-1 text-[14px] text-gray-500">Explore the API endpoints and test requests interactively.</p>
             </a>
+
+            {% if user.is_admin %}
+            <!-- Users card (admin only) -->
+            <a href="{% url 'user_list' %}"
+               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
+                <div class="mb-3 flex items-center justify-between">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                        <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>
+                        </svg>
+                    </div>
+                    {% if total_users %}
+                    <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-gray-400">
+                        {{ total_users }} total
+                    </span>
+                    {% endif %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Users</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Manage user accounts and roles.</p>
+            </a>
+            {% endif %}
 
             <!-- API Keys card -->
             <a href="{% url 'api_keys' %}"

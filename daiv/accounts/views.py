@@ -6,15 +6,18 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
+from django.urls import reverse, reverse_lazy
 from django.utils.timezone import localdate
 from django.views import View
-from django.views.generic import TemplateView
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
-from accounts.forms import APIKeyCreateForm
-from accounts.models import APIKey
+from accounts.emails import send_welcome_email
+from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
+from accounts.mixins import AdminRequiredMixin
+from accounts.models import APIKey, Role, User
 from codebase.models import MergeMetric
 
 logger = logging.getLogger(__name__)
@@ -58,6 +61,8 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
         context["merge_counters"] = self._get_merge_counters(cutoff_date, today)
+        if self.request.user.is_admin:
+            context["total_users"] = User.objects.count()
 
         return context
 
@@ -144,12 +149,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ]
 
 
-class APIKeyListView(LoginRequiredMixin, TemplateView):
+class APIKeyListView(LoginRequiredMixin, ListView):
+    model = APIKey
     template_name = "accounts/api_keys.html"
+    context_object_name = "api_keys"
+    paginate_by = 25
+
+    def get_queryset(self):
+        return super().get_queryset().filter(user=self.request.user).order_by("revoked", "-created")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["api_keys"] = APIKey.objects.filter(user=self.request.user).order_by("revoked", "-created")
         context["new_key"] = self.request.session.pop("new_api_key", None)
         context["form"] = APIKeyCreateForm()
         return context
@@ -194,3 +204,93 @@ class APIKeyRevokeView(LoginRequiredMixin, View):
             api_key.save(update_fields=["revoked"])
             messages.success(request, f"API key '{api_key.name}' revoked.")
         return redirect("api_keys")
+
+
+# ---------------------------------------------------------------------------
+# User management views (admin only)
+# ---------------------------------------------------------------------------
+
+
+class UserListView(AdminRequiredMixin, ListView):
+    model = User
+    template_name = "accounts/users.html"
+    context_object_name = "users"
+    ordering = ["-date_joined"]
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.GET.get("q", "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(email__icontains=q))
+        role = self.request.GET.get("role", "").strip()
+        if role in {Role.ADMIN, Role.MEMBER}:
+            qs = qs.filter(role=role)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["search_query"] = self.request.GET.get("q", "")
+        context["current_role"] = self.request.GET.get("role", "")
+        return context
+
+
+class UserCreateView(AdminRequiredMixin, CreateView):
+    model = User
+    form_class = UserCreateForm
+    template_name = "accounts/user_form.html"
+    success_url = reverse_lazy("user_list")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        assert isinstance(self.object, User)
+        login_url = self.request.build_absolute_uri(reverse("account_login"))
+        email_sent = send_welcome_email(self.object, login_url)
+        if email_sent:
+            messages.success(self.request, f"User '{self.object.email}' created. A welcome email has been sent.")
+        else:
+            messages.warning(
+                self.request,
+                f"User '{self.object.email}' created, but the welcome email could not be sent."
+                " Please notify the user manually.",
+            )
+        return response
+
+
+class UserUpdateView(AdminRequiredMixin, UpdateView):
+    model = User
+    form_class = UserUpdateForm
+    template_name = "accounts/user_form.html"
+    success_url = reverse_lazy("user_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["requesting_user"] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        assert isinstance(self.object, User)
+        messages.success(self.request, f"User '{self.object.email}' updated.")
+        return response
+
+
+class UserDeleteView(AdminRequiredMixin, DeleteView):
+    model = User
+    template_name = "accounts/user_confirm_delete.html"
+    success_url = reverse_lazy("user_list")
+
+    def post(self, request, *args, **kwargs):
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            messages.error(request, "You cannot delete your own account.")
+            return redirect("user_list")
+        if user.is_last_active_admin():
+            messages.error(request, "Cannot delete the last admin. Promote another user first.")
+            return redirect("user_list")
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        assert isinstance(self.object, User)
+        messages.success(self.request, f"User '{self.object.email}' deleted.")
+        return super().form_valid(form)

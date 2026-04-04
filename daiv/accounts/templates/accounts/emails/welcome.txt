@@ -1,0 +1,9 @@
+Hi{% if user.name %} {{ user.name }}{% endif %},
+
+You've been invited to DAIV by an administrator.
+
+Sign in at {{ login_url }} using your email ({{ user.email }}).
+
+You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address.
+
+— DAIV

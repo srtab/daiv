@@ -21,9 +21,10 @@ class StaticSitemap(Sitemap):
 
 urlpatterns = [
     path("", homepage, name="homepage"),
-    path("accounts/", include("accounts.allauth_urls")),
-    path("accounts/api-keys/", include("accounts.api_keys_urls")),
-    path("dashboard/", include("accounts.dashboard_urls")),
+    path("accounts/", include("accounts.urls.allauth")),
+    path("accounts/api-keys/", include("accounts.urls.api_keys")),
+    path("accounts/users/", include("accounts.urls.users")),
+    path("dashboard/", include("accounts.urls.dashboard")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
