@@ -308,7 +308,7 @@ async def test_poll_job_db_exception():
 
 @pytest.mark.django_db(transaction=True)
 async def test_poll_job_timeout_never_found():
-    """When the job never appears in DB during polling, return 'Job not found.'."""
+    """When the job never appears in DB during polling, return a descriptive timeout error."""
     job_id = str(uuid.uuid4())
     mock_result = MagicMock()
     mock_result.id = job_id
@@ -331,7 +331,8 @@ async def test_poll_job_timeout_never_found():
         result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    assert data["error"] == "Job not found."
+    assert "was submitted but has not appeared yet" in data["error"]
+    assert data["job_id"] == str(mock_result.id)
 
 
 @pytest.mark.django_db(transaction=True)

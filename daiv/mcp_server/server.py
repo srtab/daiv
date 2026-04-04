@@ -2,20 +2,43 @@ import asyncio
 import json
 import logging
 import uuid as uuid_mod
+from typing import Annotated
 
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import Field
 
 logger = logging.getLogger("daiv.mcp_server")
 
 mcp = FastMCP(
     name="DAIV",
-    instructions=(
-        "DAIV is an AI-powered development assistant that automates code issues, reviews, and pipeline repairs. "
-        "Use the available tools to submit jobs and check their status."
-    ),
+    instructions="""\
+DAIV is an autonomous coding agent that operates on Git repositories (GitLab and GitHub). \
+It can read, write, and edit files, run shell commands in a sandbox, create commits and branches, \
+open merge requests or pull requests, and debug CI/CD pipelines.
+
+## Workflow
+
+1. Call `submit_job` with a `repo_id` and a `prompt` describing the task.
+2. For short tasks, set `wait=True` to block until the result is ready (up to 10 minutes).
+3. For longer tasks, omit `wait` and poll with `get_job_status` using the returned `job_id`. \
+`get_job_status` also accepts `wait=True` to block on an already-submitted job.
+
+## Writing effective prompts
+
+Be specific: include file paths, function names, error messages, or branch names when relevant. \
+The agent works best with clear, scoped instructions rather than vague requests. \
+Use `ref` to target a specific branch or commit; it defaults to the repository's default branch.
+
+## Constraints
+
+- Jobs are rate-limited per authenticated user.
+- The `wait` parameter polls for up to 10 minutes; after that, the current status is returned and \
+you can continue polling with `get_job_status`.
+- The agent can only access repositories it has been configured to reach.\
+""",
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
@@ -27,25 +50,40 @@ MAX_POLL_DURATION = 600.0  # 10 minutes
 
 
 @mcp.tool()
-async def submit_job(repo_id: str, prompt: str, ref: str | None = None, wait: bool = False) -> str:
-    """
-    Submit a job to the DAIV agent for a repository.
-
-    The DAIV agent will process the prompt against the specified repository, performing
-    code analysis, issue resolution, or other development tasks.
-
-    Args:
-        repo_id: The repository identifier (e.g. "owner/repo" or GitLab project path).
-        prompt: The instruction or question for the DAIV agent.
-        ref: Optional git reference (branch name or commit SHA). Defaults to the repository's default branch.
-        wait: If True, wait for the job to complete and return the full result instead of just the job ID.
-              The maximum wait time is 10 minutes; if the job hasn't finished by then, the current status is returned.
-
-    Returns:
-        A JSON string with either a 'job_id' key for polling status, or an 'error' key if submission failed.
-        When wait=True, returns the full job status including result and timing information,
-        or the current status if the job hasn't finished within the timeout.
-    """
+async def submit_job(
+    repo_id: Annotated[
+        str,
+        Field(
+            description=(
+                'Repository identifier. Use "owner/repo" for GitHub or the full project path for GitLab'
+                ' (e.g. "group/project" or "group/subgroup/project").'
+            )
+        ),
+    ],
+    prompt: Annotated[
+        str,
+        Field(
+            description=(
+                "Task instruction for the agent. Be specific: include file paths, function names,"
+                " error messages, or branch names when relevant."
+            )
+        ),
+    ],
+    ref: Annotated[
+        str | None,
+        Field(description="Git reference (branch name or commit SHA). Defaults to the repository's default branch."),
+    ] = None,
+    wait: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, blocks until the job completes (up to 10 minutes) and returns the full result"
+                " instead of just the job ID."
+            )
+        ),
+    ] = False,
+) -> str:
+    """Submit a job to the DAIV agent for a repository."""
     try:
         result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref)
     except Exception:
@@ -92,33 +130,42 @@ async def _poll_job_until_complete(job_id: str) -> str:
             continue
         except Exception:
             logger.exception("Failed to poll job status for job_id=%s", job_id)
-            return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
+            return json.dumps({"error": "Failed to retrieve job status. Please try again later.", "job_id": job_id})
 
         if last_result.status in TERMINAL_STATUSES:
             return _build_job_response(last_result)
 
     # Timeout — return current status so the caller isn't left without info
     if last_result is not None:
+        logger.info(
+            "Polling timeout for job_id=%s after %.0fs, returning current status: %s",
+            job_id,
+            elapsed,
+            last_result.status,
+        )
         return _build_job_response(last_result)
-    return json.dumps({"error": "Job not found."})
+
+    logger.warning("Polling timeout for job_id=%s after %.0fs, job never appeared in database", job_id, elapsed)
+    return json.dumps({
+        "error": f"Job '{job_id}' was submitted but has not appeared yet after {int(MAX_POLL_DURATION)}s. "
+        "The task queue may be backed up. Use get_job_status to check later.",
+        "job_id": job_id,
+    })
 
 
 @mcp.tool()
-async def get_job_status(job_id: str, wait: bool = False) -> str:
-    """
-    Get the status and result of a previously submitted job.
-
-    Args:
-        job_id: The job ID returned by submit_job.
-        wait: If True, wait for the job to complete before returning.
-              The maximum wait time is 10 minutes; if the job hasn't finished by then, the current status is returned.
-
-    Returns:
-        A JSON string with the job status, result, and timing information (enqueued_at as 'created_at',
-        started_at, finished_at). When wait=True, blocks until the job reaches a terminal status or the
-        timeout is exceeded, then returns the current status. Returns an error object if the job_id is
-        invalid or not found.
-    """
+async def get_job_status(
+    job_id: Annotated[str, Field(description="The job ID returned by submit_job.")],
+    wait: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, blocks until the job completes (up to 10 minutes) instead of returning immediately."
+            )
+        ),
+    ] = False,
+) -> str:
+    """Get the status and result of a previously submitted job. Status is one of: READY, RUNNING, SUCCESSFUL, FAILED."""
     try:
         job_uuid = uuid_mod.UUID(job_id)
     except ValueError:

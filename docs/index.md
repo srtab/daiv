@@ -23,6 +23,7 @@ DAIV automates routine software engineering work so you can focus on creative pr
 - **Issue Addressing** — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.
 - **Pull Request Assistant** — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.
 - **Slash Commands & Skills** — Invoke commands and skills directly from issues and merge requests (`/help`, `/plan`, `/code-review`, `/clone-to-topics`). Built-in skills provide planning, code review, and security audits — and you can create your own.
+- **MCP Endpoint** — Connect your AI coding assistant (Claude Code, Cursor, Codex CLI) to DAIV via the [Model Context Protocol](https://modelcontextprotocol.io/). Delegate tasks from your editor and get results back without leaving your workflow.
 
 ## Quick example
 
@@ -94,5 +95,13 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
     Tailor DAIV to your team with `.daiv.yml`, skills, and MCP tools.
 
     [:octicons-arrow-right-24: Repository Config](customization/repository-config.md)
+
+-   **Use from your editor**
+
+    ---
+
+    Connect Claude Code, Cursor, or Codex CLI to DAIV via MCP.
+
+    [:octicons-arrow-right-24: MCP Endpoint](features/mcp-endpoint.md)
 
 </div>
