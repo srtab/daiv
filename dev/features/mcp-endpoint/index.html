@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/slash-commands/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/mcp-endpoint/">
       
       
-        <link rel="prev" href="../merge-metrics/">
+        <link rel="prev" href="../jobs-api/">
       
       
-        <link rel="next" href="../subagents/">
+        <link rel="next" href="../merge-metrics/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Slash Commands & Skills - DAIV</title>
+        <title>MCP Endpoint - DAIV</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#slash-commands-skills" class="md-skip">
+        <a href="#mcp-endpoint" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Slash Commands & Skills
+              MCP Endpoint
             
           </span>
         </div>
@@ -571,10 +571,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../mcp-endpoint/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Endpoint
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -590,6 +617,98 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting started
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Getting started">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#claude-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cursor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cursor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#codex-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available tools
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -627,37 +746,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Slash Commands & Skills
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../slash-commands/" class="md-nav__link">
         
   
   
@@ -673,170 +765,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in commands
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Built-in commands">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#help" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /help
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#agents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /agents
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clear" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clear
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in skills
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Built-in skills">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#code-review" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /code-review
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /security-audit
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#init" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /init
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skill-creator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /skill-creator
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-commands-skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom commands (skills)
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1235,22 +1163,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#built-in-commands" class="md-nav__link">
+  <a href="#getting-started" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Built-in commands
+        Getting started
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Built-in commands">
+    <nav class="md-nav" aria-label="Getting started">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#help" class="md-nav__link">
+  <a href="#claude-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /help
+        Claude Code
       
     </span>
   </a>
@@ -1258,10 +1186,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#agents" class="md-nav__link">
+  <a href="#cursor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /agents
+        Cursor
       
     </span>
   </a>
@@ -1269,21 +1197,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#clear" class="md-nav__link">
+  <a href="#codex-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /clear
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
+        Codex CLI
       
     </span>
   </a>
@@ -1296,82 +1213,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#built-in-skills" class="md-nav__link">
+  <a href="#available-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Built-in skills
+        Available tools
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Built-in skills">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /plan
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#code-review" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /code-review
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#security-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /security-audit
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#init" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /init
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skill-creator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /skill-creator
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-commands-skills" class="md-nav__link">
+  <a href="#usage-examples" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom commands (skills)
+        Usage examples
       
     </span>
   </a>
@@ -1443,7 +1299,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/features/slash-commands.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/mcp-endpoint.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1451,121 +1307,74 @@
   
 
 
-<h1 id="slash-commands-skills">Slash Commands &amp; Skills</h1>
-<p>DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are <strong>skills</strong> — modular capabilities that give DAIV specialized expertise for specific tasks.</p>
-<p>From your perspective, both work the same way:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv /&lt;command&gt; [arguments]
+<h1 id="mcp-endpoint">MCP Endpoint</h1>
+<p>DAIV exposes a <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> server endpoint, allowing AI coding assistants to delegate tasks to the DAIV agent — directly from your editor or terminal.</p>
+<p>The DAIV agent can read and modify code, run commands in a sandbox, create commits and branches, open merge requests or pull requests, and debug CI/CD pipelines. Through the MCP endpoint, your local assistant can offload these tasks to DAIV and get the results back.</p>
+<p>Authentication is handled via OAuth 2.0 — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically.</p>
+<h2 id="getting-started">Getting started</h2>
+<h3 id="claude-code">Claude Code</h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>daiv<span class="w"> </span>--transport<span class="w"> </span>http<span class="w"> </span>https://daiv.example.com/mcp/
 </code></pre></div></td></tr></table></div>
-<p>Use <code>/help</code> to see everything available in the current context.</p>
-<h2 id="built-in-commands">Built-in commands</h2>
-<p>These commands have fixed behavior and are always available:</p>
+<h3 id="cursor">Cursor</h3>
+<p>Add to <code>.cursor/mcp.json</code> (project) or <code>~/.cursor/mcp.json</code> (global):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span>
+<span class="normal"><a href="#__codelineno-1-5">5</a></span>
+<span class="normal"><a href="#__codelineno-1-6">6</a></span>
+<span class="normal"><a href="#__codelineno-1-7">7</a></span>
+<span class="normal"><a href="#__codelineno-1-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">    </span><span class="nt">&quot;daiv&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;streamable-http&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://daiv.example.com/mcp/&quot;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="codex-cli">Codex CLI</h3>
+<p>Add to <code>.codex/config.toml</code> (project) or <code>~/.codex/config.toml</code> (global):</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">TOML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="k">[mcp_servers.daiv]</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://daiv.example.com/mcp/&quot;</span>
+</code></pre></div></td></tr></table></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Any MCP client that supports Streamable HTTP transport can connect to DAIV using the same <code>/mcp/</code> URL.</p>
+</div>
+<h2 id="available-tools">Available tools</h2>
 <table>
 <thead>
 <tr>
-<th>Command</th>
-<th>Scopes</th>
+<th>Tool</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/help</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Lists all available commands and skills</td>
+<td><code>submit_job</code></td>
+<td>Submit a prompt to the DAIV agent for a repository. Returns a <code>job_id</code> for polling, or set <code>wait=True</code> to block until the result is ready (up to 10 minutes).</td>
 </tr>
 <tr>
-<td><code>/agents</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Lists available subagents with descriptions</td>
-</tr>
-<tr>
-<td><code>/clear</code></td>
-<td>Issues, MRs/PRs</td>
-<td>Resets the conversation context to start fresh</td>
-</tr>
-<tr>
-<td><code>/clone-to-topics &lt;topics&gt;</code></td>
-<td>Issues only</td>
-<td>Clones the issue to all repositories matching the specified topics</td>
+<td><code>get_job_status</code></td>
+<td>Get the status and result of a previously submitted job. Also supports <code>wait=True</code> to block until completion.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="help">/help</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>@daiv /help
-</code></pre></div></td></tr></table></div>
-<p>Shows all available slash commands <strong>and</strong> skills for the current scope. The output includes both built-in commands and any skills (built-in or custom) available in the repository.</p>
-<h3 id="agents">/agents</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>@daiv /agents
-</code></pre></div></td></tr></table></div>
-<p>Lists the available subagents with their names and descriptions. See <a href="../subagents/">Subagents</a> for details.</p>
-<h3 id="clear">/clear</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv /clear
-</code></pre></div></td></tr></table></div>
-<p>Clears the conversation history for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting.</p>
-<h3 id="clone-to-topics">/clone-to-topics</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /clone-to-topics backend, api
-</code></pre></div></td></tr></table></div>
-<p>Clones the current issue (title, description, and labels) to all repositories matching <strong>all</strong> the specified topics. The current repository is excluded. Only available on issues.</p>
-<h2 id="built-in-skills">Built-in skills</h2>
-<p>Skills are invoked the same way as commands. DAIV ships with the following built-in skills:</p>
-<table>
-<thead>
-<tr>
-<th>Skill</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>/plan</code></td>
-<td>Explores the codebase in read-only mode and produces an implementation plan</td>
-</tr>
-<tr>
-<td><code>/code-review</code></td>
-<td>Reviews a merge/pull request for correctness, tests, performance, security, and architecture</td>
-</tr>
-<tr>
-<td><code>/security-audit</code></td>
-<td>Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks</td>
-</tr>
-<tr>
-<td><code>/init</code></td>
-<td>Analyzes the repository and generates or updates an <code>AGENTS.md</code> guidance file</td>
-</tr>
-<tr>
-<td><code>/skill-creator</code></td>
-<td>Guides you through creating a new custom skill</td>
-</tr>
-</tbody>
-</table>
-<h3 id="plan">/plan</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv /plan implement rate limiting for the API
-</code></pre></div></td></tr></table></div>
-<p>DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the <code>daiv-auto</code> label (see <a href="../issue-addressing/">Issue Addressing</a>).</p>
-<h3 id="code-review">/code-review</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv /code-review
-</code></pre></div></td></tr></table></div>
-<p>Reviews the current merge/pull request diff for correctness, test coverage, performance, security issues, and architecture concerns. Posts numbered findings grouped by severity.</p>
-<h3 id="security-audit">/security-audit</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv /security-audit
-</code></pre></div></td></tr></table></div>
-<p>Performs a dedicated security scan of the code changes, looking for injection flaws, hardcoded secrets, authentication issues, and data handling risks.</p>
-<h3 id="init">/init</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv /init
-</code></pre></div></td></tr></table></div>
-<p>Analyzes the repository structure and generates an <code>AGENTS.md</code> file with guidance for AI coding agents, following the recommendations from <a href="https://arxiv.org/abs/2602.11988">the AGENTS.md research paper</a>. If one already exists, it updates it.</p>
-<h3 id="skill-creator">/skill-creator</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv /skill-creator
-</code></pre></div></td></tr></table></div>
-<p>Walks you through creating a new custom skill for your repository. See <a href="../../customization/agent-skills/">Agent Skills</a> for more on custom skills.</p>
-<h2 id="custom-commands-skills">Custom commands (skills)</h2>
-<p>Custom slash commands are implemented as <strong>skills</strong>. Creating a skill automatically registers it as a command — there is no separate registration step.</p>
-<p>To create a custom command like <code>/my-command</code>:</p>
-<ol>
-<li>Create <code>.agents/skills/my-command/SKILL.md</code> with YAML frontmatter</li>
-<li>Invoke it with <code>@daiv /my-command</code></li>
-</ol>
-<p>Custom commands appear alongside built-in ones in <code>/help</code> and are invoked the same way. For the full guide on creating skills, see <a href="../../customization/agent-skills/">Agent Skills</a>.</p>
+<p><code>submit_job</code> accepts an optional <code>ref</code> parameter to target a specific branch or commit. If omitted, the repository's default branch is used.</p>
+<p>For the full request/response schema and job lifecycle, see the <a href="../jobs-api/">Jobs API</a>.</p>
+<h2 id="usage-examples">Usage examples</h2>
+<p>Once connected, you can interact with DAIV naturally from your AI coding assistant:</p>
+<ul>
+<li><em>"Ask DAIV to refactor the authentication module in mygroup/myproject to use JWT tokens"</em></li>
+<li><em>"Submit a job to mygroup/myproject on the develop branch: fix the broken CI pipeline"</em></li>
+<li><em>"Check the status of my last DAIV job"</em></li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Be specific in your prompts — include file paths, function names, error messages, or branch names. The more context you give, the better the result.</p>
+</div>
 
 
 
