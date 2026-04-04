@@ -14,6 +14,9 @@
                 </a>
             </div>
             <div class="flex items-center gap-5">
+                {% if user.is_admin %}
+                <a href="{% url 'user_list' %}" class="text-[14px] text-gray-500 transition-colors hover:text-white">Users</a>
+                {% endif %}
                 <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
                 <a href="{% url 'account_logout' %}"
                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
@@ -110,6 +113,7 @@
                 </div>
                 {% endfor %}
             </div>
+            {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
                 <p class="text-[14px] text-gray-500">No API keys yet. Create one above to get started.</p>

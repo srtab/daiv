@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if object %}Edit User{% else %}Create User{% endif %} — DAIV{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh">
+    <!-- Header -->
+    <header class="border-b border-white/[0.06]">
+        <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+            <div class="flex items-center">
+                <a href="{% url 'dashboard' %}">
+                    <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
+                </a>
+            </div>
+            <div class="flex items-center gap-5">
+                <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
+                <a href="{% url 'account_logout' %}"
+                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                    Sign out
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit user{% else %}Create user{% endif %}</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                    {% if object %}Update {{ object.email }}.{% else %}Add a new user to DAIV. They will receive a welcome email.{% endif %}
+                </p>
+            </div>
+            <a href="{% url 'user_list' %}"
+               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                &larr; Users
+            </a>
+        </div>
+
+        {% if form.non_field_errors %}
+        <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
+            {% for error in form.non_field_errors %}
+            <p class="text-[14px] text-red-200">{{ error }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post"
+              class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+            {% csrf_token %}
+
+            <!-- Name -->
+            <div>
+                <label for="id_name" class="block text-[14px] font-medium text-gray-400">Name</label>
+                <input type="text" name="name" id="id_name" value="{{ form.name.value|default:'' }}" maxlength="128"
+                       placeholder="Full name"
+                       class="mt-2 block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                {% if form.name.errors %}
+                <p class="mt-1.5 text-[13px] text-red-400">{{ form.name.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Email -->
+            <div class="mt-5">
+                <label for="id_email" class="block text-[14px] font-medium text-gray-400">Email <span class="text-red-400">*</span></label>
+                <input type="email" name="email" id="id_email" value="{{ form.email.value|default:'' }}" required
+                       placeholder="user@example.com"
+                       class="mt-2 block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                {% if form.email.errors %}
+                <p class="mt-1.5 text-[13px] text-red-400">{{ form.email.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Role -->
+            <div class="mt-5">
+                <label for="id_role" class="block text-[14px] font-medium text-gray-400">Role</label>
+                <select name="role" id="id_role"
+                        class="mt-2 block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[14px] text-white outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                    <option value="member" {% if form.role.value == 'member' or not form.role.value %}selected{% endif %}>Member</option>
+                    <option value="admin" {% if form.role.value == 'admin' %}selected{% endif %}>Admin</option>
+                </select>
+                {% if form.role.errors %}
+                <p class="mt-1.5 text-[13px] text-red-400">{{ form.role.errors.0 }}</p>
+                {% endif %}
+                <p class="mt-1.5 text-[13px] text-gray-500">Admins can manage users. Members can access the dashboard, API keys, and MCP.</p>
+            </div>
+
+            {% if object %}
+            <!-- Active (edit only) -->
+            <div class="mt-5">
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="hidden" name="is_active" value="false">
+                    <input type="checkbox" name="is_active" value="true" {% if form.is_active.value %}checked{% endif %}
+                           class="h-4 w-4 rounded border-white/[0.15] bg-white/[0.03] text-white accent-white">
+                    <span class="text-[14px] font-medium text-gray-400">Active</span>
+                </label>
+                {% if form.is_active.errors %}
+                <p class="mt-1.5 text-[13px] text-red-400">{{ form.is_active.errors.0 }}</p>
+                {% endif %}
+                <p class="mt-1.5 text-[13px] text-gray-500">Inactive users cannot sign in.</p>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="mt-8 flex items-center gap-3">
+                <button type="submit"
+                        class="rounded-xl bg-white px-5 py-2.5 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                    {% if object %}Save changes{% else %}Create user{% endif %}
+                </button>
+                <a href="{% url 'user_list' %}"
+                   class="rounded-xl border border-white/[0.06] bg-white/[0.03] px-5 py-2.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                    Cancel
+                </a>
+                {% if object %}
+                <a href="{% url 'user_delete' object.pk %}"
+                   class="ml-auto rounded-xl border border-red-800/30 bg-red-950/20 px-5 py-2.5 text-[14px] font-medium text-red-400 transition-all duration-200 hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300">
+                    Delete user
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </main>
+</div>
+{% endblock %}
