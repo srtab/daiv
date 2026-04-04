@@ -19,7 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "ddgs==9.12.0",
+  "ddgs==9.12.1",
   "deepagents==0.4.12",
   "django==6.0.3",
   "django-allauth[socialaccount]==65.15.1",
