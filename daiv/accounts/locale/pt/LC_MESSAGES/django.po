@@ -1,16 +1,15 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# Portuguese translations for DAIV accounts.
+# Copyright (C) 2024 DAIV
+# This file is distributed under the same license as the DAIV package.
 #
 #, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-12-06 12:17+0100\n"
-"PO-Revision-Date: 2024-12-06 12:17+0100\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"POT-Creation-Date: 2026-04-04 22:34+0100\n"
+"PO-Revision-Date: 2026-04-04 22:34+0100\n"
+"Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
 "Language: pt\n"
 "MIME-Version: 1.0\n"
@@ -19,10 +18,123 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "Accounts"
-msgstr "Perfis"
+msgstr "Contas"
+
+msgid "You cannot deactivate your own account."
+msgstr "Não pode desativar a sua própria conta."
+
+msgid "You are the last admin. Promote another user before changing your role."
+msgstr "É o último administrador. Promova outro utilizador antes de alterar o seu papel."
+
+msgid "This is the last admin. Promote another user before demoting this one."
+msgstr "Este é o último administrador. Promova outro utilizador antes de despromover este."
+
+msgid "Admin"
+msgstr "Administrador"
+
+msgid "Member"
+msgstr "Membro"
 
 msgid "email address"
 msgstr "endereço de email"
 
 msgid "name"
 msgstr "nome"
+
+msgid "role"
+msgstr "papel"
+
+msgid "prefix"
+msgstr "prefixo"
+
+msgid "API Key"
+msgstr "Chave API"
+
+msgid "expires at"
+msgstr "expira em"
+
+msgid "revoked"
+msgstr "revogada"
+
+msgid "API Keys"
+msgstr "Chaves API"
+
+msgid "Sign-In Code"
+msgstr "Código de Autenticação"
+
+msgid "Enter the code below in your open browser window to complete sign-in."
+msgstr "Introduza o código abaixo na janela do navegador para concluir a autenticação."
+
+msgid "This code expires in 5 minutes. If you did not request this, you can safely ignore this email."
+msgstr "Este código expira em 5 minutos. Se não solicitou este código, pode ignorar este email."
+
+msgid "Your sign-in code for DAIV is:"
+msgstr "O seu código de autenticação DAIV é:"
+
+msgid "Enter this code in your open browser window to complete sign-in."
+msgstr "Introduza este código na janela do navegador para concluir a autenticação."
+
+msgid "Your DAIV Sign-In Code"
+msgstr "O Seu Código de Autenticação DAIV"
+
+msgid "Welcome to DAIV"
+msgstr "Bem-vindo ao DAIV"
+
+#, python-format
+msgid "Hi %(name)s, you've been invited by an administrator."
+msgstr "Olá %(name)s, foi convidado por um administrador."
+
+msgid "Hi, you've been invited by an administrator."
+msgstr "Olá, foi convidado por um administrador."
+
+#, python-format
+msgid "<strong style=\"color: #111827;\">%(email)s</strong>"
+msgstr "<strong style=\"color: #111827;\">%(email)s</strong>"
+
+msgid "Sign in with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email."
+msgstr "Autentique-se com um código único enviado para o seu email, ou use a sua conta GitHub ou GitLab se estiver associada ao mesmo email."
+
+msgid "Sign in to DAIV"
+msgstr "Autenticar no DAIV"
+
+#, python-format
+msgid "If the button doesn't work, copy and paste this link: %(url)s"
+msgstr "Se o botão não funcionar, copie e cole este link: %(url)s"
+
+#, python-format
+msgid "Hi %(name)s,"
+msgstr "Olá %(name)s,"
+
+msgid "Hi,"
+msgstr "Olá,"
+
+msgid "You've been invited to DAIV by an administrator."
+msgstr "Foi convidado para o DAIV por um administrador."
+
+#, python-format
+msgid "Sign in at %(url)s using your email (%(email)s)."
+msgstr "Autentique-se em %(url)s usando o seu email (%(email)s)."
+
+msgid "You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address."
+msgstr "Pode autenticar-se com um código único enviado para o seu email, ou usar a sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
+
+msgid "Authorization request"
+msgstr "Pedido de autorização"
+
+msgid "wants to access your account"
+msgstr "pretende aceder à sua conta"
+
+msgid "Permissions requested"
+msgstr "Permissões solicitadas"
+
+msgid "Will redirect to"
+msgstr "Vai redirecionar para"
+
+msgid "Deny"
+msgstr "Negar"
+
+msgid "Authorize"
+msgstr "Autorizar"
+
+msgid "Authorizing will grant this application access to your DAIV account"
+msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"

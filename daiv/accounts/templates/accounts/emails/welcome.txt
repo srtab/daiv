@@ -1,9 +1,9 @@
-Hi{% if user.name %} {{ user.name }}{% endif %},
+{% load i18n %}{% autoescape off %}{% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }},{% endblocktrans %}{% else %}{% trans "Hi," %}{% endif %}
 
-You've been invited to DAIV by an administrator.
+{% trans "You've been invited to DAIV by an administrator." %}
 
-Sign in at {{ login_url }} using your email ({{ user.email }}).
+{% blocktrans with url=login_url email=user.email %}Sign in at {{ url }} using your email ({{ email }}).{% endblocktrans %}
 
-You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address.
+{% trans "You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address." %}
 
-— DAIV
+— DAIV{% endautoescape %}
