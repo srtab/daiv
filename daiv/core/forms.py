@@ -12,16 +12,6 @@ from core.models import SiteConfiguration
 # Datalist choices for model name fields (suggestions, not enforced)
 MODEL_NAME_CHOICES = [(m.value, m.value) for m in ModelName]
 
-# Semantic CSS class names — the actual Tailwind utilities are referenced in field templates.
-_INPUT_CSS = (
-    "block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 "
-    "text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 "
-    "focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]"
-)
-_DISABLED_CSS = f"{_INPUT_CSS} opacity-50 cursor-not-allowed"
-_SELECT_CSS = _INPUT_CSS
-_CHECKBOX_CSS = "h-4 w-4 rounded border-white/[0.15] bg-white/[0.03] text-white accent-white"
-
 
 class _BooleanCheckboxField(forms.BooleanField):
     """BooleanField for nullable model fields. Checked=True, unchecked=False."""
@@ -44,8 +34,10 @@ class SiteConfigurationForm(forms.ModelForm):
     """
     Auto-generated form for :class:`~core.models.SiteConfiguration`.
 
-    Widgets, CSS classes, and field template names are derived from the model
-    field type — no per-field widget declaration needed.
+    Widgets and field template names are derived from the model field type.
+    Base CSS styles for inputs, selects, and checkboxes are centralised
+    in the Tailwind source (``input.css``), so no per-field CSS class
+    assignment is needed here.
     """
 
     SECRET_FIELDS: ClassVar[tuple[str, ...]] = SiteConfiguration.ENCRYPTED_FIELDS
@@ -95,6 +87,8 @@ class SiteConfigurationForm(forms.ModelForm):
 
         self._add_secret_fields()
         self._configure_widgets()
+        # Order matters: _apply_env_locks sets checkbox initial values for
+        # env-locked fields; _apply_defaults must run after and skip them.
         self._apply_env_locks()
         self._apply_defaults(field_defaults or {})
 
@@ -108,7 +102,7 @@ class SiteConfigurationForm(forms.ModelForm):
             field_obj = _SecretFormField(
                 label=self._secret_label(name),
                 required=False,
-                widget=forms.PasswordInput(attrs={"class": _INPUT_CSS, "autocomplete": "off"}),
+                widget=forms.PasswordInput(attrs={"autocomplete": "off"}),
                 help_text=self._secret_help_text(name),
             )
             field_obj.secret_hint = self.instance.get_secret_hint(name) if self.instance else None  # type: ignore[attr-defined]
@@ -116,7 +110,7 @@ class SiteConfigurationForm(forms.ModelForm):
             self.fields[name] = field_obj
 
     def _configure_widgets(self) -> None:
-        """Auto-configure widget attrs based on model field type."""
+        """Configure widgets, replace nullable booleans with checkbox fields, and set default field attributes."""
         from django.core.exceptions import FieldDoesNotExist
         from django.db import models
 
@@ -124,59 +118,50 @@ class SiteConfigurationForm(forms.ModelForm):
             if name in self.SECRET_FIELDS:
                 continue  # already configured in _add_secret_fields
 
-            # Replace Django's auto-generated NullBooleanField with a standard
-            # BooleanField+CheckboxInput so checked=True, unchecked=False.
+            # Replace Django's default NullBooleanSelect (Unknown/Yes/No dropdown)
+            # with a standard BooleanField+CheckboxInput so checked=True, unchecked=False.
             try:
                 model_field = SiteConfiguration._meta.get_field(name)
             except FieldDoesNotExist:
                 model_field = None
             if isinstance(model_field, models.BooleanField) and model_field.null:
-                new_field = _BooleanCheckboxField(
-                    widget=forms.CheckboxInput(attrs={"class": _CHECKBOX_CSS}),
-                    label=field_obj.label,
-                    help_text=field_obj.help_text,
-                )
+                new_field = _BooleanCheckboxField(label=field_obj.label, help_text=field_obj.help_text)
                 new_field.is_env_locked = False  # type: ignore[attr-defined]
                 new_field.secret_hint = None  # type: ignore[attr-defined]
                 self.fields[name] = new_field
                 continue
 
             widget = field_obj.widget
-            if isinstance(widget, forms.CheckboxInput):
-                widget.attrs.setdefault("class", _CHECKBOX_CSS)
-            elif isinstance(widget, forms.Select):
-                widget.attrs.setdefault("class", _SELECT_CSS)
-            elif isinstance(widget, (forms.TextInput, forms.NumberInput)):
-                widget.attrs.setdefault("class", _INPUT_CSS)
-                if "model_name" in name:
-                    widget.attrs["list"] = "model-names"
+            if isinstance(widget, (forms.TextInput, forms.NumberInput)) and "model_name" in name:
+                widget.attrs["list"] = "model-names"
             if isinstance(widget, forms.NumberInput):
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields
             field_obj.template_name = "core/fields/default.html"  # type: ignore[attr-defined]
-            if not hasattr(field_obj, "is_env_locked"):
-                field_obj.is_env_locked = False  # type: ignore[attr-defined]
-            if not hasattr(field_obj, "secret_hint"):
-                field_obj.secret_hint = None  # type: ignore[attr-defined]
+            field_obj.is_env_locked = False  # type: ignore[attr-defined]
+            field_obj.secret_hint = None  # type: ignore[attr-defined]
 
     def _apply_env_locks(self) -> None:
-        """Disable fields locked by environment variables."""
+        """Disable fields locked by environment variables and set effective initial values for locked checkboxes."""
+        from core.site_settings import site_settings
+
         for name in self.env_locked_fields:
             if name not in self.fields:
                 continue
             field_obj = self.fields[name]
             field_obj.disabled = True
             field_obj.is_env_locked = True  # type: ignore[attr-defined]
-            widget = field_obj.widget
-            if hasattr(widget, "attrs"):
-                widget.attrs["class"] = _DISABLED_CSS
-                widget.attrs["title"] = _("Locked by environment variable")
+            field_obj.widget.attrs["title"] = _("Locked by environment variable")
+            if isinstance(field_obj.widget, forms.CheckboxInput):
+                # When a boolean field is locked by an env var the DB typically
+                # holds NULL, so the checkbox would appear unchecked without this.
+                self.initial[name] = bool(getattr(site_settings, name, False))
 
     def _apply_defaults(self, field_defaults: dict[str, str]) -> None:
-        """Set effective defaults as placeholders / empty-choice labels."""
+        """Set effective defaults as placeholders, empty-choice labels, or checkbox initial values."""
         for name, default_str in field_defaults.items():
-            if name not in self.fields:
+            if name not in self.fields or name in self.env_locked_fields:
                 continue
             field_obj = self.fields[name]
             widget = field_obj.widget
@@ -187,6 +172,11 @@ class SiteConfigurationForm(forms.ModelForm):
                 if choices and choices[0][0] == "":
                     choices[0] = ("", f"Default ({default_str})")
                     field_obj.choices = choices
+            elif (
+                isinstance(widget, forms.CheckboxInput) and self.instance and getattr(self.instance, name, None) is None
+            ):
+                # When DB value is NULL, show the checkbox with the default state
+                self.initial[name] = default_str.lower() in ("true", "1", "yes", "on")
 
     # ------------------------------------------------------------------
     # Save

@@ -21,8 +21,7 @@
 
         <form method="post" class="animate-fade-up" style="animation-delay: 100ms">
             {% csrf_token %}
-            <button type="submit"
-                    class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+            <button type="submit" class="btn-primary w-full px-4 py-3">
                 Continue with {{ provider.name }}
             </button>
         </form>

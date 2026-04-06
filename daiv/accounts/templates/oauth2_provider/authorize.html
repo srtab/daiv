@@ -107,12 +107,11 @@
                 {% endif %}
             {% endfor %}
 
-            <button type="submit"
-                    class="flex-1 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] font-medium text-gray-300 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white">
+            <button type="submit" class="btn-secondary flex-1 px-4 py-3">
                 {% trans "Deny" %}
             </button>
             <button type="submit" name="allow" value="Authorize"
-                    class="flex-1 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                    class="btn-primary flex-1 px-4 py-3">
                 {% trans "Authorize" %}
             </button>
         </form>
