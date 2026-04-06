@@ -7,6 +7,10 @@ Variables marked with:
 - are sensitive (such as API keys, passwords, and tokens) and should be declared using Docker secrets or a secure credential manager.
 - are required and should be declared.
 
+Configuration UI
+
+Many settings listed under [Automation: LLM Providers](#automation-llm-providers), [Automation: Tools](#automation-tools), and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
+
 ______________________________________________________________________
 
 ## Core
@@ -146,13 +150,18 @@ Social providers are only registered when **both** client ID and secret are set.
 
 ### Other
 
-| Variable            | Description                      | Default            | Example                    |
-| ------------------- | -------------------------------- | ------------------ | -------------------------- |
-| `DAIV_EXTERNAL_URL` | External URL of the application. | `https://app:8000` | `https://daiv.example.com` |
+| Variable              | Description                                                                                                               | Default            | Example                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------- |
+| `DAIV_EXTERNAL_URL`   | External URL of the application.                                                                                          | `https://app:8000` | `https://daiv.example.com` |
+| `DAIV_ENCRYPTION_KEY` | Fernet encryption key for secrets stored in the database. If not set, a key is derived from `DJANGO_SECRET_KEY` via HKDF. | *(derived)*        |                            |
 
 Note
 
 The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.
+
+Note
+
+`DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
 
 ______________________________________________________________________
 
@@ -213,10 +222,10 @@ At least one of the [supported providers](https://srtab.github.io/daiv/dev/getti
 
 ### OpenRouter (*default*)
 
-| Variable              | Description             | Default                        | Example |
-| --------------------- | ----------------------- | ------------------------------ | ------- |
-| `OPENROUTER_API_KEY`  | OpenRouter API key      | *(none)*                       |         |
-| `OPENROUTER_API_BASE` | OpenRouter API base URL | `https://openrouter.ai/api/v1` |         |
+| Variable                   | Description             | Default                        | Example |
+| -------------------------- | ----------------------- | ------------------------------ | ------- |
+| `OPENROUTER_API_KEY`       | OpenRouter API key      | *(none)*                       |         |
+| `DAIV_OPENROUTER_API_BASE` | OpenRouter API base URL | `https://openrouter.ai/api/v1` |         |
 
 ### Anthropic
 
@@ -242,32 +251,32 @@ This section documents the environment variables for each tool configuration use
 
 ### Context File Suggestion
 
-| Variable                                  | Description                                                         | Default | Example |
-| ----------------------------------------- | ------------------------------------------------------------------- | ------- | ------- |
-| `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` | Enable/disable suggesting an `AGENTS.md` file on new merge requests | `true`  | `false` |
+| Variable                            | Description                                                         | Default | Example |
+| ----------------------------------- | ------------------------------------------------------------------- | ------- | ------- |
+| `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` | Enable/disable suggesting an `AGENTS.md` file on new merge requests | `true`  | `false` |
 
 ### Web Search
 
-| Variable                            | Description                                         | Default      | Example  |
-| ----------------------------------- | --------------------------------------------------- | ------------ | -------- |
-| `AUTOMATION_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                | `true`       | `false`  |
-| `AUTOMATION_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search | `5`          |          |
-| `AUTOMATION_WEB_SEARCH_ENGINE`      | Web search engine to use (`duckduckgo`, `tavily`)   | `duckduckgo` | `tavily` |
-| `AUTOMATION_WEB_SEARCH_API_KEY`     | Web search API key (required if engine is `tavily`) | *(none)*     |          |
+| Variable                      | Description                                         | Default      | Example  |
+| ----------------------------- | --------------------------------------------------- | ------------ | -------- |
+| `DAIV_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                | `true`       | `false`  |
+| `DAIV_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search | `5`          |          |
+| `DAIV_WEB_SEARCH_ENGINE`      | Web search engine to use (`duckduckgo`, `tavily`)   | `duckduckgo` | `tavily` |
+| `DAIV_WEB_SEARCH_API_KEY`     | Web search API key (required if engine is `tavily`) | *(none)*     |          |
 
 ### Web Fetch
 
 The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content.
 
-| Variable                                 | Description                                                       | Default            | Example                                    |
-| ---------------------------------------- | ----------------------------------------------------------------- | ------------------ | ------------------------------------------ |
-| `AUTOMATION_WEB_FETCH_ENABLED`           | Enable/disable the native `web_fetch` tool                        | `true`             | `false`                                    |
-| `AUTOMATION_WEB_FETCH_MODEL_NAME`        | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-4-5` | `openrouter:openai/gpt-4.1-mini`           |
-| `AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                          | `900`              | `1800`                                     |
-| `AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS`   | HTTP timeout for fetching (seconds)                               | `15`               | `30`                                       |
-| `AUTOMATION_WEB_FETCH_PROXY_URL`         | Optional proxy URL for web fetch HTTP requests                    | *(none)*           | `http://proxy:8080`                        |
-| `AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass         | `50000`            | `80000`                                    |
-| `AUTOMATION_WEB_FETCH_AUTH_HEADERS`      | Domain-to-headers mapping for authenticated fetches (JSON)        | `{}`               | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+| Variable                            | Description                                                          | Default            | Example                                    |
+| ----------------------------------- | -------------------------------------------------------------------- | ------------------ | ------------------------------------------ |
+| `DAIV_WEB_FETCH_ENABLED`            | Enable/disable the native `web_fetch` tool                           | `true`             | `false`                                    |
+| `DAIV_WEB_FETCH_MODEL_NAME`         | Model used by `web_fetch` to process page content with the prompt    | `claude-haiku-4.5` | `openrouter:openai/gpt-4.1-mini`           |
+| `DAIV_WEB_FETCH_CACHE_TTL_SECONDS`  | Cache TTL (seconds) for repeated fetches                             | `900`              | `1800`                                     |
+| `DAIV_WEB_FETCH_TIMEOUT_SECONDS`    | HTTP timeout for fetching (seconds)                                  | `15`               | `30`                                       |
+| `AUTOMATION_WEB_FETCH_PROXY_URL`    | Optional proxy URL for web fetch HTTP requests (env-only)            | *(none)*           | `http://proxy:8080`                        |
+| `DAIV_WEB_FETCH_MAX_CONTENT_CHARS`  | Max page content size (characters) to analyze in one pass            | `50000`            | `80000`                                    |
+| `AUTOMATION_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}`               | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### MCP Tools
 
@@ -293,30 +302,30 @@ These variables control the models and behavior of DAIV's agents. You can also o
 
 The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
-| Variable                         | Description                                                             | Default             |
-| -------------------------------- | ----------------------------------------------------------------------- | ------------------- |
-| `DAIV_AGENT_RECURSION_LIMIT`     | Maximum recursion depth for agent execution                             | `500`               |
-| `DAIV_AGENT_MODEL_NAME`          | Primary model for agent tasks                                           | `claude-sonnet-4-6` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails                               | `gpt-5-3-codex`     |
-| `DAIV_AGENT_THINKING_LEVEL`      | Extended thinking level (`low`, `medium`, `high`, or `None` to disable) | `medium`            |
-| `DAIV_AGENT_MAX_MODEL_NAME`      | Model used when the `daiv-max` label is present                         | `claude-opus-4-6`   |
-| `DAIV_AGENT_MAX_THINKING_LEVEL`  | Thinking level for `daiv-max` tasks                                     | `high`              |
-| `DAIV_AGENT_EXPLORE_MODEL_NAME`  | Model for the explore subagent (fast, read-only)                        | `claude-haiku-4-5`  |
-| `DAIV_AGENT_CUSTOM_SKILLS_PATH`  | Path to custom global skills directory. Set to `None` to disable.       | `~/data/skills`     |
+| Variable                         | Description                                                                        | Default             |
+| -------------------------------- | ---------------------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`     | Maximum recursion depth for agent execution                                        | `500`               |
+| `DAIV_AGENT_MODEL_NAME`          | Primary model for agent tasks                                                      | `claude-sonnet-4-6` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails                                          | `gpt-5-3-codex`     |
+| `DAIV_AGENT_THINKING_LEVEL`      | Extended thinking level (`minimal`, `low`, `medium`, `high`, or `None` to disable) | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`      | Model used when the `daiv-max` label is present                                    | `claude-opus-4-6`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`  | Thinking level for `daiv-max` tasks                                                | `high`              |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME`  | Model for the explore subagent (fast, read-only)                                   | `claude-haiku-4-5`  |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`  | Path to custom global skills directory. Set to `None` to disable.                  | `~/data/skills`     |
 
 ### Jobs API
 
-The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution. Variables use the `JOBS_` prefix.
+The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution.
 
-| Variable             | Description                                                                                                 | Default   |
-| -------------------- | ----------------------------------------------------------------------------------------------------------- | --------- |
-| `JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
+| Variable                  | Description                                                                                                 | Default   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- | --------- |
+| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
 
 ### Diff to Metadata
 
-Generates pull request titles, descriptions, and commit messages from diffs. Variables use the `DIFF_TO_METADATA_` prefix.
+Generates pull request titles, descriptions, and commit messages from diffs.
 
-| Variable                               | Description                                   | Default            |
-| -------------------------------------- | --------------------------------------------- | ------------------ |
-| `DIFF_TO_METADATA_MODEL_NAME`          | Primary model for diff-to-metadata generation | `claude-haiku-4-5` |
-| `DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails     | `gpt-4-1-mini`     |
+| Variable                                    | Description                                   | Default            |
+| ------------------------------------------- | --------------------------------------------- | ------------------ |
+| `DAIV_DIFF_TO_METADATA_MODEL_NAME`          | Primary model for diff-to-metadata generation | `gpt-5.4-mini`     |
+| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails     | `claude-haiku-4.5` |

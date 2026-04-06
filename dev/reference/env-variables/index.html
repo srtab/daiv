@@ -1868,6 +1868,10 @@
 <li><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span> are sensitive (such as API keys, passwords, and tokens) and should be declared using Docker secrets or a secure credential manager.</li>
 <li><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> are required and should be declared.</li>
 </ul>
+<div class="admonition info">
+<p class="admonition-title">Configuration UI</p>
+<p>Many settings listed under <a href="#automation-llm-providers">Automation: LLM Providers</a>, <a href="#automation-tools">Automation: Tools</a>, and <a href="#automation-agents">Automation: Agents</a> can also be managed through the <strong>Configuration UI</strong> at <code>/dashboard/configuration/</code>. These settings use a three-tier priority chain: <strong>environment variable</strong> (highest) &gt; <strong>database value</strong> (set via UI) &gt; <strong>hardcoded default</strong> (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked <em>env-only</em> are not available in the UI.</p>
+</div>
 <hr />
 <h2 id="core">Core</h2>
 <h3 id="general">General</h3>
@@ -2350,11 +2354,21 @@
 <td style="text-align: center;"><code>https://app:8000</code></td>
 <td><code>https://daiv.example.com</code></td>
 </tr>
+<tr>
+<td><code>DAIV_ENCRYPTION_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Fernet encryption key for secrets stored in the database. If not set, a key is derived from <code>DJANGO_SECRET_KEY</code> via HKDF.</td>
+<td style="text-align: center;"><em>(derived)</em></td>
+<td></td>
+</tr>
 </tbody>
 </table>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The <code>DAIV_EXTERNAL_URL</code> variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>DAIV_ENCRYPTION_KEY</code> protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from <code>DJANGO_SECRET_KEY</code> — changing the Django secret key in that case will make existing encrypted values unreadable.</p>
 </div>
 <hr />
 <h2 id="codebase">Codebase</h2>
@@ -2499,7 +2513,7 @@
 <td></td>
 </tr>
 <tr>
-<td><code>OPENROUTER_API_BASE</code></td>
+<td><code>DAIV_OPENROUTER_API_BASE</code></td>
 <td>OpenRouter API base URL</td>
 <td style="text-align: center;"><code>https://openrouter.ai/api/v1</code></td>
 <td></td>
@@ -2577,7 +2591,7 @@
 </thead>
 <tbody>
 <tr>
-<td><code>AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED</code></td>
+<td><code>DAIV_SUGGEST_CONTEXT_FILE_ENABLED</code></td>
 <td>Enable/disable suggesting an <code>AGENTS.md</code> file on new merge requests</td>
 <td style="text-align: center;"><code>true</code></td>
 <td><code>false</code></td>
@@ -2596,25 +2610,25 @@
 </thead>
 <tbody>
 <tr>
-<td><code>AUTOMATION_WEB_SEARCH_ENABLED</code></td>
+<td><code>DAIV_WEB_SEARCH_ENABLED</code></td>
 <td>Enable/disable the <code>web_search</code> tool</td>
 <td style="text-align: center;"><code>true</code></td>
 <td><code>false</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_SEARCH_MAX_RESULTS</code></td>
+<td><code>DAIV_WEB_SEARCH_MAX_RESULTS</code></td>
 <td>Maximum number of results to return from web search</td>
 <td style="text-align: center;"><code>5</code></td>
 <td></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_SEARCH_ENGINE</code></td>
+<td><code>DAIV_WEB_SEARCH_ENGINE</code></td>
 <td>Web search engine to use (<code>duckduckgo</code>, <code>tavily</code>)</td>
 <td style="text-align: center;"><code>duckduckgo</code></td>
 <td><code>tavily</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_SEARCH_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td><code>DAIV_WEB_SEARCH_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
 <td>Web search API key (required if engine is <code>tavily</code>)</td>
 <td style="text-align: center;"><em>(none)</em></td>
 <td></td>
@@ -2634,44 +2648,44 @@
 </thead>
 <tbody>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_ENABLED</code></td>
+<td><code>DAIV_WEB_FETCH_ENABLED</code></td>
 <td>Enable/disable the native <code>web_fetch</code> tool</td>
 <td style="text-align: center;"><code>true</code></td>
 <td><code>false</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_MODEL_NAME</code></td>
+<td><code>DAIV_WEB_FETCH_MODEL_NAME</code></td>
 <td>Model used by <code>web_fetch</code> to process page content with the prompt</td>
-<td style="text-align: center;"><code>claude-haiku-4-5</code></td>
+<td style="text-align: center;"><code>claude-haiku-4.5</code></td>
 <td><code>openrouter:openai/gpt-4.1-mini</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_CACHE_TTL_SECONDS</code></td>
+<td><code>DAIV_WEB_FETCH_CACHE_TTL_SECONDS</code></td>
 <td>Cache TTL (seconds) for repeated fetches</td>
 <td style="text-align: center;"><code>900</code></td>
 <td><code>1800</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_TIMEOUT_SECONDS</code></td>
+<td><code>DAIV_WEB_FETCH_TIMEOUT_SECONDS</code></td>
 <td>HTTP timeout for fetching (seconds)</td>
 <td style="text-align: center;"><code>15</code></td>
 <td><code>30</code></td>
 </tr>
 <tr>
 <td><code>AUTOMATION_WEB_FETCH_PROXY_URL</code></td>
-<td>Optional proxy URL for web fetch HTTP requests</td>
+<td>Optional proxy URL for web fetch HTTP requests (env-only)</td>
 <td style="text-align: center;"><em>(none)</em></td>
 <td><code>http://proxy:8080</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_MAX_CONTENT_CHARS</code></td>
+<td><code>DAIV_WEB_FETCH_MAX_CONTENT_CHARS</code></td>
 <td>Max page content size (characters) to analyze in one pass</td>
 <td style="text-align: center;"><code>50000</code></td>
 <td><code>80000</code></td>
 </tr>
 <tr>
 <td><code>AUTOMATION_WEB_FETCH_AUTH_HEADERS</code></td>
-<td>Domain-to-headers mapping for authenticated fetches (JSON)</td>
+<td>Domain-to-headers mapping for authenticated fetches (JSON, env-only)</td>
 <td style="text-align: center;"><code>{}</code></td>
 <td><code>{"example.com": {"X-API-Key": "sk-abc"}}</code></td>
 </tr>
@@ -2744,7 +2758,7 @@
 </tr>
 <tr>
 <td><code>DAIV_AGENT_THINKING_LEVEL</code></td>
-<td>Extended thinking level (<code>low</code>, <code>medium</code>, <code>high</code>, or <code>None</code> to disable)</td>
+<td>Extended thinking level (<code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, or <code>None</code> to disable)</td>
 <td><code>medium</code></td>
 </tr>
 <tr>
@@ -2770,7 +2784,7 @@
 </tbody>
 </table>
 <h3 id="jobs-api">Jobs API</h3>
-<p>The <a href="../../features/jobs-api/">Jobs API</a> allows programmatic agent execution. Variables use the <code>JOBS_</code> prefix.</p>
+<p>The <a href="../../features/jobs-api/">Jobs API</a> allows programmatic agent execution.</p>
 <table>
 <thead>
 <tr>
@@ -2781,14 +2795,14 @@
 </thead>
 <tbody>
 <tr>
-<td><code>JOBS_THROTTLE_RATE</code></td>
+<td><code>DAIV_JOBS_THROTTLE_RATE</code></td>
 <td>Rate limit for job submissions per authenticated user. Format: <code>N/second</code>, <code>N/minute</code>, <code>N/hour</code>, or <code>N/day</code></td>
 <td><code>20/hour</code></td>
 </tr>
 </tbody>
 </table>
 <h3 id="diff-to-metadata">Diff to Metadata</h3>
-<p>Generates pull request titles, descriptions, and commit messages from diffs. Variables use the <code>DIFF_TO_METADATA_</code> prefix.</p>
+<p>Generates pull request titles, descriptions, and commit messages from diffs.</p>
 <table>
 <thead>
 <tr>
@@ -2799,14 +2813,14 @@
 </thead>
 <tbody>
 <tr>
-<td><code>DIFF_TO_METADATA_MODEL_NAME</code></td>
+<td><code>DAIV_DIFF_TO_METADATA_MODEL_NAME</code></td>
 <td>Primary model for diff-to-metadata generation</td>
-<td><code>claude-haiku-4-5</code></td>
+<td><code>gpt-5.4-mini</code></td>
 </tr>
 <tr>
-<td><code>DIFF_TO_METADATA_FALLBACK_MODEL_NAME</code></td>
+<td><code>DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME</code></td>
 <td>Fallback model if the primary model fails</td>
-<td><code>gpt-4-1-mini</code></td>
+<td><code>claude-haiku-4.5</code></td>
 </tr>
 </tbody>
 </table>
@@ -2832,7 +2846,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 4, 2026 22:14:03 UTC">April 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 6, 2026 23:46:47 UTC">April 6, 2026</span>
   </span>
 
     
@@ -2842,7 +2856,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 4, 2026 22:14:03 UTC">April 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 6, 2026 23:46:47 UTC">April 6, 2026</span>
   </span>
 
     
