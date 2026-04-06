@@ -62,6 +62,7 @@ async def test_fetch_url_text_cross_host_redirect_returns_special_tag(httpx_mock
     ):
         mock_site_settings.web_fetch_timeout_seconds = 1
         mock_env_settings.WEB_FETCH_PROXY_URL = None
+
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://site.test", "prompt": "x"})
     assert result == "<redirect_url>https://other.test/path</redirect_url>"
 
@@ -128,6 +129,7 @@ async def test_fetch_markdown_for_url(httpx_mock):
     ):
         mock_site_settings.web_fetch_timeout_seconds = 1
         mock_env_settings.WEB_FETCH_PROXY_URL = None
+
         result = await web_fetch_module._fetch_markdown_for_url("https://example.com")
     assert result == "Hello, world!"
 
@@ -221,6 +223,8 @@ async def test_empty_prompt_returns_contents(httpx_mock):
         mock_site_settings.web_fetch_timeout_seconds = 1
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = None
+
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": ""})
     assert result == "Contents of https://example.com:\nCONTENT"
 
@@ -239,6 +243,7 @@ async def test_rejects_large_content(httpx_mock):
         mock_site_settings.web_fetch_timeout_seconds = 1
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 5
+
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
     assert "Page content is too large to safely analyze in one pass." in result
 
@@ -297,6 +302,7 @@ async def test_fetch_url_text_injects_auth_headers(httpx_mock):
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = None
+
         result = await web_fetch_module.web_fetch_tool.ainvoke({
             "url": "https://example.com/api/v1/context",
             "prompt": "",
@@ -328,6 +334,7 @@ async def test_model_failure_returns_contents(httpx_mock):
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
+
         mock_base_agent.get_model.return_value = _FailingModel()
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})

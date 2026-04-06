@@ -120,7 +120,7 @@ class SiteSettings:
 
     def get_defaults(self) -> dict[str, str]:
         """Return all defaults formatted as strings (for form placeholders)."""
-        return {k: str(v) for k, v in _get_field_defaults().items()}
+        return {k: str(v) for k, v in _get_field_defaults().items() if v is not None}
 
     @staticmethod
     def _parse_env_value(value: str, field: Any) -> Any:

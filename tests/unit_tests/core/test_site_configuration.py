@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
+from django.core.cache import cache as django_cache
+
 import pytest
 
-from core.models import SiteConfiguration
+from core.models import SITE_CONFIGURATION_CACHE_KEY, SiteConfiguration
 
 
 @pytest.fixture
@@ -36,6 +38,44 @@ class TestCaching:
     def test_get_cached_returns_instance(self, db):
         instance = SiteConfiguration.get_cached()
         assert instance.pk == 1
+
+    async def test_get_cached_works_in_async_context_cold_cache(self, db):
+        """When called from an async context with cold cache, fetches via thread pool."""
+        django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
+        result = SiteConfiguration.get_cached()
+        assert result is not None
+        assert result.pk == 1
+
+    async def test_get_cached_populates_cache_in_async_context(self, db):
+        """Cold cache async fetch should populate cache for subsequent calls."""
+        django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
+        SiteConfiguration.get_cached()
+        cached = django_cache.get(SITE_CONFIGURATION_CACHE_KEY)
+        assert cached is not None
+        assert cached.pk == 1
+
+    async def test_get_cached_works_in_async_context_warm_cache(self, site_config):
+        """When cache is warm, works fine in an async context."""
+        django_cache.set(SITE_CONFIGURATION_CACHE_KEY, site_config)
+        result = SiteConfiguration.get_cached()
+        assert result is not None
+        assert result.pk == 1
+
+    async def test_get_cached_returns_none_on_db_failure_in_async_context(self, db):
+        """DB failure in async context returns None gracefully."""
+        django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
+        with patch.object(SiteConfiguration.objects, "get_instance", side_effect=Exception("DB down")):
+            result = SiteConfiguration.get_cached()
+        assert result is None
+
+    async def test_get_cached_returns_none_on_timeout_in_async_context(self, db):
+        """Thread pool timeout in async context returns None gracefully."""
+        import time
+
+        django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
+        with patch.object(SiteConfiguration, "_fetch_from_cache_or_db", side_effect=lambda: time.sleep(10)):
+            result = SiteConfiguration.get_cached()
+        assert result is None
 
     def test_save_invalidates_cache(self, site_config):
         with patch("core.models.cache") as mock_cache:

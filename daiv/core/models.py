@@ -1,6 +1,8 @@
 # ruff: noqa: DJ001 — null=True on string fields is intentional; NULL means "use env/default".
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import fnmatch
 import logging
 from dataclasses import dataclass, field
@@ -217,13 +219,16 @@ class SiteConfiguration(models.Model):
         help_text=_("Whether to enable network access in sandbox sessions by default."),
     )
     sandbox_cpu = models.FloatField(
-        _("sandbox CPU"), blank=True, null=True, help_text=_("CPUs to allocate to sandbox sessions by default.")
+        _("sandbox CPU"),
+        blank=True,
+        null=True,
+        help_text=_("CPUs to allocate to sandbox sessions by default. Leave empty for no limit."),
     )
     sandbox_memory = models.BigIntegerField(
         _("sandbox memory"),
         blank=True,
         null=True,
-        help_text=_("Memory limit in bytes to allocate to sandbox sessions by default."),
+        help_text=_("Memory limit in bytes to allocate to sandbox sessions by default. Leave empty for no limit."),
     )
 
     # -- Features --
@@ -335,26 +340,63 @@ class SiteConfiguration(models.Model):
 
         return mask_secret(value)
 
-    @classmethod
-    def get_cached(cls) -> SiteConfiguration | None:
-        """
-        Return the singleton from cache, falling back to the database.
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
-        Returns ``None`` if the database is not yet available (e.g. during
-        early startup or Django system checks).
+    @classmethod
+    def _fetch_from_cache_or_db(cls) -> SiteConfiguration | None:
+        """
+        Check the cache, then fall back to the database.
+
+        This method is safe to call from any thread — it manages DB
+        connections via ``close_old_connections`` (important when called
+        from a ``ThreadPoolExecutor`` thread, which Django does not
+        manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
         if cached is not None:
             return cached
 
+        from django.db import close_old_connections
+
+        close_old_connections()
         try:
             instance = cls.objects.get_instance()
         except Exception:
             logger.warning("SiteConfiguration not available; falling back to defaults", exc_info=True)
             return None
+        finally:
+            close_old_connections()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
+
+    @classmethod
+    def get_cached(cls) -> SiteConfiguration | None:
+        """
+        Return the singleton from cache, falling back to the database.
+
+        Works transparently in both sync and async contexts: when called
+        from an async event loop, the entire lookup runs in a separate
+        thread via a ``ThreadPoolExecutor`` to avoid
+        ``SynchronousOnlyOperation``.
+
+        Returns ``None`` if the database is not yet available (e.g. during
+        early startup or Django system checks).
+        """
+        # Detect async context — synchronous ORM calls are forbidden there.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._fetch_from_cache_or_db()
+
+        # Run the full lookup (cache check + DB fallback) in a separate
+        # thread so neither the cache nor the ORM call violates Django's
+        # async safety check.
+        try:
+            return cls._executor.submit(cls._fetch_from_cache_or_db).result(timeout=5)
+        except Exception:
+            logger.warning("SiteConfiguration not available (async context); falling back to defaults", exc_info=True)
+            return None
 
     @classmethod
     def get_field_groups(cls) -> list[FieldGroup]:

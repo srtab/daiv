@@ -12,7 +12,6 @@ class TestWebSearchTool:
         mock_settings.web_search_engine = "duckduckgo"
         mock_settings.web_search_max_results = 5
 
-        # Mock search results
         mock_results = [{"snippet": "Test content", "title": "Test title", "link": "https://example.com"}]
         mock_wrapper = MagicMock()
         mock_wrapper.results.return_value = mock_results
@@ -28,11 +27,9 @@ class TestWebSearchTool:
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.TavilySearchAPIWrapper")
     async def test_successful_search_tavily(self, mock_wrapper_class, mock_settings):
-        # Configure settings
         mock_settings.web_search_engine = "tavily"
         mock_settings.web_search_max_results = 5
 
-        # Mock search results
         mock_results = {
             "answer": "Test tavily answer",
             "results": [{"content": "Test tavily content", "title": "Test tavily title", "url": "https://example.com"}],
@@ -52,11 +49,9 @@ class TestWebSearchTool:
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper")
     async def test_no_results_duckduckgo(self, mock_wrapper_class, mock_settings):
-        # Configure settings
         mock_settings.web_search_engine = "duckduckgo"
         mock_settings.web_search_max_results = 5
 
-        # Mock empty search results
         mock_wrapper = MagicMock()
         mock_wrapper.results.return_value = []
         mock_wrapper_class.return_value = mock_wrapper
@@ -69,11 +64,9 @@ class TestWebSearchTool:
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.TavilySearchAPIWrapper")
     async def test_no_results_tavily(self, mock_wrapper_class, mock_settings):
-        # Configure settings
         mock_settings.web_search_engine = "tavily"
         mock_settings.web_search_max_results = 5
 
-        # Mock empty search results
         mock_wrapper = MagicMock()
         mock_wrapper.raw_results_async = AsyncMock(return_value={"answer": None, "results": []})
         mock_wrapper_class.return_value = mock_wrapper
@@ -84,7 +77,6 @@ class TestWebSearchTool:
 
     @patch("automation.agent.middlewares.web_search.site_settings")
     async def test_invalid_search_engine(self, mock_settings):
-        # Configure settings with invalid engine
         mock_settings.web_search_engine = "invalid_engine"
 
         try:
@@ -96,11 +88,9 @@ class TestWebSearchTool:
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper")
     async def test_multiple_results_formatting(self, mock_wrapper_class, mock_settings):
-        # Configure settings
         mock_settings.web_search_engine = "duckduckgo"
         mock_settings.web_search_max_results = 5
 
-        # Mock multiple search results
         mock_results = [
             {"snippet": "First result", "title": "First title", "link": "https://example.com/first"},
             {"snippet": "Second result", "title": "Second title", "link": "https://example.com/second"},
@@ -112,7 +102,6 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        # Check all results are included and properly formatted
         assert "First title" in result
         assert "First result" in result
         assert "https://example.com/first" in result
