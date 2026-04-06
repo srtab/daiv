@@ -35,6 +35,10 @@ class TestDbOverride:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(agent_recursion_limit=None)):
             assert ss.agent_recursion_limit == 500
 
+    def test_db_empty_string_falls_to_default(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(agent_model_name="")):
+            assert ss.agent_model_name == "openrouter:anthropic/claude-sonnet-4.6"
+
 
 class TestEnvOverride:
     def test_env_overrides_db_and_default(self, ss, monkeypatch):

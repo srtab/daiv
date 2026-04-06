@@ -57,6 +57,53 @@ _PROVIDER_API_KEY_FIELDS: dict[ModelProvider, str] = {
     ModelProvider.OPENROUTER: "openrouter_api_key",
 }
 
+# Explicit provider prefixes for the ``provider:model_name`` format.
+# ``"google"`` is a user-friendly alias for the canonical ``"google_genai"`` prefix.
+_PROVIDER_PREFIXES: dict[str, ModelProvider] = {p.value: p for p in ModelProvider} | {
+    "google": ModelProvider.GOOGLE_GENAI
+}
+
+
+def parse_model_spec(model_spec: str) -> tuple[ModelProvider, str]:
+    """
+    Parse a model specification string into (provider, model_name).
+
+    Supports explicit prefix (``provider:model_name``) for all providers
+    and bare model names with heuristic provider detection for backward
+    compatibility.
+
+    Args:
+        model_spec: Model specification, e.g. ``"anthropic:claude-sonnet-4-6"``
+            or ``"openrouter:anthropic/claude-sonnet-4.6"`` or bare ``"claude-sonnet-4-6"``.
+
+    Returns:
+        A tuple of ``(ModelProvider, model_name)`` where ``model_name`` is
+        the provider-local name (prefix stripped when the explicit
+        ``provider:model`` format is used, or the original string for bare
+        model names).
+
+    Raises:
+        ValueError: If the provider cannot be determined or the model name is empty.
+    """
+    if ":" in model_spec:
+        prefix, model_name = model_spec.split(":", 1)
+        if prefix in _PROVIDER_PREFIXES:
+            if not model_name.strip():
+                raise ValueError(f"Empty model name in spec '{model_spec}'")
+            return _PROVIDER_PREFIXES[prefix], model_name
+        raise ValueError(
+            f"Unknown provider prefix '{prefix}' in model spec '{model_spec}'. "
+            f"Valid prefixes: {', '.join(sorted(_PROVIDER_PREFIXES))}"
+        )
+    # Bare name fallback (backward compat)
+    if any(model_spec.startswith(p) for p in ("gpt-4", "gpt-5", "o4")):
+        return ModelProvider.OPENAI, model_spec
+    elif model_spec.startswith("claude"):
+        return ModelProvider.ANTHROPIC, model_spec
+    elif model_spec.startswith("gemini"):
+        return ModelProvider.GOOGLE_GENAI, model_spec
+    raise ValueError(f"Unknown/Unsupported provider for model {model_spec}")
+
 
 T = TypeVar("T", bound=Runnable)
 
@@ -101,8 +148,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             BaseChatModel: The model instance
         """
+        provider, model_name = parse_model_spec(model)
         model_kwargs = BaseAgent.get_model_kwargs(
-            model=model, model_provider=BaseAgent.get_model_provider(model), thinking_level=thinking_level, **kwargs
+            model=model_name, model_provider=provider, thinking_level=thinking_level, **kwargs
         )
         return init_chat_model(**model_kwargs)
 
@@ -151,7 +199,6 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif model_provider == ModelProvider.OPENROUTER:
             if site_settings.openrouter_api_key is None:
                 raise RuntimeError("OpenRouter API key is not configured. Set OPENROUTER_API_KEY or use the config UI.")
-            _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
             _kwargs["model_kwargs"]["extra_headers"] = {
@@ -231,18 +278,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Get the model provider.
 
         Args:
-            model_name (str): The model name
+            model_name: The model specification string (e.g. ``"anthropic:claude-sonnet-4-6"``).
 
         Returns:
             ModelProvider: The model provider
         """
-        if any(model_name.startswith(pre) for pre in ("gpt-4", "gpt-5", "o4")):
-            return ModelProvider.OPENAI
-        elif model_name.startswith("claude"):
-            return ModelProvider.ANTHROPIC
-        elif model_name.startswith("gemini"):
-            return ModelProvider.GOOGLE_GENAI
-        elif model_name.startswith("openrouter:"):
-            return ModelProvider.OPENROUTER
-        else:
-            raise ValueError(f"Unknown/Unsupported provider for model {model_name}")
+        return parse_model_spec(model_name)[0]

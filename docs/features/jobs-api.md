@@ -36,10 +36,10 @@ curl -X POST https://daiv.example.com/api/jobs \
 
 Job submissions are rate-limited per authenticated user. The default limit is **20 requests per hour**. When exceeded, the API returns `429 Too Many Requests`.
 
-The rate can be configured via the `JOBS_THROTTLE_RATE` environment variable:
+The rate can be configured via the `DAIV_JOBS_THROTTLE_RATE` environment variable:
 
 ```
-JOBS_THROTTLE_RATE=50/hour
+DAIV_JOBS_THROTTLE_RATE=50/hour
 ```
 
 Valid formats: `N/second`, `N/minute`, `N/hour`, `N/day` (or short forms: `N/s`, `N/m`, `N/h`, `N/d`).

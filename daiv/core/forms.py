@@ -5,11 +5,9 @@ from typing import Any, ClassVar
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.constants import ModelName
+from automation.agent.base import ModelProvider, parse_model_spec
+from automation.agent.constants import MODEL_SUGGESTIONS
 from core.models import SiteConfiguration
-
-# Datalist choices for model name fields (suggestions, not enforced)
-MODEL_NAME_CHOICES = [(m.value, m.value) for m in ModelName]
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -27,6 +25,55 @@ class _SecretFormField(forms.CharField):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.template_name = "core/fields/secret.html"
+
+
+class _ModelSpecWidget(forms.Widget):
+    """
+    Composite widget that renders a provider ``<select>`` and a model name
+    ``<input>`` side by side. The two parts are stored as a single
+    ``provider:model_name`` string in the database.
+    """
+
+    template_name = "core/fields/model_spec_widget.html"
+
+    def __init__(self, *, default_provider: str = "openrouter", attrs: dict | None = None):
+        super().__init__(attrs)
+        self.default_provider = default_provider
+
+    def get_context(self, name: str, value: Any, attrs: dict | None) -> dict[str, Any]:
+        context = super().get_context(name, value, attrs)
+        if value:
+            try:
+                provider, model_name = parse_model_spec(value)
+                context["widget"]["provider"] = provider.value
+                context["widget"]["model_name"] = model_name
+            except ValueError:
+                context["widget"]["provider"] = ""
+                context["widget"]["model_name"] = value
+        else:
+            context["widget"]["provider"] = ""
+            context["widget"]["model_name"] = ""
+        context["widget"]["default_provider"] = self.default_provider
+        context["widget"]["providers"] = [
+            ("", self.default_provider_label),
+            *((p.value, p.value.replace("_", " ").title()) for p in ModelProvider),
+        ]
+        context["widget"]["model_suggestions"] = MODEL_SUGGESTIONS
+        return context
+
+    @property
+    def default_provider_label(self) -> str:
+        """Label for the empty/default provider option."""
+        label = self.default_provider.replace("_", " ").title()
+        return f"Default ({label})"
+
+    def value_from_datadict(self, data: dict[str, Any], files: dict[str, Any], name: str) -> str:
+        provider = data.get(f"{name}_provider", "").strip()
+        model_name = data.get(f"{name}_model", "").strip()
+        if not model_name:
+            return ""
+        effective_provider = provider or self.default_provider
+        return f"{effective_provider}:{model_name}"
 
 
 class SiteConfigurationForm(forms.ModelForm):
@@ -132,8 +179,8 @@ class SiteConfigurationForm(forms.ModelForm):
 
             widget = field_obj.widget
             if isinstance(widget, (forms.TextInput, forms.NumberInput)) and "model_name" in name:
-                widget.attrs["list"] = "model-names"
-            if isinstance(widget, forms.NumberInput):
+                field_obj.widget = _ModelSpecWidget()
+            elif isinstance(widget, forms.NumberInput):
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields
@@ -164,7 +211,14 @@ class SiteConfigurationForm(forms.ModelForm):
                 continue
             field_obj = self.fields[name]
             widget = field_obj.widget
-            if isinstance(widget, (forms.TextInput, forms.NumberInput)):
+            if isinstance(widget, _ModelSpecWidget):
+                try:
+                    provider, model_name = parse_model_spec(default_str)
+                    widget.default_provider = provider.value
+                    widget.attrs.setdefault("placeholder", model_name)
+                except ValueError:
+                    widget.attrs.setdefault("placeholder", default_str)
+            elif isinstance(widget, (forms.TextInput, forms.NumberInput)):
                 widget.attrs.setdefault("placeholder", default_str)
             elif isinstance(widget, forms.Select) and hasattr(field_obj, "choices"):
                 choices = list(field_obj.choices)

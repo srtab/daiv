@@ -1,0 +1,22 @@
+<div x-data="{ provider: '{{ widget.provider }}', defaultProvider: '{{ widget.default_provider }}' }" class="flex gap-2">
+    <select name="{{ widget.name }}_provider"
+            x-model="provider"
+            class="!w-auto shrink-0"
+            {% if widget.attrs.disabled %}disabled{% endif %}>
+        {% for value, label in widget.providers %}
+        <option value="{{ value }}" {% if value == widget.provider %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+    </select>
+    <input type="text"
+           name="{{ widget.name }}_model"
+           value="{{ widget.model_name }}"
+           :list="'model-names-' + (provider || defaultProvider)"
+           class="min-w-0 flex-1"
+           {% if widget.attrs.placeholder %}placeholder="{{ widget.attrs.placeholder }}"{% endif %}
+           {% if widget.attrs.disabled %}disabled{% endif %}>
+</div>
+{% for provider_key, models in widget.model_suggestions.items %}
+<datalist id="model-names-{{ provider_key }}">
+    {% for m in models %}<option value="{{ m }}">{% endfor %}
+</datalist>
+{% endfor %}

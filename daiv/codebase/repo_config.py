@@ -288,7 +288,7 @@ class RepositoryConfig(BaseModel):
         if not config.default_branch:
             config.default_branch = repository.default_branch
 
-        cache.set(cache_key, config.model_dump(), CONFIGURATION_CACHE_TIMEOUT)
+        cache.set(cache_key, config.model_dump(exclude_unset=True), CONFIGURATION_CACHE_TIMEOUT)
         logger.info("Cached configuration for repository %s", repo_id)
         return config
 

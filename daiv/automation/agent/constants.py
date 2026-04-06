@@ -55,3 +55,26 @@ class ModelName(StrEnum):
 
     # MoonshotAI models
     MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"
+
+
+# Per-provider model name suggestions for the configuration UI datalists.
+MODEL_SUGGESTIONS: dict[str, list[str]] = {
+    "openrouter": [
+        "anthropic/claude-opus-4.6",
+        "anthropic/claude-opus-4.5",
+        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-sonnet-4.5",
+        "anthropic/claude-haiku-4.5",
+        "openai/gpt-5.3-codex",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-mini",
+        "z-ai/glm-5",
+        "z-ai/glm-5-turbo",
+        "minimax/minimax-m2.5",
+        "minimax/minimax-m2.7",
+        "moonshotai/kimi-k2.5",
+    ],
+    "anthropic": ["claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5"],
+    "openai": ["gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini"],
+    "google_genai": ["gemini-2.5-flash", "gemini-2.5-pro"],
+}

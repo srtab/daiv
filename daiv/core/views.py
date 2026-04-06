@@ -6,7 +6,6 @@ from django.shortcuts import redirect, render
 from django.views import View
 
 from accounts.mixins import AdminRequiredMixin
-from automation.agent.constants import ModelName
 from core.forms import SiteConfigurationForm
 from core.models import SiteConfiguration
 from core.site_settings import site_settings
@@ -73,8 +72,4 @@ class SiteConfigurationView(AdminRequiredMixin, View):
 
     @staticmethod
     def _build_context(form: SiteConfigurationForm) -> dict:
-        return {
-            "form": form,
-            "field_groups": SiteConfiguration.get_field_groups(),
-            "model_name_choices": [(m.value, m.value) for m in ModelName],
-        }
+        return {"form": form, "field_groups": SiteConfiguration.get_field_groups()}

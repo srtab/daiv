@@ -13,15 +13,15 @@ logger = logging.getLogger("daiv.core")
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access (avoids import-time cross-layer dependency)."""
     from automation.agent.constants import ModelName
-    from core.models import WebSearchEngineChoices
+    from core.models import ThinkingLevelChoices, WebSearchEngineChoices
 
     return {
         # Agent
         "agent_model_name": ModelName.CLAUDE_SONNET_4_6,
         "agent_fallback_model_name": ModelName.GPT_5_3_CODEX,
-        "agent_thinking_level": "medium",
+        "agent_thinking_level": ThinkingLevelChoices.MEDIUM,
         "agent_max_model_name": ModelName.CLAUDE_OPUS_4_6,
-        "agent_max_thinking_level": "high",
+        "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
@@ -99,11 +99,11 @@ class SiteSettings:
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 
-        # 2. Database value (non-null)
+        # 2. Database value (non-null and non-empty-string)
         config = SiteConfiguration.get_cached()
         if config is not None:
             db_value = getattr(config, name, None)
-            if db_value is not None:
+            if db_value is not None and db_value != "":
                 if name in SiteConfiguration.ENCRYPTED_FIELDS:
                     return SecretStr(db_value)
                 return db_value
