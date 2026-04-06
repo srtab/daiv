@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static icon_tags %}
 
 {% block title %}API Keys — DAIV{% endblock %}
 
@@ -24,9 +24,7 @@
         <!-- Newly created key (shown once) -->
         <div class="animate-fade-up mt-8 rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6" style="animation-delay: 50ms">
             <div class="flex items-start gap-3">
-                <svg class="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
-                </svg>
+                {% icon "check-circle" "mt-0.5 h-5 w-5 shrink-0 text-emerald-400" %}
                 <div class="min-w-0 flex-1">
                     <p class="text-[14px] font-medium text-emerald-200">Your new API key</p>
                     <p class="mt-1 text-[13px] text-emerald-300/70">Copy it now — you won't be able to see it again.</p>

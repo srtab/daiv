@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static i18n %}
+{% load static i18n icon_tags %}
 
 {% block title %}Authorize — DAIV{% endblock %}
 {% block meta_description %}{% endblock %}
@@ -43,9 +43,7 @@
             <!-- App identity -->
             <div class="flex items-center gap-4">
                 <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04]">
-                    <svg class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z"/>
-                    </svg>
+                    {% icon "squares-plus" "h-6 w-6 text-gray-400" %}
                 </div>
                 <div class="min-w-0">
                     <h2 class="text-[15px] font-semibold text-white truncate">{{ application.name }}</h2>
@@ -63,9 +61,7 @@
                     {% for scope in scopes_descriptions %}
                     <li class="flex items-center gap-3">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10">
-                            <svg class="h-3.5 w-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
-                            </svg>
+                            {% icon "check" "h-3.5 w-3.5 text-emerald-400" %}
                         </div>
                         <span class="text-[14px] text-gray-300">{{ scope }}</span>
                     </li>
@@ -77,9 +73,7 @@
             {% if application.redirect_uris %}
             <div class="mt-5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3">
                 <div class="flex items-start gap-2.5">
-                    <svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/>
-                    </svg>
+                    {% icon "link" "mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" %}
                     <p class="text-[12px] leading-relaxed text-gray-500">
                         {% trans "Will redirect to" %}
                         <span class="font-medium text-gray-400 break-all">{{ application.redirect_uris }}</span>
@@ -131,9 +125,7 @@
 
         <div class="animate-fade-up mt-10 rounded-2xl border border-red-800/30 bg-red-950/30 p-6 text-center" style="animation-delay: 80ms">
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-red-800/30 bg-red-950/50">
-                <svg class="h-6 w-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
-                </svg>
+                {% icon "exclamation-triangle" "h-6 w-6 text-red-400" %}
             </div>
             <h2 class="text-[15px] font-semibold text-white">{{ error.error }}</h2>
             <p class="mt-2 text-[14px] text-gray-400">{{ error.description }}</p>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static icon_tags %}
 
 {% block title %}Authentication error — DAIV{% endblock %}
 {% block meta_description %}{% endblock %}
@@ -18,9 +18,7 @@
 
         <div class="animate-fade-up text-center" style="animation-delay: 80ms">
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-red-800/40 bg-red-950/30">
-                <svg class="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0zm-9 3.75h.008v.008H12v-.008z"/>
-                </svg>
+                {% icon "exclamation-circle" "h-5 w-5 text-red-400" %}
             </div>
             <h2 class="text-[16px] font-semibold text-white">Authentication failed</h2>
             <p class="mt-2 text-[14px] font-light text-gray-400">

@@ -272,6 +272,16 @@ class SiteConfiguration(models.Model):
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
 
+    MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
+        "agent_model_name",
+        "agent_fallback_model_name",
+        "agent_max_model_name",
+        "agent_explore_model_name",
+        "diff_to_metadata_model_name",
+        "diff_to_metadata_fallback_model_name",
+        "web_fetch_model_name",
+    )
+
     ENCRYPTED_FIELDS: ClassVar[tuple[str, ...]] = (
         "anthropic_api_key",
         "openai_api_key",
@@ -282,30 +292,20 @@ class SiteConfiguration(models.Model):
     )
 
     FIELD_GROUPS: ClassVar[list[FieldGroup]] = [
+        FieldGroup(key="agent", title=_("Agent"), match=["agent_*", "suggest_context_file_enabled"], icon="agent"),
         FieldGroup(
-            key="agent",
-            title=_("Agent"),
-            match=["agent_*", "suggest_context_file_enabled"],
-            icon="core/img/icons/agent.svg",
-        ),
-        FieldGroup(
-            key="diff_to_metadata",
-            title=_("Diff to Metadata"),
-            match=["diff_to_metadata_*"],
-            icon="core/img/icons/diff_to_metadata.svg",
+            key="diff_to_metadata", title=_("Diff to Metadata"), match=["diff_to_metadata_*"], icon="diff-to-metadata"
         ),
         FieldGroup(
             key="providers",
             title=_("Providers"),
             match=["anthropic_*", "openai_*", "google_*", "openrouter_*"],
-            icon="core/img/icons/providers.svg",
+            icon="providers",
         ),
-        FieldGroup(
-            key="web_search", title=_("Web Search"), match=["web_search_*"], icon="core/img/icons/web_search.svg"
-        ),
-        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=["web_fetch_*"], icon="core/img/icons/web_fetch.svg"),
-        FieldGroup(key="sandbox", title=_("Sandbox"), match=["sandbox_*"], icon="core/img/icons/sandbox.svg"),
-        FieldGroup(key="jobs", title=_("Jobs"), match=["jobs_*"], icon="core/img/icons/jobs.svg"),
+        FieldGroup(key="web_search", title=_("Web Search"), match=["web_search_*"], icon="web-search"),
+        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=["web_fetch_*"], icon="web-fetch"),
+        FieldGroup(key="sandbox", title=_("Sandbox"), match=["sandbox_*"], icon="sandbox"),
+        FieldGroup(key="jobs", title=_("Jobs"), match=["jobs_*"], icon="jobs"),
     ]
 
     objects: SingletonManager = SingletonManager()

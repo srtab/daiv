@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static configuration_tags %}
+{% load configuration_tags icon_tags %}
 
 {% block title %}Configuration — DAIV{% endblock %}
 
@@ -47,8 +47,7 @@
                         {% for group in field_groups %}
                         <a href="#{{ group.key }}"
                            class="group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-gray-500 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
-                            <span class="inline-block h-3.5 w-3.5 bg-gray-600 transition-colors group-hover:bg-gray-400"
-                                  style="-webkit-mask: url('{% static group.icon %}') no-repeat center / contain; mask: url('{% static group.icon %}') no-repeat center / contain;"></span>
+                            {% icon group.icon "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
                             {{ group.title }}
                         </a>
                         {% endfor %}
@@ -62,8 +61,7 @@
                         <!-- Section header -->
                         <div class="flex items-center gap-2.5 pb-5">
                             <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                                <span class="inline-block h-3.5 w-3.5 bg-gray-400"
-                                      style="-webkit-mask: url('{% static group.icon %}') no-repeat center / contain; mask: url('{% static group.icon %}') no-repeat center / contain;"></span>
+                                {% icon group.icon "h-3.5 w-3.5 text-gray-400" %}
                             </div>
                             <h2 class="text-[15px] font-semibold text-white">{{ group.title }}</h2>
                         </div>

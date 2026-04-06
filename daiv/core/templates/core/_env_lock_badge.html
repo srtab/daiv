@@ -1,7 +1,5 @@
-<span class="group relative ml-1 inline-block align-middle">
-    <svg class="h-3.5 w-3.5 text-amber-500/70" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/>
-    </svg>
+{% load icon_tags %}<span class="group relative ml-1 inline-block align-middle">
+    {% icon "lock-closed" "h-3.5 w-3.5 text-amber-500/70" %}
     <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-48 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
         Set by environment variable
     </span>
