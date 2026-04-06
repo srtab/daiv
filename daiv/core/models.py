@@ -103,17 +103,17 @@ class SiteConfiguration(models.Model):
 
     # -- Agent Models --
     agent_model_name = models.CharField(
-        _("agent model"), max_length=255, blank=True, null=True, help_text=_("Primary model for agent tasks.")
+        _("model"), max_length=255, blank=True, null=True, help_text=_("Primary model for agent tasks.")
     )
     agent_fallback_model_name = models.CharField(
-        _("agent fallback model"),
+        _("fallback model"),
         max_length=255,
         blank=True,
         null=True,
         help_text=_("Fallback model when the primary model fails."),
     )
     agent_thinking_level = models.CharField(
-        _("agent thinking level"),
+        _("thinking level"),
         max_length=10,
         blank=True,
         null=True,
@@ -142,20 +142,20 @@ class SiteConfiguration(models.Model):
         _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
     )
 
-    # -- Diff to Metadata --
+    # -- Commit & PR Writer --
     diff_to_metadata_model_name = models.CharField(
-        _("diff-to-metadata model"),
+        _("model"),
         max_length=255,
         blank=True,
         null=True,
         help_text=_("Model for generating commit messages and PR descriptions from diffs."),
     )
     diff_to_metadata_fallback_model_name = models.CharField(
-        _("diff-to-metadata fallback model"),
+        _("fallback model"),
         max_length=255,
         blank=True,
         null=True,
-        help_text=_("Fallback model for diff-to-metadata when the primary fails."),
+        help_text=_("Fallback model used when the primary fails."),
     )
 
     # -- Web Search --
@@ -299,7 +299,10 @@ class SiteConfiguration(models.Model):
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
         FieldGroup(key="agent", title=_("Agent"), match=("agent_*", "suggest_context_file_enabled"), icon="agent"),
         FieldGroup(
-            key="diff_to_metadata", title=_("Diff to Metadata"), match=("diff_to_metadata_*",), icon="diff-to-metadata"
+            key="diff_to_metadata",
+            title=_("Commit & PR Writer"),
+            match=("diff_to_metadata_*",),
+            icon="diff-to-metadata",
         ),
         FieldGroup(
             key="providers",
@@ -437,7 +440,7 @@ class SiteConfiguration(models.Model):
                     title=group_def.title,
                     match=group_def.match,
                     icon=group_def.icon,
-                    fields=tuple(group_fields),
+                    fields=tuple(sorted(group_fields)),
                 )
             )
         return groups
