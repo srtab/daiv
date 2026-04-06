@@ -418,11 +418,18 @@ class SiteConfiguration(models.Model):
         Return field groups with their ``fields`` lists resolved from
         model field names and :attr:`ENCRYPTED_FIELDS`.
         """
-        # Collect all candidate field names
+        # Collect all candidate field names, interleaving encrypted fields
+        # next to sibling model fields so related fields stay together.
         all_fields = [
             f.name for f in cls._meta.get_fields() if f.name != "id" and not f.name.startswith("_") and f.concrete
         ]
-        all_fields.extend(cls.ENCRYPTED_FIELDS)
+        for enc_field in cls.ENCRYPTED_FIELDS:
+            prefix = enc_field.rsplit("_", 2)[0]
+            insert_at = len(all_fields)
+            for i, name in enumerate(all_fields):
+                if name.startswith(f"{prefix}_"):
+                    insert_at = i + 1
+            all_fields.insert(insert_at, enc_field)
 
         assigned: set[str] = set()
         groups: list[FieldGroup] = []
@@ -440,7 +447,7 @@ class SiteConfiguration(models.Model):
                     title=group_def.title,
                     match=group_def.match,
                     icon=group_def.icon,
-                    fields=tuple(sorted(group_fields)),
+                    fields=tuple(group_fields),
                 )
             )
         return groups
