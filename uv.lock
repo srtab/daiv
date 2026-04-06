@@ -500,7 +500,7 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "ipython", specifier = "==9.12.0" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai"], specifier = "==1.2.14" },
+    { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai"], specifier = "==1.2.15" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.2" },
     { name = "langgraph", specifier = "==1.1.6" },
     { name = "langgraph-checkpoint-redis", specifier = "==0.4.0" },
@@ -1275,16 +1275,16 @@ wheels = [
 
 [[package]]
 name = "langchain"
-version = "1.2.14"
+version = "1.2.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/2b/0ca77ee988a9f1c1f1d923115d7c91221ab434067bc36f2f637201aeee81/langchain-1.2.14.tar.gz", hash = "sha256:fc5511e8f8af7efee9e5a144da4392d700d627b301d240470db97272940ad317", size = 574190, upload-time = "2026-03-31T13:50:37.398Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/3f/888a7099d2bd2917f8b0c3ffc7e347f1e664cf64267820b0b923c4f339fc/langchain-1.2.15.tar.gz", hash = "sha256:1717b6719daefae90b2728314a5e2a117ff916291e2862595b6c3d6fba33d652", size = 574732, upload-time = "2026-04-03T14:26:03.994Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/87/324ae5fd9993f024339a452fc89e3fd808bccde87ef95c8dafab3de023c0/langchain-1.2.14-py3-none-any.whl", hash = "sha256:96da6d7338d5a6fc41eb4ec0db83f7ef5d03bb5efd17bb269f34ba4378ebdb4d", size = 112715, upload-time = "2026-03-31T13:50:35.997Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/e8/a3b8cb0005553f6a876865073c81ef93bd7c5b18381bcb9ba4013af96ebc/langchain-1.2.15-py3-none-any.whl", hash = "sha256:e349db349cb3e9550c4044077cf90a1717691756cc236438404b23500e615874", size = 112714, upload-time = "2026-04-03T14:26:02.557Z" },
 ]
 
 [package.optional-dependencies]
