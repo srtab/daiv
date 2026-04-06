@@ -10,7 +10,6 @@ from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents.middleware import TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.conf import settings
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -18,6 +17,7 @@ from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMidd
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
@@ -146,7 +146,7 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> SubAgent:
     """
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    model = BaseAgent.get_model(model=settings.EXPLORE_MODEL_NAME)
+    model = BaseAgent.get_model(model=site_settings.agent_explore_model_name)
     _summarization_defaults = compute_summarization_defaults(model)
 
     middleware = [

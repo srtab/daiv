@@ -7,12 +7,12 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
-from automation.agent.conf import settings as agent_settings
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
+from core.site_settings import site_settings
 
 from .schemas import ChatCompletionRequest, ChatCompletionResponse, ModelListSchema, ModelSchema
 from .security import AuthBearer
@@ -54,8 +54,8 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
             "chat_stream": payload.stream,
             "repo_id": repo_id,
             "ref": ref,
-            "model": agent_settings.MODEL_NAME,
-            "thinking_level": agent_settings.THINKING_LEVEL,
+            "model": site_settings.agent_model_name,
+            "thinking_level": site_settings.agent_thinking_level,
         }
     )
 

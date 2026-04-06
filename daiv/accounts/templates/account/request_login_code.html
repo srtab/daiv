@@ -33,12 +33,10 @@
                            id="{{ field.id_for_label }}"
                            value="{{ field.value|default:'' }}"
                            {% if field.field.required %}required{% endif %}
-                           placeholder="you@company.com"
-                           class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                           placeholder="you@company.com" class="py-3">
                 </div>
                 {% endfor %}
-                <button type="submit"
-                        class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                <button type="submit" class="btn-primary w-full px-4 py-3">
                     Send login code
                 </button>
             </div>

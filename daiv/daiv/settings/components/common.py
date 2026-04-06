@@ -118,6 +118,7 @@ X_FRAME_OPTIONS = "DENY"
 
 STATIC_URL = "/static/"
 STATIC_ROOT = Path.home() / "data" / "static"
+STATICFILES_DIRS = [Path(__file__).resolve().parents[2] / "static"]
 STORAGES = {"staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}}
 WHITENOISE_ROOT = Path(__file__).resolve().parents[2] / "public"
 

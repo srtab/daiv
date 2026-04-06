@@ -7,12 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Fixed
-
-- Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
-
 ### Added
 
+- Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
 - Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 authentication using PKCE. Enables MCP clients like Claude Code to connect to DAIV via a remote URL with browser-based authentication. Exposes `submit_job` and `get_job_status` tools. Includes OAuth metadata discovery (`/.well-known/oauth-authorization-server`), dynamic client registration (`/api/oauth/register`), and Bearer token validation for MCP requests.
 - Added code merge analytics that tracks lines added/removed, files changed, and DAIV vs human attribution whenever a MR/PR is merged to a default branch. Metrics are displayed in the dashboard under a new "Code Velocity" section with the same period filters.
 - Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code for existing users, and a styled dark-themed login page. Includes a post-login dashboard with API key management (create, list, revoke).
@@ -33,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
 - Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
 - Fixed `PullRequestMetadata.branch` validation to reject invalid branch names (e.g., names with spaces or uppercase characters) that previously passed the incomplete regex.
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
@@ -44,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 - Increased Claude max output tokens from 4,096 to 16,384.
+- Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
 
 ### Removed
 

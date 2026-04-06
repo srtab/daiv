@@ -8,8 +8,9 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
-from automation.conf import settings
 from core.constants import BOT_NAME
+from core.models import ThinkingLevelChoices as ThinkingLevel
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -42,12 +43,19 @@ class ModelProvider(StrEnum):
     GOOGLE_GENAI = "google_genai"
     OPENROUTER = "openrouter"
 
+    @staticmethod
+    def api_key_field_for(provider: ModelProvider) -> str | None:
+        """Return the SiteConfiguration field name that holds the API key for this provider, or None."""
+        return _PROVIDER_API_KEY_FIELDS.get(provider)
 
-class ThinkingLevel(StrEnum):
-    MINIMAL = "minimal"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+
+# Mapping from provider to the SiteConfiguration field that stores its API key.
+_PROVIDER_API_KEY_FIELDS: dict[ModelProvider, str] = {
+    ModelProvider.ANTHROPIC: "anthropic_api_key",
+    ModelProvider.OPENAI: "openai_api_key",
+    ModelProvider.GOOGLE_GENAI: "google_api_key",
+    ModelProvider.OPENROUTER: "openrouter_api_key",
+}
 
 
 T = TypeVar("T", bound=Runnable)
@@ -81,7 +89,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         Compile the agent.
 
-        Tipically this method returns a Runnable or a CompiledStateGraph.
+        Typically this method returns a Runnable or a CompiledStateGraph.
         """
         pass
 
@@ -111,10 +119,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         _kwargs = {"temperature": 0, "model_kwargs": {}, "model_provider": model_provider, **kwargs}
 
         if model_provider == ModelProvider.ANTHROPIC:
-            assert settings.ANTHROPIC_API_KEY is not None, "Anthropic API key is not set"
+            if site_settings.anthropic_api_key is None:
+                raise RuntimeError("Anthropic API key is not configured. Set ANTHROPIC_API_KEY or use the config UI.")
 
             _kwargs["betas"] = ["structured-outputs-2025-11-13"]
-            _kwargs["api_key"] = settings.ANTHROPIC_API_KEY.get_secret_value()
+            _kwargs["api_key"] = site_settings.anthropic_api_key.get_secret_value()
 
             if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
                 max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
@@ -131,15 +140,17 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
 
         elif model_provider == ModelProvider.OPENAI:
-            assert settings.OPENAI_API_KEY is not None, "OpenAI API key is not set"
-            _kwargs["api_key"] = settings.OPENAI_API_KEY.get_secret_value()
+            if site_settings.openai_api_key is None:
+                raise RuntimeError("OpenAI API key is not configured. Set OPENAI_API_KEY or use the config UI.")
+            _kwargs["api_key"] = site_settings.openai_api_key.get_secret_value()
             _kwargs["use_responses_api"] = True
             if thinking_level and _kwargs["model"].startswith(OPENAI_THINKING_MODELS):
                 _kwargs["temperature"] = 1
                 _kwargs["reasoning_effort"] = thinking_level
 
         elif model_provider == ModelProvider.OPENROUTER:
-            assert settings.OPENROUTER_API_KEY is not None, "OpenRouter API key is not set"
+            if site_settings.openrouter_api_key is None:
+                raise RuntimeError("OpenRouter API key is not configured. Set OPENROUTER_API_KEY or use the config UI.")
             _kwargs["model"] = _kwargs["model"].split(":", 1)[1]
             # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
             _kwargs["model_provider"] = ModelProvider.OPENAI
@@ -147,8 +158,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 "HTTP-Referer": "https://srtab.github.io/daiv",
                 "X-Title": BOT_NAME,
             }
-            _kwargs["openai_api_base"] = settings.OPENROUTER_API_BASE
-            _kwargs["openai_api_key"] = settings.OPENROUTER_API_KEY.get_secret_value()
+            _kwargs["openai_api_base"] = site_settings.openrouter_api_base
+            _kwargs["openai_api_key"] = site_settings.openrouter_api_key.get_secret_value()
 
             if thinking_level:
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
@@ -168,8 +179,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
 
         elif model_provider == ModelProvider.GOOGLE_GENAI:
-            assert settings.GOOGLE_API_KEY is not None, "Google API key is not set"
-            _kwargs["api_key"] = settings.GOOGLE_API_KEY.get_secret_value()
+            if site_settings.google_api_key is None:
+                raise RuntimeError("Google API key is not configured. Set GOOGLE_API_KEY or use the config UI.")
+            _kwargs["api_key"] = site_settings.google_api_key.get_secret_value()
             _kwargs["include_thoughts"] = True
 
         return _kwargs
@@ -179,19 +191,22 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         Get the thinking tokens and max tokens for the model.
         """
-        if thinking_level == ThinkingLevel.LOW:
+        if thinking_level == ThinkingLevel.MINIMAL:
+            return max_tokens + 1_024, 1_024
+        elif thinking_level == ThinkingLevel.LOW:
             return max_tokens + 4_096, 4_096
         elif thinking_level == ThinkingLevel.MEDIUM:
             return max_tokens + 25_600, 25_600
         elif thinking_level == ThinkingLevel.HIGH:
             return 64_000, 64_000 - max_tokens
+        raise ValueError(f"Unsupported thinking level: {thinking_level}")
 
-    async def draw_mermaid(self) -> str:
+    async def draw_mermaid_png(self) -> bytes:
         """
-        Draw the graph in Mermaid format.
+        Draw the graph as a Mermaid PNG image.
 
         Returns:
-            str: The Mermaid graph
+            The PNG image bytes.
         """
         if isinstance(self._runnable, CompiledStateGraph):
             return (await self._runnable.aget_graph(xray=True)).draw_mermaid_png()

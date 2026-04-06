@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+a, button, [role="button"] {
+  cursor: pointer;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out both;
+}
+
+/* -- Button component styles -------------------------------------------- */
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+           bg-white text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+           border border-white/[0.06] bg-white/[0.03] text-gray-400 transition-all duration-200
+           hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+           bg-red-600 text-white transition-all duration-200 hover:bg-red-700 active:scale-[0.98];
+  }
+
+  .btn-danger-outline {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+           border border-red-800/30 bg-red-950/20 text-red-400 transition-all duration-200
+           hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
+  }
+}
+
+/* -- Form element base styles ------------------------------------------- */
+
+@layer base {
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="url"],
+  textarea {
+    @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5
+           text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200
+           focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08];
+  }
+
+  select {
+    @apply block w-full rounded-xl border border-white/[0.06] bg-[#0d1117] px-4 py-2.5
+           text-[14px] text-white outline-none transition-all duration-200
+           focus:border-white/[0.15] focus:ring-1 focus:ring-white/[0.08];
+  }
+
+  input[type="checkbox"] {
+    @apply h-4 w-4 rounded border-white/[0.15] bg-white/[0.03] text-white accent-white;
+  }
+
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+}

@@ -5,23 +5,7 @@
 
 {% block content %}
 <div class="min-h-dvh">
-    <!-- Header -->
-    <header class="border-b border-white/[0.06]">
-        <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-            <div class="flex items-center">
-                <a href="{% url 'dashboard' %}">
-                    <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
-                </a>
-            </div>
-            <div class="flex items-center gap-5">
-                <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
-                <a href="{% url 'account_logout' %}"
-                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-                    Sign out
-                </a>
-            </div>
-        </div>
-    </header>
+    {% include "accounts/_header.html" %}
 
     <!-- Content -->
     <main class="mx-auto max-w-5xl py-12">
@@ -35,8 +19,7 @@
                    class="text-[14px] text-gray-400 transition-colors hover:text-white">
                     &larr; Dashboard
                 </a>
-                <a href="{% url 'user_create' %}"
-                   class="rounded-xl bg-white px-5 py-2.5 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                <a href="{% url 'user_create' %}" class="btn-primary">
                     Create user
                 </a>
             </div>
@@ -47,8 +30,7 @@
             <form method="get" class="flex-1 sm:max-w-sm">
                 {% if current_role %}<input type="hidden" name="role" value="{{ current_role }}">{% endif %}
                 <input type="text" name="q" value="{{ search_query }}"
-                       placeholder="Search by name or email..."
-                       class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                       placeholder="Search by name or email...">
             </form>
             <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}"

@@ -1,27 +1,11 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static icon_tags %}
 
 {% block title %}Delete User — DAIV{% endblock %}
 
 {% block content %}
 <div class="min-h-dvh">
-    <!-- Header -->
-    <header class="border-b border-white/[0.06]">
-        <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-            <div class="flex items-center">
-                <a href="{% url 'dashboard' %}">
-                    <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
-                </a>
-            </div>
-            <div class="flex items-center gap-5">
-                <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
-                <a href="{% url 'account_logout' %}"
-                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-                    Sign out
-                </a>
-            </div>
-        </div>
-    </header>
+    {% include "accounts/_header.html" %}
 
     <!-- Content -->
     <main class="mx-auto max-w-5xl py-12">
@@ -38,9 +22,7 @@
 
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-6" style="animation-delay: 100ms">
             <div class="flex items-start gap-3">
-                <svg class="mt-0.5 h-5 w-5 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
-                </svg>
+                {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-red-400" %}
                 <div>
                     <p class="text-[14px] font-medium text-red-200">
                         Are you sure you want to delete <strong>{{ object.name|default:object.email }}</strong>?
@@ -54,12 +36,10 @@
 
             <form method="post" class="mt-6 flex items-center gap-3">
                 {% csrf_token %}
-                <button type="submit"
-                        class="rounded-xl bg-red-600 px-5 py-2.5 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-red-700 active:scale-[0.98]">
+                <button type="submit" class="btn-danger">
                     Delete user
                 </button>
-                <a href="{% url 'user_update' object.pk %}"
-                   class="rounded-xl border border-white/[0.06] bg-white/[0.03] px-5 py-2.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                <a href="{% url 'user_update' object.pk %}" class="btn-secondary">
                     Cancel
                 </a>
             </form>

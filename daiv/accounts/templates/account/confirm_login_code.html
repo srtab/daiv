@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static icon_tags %}
 
 {% block title %}Enter code — DAIV{% endblock %}
 {% block meta_description %}{% endblock %}
@@ -22,9 +22,7 @@
         <!-- Icon + message -->
         <div class="animate-fade-up mb-8 text-center" style="animation-delay: 80ms">
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
-                <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
-                </svg>
+                {% icon "envelope" "h-5 w-5 text-gray-400" %}
             </div>
             <h2 class="text-[16px] font-semibold text-white">Check your email</h2>
             <p class="mt-2 text-[14px] font-light text-gray-400">
@@ -48,11 +46,10 @@
                            autocomplete="one-time-code"
                            inputmode="numeric"
                            placeholder="Enter code"
-                           class="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3.5 text-center text-lg font-semibold tracking-[0.3em] text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08]">
+                           class="py-3.5 text-center text-lg font-semibold tracking-[0.3em]">
                 </div>
                 {% endfor %}
-                <button type="submit"
-                        class="w-full rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98]">
+                <button type="submit" class="btn-primary w-full px-4 py-3">
                     Verify &amp; sign in
                 </button>
             </div>

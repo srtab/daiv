@@ -10,9 +10,9 @@ from langchain_core.messages.content import create_image_block
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
-from .conf import settings
 from .schemas import Image
 
 if TYPE_CHECKING:
@@ -225,9 +225,9 @@ def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = Fal
     thinking_level = model_config.thinking_level
 
     if use_max:
-        model = settings.MAX_MODEL_NAME
+        model = site_settings.agent_max_model_name
         fallback_models = [model_config.model, model_config.fallback_model]
-        thinking_level = settings.MAX_THINKING_LEVEL
+        thinking_level = site_settings.agent_max_thinking_level
 
     return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
 

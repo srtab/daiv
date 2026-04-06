@@ -4,11 +4,11 @@ from django_tasks import task
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from automation.agent.conf import settings as agent_settings
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.jobs")
 
@@ -31,8 +31,8 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None) -> str
             "repo_id": repo_id,
             "ref": ref,
             "trigger": "job",
-            "model": agent_settings.MODEL_NAME,
-            "thinking_level": agent_settings.THINKING_LEVEL,
+            "model": site_settings.agent_model_name,
+            "thinking_level": site_settings.agent_thinking_level,
         }
     )
 

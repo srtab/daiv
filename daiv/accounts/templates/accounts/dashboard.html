@@ -1,28 +1,11 @@
 {% extends "base.html" %}
-{% load static dashboard_tags %}
+{% load static dashboard_tags icon_tags %}
 
 {% block title %}Dashboard — DAIV{% endblock %}
 
 {% block content %}
 <div class="min-h-dvh">
-    <!-- Header -->
-    <header class="border-b border-white/[0.06]">
-        <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-            <div class="flex items-center">
-                <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
-            </div>
-            <div class="flex items-center gap-5">
-                {% if user.is_admin %}
-                <a href="{% url 'user_list' %}" class="text-[14px] text-gray-500 transition-colors hover:text-white">Users</a>
-                {% endif %}
-                <span class="text-[14px] text-gray-500">{{ user.name|default:user.email }}</span>
-                <a href="{% url 'account_logout' %}"
-                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-                    Sign out
-                </a>
-            </div>
-        </div>
-    </header>
+    {% include "accounts/_header.html" %}
 
     <!-- Content -->
     <main class="mx-auto max-w-5xl px-6 py-12">
@@ -49,9 +32,7 @@
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
                 <div class="flex items-center gap-2.5 pb-4">
                     <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                        <svg class="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/>
-                        </svg>
+                        {% icon "beaker" "h-3.5 w-3.5 text-gray-400" %}
                     </div>
                     <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Agent Activity</h2>
                 </div>
@@ -75,9 +56,7 @@
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
                 <div class="flex items-center gap-2.5 pb-4">
                     <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                        <svg class="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/>
-                        </svg>
+                        {% icon "chart-bar" "h-3.5 w-3.5 text-gray-400" %}
                     </div>
                     <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Code Velocity</h2>
                 </div>
@@ -88,9 +67,7 @@
                             {{ counter.label }}
                             {% if counter.tooltip %}
                             <span class="group relative cursor-help">
-                                <svg class="h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"/>
-                                </svg>
+                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
                                 <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                                     {{ counter.tooltip }}
                                 </span>
@@ -111,14 +88,12 @@
         </div>
 
         <!-- Quick Links -->
-        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 {% if user.is_admin %}lg:grid-cols-3{% endif %}" style="animation-delay: 300ms">
+        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 {% if user.is_admin %}lg:grid-cols-4{% endif %}" style="animation-delay: 300ms">
             <!-- API Docs card -->
             <a href="{% url 'api:openapi-view' %}"
                class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
                 <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                    <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/>
-                    </svg>
+                    {% icon "code-bracket" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">API Documentation</h3>
                 <p class="mt-1 text-[14px] text-gray-500">Explore the API endpoints and test requests interactively.</p>
@@ -130,9 +105,7 @@
                class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
                 <div class="mb-3 flex items-center justify-between">
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                        <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>
-                        </svg>
+                        {% icon "users" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
                     </div>
                     {% if total_users %}
                     <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-gray-400">
@@ -143,6 +116,15 @@
                 <h3 class="text-[15px] font-semibold text-white">Users</h3>
                 <p class="mt-1 text-[14px] text-gray-500">Manage user accounts and roles.</p>
             </a>
+            <!-- Configuration card (admin only) -->
+            <a href="{% url 'site_configuration' %}"
+               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
+                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                    {% icon "cog-6-tooth" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Configuration</h3>
+                <p class="mt-1 text-[14px] text-gray-500">Manage models, features, and API keys.</p>
+            </a>
             {% endif %}
 
             <!-- API Keys card -->
@@ -150,9 +132,7 @@
                class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
                 <div class="mb-3 flex items-center justify-between">
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                        <svg class="h-5 w-5 text-gray-500 transition-colors group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25z"/>
-                        </svg>
+                        {% icon "key" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
                     </div>
                     {% if active_api_keys %}
                     <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-gray-400">

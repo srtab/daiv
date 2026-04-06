@@ -2,7 +2,6 @@ import base64
 from unittest.mock import AsyncMock, Mock, patch
 
 from automation.agent.base import ThinkingLevel
-from automation.agent.conf import settings
 from automation.agent.schemas import Image
 from automation.agent.utils import (
     extract_images_from_text,
@@ -12,6 +11,7 @@ from automation.agent.utils import (
 )
 from codebase.base import GitPlatform
 from codebase.repo_config import AgentModelConfig, Models
+from core.site_settings import site_settings
 
 
 class TestImagesToContentBlocks:
@@ -109,8 +109,8 @@ class TestGetDaivAgentKwargs:
         models_config = Models()
         kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
-        assert kwargs["model_names"] == [settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME]
-        assert kwargs["thinking_level"] == settings.THINKING_LEVEL
+        assert kwargs["model_names"] == [site_settings.agent_model_name, site_settings.agent_fallback_model_name]
+        assert kwargs["thinking_level"] == site_settings.agent_thinking_level
 
     def test_get_daiv_agent_kwargs_with_use_max(self):
         """Test that get_daiv_agent_kwargs sets high-performance mode when use_max=True."""
@@ -118,9 +118,13 @@ class TestGetDaivAgentKwargs:
         kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
 
         # When use_max=True, the fallback is the regular planning_model from config
-        assert kwargs["model_names"] == [settings.MAX_MODEL_NAME, settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME]
+        assert kwargs["model_names"] == [
+            site_settings.agent_max_model_name,
+            site_settings.agent_model_name,
+            site_settings.agent_fallback_model_name,
+        ]
         # When use_max=True, the fallback is the regular execution_model from config
-        assert kwargs["thinking_level"] == settings.MAX_THINKING_LEVEL
+        assert kwargs["thinking_level"] == site_settings.agent_max_thinking_level
 
     def test_get_daiv_agent_kwargs_does_not_include_skip_approval(self):
         """Test that get_daiv_agent_kwargs does not set skip_approval."""
@@ -152,8 +156,8 @@ class TestGetDaivAgentKwargs:
         kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
 
         # use_max should override YAML config
-        assert kwargs["model_names"][0] == settings.MAX_MODEL_NAME
-        assert kwargs["thinking_level"] == settings.MAX_THINKING_LEVEL
+        assert kwargs["model_names"][0] == site_settings.agent_max_model_name
+        assert kwargs["thinking_level"] == site_settings.agent_max_thinking_level
 
     def test_get_daiv_agent_kwargs_partial_yaml_config(self):
         """Test that partial YAML config merges with environment defaults."""
@@ -165,7 +169,7 @@ class TestGetDaivAgentKwargs:
         # model should come from YAML
         assert kwargs["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
         # fallback_model should come from env vars
-        assert kwargs["model_names"][1] == settings.FALLBACK_MODEL_NAME
+        assert kwargs["model_names"][1] == site_settings.agent_fallback_model_name
 
 
 # Tests for extract_images_from_text

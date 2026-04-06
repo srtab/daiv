@@ -16,8 +16,8 @@ from automation.agent import BaseAgent
 from automation.agent.constants import AGENTS_MEMORY_PATH, ModelName
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
+from core.site_settings import site_settings
 
-from .conf import settings
 from .prompts import human_commit_message, human_pr_metadata, system
 from .schemas import CommitMetadata, PullRequestMetadata
 
@@ -40,7 +40,7 @@ def dynamic_system_prompt(request: ModelRequest) -> str:
 
 
 def create_diff_to_metadata_graph(
-    model_names: Sequence[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
+    model_names: Sequence[ModelName | str] | None = None,
     *,
     ctx: RuntimeCtx,
     include_pr_metadata: bool = True,
@@ -56,6 +56,9 @@ def create_diff_to_metadata_graph(
     Returns:
         The PR metadata graph.
     """
+    if model_names is None:
+        model_names = (site_settings.diff_to_metadata_model_name, site_settings.diff_to_metadata_fallback_model_name)
+
     assert include_pr_metadata or include_commit_message, (
         "At least one of include_pr_metadata or include_commit_message must be True"
     )

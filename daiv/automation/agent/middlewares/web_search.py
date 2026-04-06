@@ -11,7 +11,8 @@ from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIW
 from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 from langchain_core.tools import tool
 
-from automation.conf import settings
+from core.models import WebSearchEngineChoices
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -71,12 +72,12 @@ async def _get_web_search_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    if settings.WEB_SEARCH_ENGINE == "duckduckgo":
+    if site_settings.web_search_engine == WebSearchEngineChoices.DUCKDUCKGO:
         return _get_duckduckgo_results(query)
-    elif settings.WEB_SEARCH_ENGINE == "tavily":
+    elif site_settings.web_search_engine == WebSearchEngineChoices.TAVILY:
         return await _get_tavily_results(query)
     else:
-        raise ValueError(f"Invalid web search engine: {settings.WEB_SEARCH_ENGINE}")
+        raise ValueError(f"Invalid web search engine: {site_settings.web_search_engine}")
 
 
 def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
@@ -92,7 +93,7 @@ def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
     api_wrapper = DuckDuckGoSearchAPIWrapper()
     return [
         {"title": result["title"], "link": result["link"], "content": result["snippet"]}
-        for result in api_wrapper.results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS)
+        for result in api_wrapper.results(query, max_results=site_settings.web_search_max_results)
     ]
 
 
@@ -106,12 +107,13 @@ async def _get_tavily_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    assert settings.WEB_SEARCH_API_KEY is not None, "AUTOMATION_WEB_SEARCH_API_KEY is not set"
+    if site_settings.web_search_api_key is None:
+        raise RuntimeError("Web search API key is not configured. Set DAIV_WEB_SEARCH_API_KEY or use the config UI.")
 
-    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=settings.WEB_SEARCH_API_KEY)
+    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=site_settings.web_search_api_key.get_secret_value())
 
     results = await api_wrapper.raw_results_async(
-        query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True
+        query, max_results=site_settings.web_search_max_results, include_answer=True
     )
     results_content = [
         {"title": result["title"], "link": result["url"], "content": result["content"]} for result in results["results"]

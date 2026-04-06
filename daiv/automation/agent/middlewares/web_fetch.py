@@ -14,7 +14,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
 from automation.agent.base import BaseAgent
-from automation.conf import settings
+from automation.conf import settings as automation_env_settings
+from core.site_settings import site_settings
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -66,7 +67,7 @@ def _get_auth_headers_for_url(url: str) -> dict[str, str]:
     """
     hostname = urlparse(url).hostname or ""
     matched: list[tuple[str, dict[str, SecretStr]]] = []
-    for domain, headers in settings.WEB_FETCH_AUTH_HEADERS.items():
+    for domain, headers in automation_env_settings.WEB_FETCH_AUTH_HEADERS.items():
         if hostname == domain:
             matched.append((domain, headers))
     # Merge from least-specific to most-specific so longer domains win.
@@ -171,7 +172,9 @@ def _get_cached_response(*, url: str, prompt: str) -> str | None:
 
 
 def _set_cached_response(*, url: str, prompt: str, response: str) -> None:
-    cache.set(_cache_key_for_response(url=url, prompt=prompt), response, timeout=settings.WEB_FETCH_CACHE_TTL_SECONDS)
+    cache.set(
+        _cache_key_for_response(url=url, prompt=prompt), response, timeout=site_settings.web_fetch_cache_ttl_seconds
+    )
 
 
 async def _fetch_markdown_for_url(url: str) -> str:
@@ -181,8 +184,8 @@ async def _fetch_markdown_for_url(url: str) -> str:
     auth_headers = _get_auth_headers_for_url(url)
     final_url, content_type, page_raw = await _fetch_url_text(
         url,
-        timeout_seconds=settings.WEB_FETCH_TIMEOUT_SECONDS,
-        proxy_url=settings.WEB_FETCH_PROXY_URL,
+        timeout_seconds=site_settings.web_fetch_timeout_seconds,
+        proxy_url=automation_env_settings.WEB_FETCH_PROXY_URL,
         extra_headers=auth_headers or None,
     )
 
@@ -218,17 +221,17 @@ async def web_fetch_tool(
         return f"Failed to fetch URL: {e}"
 
     # Safety guard: avoid silently truncating; ask for a narrower URL/prompt instead.
-    if len(content) > settings.WEB_FETCH_MAX_CONTENT_CHARS:
+    if len(content) > site_settings.web_fetch_max_content_chars:
         return (
             "Page content is too large to safely analyze in one pass.\n"
             "Provide a more specific URL (e.g. a specific section/anchor) or narrow the prompt."
         )
 
-    if not prompt.strip() or settings.WEB_FETCH_MODEL_NAME is None:
+    if not prompt.strip() or site_settings.web_fetch_model_name is None:
         return f"Contents of {url}:\n{content}"
 
     try:
-        model = BaseAgent.get_model(model=settings.WEB_FETCH_MODEL_NAME)
+        model = BaseAgent.get_model(model=site_settings.web_fetch_model_name)
         messages = [
             SystemMessage(
                 content=(

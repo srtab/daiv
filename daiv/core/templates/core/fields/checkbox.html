@@ -1,0 +1,18 @@
+<div>
+    <label class="flex items-center gap-3 {% if field.field.is_env_locked %}opacity-50{% endif %} cursor-pointer">
+        {% if field.field.is_env_locked %}
+        <input type="hidden" name="{{ field.name }}" value="{{ field.value|default:'' }}">
+        {% endif %}
+        {{ field }}
+        <span class="text-[14px] font-medium text-gray-400">{{ field.label }}</span>
+        {% if field.field.is_env_locked %}
+        {% include "core/_env_lock_badge.html" %}
+        {% endif %}
+    </label>
+    {% if field.errors %}
+    <p class="mt-1.5 text-[13px] text-red-400">{{ field.errors.0 }}</p>
+    {% endif %}
+    {% if field.help_text %}
+    <p class="mt-1.5 text-[13px] text-gray-500">{{ field.help_text }}</p>
+    {% endif %}
+</div>
