@@ -107,7 +107,8 @@ async def _get_tavily_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    assert site_settings.web_search_api_key is not None, "DAIV_WEB_SEARCH_API_KEY is not set"
+    if site_settings.web_search_api_key is None:
+        raise RuntimeError("Web search API key is not configured. Set DAIV_WEB_SEARCH_API_KEY or use the config UI.")
 
     api_wrapper = TavilySearchAPIWrapper(tavily_api_key=site_settings.web_search_api_key.get_secret_value())
 

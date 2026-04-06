@@ -157,6 +157,33 @@ class TestEncryptedFields:
         assert "web_search_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "sandbox_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
 
+    def test_corrupted_ciphertext_returns_none(self, site_config):
+        """Corrupted data returns None instead of raising."""
+        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config.save()
+
+        reloaded = SiteConfiguration.objects.get_instance()
+        assert reloaded.anthropic_api_key is None
+
+    def test_corrupted_ciphertext_hint_returns_none(self, site_config):
+        """get_secret_hint also returns None for corrupted data."""
+        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config.save()
+
+        reloaded = SiteConfiguration.objects.get_instance()
+        assert reloaded.get_secret_hint("anthropic_api_key") is None
+
+
+class TestModelNameFieldsCompleteness:
+    def test_model_name_fields_covers_all_model_name_charfields(self):
+        """MODEL_NAME_FIELDS must include every CharField whose name ends with _model_name."""
+        model_name_fields = {
+            f.name
+            for f in SiteConfiguration._meta.get_fields()
+            if f.concrete and f.name.endswith("_model_name") and not f.name.startswith("_")
+        }
+        assert model_name_fields == set(SiteConfiguration.MODEL_NAME_FIELDS)
+
 
 class TestGetFieldGroups:
     def test_all_configurable_fields_assigned(self):

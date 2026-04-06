@@ -13,6 +13,7 @@ logger = logging.getLogger("daiv.core")
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access (avoids import-time cross-layer dependency)."""
     from automation.agent.constants import ModelName
+    from core.models import WebSearchEngineChoices
 
     return {
         # Agent
@@ -30,7 +31,7 @@ def _build_field_defaults() -> dict[str, Any]:
         # Web Search
         "web_search_enabled": True,
         "web_search_max_results": 5,
-        "web_search_engine": "duckduckgo",
+        "web_search_engine": WebSearchEngineChoices.DUCKDUCKGO,
         # Web Fetch
         "web_fetch_enabled": True,
         "web_fetch_model_name": ModelName.CLAUDE_HAIKU_4_5,

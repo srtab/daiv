@@ -96,12 +96,16 @@ class TestBooleanCheckboxField:
 
 class TestPostSave:
     def test_save_plain_settings(self, client, admin_user, url):
+        config = SiteConfiguration.objects.get_instance()
+        config.anthropic_api_key = "sk-test"
+        config.save()
+
         client.force_login(admin_user)
-        response = client.post(url, {"agent_model_name": "test-model", "agent_recursion_limit": 100})
+        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6", "agent_recursion_limit": 100})
         assert response.status_code == 302
 
-        config = SiteConfiguration.objects.get_instance()
-        assert config.agent_model_name == "test-model"
+        config.refresh_from_db()
+        assert config.agent_model_name == "claude-sonnet-4-6"
         assert config.agent_recursion_limit == 100
 
     def test_save_boolean_checked(self, client, admin_user, url):
@@ -120,7 +124,7 @@ class TestPostSave:
 
         client.force_login(admin_user)
         # POST without web_search_enabled = checkbox unchecked
-        response = client.post(url, {"agent_model_name": "some-model"})
+        response = client.post(url, {})
         assert response.status_code == 302
 
         config.refresh_from_db()
@@ -132,7 +136,7 @@ class TestPostSave:
         config.save()
 
         client.force_login(admin_user)
-        response = client.post(url, {"agent_model_name": "new-model"})
+        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6"})
         assert response.status_code == 302
 
         config.refresh_from_db()
@@ -181,5 +185,168 @@ class TestPostSave:
 
     def test_member_cannot_post(self, client, member_user, url):
         client.force_login(member_user)
-        response = client.post(url, {"agent_model_name": "test-model"})
+        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6"})
         assert response.status_code == 403
+
+
+class TestModelApiKeyValidation:
+    def test_model_without_api_key_rejected(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={"agent_model_name": "claude-sonnet-4-6"}, instance=config)
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
+
+    def test_model_with_api_key_in_form_accepted(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "claude-sonnet-4-6", "anthropic_api_key": "sk-test"}, instance=config
+        )
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+    def test_model_with_api_key_in_db_accepted(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.anthropic_api_key = "sk-existing"
+        config.save()
+
+        form = SiteConfigurationForm(data={"agent_model_name": "claude-sonnet-4-6"}, instance=config)
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+    def test_model_with_api_key_env_locked_accepted(self, db, monkeypatch):
+        from core.forms import SiteConfigurationForm
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "claude-sonnet-4-6"}, instance=config, env_locked_fields={"anthropic_api_key"}
+        )
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+    def test_clearing_api_key_while_model_set_rejected(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.anthropic_api_key = "sk-existing"
+        config.save()
+
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "claude-sonnet-4-6"}, instance=config, cleared_secrets={"anthropic_api_key"}
+        )
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
+
+    def test_unsupported_model_name_rejected(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={"agent_model_name": "unknown-model-xyz"}, instance=config)
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
+        assert "Unsupported model" in str(form.errors["agent_model_name"])
+
+    def test_empty_model_name_skips_validation(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={}, instance=config)
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+    def test_multiple_models_same_provider_one_error(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "claude-sonnet-4-6", "agent_fallback_model_name": "claude-haiku-4-5"},
+            instance=config,
+        )
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
+        assert "agent_fallback_model_name" in form.errors
+
+    def test_openai_model_requires_openai_key(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={"diff_to_metadata_model_name": "gpt-5.4-mini"}, instance=config)
+        assert not form.is_valid()
+        assert "diff_to_metadata_model_name" in form.errors
+
+    def test_openrouter_model_requires_openrouter_key(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "openrouter:some-model", "openrouter_api_key": "or-key"}, instance=config
+        )
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+
+class TestWebSearchApiKeyValidation:
+    def test_tavily_without_api_key_rejected(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={"web_search_engine": "tavily"}, instance=config)
+        assert not form.is_valid()
+        assert "web_search_engine" in form.errors
+
+    def test_tavily_with_api_key_accepted(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.web_search_api_key = "tvly-test"
+        config.save()
+
+        form = SiteConfigurationForm(data={"web_search_engine": "tavily"}, instance=config)
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+    def test_duckduckgo_without_api_key_accepted(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(data={"web_search_engine": "duckduckgo"}, instance=config)
+        assert form.is_valid(), f"Form errors: {form.errors}"
+
+
+class TestClearSecretViaHttp:
+    """Test gap #10: clear_secret POST key convention exercised through HTTP client."""
+
+    def test_clear_secret_via_post(self, client, admin_user, url, db, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        config = SiteConfiguration.objects.get_instance()
+        config.anthropic_api_key = "sk-existing-key"
+        config.save()
+
+        client.force_login(admin_user)
+        response = client.post(url, {"clear_anthropic_api_key": "1"})
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.anthropic_api_key is None
+        assert config._anthropic_api_key_encrypted is None
+
+
+class TestEnvLockedSecretSave:
+    """Test gap #12: env-locked secrets are not overwritten by form submission."""
+
+    def test_env_locked_secret_not_overwritten(self, db):
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.anthropic_api_key = "sk-original"
+        config.save()
+
+        form = SiteConfigurationForm(
+            data={"anthropic_api_key": "sk-new-value"}, instance=config, env_locked_fields={"anthropic_api_key"}
+        )
+        assert form.is_valid(), f"Form errors: {form.errors}"
+        form.save()
+
+        config.refresh_from_db()
+        assert config.anthropic_api_key == "sk-original"

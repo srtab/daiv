@@ -331,7 +331,8 @@ class SandboxMiddleware(AgentMiddleware):
             close_session: Whether to close the session after the agent finishes the execution loop.
                 Useful when using the sandbox in subagents to avoid closing the session in the parent agent.
         """
-        assert site_settings.sandbox_api_key is not None, "SANDBOX_API_KEY is not set"
+        if site_settings.sandbox_api_key is None:
+            raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self.close_session = close_session
         self.tools = [bash_tool]

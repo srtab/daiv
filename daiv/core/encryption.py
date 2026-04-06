@@ -18,32 +18,37 @@ def get_encryption_key() -> bytes:
     """
     Get the Fernet encryption key.
 
-    Uses ``DAIV_ENCRYPTION_KEY`` from :pymod:`core.conf` when set, otherwise
-    derives a deterministic key from ``DJANGO_SECRET_KEY`` via HKDF.
+    Uses ``DAIV_ENCRYPTION_KEY`` from ``core.conf`` when set (either a raw
+    Fernet key or an arbitrary passphrase), otherwise derives a deterministic
+    key from ``DJANGO_SECRET_KEY`` via HKDF.
 
     Returns:
-        A 32-byte URL-safe base64-encoded key suitable for :class:`Fernet`.
+        A URL-safe base64-encoded Fernet key (44 bytes, encoding 32 raw bytes).
     """
     from core.conf import settings as core_settings
 
     if core_settings.ENCRYPTION_KEY is not None:
         raw = core_settings.ENCRYPTION_KEY.get_secret_value()
-        # Accept either a raw Fernet key or a plain passphrase
+        key_bytes = raw.encode() if isinstance(raw, str) else raw
         try:
-            Fernet(raw.encode() if isinstance(raw, str) else raw)
-            return raw.encode() if isinstance(raw, str) else raw
-        except Exception:  # noqa: S110
-            # Not a valid Fernet key — fall through to derive from SECRET_KEY
-            pass
+            Fernet(key_bytes)
+            return key_bytes
+        except ValueError:
+            # Not a valid Fernet key — derive one from the passphrase via HKDF
+            logger.info("DAIV_ENCRYPTION_KEY is not a raw Fernet key; deriving via HKDF.")
+            return _derive_key(key_bytes)
 
     # Derive from DJANGO_SECRET_KEY
     secret = settings.SECRET_KEY
     if not secret:
         raise RuntimeError("Neither DAIV_ENCRYPTION_KEY nor DJANGO_SECRET_KEY is set.")
+    return _derive_key(secret.encode() if isinstance(secret, str) else secret)
 
+
+def _derive_key(source: bytes) -> bytes:
+    """Derive a Fernet key from arbitrary bytes using HKDF-SHA256."""
     hkdf = HKDF(algorithm=SHA256(), length=32, salt=b"daiv-site-configuration", info=b"fernet-key")
-    derived = hkdf.derive(secret.encode() if isinstance(secret, str) else secret)
-    return base64.urlsafe_b64encode(derived)
+    return base64.urlsafe_b64encode(hkdf.derive(source))
 
 
 def get_fernet() -> Fernet:
@@ -95,7 +100,7 @@ def mask_secret(value: str, *, visible_prefix: int = 3, visible_suffix: int = 3)
         visible_suffix: Number of characters to show at the end.
 
     Returns:
-        A masked string like ``sk-...abc``, or ``***`` for very short values.
+        A masked string like ``sk-...abc``, or bullet characters for very short values.
     """
     if len(value) <= visible_prefix + visible_suffix + 3:
         return "\u2022" * min(len(value), 8)

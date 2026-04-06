@@ -13,7 +13,6 @@ class DAIVSandboxClient:
 
     def __init__(self):
         self.url = settings.SANDBOX_URL.unicode_string()
-        self.api_key = site_settings.sandbox_api_key
 
     async def start_session(self, request: StartSessionRequest) -> str:
         """
@@ -67,6 +66,7 @@ class DAIVSandboxClient:
         """
         Get the headers for the request.
         """
-        if self.api_key is None:
+        api_key = site_settings.sandbox_api_key
+        if api_key is None:
             return {}
-        return {"X-API-KEY": self.api_key.get_secret_value()}
+        return {"X-API-KEY": api_key.get_secret_value()}

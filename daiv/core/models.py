@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import fnmatch
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from django.core.cache import cache
@@ -18,15 +19,15 @@ SITE_CONFIGURATION_CACHE_KEY = "site_configuration"
 SITE_CONFIGURATION_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 
-@dataclass
+@dataclass(frozen=True)
 class FieldGroup:
     """Definition of a configuration field group for template rendering."""
 
     key: str
     title: str
-    match: list[str] = field(default_factory=list)
+    match: tuple[str, ...] = ()
     icon: str = ""
-    fields: list[str] = field(default_factory=list)
+    fields: tuple[str, ...] = ()
 
 
 class ThinkingLevelChoices(models.TextChoices):
@@ -70,13 +71,17 @@ class EncryptedFieldDescriptor:
         raw = getattr(obj, self.db_column, None)
         if raw is None:
             return None
+        from cryptography.fernet import InvalidToken
+
         from core.encryption import decrypt_value
 
         try:
             return decrypt_value(raw)
-        except Exception:
-            logger.warning(
-                "Failed to decrypt field %s (possible key rotation or data corruption)", self.field_name, exc_info=True
+        except InvalidToken:
+            logger.exception(
+                "Failed to decrypt field '%s': invalid token (key rotation or data corruption). "
+                "Re-enter the secret through the configuration UI or check DAIV_ENCRYPTION_KEY.",
+                self.field_name,
             )
             return None
 
@@ -291,22 +296,22 @@ class SiteConfiguration(models.Model):
         "sandbox_api_key",
     )
 
-    FIELD_GROUPS: ClassVar[list[FieldGroup]] = [
-        FieldGroup(key="agent", title=_("Agent"), match=["agent_*", "suggest_context_file_enabled"], icon="agent"),
+    FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
+        FieldGroup(key="agent", title=_("Agent"), match=("agent_*", "suggest_context_file_enabled"), icon="agent"),
         FieldGroup(
-            key="diff_to_metadata", title=_("Diff to Metadata"), match=["diff_to_metadata_*"], icon="diff-to-metadata"
+            key="diff_to_metadata", title=_("Diff to Metadata"), match=("diff_to_metadata_*",), icon="diff-to-metadata"
         ),
         FieldGroup(
             key="providers",
             title=_("Providers"),
-            match=["anthropic_*", "openai_*", "google_*", "openrouter_*"],
+            match=("anthropic_*", "openai_*", "google_*", "openrouter_*"),
             icon="providers",
         ),
-        FieldGroup(key="web_search", title=_("Web Search"), match=["web_search_*"], icon="web-search"),
-        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=["web_fetch_*"], icon="web-fetch"),
-        FieldGroup(key="sandbox", title=_("Sandbox"), match=["sandbox_*"], icon="sandbox"),
-        FieldGroup(key="jobs", title=_("Jobs"), match=["jobs_*"], icon="jobs"),
-    ]
+        FieldGroup(key="web_search", title=_("Web Search"), match=("web_search_*",), icon="web-search"),
+        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=("web_fetch_*",), icon="web-fetch"),
+        FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
+        FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+    )
 
     objects: SingletonManager = SingletonManager()
 
@@ -340,6 +345,8 @@ class SiteConfiguration(models.Model):
 
         return mask_secret(value)
 
+    # Single worker is sufficient — we only need to avoid blocking the async event loop;
+    # concurrent DB lookups are not needed because the result is cached.
     _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     @classmethod
@@ -358,14 +365,15 @@ class SiteConfiguration(models.Model):
 
         from django.db import close_old_connections
 
-        close_old_connections()
         try:
+            close_old_connections()
             instance = cls.objects.get_instance()
-        except Exception:
-            logger.warning("SiteConfiguration not available; falling back to defaults", exc_info=True)
+        except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
+            logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
-            close_old_connections()
+            with contextlib.suppress(Exception):
+                close_old_connections()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -394,8 +402,11 @@ class SiteConfiguration(models.Model):
         # async safety check.
         try:
             return cls._executor.submit(cls._fetch_from_cache_or_db).result(timeout=5)
-        except Exception:
-            logger.warning("SiteConfiguration not available (async context); falling back to defaults", exc_info=True)
+        except concurrent.futures.TimeoutError:
+            logger.error("SiteConfiguration lookup timed out (5s) in async context; falling back to defaults")
+            return None
+        except Exception:  # noqa: BLE001
+            logger.exception("SiteConfiguration not available (async context); falling back to defaults")
             return None
 
     @classmethod
@@ -426,7 +437,7 @@ class SiteConfiguration(models.Model):
                     title=group_def.title,
                     match=group_def.match,
                     icon=group_def.icon,
-                    fields=group_fields,
+                    fields=tuple(group_fields),
                 )
             )
         return groups

@@ -6,7 +6,6 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.constants import ModelName
-from core.encryption import encrypt_value
 from core.models import SiteConfiguration
 
 # Datalist choices for model name fields (suggestions, not enforced)
@@ -32,9 +31,9 @@ class _SecretFormField(forms.CharField):
 
 class SiteConfigurationForm(forms.ModelForm):
     """
-    Auto-generated form for :class:`~core.models.SiteConfiguration`.
+    ModelForm for :class:`~core.models.SiteConfiguration` with custom handling
+    for encrypted secrets, nullable booleans, and environment-locked fields.
 
-    Widgets and field template names are derived from the model field type.
     Base CSS styles for inputs, selects, and checkboxes are centralised
     in the Tailwind source (``input.css``), so no per-field CSS class
     assignment is needed here.
@@ -179,6 +178,59 @@ class SiteConfigurationForm(forms.ModelForm):
                 self.initial[name] = default_str.lower() in ("true", "1", "yes", "on")
 
     # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        self._validate_model_api_keys(cleaned_data)
+        self._validate_web_search_api_key(cleaned_data)
+        return cleaned_data
+
+    def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
+        """Validate that each chosen model has an API key for its provider."""
+        from automation.agent.base import BaseAgent, ModelProvider
+
+        for field_name in SiteConfiguration.MODEL_NAME_FIELDS:
+            model_name = cleaned_data.get(field_name)
+            if not model_name:
+                continue
+            try:
+                provider = BaseAgent.get_model_provider(model_name)
+            except ValueError:
+                self.add_error(field_name, _("Unsupported model: %(model)s.") % {"model": model_name})
+                continue
+            key_field = ModelProvider.api_key_field_for(provider)
+            if key_field and not self._has_api_key(key_field, cleaned_data):
+                self.add_error(
+                    field_name,
+                    _("No API key for %(provider)s. Set the %(key_label)s below or via environment variable.")
+                    % {"provider": provider.value.replace("_", " ").title(), "key_label": key_field.replace("_", " ")},
+                )
+
+    def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
+        """Validate that Tavily has an API key when selected."""
+        from core.models import WebSearchEngineChoices
+
+        if cleaned_data.get("web_search_engine") == WebSearchEngineChoices.TAVILY and not self._has_api_key(
+            "web_search_api_key", cleaned_data
+        ):
+            self.add_error(
+                "web_search_engine",
+                _("Tavily requires an API key. Set the web search API key below or via environment variable."),
+            )
+
+    def _has_api_key(self, field_name: str, cleaned_data: dict[str, Any]) -> bool:
+        """Check if an API key is available via env var, form submission, or existing DB value."""
+        if field_name in self.env_locked_fields:
+            return True
+        if cleaned_data.get(field_name):
+            return True
+        if field_name in self.cleared_secrets:
+            return False
+        return bool(self.instance and self.instance.get_secret_hint(field_name))
+
+    # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
 
@@ -188,13 +240,12 @@ class SiteConfigurationForm(forms.ModelForm):
         for field_name in self.SECRET_FIELDS:
             if field_name in self.env_locked_fields:
                 continue
-            encrypted_column = f"_{field_name}_encrypted"
             if field_name in self.cleared_secrets:
-                setattr(instance, encrypted_column, None)
+                setattr(instance, field_name, None)
             else:
                 value = self.cleaned_data.get(field_name, "")
                 if value:
-                    setattr(instance, encrypted_column, encrypt_value(value))
+                    setattr(instance, field_name, value)
 
         if commit:
             instance.save()
