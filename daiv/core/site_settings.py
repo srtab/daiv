@@ -99,11 +99,11 @@ class SiteSettings:
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 
-        # 2. Database value (non-null)
+        # 2. Database value (non-null and non-empty-string)
         config = SiteConfiguration.get_cached()
         if config is not None:
             db_value = getattr(config, name, None)
-            if db_value is not None:
+            if db_value is not None and db_value != "":
                 if name in SiteConfiguration.ENCRYPTED_FIELDS:
                     return SecretStr(db_value)
                 return db_value
