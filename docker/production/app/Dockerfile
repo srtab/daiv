@@ -100,7 +100,7 @@ RUN chmod +x entrypoint start-app start-worker start-crontask \
   && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
   && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \
   && chmod +x "tailwindcss-linux-${ARCH}" \
-  && ./"tailwindcss-linux-${ARCH}" -i app/accounts/static_src/css/input.css -o app/accounts/static/accounts/css/styles.css --minify \
+  && ./"tailwindcss-linux-${ARCH}" -i app/static_src/css/input.css -o app/static/css/styles.css --minify \
   && rm "tailwindcss-linux-${ARCH}"
 
 HEALTHCHECK --interval=10s --start-period=30s \

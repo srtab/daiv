@@ -18,7 +18,7 @@ django-admin setup_default_site --skip-checks
 django-admin setup_checkpoint_saver --skip-checks
 
 # Build Tailwind CSS and collect static files (use `make tailwind-watch` for hot reload)
-tailwindcss -i daiv/accounts/static_src/css/input.css -o daiv/accounts/static/accounts/css/styles.css --minify
+tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify
 django-admin collectstatic --noinput
 
 exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile "$CERT_DIR/cert.key" --ssl-certfile "$CERT_DIR/cert.crt" --reload --reload-dir 'daiv/' --reload-include '*.html' --reload-include '*.css' "daiv.asgi:application"

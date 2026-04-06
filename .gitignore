@@ -170,7 +170,7 @@ state-snapshots.txt
 request.json
 
 # Tailwind CSS build output
-daiv/accounts/static/accounts/css/styles.css
+daiv/static/css/styles.css
 
 # SWE-bench
 daiv-traces/

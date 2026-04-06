@@ -104,10 +104,10 @@ docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
 
 tailwind-build:
-	docker compose exec app tailwindcss -i daiv/accounts/static_src/css/input.css -o daiv/accounts/static/accounts/css/styles.css --minify
+	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify
 
 tailwind-watch:
-	docker compose exec app tailwindcss -i daiv/accounts/static_src/css/input.css -o daiv/accounts/static/accounts/css/styles.css --watch
+	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --watch
 
 langsmith-fetch:
 	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 1 ./daiv-traces
