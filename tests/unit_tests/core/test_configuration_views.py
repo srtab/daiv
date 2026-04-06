@@ -101,11 +101,18 @@ class TestPostSave:
         config.save()
 
         client.force_login(admin_user)
-        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6", "agent_recursion_limit": 100})
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "agent_recursion_limit": 100,
+            },
+        )
         assert response.status_code == 302
 
         config.refresh_from_db()
-        assert config.agent_model_name == "claude-sonnet-4-6"
+        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
         assert config.agent_recursion_limit == 100
 
     def test_save_boolean_checked(self, client, admin_user, url):
@@ -136,7 +143,9 @@ class TestPostSave:
         config.save()
 
         client.force_login(admin_user)
-        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6"})
+        response = client.post(
+            url, {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"}
+        )
         assert response.status_code == 302
 
         config.refresh_from_db()
@@ -185,7 +194,9 @@ class TestPostSave:
 
     def test_member_cannot_post(self, client, member_user, url):
         client.force_login(member_user)
-        response = client.post(url, {"agent_model_name": "claude-sonnet-4-6"})
+        response = client.post(
+            url, {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"}
+        )
         assert response.status_code == 403
 
 
@@ -194,7 +205,10 @@ class TestModelApiKeyValidation:
         from core.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(data={"agent_model_name": "claude-sonnet-4-6"}, instance=config)
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+        )
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
 
@@ -203,7 +217,12 @@ class TestModelApiKeyValidation:
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(
-            data={"agent_model_name": "claude-sonnet-4-6", "anthropic_api_key": "sk-test"}, instance=config
+            data={
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "anthropic_api_key": "sk-test",
+            },
+            instance=config,
         )
         assert form.is_valid(), f"Form errors: {form.errors}"
 
@@ -214,7 +233,10 @@ class TestModelApiKeyValidation:
         config.anthropic_api_key = "sk-existing"
         config.save()
 
-        form = SiteConfigurationForm(data={"agent_model_name": "claude-sonnet-4-6"}, instance=config)
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+        )
         assert form.is_valid(), f"Form errors: {form.errors}"
 
     def test_model_with_api_key_env_locked_accepted(self, db, monkeypatch):
@@ -223,7 +245,9 @@ class TestModelApiKeyValidation:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(
-            data={"agent_model_name": "claude-sonnet-4-6"}, instance=config, env_locked_fields={"anthropic_api_key"}
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+            env_locked_fields={"anthropic_api_key"},
         )
         assert form.is_valid(), f"Form errors: {form.errors}"
 
@@ -235,19 +259,25 @@ class TestModelApiKeyValidation:
         config.save()
 
         form = SiteConfigurationForm(
-            data={"agent_model_name": "claude-sonnet-4-6"}, instance=config, cleared_secrets={"anthropic_api_key"}
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+            cleared_secrets={"anthropic_api_key"},
         )
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
 
-    def test_unsupported_model_name_rejected(self, db):
+    def test_unknown_model_with_default_provider_needs_api_key(self, db):
+        """With the composite widget, provider is always resolved. An unknown model
+        name with the default provider (openrouter) is valid but requires the API key."""
         from core.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(data={"agent_model_name": "unknown-model-xyz"}, instance=config)
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "", "agent_model_name_model": "unknown-model-xyz"}, instance=config
+        )
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
-        assert "Unsupported model" in str(form.errors["agent_model_name"])
+        assert "api key" in str(form.errors["agent_model_name"]).lower()
 
     def test_empty_model_name_skips_validation(self, db):
         from core.forms import SiteConfigurationForm
@@ -261,7 +291,12 @@ class TestModelApiKeyValidation:
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(
-            data={"agent_model_name": "claude-sonnet-4-6", "agent_fallback_model_name": "claude-haiku-4-5"},
+            data={
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "agent_fallback_model_name_provider": "anthropic",
+                "agent_fallback_model_name_model": "claude-haiku-4-5",
+            },
             instance=config,
         )
         assert not form.is_valid()
@@ -272,7 +307,13 @@ class TestModelApiKeyValidation:
         from core.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(data={"diff_to_metadata_model_name": "gpt-5.4-mini"}, instance=config)
+        form = SiteConfigurationForm(
+            data={
+                "diff_to_metadata_model_name_provider": "openai",
+                "diff_to_metadata_model_name_model": "gpt-5.4-mini",
+            },
+            instance=config,
+        )
         assert not form.is_valid()
         assert "diff_to_metadata_model_name" in form.errors
 
@@ -281,7 +322,12 @@ class TestModelApiKeyValidation:
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(
-            data={"agent_model_name": "openrouter:some-model", "openrouter_api_key": "or-key"}, instance=config
+            data={
+                "agent_model_name_provider": "openrouter",
+                "agent_model_name_model": "some-model",
+                "openrouter_api_key": "or-key",
+            },
+            instance=config,
         )
         assert form.is_valid(), f"Form errors: {form.errors}"
 

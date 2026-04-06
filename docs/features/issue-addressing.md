@@ -79,7 +79,7 @@ suggest_context_file: false
 To disable it globally across all repositories, set the environment variable:
 
 ```
-AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False
+DAIV_SUGGEST_CONTEXT_FILE_ENABLED=False
 ```
 
 ## Configuration

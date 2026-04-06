@@ -31,13 +31,6 @@
         <form method="post" autocomplete="off">
             {% csrf_token %}
 
-            <!-- Model names datalist -->
-            <datalist id="model-names">
-                {% for value, label in model_name_choices %}
-                <option value="{{ value }}">
-                {% endfor %}
-            </datalist>
-
             <!-- Sidebar + Content layout -->
             <div class="animate-fade-up mt-10 flex gap-8" style="animation-delay: 100ms">
 

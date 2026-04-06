@@ -127,8 +127,8 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 | Middleware | Condition |
 |------------|-----------|
 | `SandboxMiddleware` | Sandbox is configured (`DAIV_SANDBOX_BASE_IMAGE` is set) |
-| `WebSearchMiddleware` | `AUTOMATION_WEB_SEARCH_ENABLED` is `true` |
-| `WebFetchMiddleware` | `AUTOMATION_WEB_FETCH_ENABLED` is `true` |
+| `WebSearchMiddleware` | `DAIV_WEB_SEARCH_ENABLED` is `true` |
+| `WebFetchMiddleware` | `DAIV_WEB_FETCH_ENABLED` is `true` |
 | `ModelFallbackMiddleware` | A fallback model is configured |
 | `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode) |
 
