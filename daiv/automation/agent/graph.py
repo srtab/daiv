@@ -20,7 +20,6 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.conf import settings
 from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
@@ -35,17 +34,21 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
-from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
+
+
+class _Unset:
+    """Sentinel to distinguish 'not provided' from ``None`` in function defaults."""
 
 
 OUTPUT_INVARIANTS_SYSTEM_PROMPT = """\
@@ -108,8 +111,8 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
 
 
 async def create_daiv_agent(
-    model_names: Sequence[ModelName | str] = (settings.MODEL_NAME, settings.FALLBACK_MODEL_NAME),
-    thinking_level: ThinkingLevel | None = settings.THINKING_LEVEL,
+    model_names: Sequence[ModelName | str] | None = None,
+    thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
     ctx: RuntimeCtx,
     auto_commit_changes: bool = True,
@@ -141,6 +144,10 @@ async def create_daiv_agent(
     Returns:
         The DAIV agent.
     """
+    if model_names is None:
+        model_names = (site_settings.agent_model_name, site_settings.agent_fallback_model_name)
+    if thinking_level is _Unset:
+        thinking_level = site_settings.agent_thinking_level
 
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
     fallback_models = [
@@ -149,10 +156,8 @@ async def create_daiv_agent(
 
     _summarization_defaults = compute_summarization_defaults(model)
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
-    _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else automation_settings.WEB_FETCH_ENABLED
-    _web_search_enabled = (
-        web_search_enabled if web_search_enabled is not None else automation_settings.WEB_SEARCH_ENABLED
-    )
+    _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
+    _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
     agent_path = Path(ctx.gitrepo.working_dir)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
@@ -233,4 +238,4 @@ async def create_daiv_agent(
         store=store,
         debug=debug,
         name="DAIV Agent",
-    ).with_config({"recursion_limit": settings.RECURSION_LIMIT})
+    ).with_config({"recursion_limit": site_settings.agent_recursion_limit})

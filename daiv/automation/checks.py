@@ -1,17 +1,9 @@
 from django.core.checks import Error, register
 
-from .agent.base import BaseAgent, ModelProvider
-from .agent.conf import settings as agent_settings
-from .agent.diff_to_metadata.conf import settings as diff_to_metadata_settings
-from .conf import settings
+from core.models import WebSearchEngineChoices
+from core.site_settings import site_settings
 
-declared_model_names = {
-    agent_settings.MODEL_NAME,
-    agent_settings.FALLBACK_MODEL_NAME,
-    diff_to_metadata_settings.MODEL_NAME,
-    diff_to_metadata_settings.FALLBACK_MODEL_NAME,
-    settings.WEB_FETCH_MODEL_NAME,
-}
+from .agent.base import BaseAgent, ModelProvider
 
 
 @register("automation")
@@ -21,6 +13,14 @@ def check_api_keys(app_configs, **kwargs):
     """
     errors = []
 
+    declared_model_names = {
+        site_settings.agent_model_name,
+        site_settings.agent_fallback_model_name,
+        site_settings.diff_to_metadata_model_name,
+        site_settings.diff_to_metadata_fallback_model_name,
+        site_settings.web_fetch_model_name,
+    }
+
     for model_name in declared_model_names:
         try:
             model_provider = BaseAgent.get_model_provider(model_name)
@@ -28,28 +28,28 @@ def check_api_keys(app_configs, **kwargs):
             errors.append(Error(f"Model {model_name} is not supported. Please check the model name."))
             continue
 
-        if model_provider == ModelProvider.OPENAI and not settings.OPENAI_API_KEY:
+        if model_provider == ModelProvider.OPENAI and not site_settings.openai_api_key:
             errors.append(
                 Error(
                     f"No API key found for {model_name}. "
                     "Please set the API key using the environment variable or docker secret OPENAI_API_KEY."
                 )
             )
-        elif model_provider == ModelProvider.GOOGLE_GENAI and not settings.GOOGLE_API_KEY:
+        elif model_provider == ModelProvider.GOOGLE_GENAI and not site_settings.google_api_key:
             errors.append(
                 Error(
                     f"No API key found for {model_name}. "
                     "Please set the API key using the environment variable or docker secret GOOGLE_API_KEY."
                 )
             )
-        elif model_provider == ModelProvider.ANTHROPIC and not settings.ANTHROPIC_API_KEY:
+        elif model_provider == ModelProvider.ANTHROPIC and not site_settings.anthropic_api_key:
             errors.append(
                 Error(
                     f"No API key found for {model_name}. "
                     "Please set the API key using the environment variable or docker secret ANTHROPIC_API_KEY."
                 )
             )
-        elif model_provider == ModelProvider.OPENROUTER and not settings.OPENROUTER_API_KEY:
+        elif model_provider == ModelProvider.OPENROUTER and not site_settings.openrouter_api_key:
             errors.append(
                 Error(
                     f"No API key found for {model_name}. "
@@ -57,10 +57,10 @@ def check_api_keys(app_configs, **kwargs):
                 )
             )
 
-    if settings.WEB_SEARCH_ENGINE == "tavily" and not settings.WEB_SEARCH_API_KEY:
+    if site_settings.web_search_engine == WebSearchEngineChoices.TAVILY and not site_settings.web_search_api_key:
         errors.append(
             Error(
-                f"No API key found for {settings.WEB_SEARCH_ENGINE}. "
+                f"No API key found for {site_settings.web_search_engine}. "
                 "Please set the API key using the environment variable or docker secret WEB_SEARCH_API_KEY."
             )
         )

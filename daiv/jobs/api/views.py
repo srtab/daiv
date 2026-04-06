@@ -8,7 +8,7 @@ from ninja import Router
 from ninja.throttling import AuthRateThrottle
 
 from chat.api.security import AuthBearer
-from jobs.conf import settings as jobs_settings
+from core.site_settings import site_settings
 from jobs.tasks import run_job_task
 
 from .schemas import JobStatusResponse, JobSubmitRequest, JobSubmitResponse
@@ -18,9 +18,16 @@ logger = logging.getLogger("daiv.jobs")
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-@jobs_router.post(
-    "", response={202: JobSubmitResponse, 503: dict}, throttle=[AuthRateThrottle(jobs_settings.THROTTLE_RATE)]
-)
+class _LazyThrottle(AuthRateThrottle):
+    """Rate throttle that reads the rate from site_settings at startup (avoids import-time DB access)."""
+
+    THROTTLE_RATES = {}
+
+    def get_rate(self):
+        return site_settings.jobs_throttle_rate
+
+
+@jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[_LazyThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """
     Submit a job to be processed asynchronously by the DAIV agent.

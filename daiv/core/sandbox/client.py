@@ -1,6 +1,7 @@
 import httpx
 
 from core.conf import settings
+from core.site_settings import site_settings
 
 from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
 
@@ -12,7 +13,7 @@ class DAIVSandboxClient:
 
     def __init__(self):
         self.url = settings.SANDBOX_URL.unicode_string()
-        self.api_key = settings.SANDBOX_API_KEY and settings.SANDBOX_API_KEY.get_secret_value()
+        self.api_key = site_settings.sandbox_api_key
 
     async def start_session(self, request: StartSessionRequest) -> str:
         """
@@ -25,7 +26,7 @@ class DAIVSandboxClient:
             The session ID.
         """
         async with httpx.AsyncClient(
-            timeout=settings.SANDBOX_TIMEOUT, base_url=self.url, headers=self._get_headers()
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
         ) as client:
             response = await client.post("session/", json=request.model_dump(mode="json"))
             response.raise_for_status()
@@ -43,7 +44,7 @@ class DAIVSandboxClient:
             RunCommandResponse: The response from running the commands.
         """
         async with httpx.AsyncClient(
-            timeout=settings.SANDBOX_TIMEOUT, base_url=self.url, headers=self._get_headers()
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
         ) as client:
             response = await client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
             response.raise_for_status()
@@ -57,7 +58,7 @@ class DAIVSandboxClient:
             session_id (str): The session ID.
         """
         async with httpx.AsyncClient(
-            timeout=settings.SANDBOX_TIMEOUT, base_url=self.url, headers=self._get_headers()
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
         ) as client:
             response = await client.delete(f"session/{session_id}/")
             response.raise_for_status()
@@ -68,4 +69,4 @@ class DAIVSandboxClient:
         """
         if self.api_key is None:
             return {}
-        return {"X-API-KEY": self.api_key}
+        return {"X-API-KEY": self.api_key.get_secret_value()}

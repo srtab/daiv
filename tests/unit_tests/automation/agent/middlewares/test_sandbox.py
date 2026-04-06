@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
-from pydantic import SecretStr
 
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands, bash_tool
 from core.conf import settings as core_settings
@@ -288,13 +287,9 @@ class TestSandboxMiddleware:
     async def test_abefore_agent_starts_session_and_sets_session_id(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
 
-        with (
-            patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test")),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_1"),
-            ) as start_session_mock,
-        ):
+        with patch(
+            "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session", new=AsyncMock(return_value="sess_1")
+        ) as start_session_mock:
             middleware = SandboxMiddleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
@@ -305,13 +300,9 @@ class TestSandboxMiddleware:
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_existing"}
 
-        with (
-            patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test")),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_1"),
-            ) as start_session_mock,
-        ):
+        with patch(
+            "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session", new=AsyncMock(return_value="sess_1")
+        ) as start_session_mock:
             middleware = SandboxMiddleware(close_session=False)
             update = await middleware.abefore_agent(state, runtime)
 
@@ -322,12 +313,9 @@ class TestSandboxMiddleware:
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
 
-        with (
-            patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test")),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-            ) as close_session_mock,
-        ):
+        with patch(
+            "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
+        ) as close_session_mock:
             middleware = SandboxMiddleware(close_session=True)
             update = await middleware.aafter_agent(state, runtime)
 
@@ -338,12 +326,9 @@ class TestSandboxMiddleware:
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
 
-        with (
-            patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test")),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-            ) as close_session_mock,
-        ):
+        with patch(
+            "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
+        ) as close_session_mock:
             middleware = SandboxMiddleware(close_session=False)
             update = await middleware.aafter_agent(state, runtime)
 
@@ -355,8 +340,7 @@ class TestSandboxMiddleware:
 
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
 
-        with patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test")):
-            middleware = SandboxMiddleware()
+        middleware = SandboxMiddleware()
 
         seen_prompt: str | None = None
 

@@ -8,11 +8,11 @@ from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
-from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
+from core.site_settings import site_settings
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
@@ -209,7 +209,7 @@ class GitChangePublisher(ChangePublisher):
         )
 
     def _suggest_context_file(self, merge_request: MergeRequest) -> None:
-        if not automation_settings.SUGGEST_CONTEXT_FILE_ENABLED or not self.ctx.config.suggest_context_file:
+        if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:
             return
 
         context_file_name = self.ctx.config.context_file_name

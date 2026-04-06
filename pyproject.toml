@@ -142,6 +142,7 @@ lint.select = [
   "W",
 ]
 lint.ignore = [ "N812", "S101" ]
+lint.per-file-ignores."*/migrations/*" = [ "E501" ]
 lint.isort.known-first-party = [
   "accounts",
   "automation",

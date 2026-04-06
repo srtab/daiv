@@ -94,9 +94,9 @@ class TestSuggestContextFile:
         publisher.client.create_merge_request_comment.assert_not_called()
 
     def test_skips_when_globally_disabled(self, monkeypatch):
-        from automation import conf
+        from core.site_settings import site_settings
 
-        monkeypatch.setattr(conf.settings, "SUGGEST_CONTEXT_FILE_ENABLED", False)
+        monkeypatch.setattr(site_settings, "suggest_context_file_enabled", False)
         publisher = _make_publisher()
         mr = _make_merge_request()
 
