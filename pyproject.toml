@@ -42,7 +42,7 @@ dependencies = [
   "langsmith[pytest]==0.7.25",
   "langsmith-fetch==0.3.1",
   "markdownify==1.2.2",
-  "mcp[cli]==1.26.0",
+  "mcp[cli]==1.27.0",
   "parable",
   "prompt-toolkit==3.0.52",
   "psycopg[pool]==3.3.3",
