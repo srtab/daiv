@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static dashboard_tags icon_tags %}
+{% load static dashboard_tags i18n icon_tags %}
 
 {% block title %}Dashboard — DAIV{% endblock %}
 
@@ -88,61 +88,22 @@
         </div>
 
         <!-- Quick Links -->
-        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 {% if user.is_admin %}lg:grid-cols-4{% endif %}" style="animation-delay: 300ms">
-            <!-- API Docs card -->
-            <a href="{% url 'api:openapi-view' %}"
-               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                    {% icon "code-bracket" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">API Documentation</h3>
-                <p class="mt-1 text-[14px] text-gray-500">Explore the API endpoints and test requests interactively.</p>
-            </a>
-
+        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="animation-delay: 300ms">
+            {% url 'api:openapi-view' as api_docs_url %}
+            {% include "accounts/_quick_link_card.html" with url=api_docs_url icon="code-bracket" title="API Documentation" description="Explore the API endpoints and test requests interactively." %}
             {% if user.is_admin %}
-            <!-- Users card (admin only) -->
-            <a href="{% url 'user_list' %}"
-               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
-                <div class="mb-3 flex items-center justify-between">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                        {% icon "users" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
-                    </div>
-                    {% if total_users %}
-                    <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-gray-400">
-                        {{ total_users }} total
-                    </span>
-                    {% endif %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Users</h3>
-                <p class="mt-1 text-[14px] text-gray-500">Manage user accounts and roles.</p>
-            </a>
-            <!-- Configuration card (admin only) -->
-            <a href="{% url 'site_configuration' %}"
-               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                    {% icon "cog-6-tooth" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Configuration</h3>
-                <p class="mt-1 text-[14px] text-gray-500">Manage models, features, and API keys.</p>
-            </a>
+            {% url 'user_list' as users_url %}
+            {% if total_users %}{% blocktranslate with count=total_users asvar users_badge %}{{ count }} total{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=users_url icon="users" title="Users" description="Manage user accounts and roles." badge=users_badge %}
+            {% url 'site_configuration' as config_url %}
+            {% include "accounts/_quick_link_card.html" with url=config_url icon="cog-6-tooth" title="Configuration" description="Manage models, features, and API keys." %}
             {% endif %}
-
-            <!-- API Keys card -->
-            <a href="{% url 'api_keys' %}"
-               class="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]">
-                <div class="mb-3 flex items-center justify-between">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                        {% icon "key" "h-5 w-5 text-gray-500 transition-colors group-hover:text-white" %}
-                    </div>
-                    {% if active_api_keys %}
-                    <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-gray-400">
-                        {{ active_api_keys }} active
-                    </span>
-                    {% endif %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">API Keys</h3>
-                <p class="mt-1 text-[14px] text-gray-500">Manage API keys for programmatic access to DAIV.</p>
-            </a>
+            {% url 'api_keys' as api_keys_url %}
+            {% if active_api_keys %}{% blocktranslate with count=active_api_keys asvar api_keys_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=api_keys_url icon="key" title="API Keys" description="Manage API keys for programmatic access to DAIV." badge=api_keys_badge %}
+            {% url 'schedule_list' as schedules_url %}
+            {% if active_schedules %}{% blocktranslate with count=active_schedules asvar schedules_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=schedules_url icon="clock" title="Scheduled Jobs" description="Automate agent runs on repositories with recurring schedules." badge=schedules_badge %}
         </div>
     </main>
 </div>

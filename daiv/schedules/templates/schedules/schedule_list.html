@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load dashboard_tags %}
+
+{% block title %}Scheduled Jobs — DAIV{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh">
+    {% include "accounts/_header.html" %}
+
+    <!-- Content -->
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">Scheduled Jobs</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">Automate agent runs on repositories with recurring schedules.</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="{% url 'dashboard' %}"
+                   class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                    &larr; Dashboard
+                </a>
+                <a href="{% url 'schedule_create' %}" class="btn-primary">
+                    Create schedule
+                </a>
+            </div>
+        </div>
+
+        <!-- Schedule list -->
+        <div class="animate-fade-up mt-8" style="animation-delay: 100ms">
+            {% if schedules %}
+            <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+                {% for schedule in schedules %}
+                <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not schedule.is_enabled %}opacity-50{% endif %}">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-3">
+                            <span class="text-[14px] font-medium text-white">{{ schedule.name }}</span>
+                            {% if schedule.is_enabled %}
+                            <span class="rounded-full bg-emerald-900/40 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Active</span>
+                            {% else %}
+                            <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">Paused</span>
+                            {% endif %}
+                            <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">{{ schedule.get_frequency_display }}</span>
+                        </div>
+                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                            <span>{{ schedule.repo_id }}</span>
+                            {% if user.is_admin and schedule.user != user %}
+                            <span>&middot;</span>
+                            <span>Owner: {{ schedule.user }}</span>
+                            {% endif %}
+                            {% if schedule.next_run_at %}
+                            <span>&middot;</span>
+                            <span>Next run: {{ schedule.next_run_at|date:"M j, H:i" }} UTC</span>
+                            {% endif %}
+                            {% if schedule.last_run_at %}
+                            <span>&middot;</span>
+                            <span>Last run: {{ schedule.last_run_at|timesince }} ago</span>
+                            {% endif %}
+                            {% if schedule.run_count %}
+                            <span>&middot;</span>
+                            <span>{{ schedule.run_count }} run{{ schedule.run_count|pluralize }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <a href="{% url 'schedule_update' schedule.pk %}"
+                       class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                        Edit
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% include "accounts/_pagination.html" %}
+            {% else %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+                <p class="text-[14px] text-gray-500">No scheduled jobs yet. Create one to automate agent runs.</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}

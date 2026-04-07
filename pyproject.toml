@@ -19,6 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+  "croniter==6.2.2",
   "ddgs==9.13.0",
   "deepagents==0.4.12",
   "django==6.0.3",

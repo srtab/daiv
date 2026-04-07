@@ -10,4 +10,8 @@ USE_TZ = True
 
 USE_THOUSAND_SEPARATOR = True
 
-LOCALE_PATHS = (PROJECT_DIR / "accounts" / "locale", PROJECT_DIR / "codebase" / "locale")
+LOCALE_PATHS = (
+    PROJECT_DIR / "accounts" / "locale",
+    PROJECT_DIR / "codebase" / "locale",
+    PROJECT_DIR / "schedules" / "locale",
+)

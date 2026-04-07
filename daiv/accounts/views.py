@@ -13,6 +13,7 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
+from schedules.models import ScheduledJob
 
 from accounts.emails import send_welcome_email
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
@@ -61,6 +62,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
         context["merge_counters"] = self._get_merge_counters(cutoff_date, today)
+        context["active_schedules"] = ScheduledJob.objects.filter(user=self.request.user, is_enabled=True).count()
         if self.request.user.is_admin:
             context["total_users"] = User.objects.count()
 

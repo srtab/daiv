@@ -26,6 +26,7 @@ urlpatterns = [
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("accounts.urls.dashboard")),
     path("dashboard/configuration/", include("core.urls.configuration")),
+    path("dashboard/schedules/", include("schedules.urls")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
