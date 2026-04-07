@@ -80,7 +80,9 @@ class SWERepoClient(RepoClient):
             topics=[],
         )
 
-    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
+    ) -> list[Repository]:
         """
         List repositories is not supported for SWE client.
 

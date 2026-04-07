@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import uuid as uuid_mod
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
@@ -10,34 +10,28 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
+from codebase.clients import RepoClient
+
+if TYPE_CHECKING:
+    from codebase.base import Repository
+
 logger = logging.getLogger("daiv.mcp_server")
 
 mcp = FastMCP(
     name="DAIV",
     instructions="""\
 DAIV is an autonomous coding agent that operates on Git repositories (GitLab and GitHub). \
-It can read, write, and edit files, run shell commands in a sandbox, create commits and branches, \
-open merge requests or pull requests, and debug CI/CD pipelines.
+It reads, writes, and edits files, runs shell commands in a sandbox, creates commits and branches, \
+opens merge/pull requests, and debugs CI/CD pipelines.
 
-## Workflow
+Use `list_repositories` to discover available repositories by name or topic. \
+If the user already knows the `repo_id`, skip discovery and call `submit_job` directly.
 
-1. Call `submit_job` with a `repo_id` and a `prompt` describing the task.
-2. For short tasks, set `wait=True` to block until the result is ready (up to 10 minutes).
-3. For longer tasks, omit `wait` and poll with `get_job_status` using the returned `job_id`. \
-`get_job_status` also accepts `wait=True` to block on an already-submitted job.
+Write specific prompts: include file paths, function names, error messages, or branch names. \
+Vague requests produce poor results. Use `ref` to target a branch or commit other than the default.
 
-## Writing effective prompts
-
-Be specific: include file paths, function names, error messages, or branch names when relevant. \
-The agent works best with clear, scoped instructions rather than vague requests. \
-Use `ref` to target a specific branch or commit; it defaults to the repository's default branch.
-
-## Constraints
-
-- Jobs are rate-limited per authenticated user.
-- The `wait` parameter polls for up to 10 minutes; after that, the current status is returned and \
-you can continue polling with `get_job_status`.
-- The agent can only access repositories it has been configured to reach.\
+Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
+continue polling with `get_job_status` if the result is not yet available.\
 """,
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -185,3 +179,36 @@ async def get_job_status(
         return await _poll_job_until_complete(job_id)
 
     return _build_job_response(db_result)
+
+
+MAX_REPOSITORIES = 40
+
+
+def _serialize_repositories(repos: list[Repository]) -> list[dict]:
+    """Convert a list of Repository objects to serializable dicts."""
+    return [repo.model_dump(include={"slug", "name", "html_url", "default_branch", "topics"}) for repo in repos]
+
+
+@mcp.tool()
+async def list_repositories(
+    search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
+    topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+) -> str:
+    """List repositories accessible to DAIV, optionally filtered by name or topic."""
+    # Fetch one extra to detect truncation without loading everything
+    fetch_limit = MAX_REPOSITORIES + 1
+    try:
+        client = RepoClient.create_instance()
+        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=fetch_limit)
+    except Exception:
+        logger.exception("Failed to list repositories")
+        return json.dumps({"error": "Failed to list repositories. Please try again later."})
+
+    truncated = len(repos) > MAX_REPOSITORIES
+    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES])}
+    if truncated:
+        result["warning"] = (
+            f"Only the first {MAX_REPOSITORIES} repositories are shown. "
+            "There are more results available. Ask the user to provide a search term or topic to narrow down."
+        )
+    return json.dumps(result)

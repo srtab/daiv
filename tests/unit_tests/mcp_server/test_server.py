@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import get_job_status, submit_job
+from mcp_server.server import get_job_status, list_repositories, submit_job
+
+from codebase.base import GitPlatform, Repository
 
 
 @pytest.mark.django_db(transaction=True)
@@ -353,3 +355,108 @@ async def test_get_job_status_db_exception():
     data = json.loads(result)
     assert "error" in data
     assert "Failed to retrieve job status" in data["error"]
+
+
+# ---------------------------------------------------------------------------
+# Helpers for list_repositories / list_topics tests
+# ---------------------------------------------------------------------------
+
+
+def _make_repo(slug: str, name: str, topics: list[str] | None = None) -> Repository:
+    return Repository(
+        pk=1,
+        slug=slug,
+        name=name,
+        clone_url=f"https://example.com/{slug}.git",
+        html_url=f"https://example.com/{slug}",
+        default_branch="main",
+        git_platform=GitPlatform.GITLAB,
+        topics=topics or [],
+    )
+
+
+SAMPLE_REPOS = [
+    _make_repo("group/alpha", "alpha", ["python", "backend"]),
+    _make_repo("group/beta", "beta", ["python", "frontend"]),
+    _make_repo("group/gamma", "gamma", ["rust"]),
+]
+
+
+# ---------------------------------------------------------------------------
+# list_repositories tests
+# ---------------------------------------------------------------------------
+
+
+async def test_list_repositories_default():
+    mock_client = MagicMock()
+    mock_client.list_repositories.return_value = SAMPLE_REPOS
+
+    with patch("mcp_server.server.RepoClient") as mock_rc:
+        mock_rc.create_instance.return_value = mock_client
+        result = await list_repositories()
+
+    data = json.loads(result)
+    assert len(data["repositories"]) == 3
+    assert data["repositories"][0]["slug"] == "group/alpha"
+    assert data["repositories"][0]["topics"] == ["python", "backend"]
+    assert "warning" not in data
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
+
+
+async def test_list_repositories_with_search():
+    mock_client = MagicMock()
+    mock_client.list_repositories.return_value = [SAMPLE_REPOS[0]]
+
+    with patch("mcp_server.server.RepoClient") as mock_rc:
+        mock_rc.create_instance.return_value = mock_client
+        result = await list_repositories(search="alpha")
+
+    data = json.loads(result)
+    assert len(data["repositories"]) == 1
+    assert data["repositories"][0]["slug"] == "group/alpha"
+    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None, limit=41)
+
+
+async def test_list_repositories_with_topics():
+    mock_client = MagicMock()
+    mock_client.list_repositories.return_value = [SAMPLE_REPOS[0], SAMPLE_REPOS[1]]
+
+    with patch("mcp_server.server.RepoClient") as mock_rc:
+        mock_rc.create_instance.return_value = mock_client
+        result = await list_repositories(topics=["python"])
+
+    data = json.loads(result)
+    assert len(data["repositories"]) == 2
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"], limit=41)
+
+
+async def test_list_repositories_truncated_with_warning():
+    """When client returns more than MAX_REPOSITORIES, result is truncated with a warning."""
+    # The tool fetches MAX_REPOSITORIES + 1 to detect truncation
+    many_repos = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(41)]
+    mock_client = MagicMock()
+    mock_client.list_repositories.return_value = many_repos
+
+    with patch("mcp_server.server.RepoClient") as mock_rc:
+        mock_rc.create_instance.return_value = mock_client
+        result = await list_repositories()
+
+    data = json.loads(result)
+    assert len(data["repositories"]) == 40
+    assert "warning" in data
+    assert "first 40" in data["warning"]
+    # Verify limit was passed to the client
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
+
+
+async def test_list_repositories_error_handling():
+    mock_client = MagicMock()
+    mock_client.list_repositories.side_effect = RuntimeError("API down")
+
+    with patch("mcp_server.server.RepoClient") as mock_rc:
+        mock_rc.create_instance.return_value = mock_client
+        result = await list_repositories()
+
+    data = json.loads(result)
+    assert "error" in data
+    assert "Failed to list repositories" in data["error"]

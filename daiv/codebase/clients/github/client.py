@@ -94,34 +94,45 @@ class GitHubClient(RepoClient):
             topics=repo.topics,
         )
 
-    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
+    ) -> list[Repository]:
         """
         List all repositories.
 
         Args:
-            search: The search query.
+            search: The search query (in-memory name/slug match).
             topics: The topics to filter the repositories.
+            limit: Maximum number of repositories to return. None means no limit.
 
         Returns:
             The list of repositories.
         """
-        if search:
-            raise NotImplementedError("Search is not supported for GitHub client.")
-
-        return [
-            Repository(
-                pk=repo.id,
-                slug=repo.full_name,
-                name=repo.name,
-                default_branch=repo.default_branch,
-                git_platform=self.git_platform,
-                topics=repo.topics,
-                clone_url=repo.clone_url,
-                html_url=repo.html_url,
+        repos: list[Repository] = []
+        for repo in self.client_installation.get_repos():
+            if topics is not None and not any(topic in repo.topics for topic in topics):
+                continue
+            repos.append(
+                Repository(
+                    pk=repo.id,
+                    slug=repo.full_name,
+                    name=repo.name,
+                    default_branch=repo.default_branch,
+                    git_platform=self.git_platform,
+                    topics=repo.topics,
+                    clone_url=repo.clone_url,
+                    html_url=repo.html_url,
+                )
             )
-            for repo in self.client_installation.get_repos()
-            if topics is None or any(topic in repo.topics for topic in topics)
-        ]
+            # Break early only when no search filter needs full scan
+            if limit is not None and search is None and len(repos) >= limit:
+                break
+        if search:
+            search_lower = search.lower()
+            repos = [r for r in repos if search_lower in r.name.lower() or search_lower in r.slug.lower()]
+            if limit is not None:
+                repos = repos[:limit]
+        return repos
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
