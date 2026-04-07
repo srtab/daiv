@@ -55,7 +55,9 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
+    ) -> list[Repository]:
         pass
 
     @abc.abstractmethod

@@ -107,43 +107,52 @@ class GitLabClient(RepoClient):
             topics=project.topics,
         )
 
-    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
+    ) -> list[Repository]:
         """
         List all repositories.
 
         Args:
             search: The search query.
             topics: The topics to filter the repositories.
+            limit: Maximum number of repositories to return. None means no limit.
 
         Returns:
             The list of repositories.
         """
-        optional_kwargs = {}
+        optional_kwargs: dict[str, Any] = {}
         if search:
             optional_kwargs["search"] = search
         if topics:
             optional_kwargs["topic"] = ",".join(topics)
-        return [
-            Repository(
-                pk=cast("int", project.get_id()),
-                slug=project.path_with_namespace,
-                name=project.name,
-                clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
-                html_url=project.web_url,
-                default_branch=project.default_branch,
-                git_platform=self.git_platform,
-                topics=project.topics,
+        if limit is not None:
+            optional_kwargs["per_page"] = min(limit, 100)
+
+        repos: list[Repository] = []
+        for project in self.client.projects.list(
+            iterator=True,
+            archived=False,
+            simple=True,
+            membership=True,
+            min_access_level=40,  # 40 is the access level for the maintainer role
+            **optional_kwargs,
+        ):
+            repos.append(
+                Repository(
+                    pk=cast("int", project.get_id()),
+                    slug=project.path_with_namespace,
+                    name=project.name,
+                    clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
+                    html_url=project.web_url,
+                    default_branch=project.default_branch,
+                    git_platform=self.git_platform,
+                    topics=project.topics,
+                )
             )
-            for project in self.client.projects.list(
-                all=True,
-                iterator=True,
-                archived=False,
-                simple=True,
-                membership=True,
-                min_access_level=40,  # 40 is the access level for the maintainer role
-                **optional_kwargs,
-            )
-        ]
+            if limit is not None and len(repos) >= limit:
+                break
+        return repos
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
