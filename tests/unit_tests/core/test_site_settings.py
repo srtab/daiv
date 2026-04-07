@@ -7,6 +7,15 @@ from core.models import SiteConfiguration
 from core.site_settings import SiteSettings
 
 
+@pytest.fixture(autouse=True)
+def _clear_docker_secret_cache():
+    from core.site_settings import _docker_secret_cache
+
+    _docker_secret_cache.clear()
+    yield
+    _docker_secret_cache.clear()
+
+
 @pytest.fixture
 def ss():
     return SiteSettings()
@@ -104,6 +113,30 @@ class TestDbUnavailable:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with patch.object(SiteConfiguration, "get_cached", return_value=None):
             assert ss.anthropic_api_key is None
+
+
+class TestDockerSecretOverride:
+    def test_docker_secret_overrides_db_and_default(self, ss):
+        mock_config = MagicMock()
+        mock_config.anthropic_api_key = "sk-from-db"
+        mock_secret = patch("core.site_settings.get_docker_secret", return_value="sk-from-docker-secret")
+        with mock_secret as mock_fn, patch.object(SiteConfiguration, "get_cached", return_value=mock_config):
+            result = ss.anthropic_api_key
+            assert isinstance(result, SecretStr)
+            assert result.get_secret_value() == "sk-from-docker-secret"
+            mock_fn.assert_called_with("ANTHROPIC_API_KEY", default=None)
+
+    def test_docker_secret_locks_field(self, ss):
+        with patch("core.site_settings.get_docker_secret", return_value="sk-from-docker-secret") as mock_fn:
+            assert ss.is_env_locked("anthropic_api_key") is True
+            mock_fn.assert_called_with("ANTHROPIC_API_KEY", default=None)
+
+    def test_no_docker_secret_falls_through(self, ss):
+        with (
+            patch("core.site_settings.get_docker_secret", return_value=None),
+            patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(agent_recursion_limit=200)),
+        ):
+            assert ss.agent_recursion_limit == 200
 
 
 class TestEnvVarConventionForSecrets:
