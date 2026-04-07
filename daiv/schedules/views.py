@@ -1,7 +1,7 @@
 import zoneinfo
 
-from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
@@ -41,42 +41,38 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
         return qs
 
 
-class ScheduleCreateView(_TimezoneContextMixin, _ScheduleOwnerMixin, LoginRequiredMixin, CreateView):
+class ScheduleCreateView(
+    _TimezoneContextMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView
+):
     model = ScheduledJob
     form_class = ScheduledJobCreateForm
     template_name = "schedules/schedule_form.html"
     success_url = reverse_lazy("schedule_list")
+    success_message = "Schedule '%(name)s' created."
 
     def form_valid(self, form):
         form.instance.user = self.request.user
-        response = super().form_valid(form)
-        messages.success(self.request, f"Schedule '{self.object.name}' created.")
-        return response
+        return super().form_valid(form)
 
 
-class ScheduleUpdateView(_TimezoneContextMixin, _ScheduleOwnerMixin, LoginRequiredMixin, UpdateView):
+class ScheduleUpdateView(
+    _TimezoneContextMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, UpdateView
+):
     model = ScheduledJob
     form_class = ScheduledJobUpdateForm
     template_name = "schedules/schedule_form.html"
     success_url = reverse_lazy("schedule_list")
-
-    def form_valid(self, form):
-        response = super().form_valid(form)
-        messages.success(self.request, f"Schedule '{self.object.name}' updated.")
-        return response
+    success_message = "Schedule '%(name)s' updated."
 
 
-class ScheduleDeleteView(_ScheduleOwnerMixin, LoginRequiredMixin, DeleteView):
+class ScheduleDeleteView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, DeleteView):
     model = ScheduledJob
     template_name = "schedules/schedule_confirm_delete.html"
     success_url = reverse_lazy("schedule_list")
+    success_message = "Schedule deleted."
 
-    def form_valid(self, form):
-        assert isinstance(self.object, ScheduledJob)
-        name = self.object.name
-        response = super().form_valid(form)
-        messages.success(self.request, f"Schedule '{name}' deleted.")
-        return response
+    def get_success_message(self, cleaned_data: dict) -> str:
+        return f"Schedule '{self.object.name}' deleted."
 
 
 class _ScheduleRunMixin:
