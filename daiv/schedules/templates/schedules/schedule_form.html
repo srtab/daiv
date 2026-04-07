@@ -3,6 +3,12 @@
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
 
+{% block alpine_plugins %}
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
+        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
+        crossorigin="anonymous"></script>
+{% endblock %}
+
 {% block content %}
 <div class="min-h-dvh">
     {% include "accounts/_header.html" %}
@@ -69,25 +75,81 @@
                 {% endif %}
             </div>
 
-            <!-- Repository -->
-            <div class="mt-5">
-                <label for="id_repo_id" class="block text-[14px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
-                <input type="text" name="repo_id" id="id_repo_id" value="{{ form.repo_id.value|default:'' }}" maxlength="255" required
-                       placeholder="owner/repo" class="mt-2">
-                {% if form.repo_id.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.repo_id.errors.0 }}</p>
-                {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-500">Repository identifier, e.g. owner/repo for GitHub or group/project for GitLab.</p>
-            </div>
+            <!-- Repository + Branch -->
+            <div class="mt-5 grid grid-cols-3 gap-4">
+                <div class="col-span-2"
+                     x-data="{
+                         selected: '{{ form.repo_id.value|default:'' }}' || null,
+                         results: [],
+                         isLoading: false,
+                         _timer: null,
+                         _controller: null,
 
-            <!-- Branch -->
-            <div class="mt-5">
-                <label for="id_ref" class="block text-[14px] font-medium text-gray-400">Branch / Ref</label>
-                <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255"
-                       placeholder="Leave blank for default branch" class="mt-2">
-                {% if form.ref.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.ref.errors.0 }}</p>
-                {% endif %}
+                         search(query) {
+                             clearTimeout(this._timer);
+                             if (query.length < 2) { this.results = []; return; }
+                             this._timer = setTimeout(() => this._fetch(query), 300);
+                         },
+
+                         async _fetch(query) {
+                             this._controller?.abort();
+                             this._controller = new AbortController();
+                             this.isLoading = true;
+                             try {
+                                 const resp = await fetch(
+                                     '/api/codebase/repositories/search?q=' + encodeURIComponent(query),
+                                     { signal: this._controller.signal }
+                                 );
+                                 this.results = resp.ok ? await resp.json() : [];
+                             } catch (e) {
+                                 if (e.name !== 'AbortError') this.results = [];
+                             } finally {
+                                 this.isLoading = false;
+                             }
+                         }
+                     }">
+                    <div x-combobox x-model="selected" name="repo_id" nullable>
+                        <label x-combobox:label class="block text-[14px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
+                        <div class="relative mt-2">
+                            <input type="text" x-combobox:input
+                                   :display-value="v => v || ''"
+                                   @input="search($event.target.value)"
+                                   placeholder="Search repositories..."
+                                   autocomplete="off">
+                            <svg x-show="isLoading" x-cloak class="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </div>
+                        <div x-combobox:options x-cloak
+                             class="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-white/[0.06] bg-[#0d1117] shadow-lg">
+                            <ul>
+                                <template x-for="repo in results" :key="repo.slug" hidden>
+                                    <li x-combobox:option :value="repo.slug"
+                                        class="cursor-pointer px-3 py-2 text-[14px]"
+                                        :class="$comboboxOption.isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.06]'">
+                                        <span x-text="repo.slug" class="text-white"></span>
+                                        <span x-show="repo.name !== repo.slug" x-text="'— ' + repo.name" class="ml-1 text-gray-500"></span>
+                                    </li>
+                                </template>
+                            </ul>
+                            <p x-show="results.length === 0 && !isLoading" class="px-3 py-2 text-[13px] text-gray-500">No repositories found.</p>
+                        </div>
+                    </div>
+                    {% if form.repo_id.errors %}
+                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.repo_id.errors.0 }}</p>
+                    {% endif %}
+                    <p class="mt-1.5 text-[13px] text-gray-500">Search and select a repository.</p>
+                </div>
+
+                <div>
+                    <label for="id_ref" class="block text-[14px] font-medium text-gray-400">Branch / Ref</label>
+                    <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255"
+                           placeholder="Default branch" class="mt-2">
+                    {% if form.ref.errors %}
+                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.ref.errors.0 }}</p>
+                    {% endif %}
+                </div>
             </div>
 
             <!-- Frequency -->
