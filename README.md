@@ -19,6 +19,7 @@ DAIV automates routine software engineering work so you can focus on creative pr
 - **Issue Addressing** — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.
 - **Pull Request Assistant** — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.
 - **Slash Commands & Skills** — Invoke commands and skills directly from issues and merge requests (`/help`, `/plan`, `/code-review`, `/clone-to-topics`). Built-in skills provide planning, code review, and security audits — and you can create your own.
+- **Scheduled Jobs** — Run agents on a recurring basis — hourly, daily, weekly, or any custom cron expression. Automate dependency audits, code quality scans, stale branch cleanup, and more without CI pipelines or external schedulers.
 
 ## Quick example
 
@@ -164,7 +165,7 @@ To test DAIV with a local GitLab instance:
 - [ ] Configurable hooks — run DAIV on specific events with user-defined triggers and actions.
 - [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
 - [x] Custom MCP servers — user-defined MCP servers via a JSON config file following the Claude Code `.mcp.json` standard.
-- [ ] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
+- [x] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
 - [ ] Team notifications — Slack, Discord, and Microsoft Teams integrations to notify teams about DAIV actions and request approvals.
 - [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.
 

@@ -72,6 +72,7 @@ plugins:
         - features/issue-addressing.md: Automated issue-to-merge-request workflow
         - features/pull-request-assistant.md: AI-powered pull request reviews and fixes
         - features/jobs-api.md: REST API for programmatic agent triggering
+        - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
         - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
         - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
         - features/slash-commands.md: Slash commands and custom skills
@@ -124,6 +125,7 @@ nav:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
     - Jobs API: features/jobs-api.md
+    - Scheduled Jobs: features/scheduled-jobs.md
     - MCP Endpoint: features/mcp-endpoint.md
     - Merge Metrics: features/merge-metrics.md
     - Slash Commands & Skills: features/slash-commands.md

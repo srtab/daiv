@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
 - Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
 - Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 authentication using PKCE. Enables MCP clients like Claude Code to connect to DAIV via a remote URL with browser-based authentication. Exposes `submit_job` and `get_job_status` tools. Includes OAuth metadata discovery (`/.well-known/oauth-authorization-server`), dynamic client registration (`/api/oauth/register`), and Bearer token validation for MCP requests.
 - Added code merge analytics that tracks lines added/removed, files changed, and DAIV vs human attribution whenever a MR/PR is merged to a default branch. Metrics are displayed in the dashboard under a new "Code Velocity" section with the same period filters.

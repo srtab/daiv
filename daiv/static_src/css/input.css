@@ -15,6 +15,10 @@ a, button, [role="button"] {
   cursor: pointer;
 }
 
+[x-cloak] {
+  display: none !important;
+}
+
 .animate-fade-up {
   animation: fade-up 0.5s ease-out both;
 }
@@ -52,6 +56,7 @@ a, button, [role="button"] {
   input[type="email"],
   input[type="number"],
   input[type="password"],
+  input[type="time"],
   input[type="url"],
   textarea {
     @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5

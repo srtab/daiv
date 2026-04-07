@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
@@ -19,6 +20,7 @@ from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin
 from accounts.models import APIKey, Role, User
 from codebase.models import MergeMetric
+from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
         context["merge_counters"] = self._get_merge_counters(cutoff_date, today)
+        context["active_schedules"] = ScheduledJob.objects.filter(user=self.request.user, is_enabled=True).count()
         if self.request.user.is_admin:
             context["total_users"] = User.objects.count()
 
@@ -257,28 +260,24 @@ class UserCreateView(AdminRequiredMixin, CreateView):
         return response
 
 
-class UserUpdateView(AdminRequiredMixin, UpdateView):
+class UserUpdateView(SuccessMessageMixin, AdminRequiredMixin, UpdateView):
     model = User
     form_class = UserUpdateForm
     template_name = "accounts/user_form.html"
     success_url = reverse_lazy("user_list")
+    success_message = "User '%(email)s' updated."
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["requesting_user"] = self.request.user
         return kwargs
 
-    def form_valid(self, form):
-        response = super().form_valid(form)
-        assert isinstance(self.object, User)
-        messages.success(self.request, f"User '{self.object.email}' updated.")
-        return response
 
-
-class UserDeleteView(AdminRequiredMixin, DeleteView):
+class UserDeleteView(SuccessMessageMixin, AdminRequiredMixin, DeleteView):
     model = User
     template_name = "accounts/user_confirm_delete.html"
     success_url = reverse_lazy("user_list")
+    success_message = "User deleted."
 
     def post(self, request, *args, **kwargs):
         user = self.get_object()
@@ -290,7 +289,5 @@ class UserDeleteView(AdminRequiredMixin, DeleteView):
             return redirect("user_list")
         return super().post(request, *args, **kwargs)
 
-    def form_valid(self, form):
-        assert isinstance(self.object, User)
-        messages.success(self.request, f"User '{self.object.email}' deleted.")
-        return super().form_valid(form)
+    def get_success_message(self, cleaned_data: dict) -> str:
+        return f"User '{self.object.email}' deleted."

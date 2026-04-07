@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Runs — {{ schedule.name }} — DAIV{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh">
+    {% include "accounts/_header.html" %}
+
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">{{ schedule.name }}</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                    Run history &middot; {{ schedule.repo_id }}
+                </p>
+            </div>
+            <a href="{% url 'schedule_list' %}"
+               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                &larr; Schedules
+            </a>
+        </div>
+
+        <div class="animate-fade-up mt-8" style="animation-delay: 100ms">
+            {% if runs %}
+            <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+                {% for run in runs %}
+                <a href="{% url 'schedule_run_detail' schedule.pk run.pk %}"
+                   class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02]">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-3">
+                            <span class="text-[14px] font-medium text-white">
+                                {{ run.created|date:"M j, Y H:i" }} UTC
+                            </span>
+                            {% if run.task_result %}
+                                {% if run.task_result.status == "SUCCESSFUL" %}
+                                <span class="rounded-full bg-emerald-900/40 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Successful</span>
+                                {% elif run.task_result.status == "FAILED" %}
+                                <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Failed</span>
+                                {% elif run.task_result.status == "RUNNING" %}
+                                <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">Running</span>
+                                {% else %}
+                                <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">Pending</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-500">Result pruned</span>
+                            {% endif %}
+                        </div>
+                        {% if run.task_result and run.task_result.started_at and run.task_result.finished_at %}
+                        <div class="mt-1 text-[13px] text-gray-500">
+                            Duration: {{ run.task_result.started_at|timesince:run.task_result.finished_at }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <span class="text-[13px] text-gray-500">&rarr;</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% include "accounts/_pagination.html" %}
+            {% else %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+                <p class="text-[14px] text-gray-500">No runs recorded yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}
