@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                         help_text="Primary model for agent tasks.",
                         max_length=255,
                         null=True,
-                        verbose_name="agent model",
+                        verbose_name="model",
                     ),
                 ),
                 (
@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                         help_text="Fallback model when the primary model fails.",
                         max_length=255,
                         null=True,
-                        verbose_name="agent fallback model",
+                        verbose_name="fallback model",
                     ),
                 ),
                 (
@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
                         help_text="Extended thinking depth for agent tasks. Leave empty to disable thinking.",
                         max_length=10,
                         null=True,
-                        verbose_name="agent thinking level",
+                        verbose_name="thinking level",
                     ),
                 ),
                 (
@@ -91,17 +91,17 @@ class Migration(migrations.Migration):
                         help_text="Model for generating commit messages and PR descriptions from diffs.",
                         max_length=255,
                         null=True,
-                        verbose_name="diff-to-metadata model",
+                        verbose_name="model",
                     ),
                 ),
                 (
                     "diff_to_metadata_fallback_model_name",
                     models.CharField(
                         blank=True,
-                        help_text="Fallback model for diff-to-metadata when the primary fails.",
+                        help_text="Fallback model used when the primary fails.",
                         max_length=255,
                         null=True,
-                        verbose_name="diff-to-metadata fallback model",
+                        verbose_name="fallback model",
                     ),
                 ),
                 (
@@ -212,7 +212,7 @@ class Migration(migrations.Migration):
                     "sandbox_cpu",
                     models.FloatField(
                         blank=True,
-                        help_text="CPUs to allocate to sandbox sessions by default.",
+                        help_text="CPUs to allocate to sandbox sessions by default. Leave empty for no limit.",
                         null=True,
                         verbose_name="sandbox CPU",
                     ),
@@ -221,7 +221,7 @@ class Migration(migrations.Migration):
                     "sandbox_memory",
                     models.BigIntegerField(
                         blank=True,
-                        help_text="Memory limit in bytes to allocate to sandbox sessions by default.",
+                        help_text="Memory limit in bytes to allocate to sandbox sessions by default. Leave empty for no limit.",
                         null=True,
                         verbose_name="sandbox memory",
                     ),
