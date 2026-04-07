@@ -26,6 +26,7 @@
     {% block head_extra %}{% endblock %}
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    {% block alpine_plugins %}{% endblock %}
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
             integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"
             crossorigin="anonymous"></script>
