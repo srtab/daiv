@@ -10,9 +10,5 @@
     "editor.codeActionsOnSave": {
       "source.fixAll.ruff": "explicit"
     }
-  },
-  "cursorpyright.analysis.extraPaths": [
-    "./daiv"
-  ],
-  "cursorpyright.analysis.typeCheckingMode": "off"
+  }
 }

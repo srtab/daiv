@@ -2,6 +2,8 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from gitlab.exceptions import GitlabError
+
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -101,7 +103,10 @@ class IssueCallback(BaseCallback):
         """
         Trigger the task to address the issue.
         """
-        self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
+        try:
+            self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
+        except GitlabError:
+            logger.warning("Failed to add reaction to issue %s", self.object_attributes.iid, exc_info=True)
         await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
         )
@@ -152,9 +157,12 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self.issue and self._is_issue_comment:
-            self._client.create_issue_emoji(
-                self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
-            )
+            try:
+                self._client.create_issue_emoji(
+                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
+                )
+            except GitlabError:
+                logger.warning("Failed to add reaction to issue comment %s", self.object_attributes.id, exc_info=True)
             await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
@@ -162,9 +170,12 @@ class NoteCallback(BaseCallback):
             )
 
         elif self.merge_request and self._is_merge_request_comment:
-            self._client.create_merge_request_note_emoji(
-                self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
-            )
+            try:
+                self._client.create_merge_request_note_emoji(
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
+                )
+            except GitlabError:
+                logger.warning("Failed to add reaction to MR comment %s", self.object_attributes.id, exc_info=True)
             await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,

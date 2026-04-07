@@ -2,6 +2,8 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from github.GithubException import GithubException
+
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -128,15 +130,23 @@ class IssueCommentCallback(GitHubCallback):
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
         """
         if self._is_issue_comment:
-            self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id)
+            try:
+                self._client.create_issue_emoji(
+                    self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
+                )
+            except GithubException:
+                logger.warning("Failed to add reaction to issue comment %s", self.comment.id, exc_info=True)
             await address_issue_task.aenqueue(
                 repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=str(self.comment.id)
             )
 
         elif self._is_merge_request_review:
-            self._client.create_merge_request_note_emoji(
-                self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
-            )
+            try:
+                self._client.create_merge_request_note_emoji(
+                    self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
+                )
+            except GithubException:
+                logger.warning("Failed to add reaction to PR comment %s", self.comment.id, exc_info=True)
             await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
