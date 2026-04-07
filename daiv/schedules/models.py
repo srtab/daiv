@@ -44,7 +44,9 @@ class ScheduledJob(TimeStampedModel):
         default="",
         help_text=_("Required when frequency is Custom. Five-field cron expression."),
     )
-    time = models.TimeField(_("time"), null=True, blank=True, help_text=_("Time of day for non-hourly schedules."))
+    time = models.TimeField(
+        _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
+    )
     timezone = models.CharField(
         _("timezone"), max_length=63, default="UTC", help_text=_("IANA timezone for the schedule.")
     )
@@ -75,7 +77,12 @@ class ScheduledJob(TimeStampedModel):
             if not self.cron_expression:
                 raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
             if not croniter.is_valid(self.cron_expression):
-                raise ValidationError({"cron_expression": _("Invalid cron expression.")})
+                raise ValidationError({
+                    "cron_expression": _(
+                        "Invalid cron expression. Use five space-separated fields: "
+                        "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
+                    )
+                })
         if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
             raise ValidationError({"time": _("Time is required for this frequency.")})
         try:
@@ -113,6 +120,10 @@ class ScheduledJob(TimeStampedModel):
 
         The next fire time is calculated in the schedule's local timezone so
         that DST transitions are handled correctly, then stored as UTC.
+
+        Raises:
+            zoneinfo.ZoneInfoNotFoundError: If the timezone is not valid.
+            ValueError: If the frequency/cron configuration is invalid.
         """
         tz = zoneinfo.ZoneInfo(self.timezone)
         if after is None:

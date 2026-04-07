@@ -40,20 +40,27 @@ def dispatch_scheduled_jobs_cron_task():
                     schedule.last_run_task_id = result.id
                     schedule.run_count = models.F("run_count") + 1
                     schedule.compute_next_run(after=now)
-                    schedule.save(update_fields=["last_run_at", "last_run_task_id", "run_count", "next_run_at"])
+                    schedule.save(
+                        update_fields=["last_run_at", "last_run_task_id", "run_count", "next_run_at", "modified"]
+                    )
                     dispatched += 1
             except Exception:
                 logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
                 failed += 1
                 try:
+                    schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_task_id", "next_run_at"])
                     schedule.compute_next_run(after=now)
-                    schedule.save(update_fields=["next_run_at"])
+                    schedule.save(update_fields=["next_run_at", "modified"])
                 except Exception:
                     logger.exception(
-                        "Failed to advance next_run_at for scheduled job pk=%d (%s); schedule may re-fire on next tick",
+                        "Failed to advance next_run_at for scheduled job pk=%d (%s); disabling schedule",
                         schedule.pk,
                         schedule.name,
                     )
+                    try:
+                        ScheduledJob.objects.filter(pk=schedule.pk).update(is_enabled=False)
+                    except Exception:
+                        logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
 
     if dispatched:
         logger.info("Dispatched %d scheduled job(s)", dispatched)

@@ -13,13 +13,13 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
-from schedules.models import ScheduledJob
 
 from accounts.emails import send_welcome_email
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin
 from accounts.models import APIKey, Role, User
 from codebase.models import MergeMetric
+from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)
 
