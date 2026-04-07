@@ -194,7 +194,10 @@ async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
 ) -> str:
-    """List repositories accessible to DAIV, optionally filtered by name or topic."""
+    """
+    List repositories accessible to DAIV, optionally filtered by name or topic.
+    Results may be truncated; use search or topics to narrow down.
+    """
     # Fetch one extra to detect truncation without loading everything
     fetch_limit = MAX_REPOSITORIES + 1
     try:
