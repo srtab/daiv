@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/getting-started/llm-providers/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/scheduled-jobs/">
       
       
-        <link rel="prev" href="../platform-setup/">
+        <link rel="prev" href="../jobs-api/">
       
       
-        <link rel="next" href="../../features/issue-addressing/">
+        <link rel="next" href="../mcp-endpoint/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>LLM Providers - DAIV</title>
+        <title>Scheduled Jobs - DAIV</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#llm-providers" class="md-skip">
+        <a href="#scheduled-jobs" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              LLM Providers
+              Scheduled Jobs
             
           </span>
         </div>
@@ -300,20 +300,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -334,7 +332,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -352,7 +350,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../deployment/" class="md-nav__link">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
   
@@ -380,7 +378,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../platform-setup/" class="md-nav__link">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
         
   
   
@@ -388,6 +386,174 @@
     
   
     Platform Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue Addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull Request Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
   
 
     
@@ -424,7 +590,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    Scheduled Jobs
   
 
     
@@ -442,7 +608,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    Scheduled Jobs
   
 
     
@@ -468,38 +634,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-models-are-specified" class="md-nav__link">
+  <a href="#creating-a-schedule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How models are specified
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How models are specified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#default-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Default models
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#openrouter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        OpenRouter
+        Creating a schedule
       
     </span>
   </a>
@@ -507,10 +645,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#openai" class="md-nav__link">
+  <a href="#frequency-options" class="md-nav__link">
     <span class="md-ellipsis">
       
-        OpenAI
+        Frequency options
       
     </span>
   </a>
@@ -518,10 +656,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#anthropic" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Anthropic
+        How it works
       
     </span>
   </a>
@@ -529,10 +667,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#google-gemini" class="md-nav__link">
+  <a href="#timezone-handling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Google Gemini
+        Timezone handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managing-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing schedules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-with-the-jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship with the Jobs API
       
     </span>
   </a>
@@ -548,60 +708,6 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Features
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Features
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
               
                 
   
@@ -609,119 +715,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/issue-addressing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Issue Addressing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/pull-request-assistant/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Pull Request Assistant
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/jobs-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Jobs API
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/scheduled-jobs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Scheduled Jobs
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/mcp-endpoint/" class="md-nav__link">
+      <a href="../mcp-endpoint/" class="md-nav__link">
         
   
   
@@ -749,7 +743,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/merge-metrics/" class="md-nav__link">
+      <a href="../merge-metrics/" class="md-nav__link">
         
   
   
@@ -777,7 +771,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/slash-commands/" class="md-nav__link">
+      <a href="../slash-commands/" class="md-nav__link">
         
   
   
@@ -805,7 +799,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/subagents/" class="md-nav__link">
+      <a href="../subagents/" class="md-nav__link">
         
   
   
@@ -833,7 +827,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/sandbox/" class="md-nav__link">
+      <a href="../sandbox/" class="md-nav__link">
         
   
   
@@ -1191,38 +1185,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-models-are-specified" class="md-nav__link">
+  <a href="#creating-a-schedule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How models are specified
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How models are specified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#default-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Default models
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#openrouter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        OpenRouter
+        Creating a schedule
       
     </span>
   </a>
@@ -1230,10 +1196,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#openai" class="md-nav__link">
+  <a href="#frequency-options" class="md-nav__link">
     <span class="md-ellipsis">
       
-        OpenAI
+        Frequency options
       
     </span>
   </a>
@@ -1241,10 +1207,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#anthropic" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Anthropic
+        How it works
       
     </span>
   </a>
@@ -1252,10 +1218,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#google-gemini" class="md-nav__link">
+  <a href="#timezone-handling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Google Gemini
+        Timezone handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managing-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing schedules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-with-the-jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship with the Jobs API
       
     </span>
   </a>
@@ -1305,10 +1293,10 @@
     
     
       <li class="md-path__item">
-        <a href="../deployment/" class="md-path__link">
+        <a href="../issue-addressing/" class="md-path__link">
           
   <span class="md-ellipsis">
-    Getting Started
+    Features
   </span>
 
         </a>
@@ -1327,7 +1315,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/getting-started/llm-providers.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/scheduled-jobs.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1335,176 +1323,162 @@
   
 
 
-<h1 id="llm-providers">LLM Providers</h1>
-<p>DAIV supports the following LLM providers:</p>
+<h1 id="scheduled-jobs">Scheduled Jobs</h1>
+<p>Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick a repository and frequency, and DAIV handles the rest.</p>
+<p>This is useful when you want to:</p>
 <ul>
-<li><a href="https://openrouter.ai">OpenRouter</a> (<strong>default</strong>)</li>
-<li><a href="https://openai.com">OpenAI</a></li>
-<li><a href="https://anthropic.com">Anthropic</a></li>
-<li><a href="https://gemini.google.com">Google Gemini</a></li>
+<li><strong>Automate recurring tasks</strong> — e.g., weekly dependency audits, nightly code quality scans</li>
+<li><strong>Keep repositories tidy</strong> — e.g., close stale branches every Monday</li>
+<li><strong>Generate periodic reports</strong> — e.g., summarise recent changes for a changelog draft</li>
+<li><strong>Run maintenance prompts</strong> — e.g., check for TODO comments or outdated documentation</li>
 </ul>
-<p>You can mix providers — for example, use OpenRouter for the main agent and a direct provider for a specific model override.</p>
-<h2 id="how-models-are-specified">How models are specified</h2>
-<p>Models use a <strong>prefix system</strong> to identify the provider:</p>
+<h2 id="creating-a-schedule">Creating a schedule</h2>
+<p>Navigate to <strong>Dashboard &gt; Scheduled Jobs &gt; Create schedule</strong> and fill in the form:</p>
 <table>
 <thead>
 <tr>
-<th>Prefix</th>
-<th>Provider</th>
-<th>Example</th>
+<th>Field</th>
+<th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>openrouter:</code></td>
-<td>OpenRouter</td>
-<td><code>openrouter:anthropic/claude-sonnet-4.6</code></td>
+<td><strong>Name</strong></td>
+<td>A short label for the schedule (e.g., "Weekly dep audit")</td>
 </tr>
 <tr>
-<td><code>claude</code></td>
-<td>Anthropic (direct)</td>
-<td><code>claude-sonnet-4.6</code></td>
+<td><strong>Prompt</strong></td>
+<td>What the agent should do — same format as a Jobs API prompt</td>
 </tr>
 <tr>
-<td><code>gpt-</code>, <code>o4</code></td>
-<td>OpenAI (direct)</td>
-<td><code>gpt-5.3-codex</code></td>
+<td><strong>Repository</strong></td>
+<td>Repository identifier, e.g. <code>mygroup/myproject</code></td>
 </tr>
 <tr>
-<td><code>gemini</code></td>
-<td>Google Gemini (direct)</td>
-<td><code>gemini-2.5-pro-preview-05-06</code></td>
+<td><strong>Branch / Ref</strong></td>
+<td>Git branch or tag. Leave blank for the repository's default branch</td>
+</tr>
+<tr>
+<td><strong>Frequency</strong></td>
+<td>How often the job runs (see <a href="#frequency-options">Frequency options</a>)</td>
+</tr>
+<tr>
+<td><strong>Time</strong></td>
+<td>Time of day for Daily, Weekdays, and Weekly schedules</td>
+</tr>
+<tr>
+<td><strong>Timezone</strong></td>
+<td>IANA timezone for the schedule (e.g., <code>Europe/Lisbon</code>, <code>UTC</code>)</td>
 </tr>
 </tbody>
 </table>
-<p>DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.</p>
-<h3 id="default-models">Default models</h3>
+<p>Once created, the schedule is <strong>active</strong> immediately. You can pause and resume it at any time from the edit page.</p>
+<h2 id="frequency-options">Frequency options</h2>
 <table>
 <thead>
 <tr>
-<th>Role</th>
-<th>Model</th>
-<th>Provider</th>
+<th>Frequency</th>
+<th>Cron equivalent</th>
+<th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Main agent</td>
-<td>Claude Sonnet 4.6</td>
-<td>OpenRouter</td>
+<td><strong>Hourly</strong></td>
+<td><code>0 * * * *</code></td>
+<td>Runs at the top of every hour</td>
 </tr>
 <tr>
-<td>Max mode</td>
-<td>Claude Opus 4.6</td>
-<td>OpenRouter</td>
+<td><strong>Daily</strong></td>
+<td><code>{mm} {HH} * * *</code></td>
+<td>Runs once a day at the specified time</td>
 </tr>
 <tr>
-<td>Explore subagent</td>
-<td>Claude Haiku 4.5</td>
-<td>OpenRouter</td>
+<td><strong>Weekdays</strong></td>
+<td><code>{mm} {HH} * * 1-5</code></td>
+<td>Monday through Friday at the specified time</td>
 </tr>
 <tr>
-<td>Fallback</td>
-<td>GPT 5.3 Codex</td>
-<td>OpenRouter</td>
+<td><strong>Weekly</strong></td>
+<td><code>{mm} {HH} * * 1</code></td>
+<td>Every Monday at the specified time</td>
+</tr>
+<tr>
+<td><strong>Custom</strong></td>
+<td><em>(user-provided)</em></td>
+<td>Any valid five-field cron expression</td>
 </tr>
 </tbody>
 </table>
-<p>All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Override models per repository in <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
-<hr />
-<h2 id="openrouter">OpenRouter</h2>
-<p>OpenRouter is the <strong>default provider</strong> for DAIV. It provides access to models from multiple vendors with built-in fallback support.</p>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://openrouter.ai/settings/keys">OpenRouter Settings</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>OPENROUTER_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <code>openrouter:</code> prefix followed by the <a href="https://openrouter.ai/models">model name from OpenRouter</a>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>openrouter:anthropic/claude-sonnet-4.6
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a>openrouter:openai/gpt-5.3-codex
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span>
-</code></pre></div></td></tr></table></div>
-<hr />
-<h2 id="openai">OpenAI</h2>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://platform.openai.com/api-keys">OpenAI</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>OPENAI_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://platform.openai.com/docs/models">model name from OpenAI</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
-<span class="normal"><a href="#__codelineno-4-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>gpt-5.3-codex
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a>o4-mini
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
-<span class="normal"><a href="#__codelineno-5-2">2</a></span>
-<span class="normal"><a href="#__codelineno-5-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpt-5.3-codex&quot;</span>
-</code></pre></div></td></tr></table></div>
-<hr />
-<h2 id="anthropic">Anthropic</h2>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://console.anthropic.com/settings/keys">Anthropic</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>ANTHROPIC_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names">model name from Anthropic</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
-<span class="normal"><a href="#__codelineno-7-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>claude-sonnet-4.6
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a>claude-opus-4.6
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
-<span class="normal"><a href="#__codelineno-8-2">2</a></span>
-<span class="normal"><a href="#__codelineno-8-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-sonnet-4.6&quot;</span>
-</code></pre></div></td></tr></table></div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>We love Anthropic, but unfortunately their API is very unstable and often returns errors.
-Also, the rate limits could be exceeded very quickly.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>The <strong>Custom</strong> frequency accepts standard five-field cron expressions (minute, hour, day-of-month, month, day-of-week). Use it for non-standard intervals like "every 6 hours" (<code>0 */6 * * *</code>) or "first Monday of the month" (<code>0 9 1-7 * 1</code>).</p>
 </div>
-<hr />
-<h2 id="google-gemini">Google Gemini</h2>
-<p><strong>Setup:</strong></p>
+<h2 id="how-it-works">How it works</h2>
+<p>A background task runs every minute and checks for schedules whose next run time has passed. For each due schedule it:</p>
 <ol>
-<li>Obtain an API key from <a href="https://aistudio.google.com/apikey">AI Studio</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>GOOGLE_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
+<li>Enqueues a job via the same task backend used by the <a href="../jobs-api/">Jobs API</a></li>
+<li>Records the run timestamp and increments the run counter</li>
+<li>Computes the next run time based on the cron expression and the schedule's timezone</li>
 </ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://ai.google.dev/gemini-api/docs/models">model name from Gemini</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
-<span class="normal"><a href="#__codelineno-10-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>gemini-2.5-pro-preview-05-06
-<a id="__codelineno-10-2" name="__codelineno-10-2"></a>gemini-2.4-flash-preview-04-17
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span>
-<span class="normal"><a href="#__codelineno-11-2">2</a></span>
-<span class="normal"><a href="#__codelineno-11-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gemini-2.5-pro-preview-05-06&quot;</span>
-</code></pre></div></td></tr></table></div>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Dispatcher as Cron dispatcher (every minute)
+    participant DB as Database
+    participant Worker as Job worker
+
+    Dispatcher-&gt;&gt;DB: Query enabled schedules where next_run_at &lt;= now
+    loop For each due schedule
+        Dispatcher-&gt;&gt;Worker: Enqueue job (repo_id, prompt, ref)
+        Dispatcher-&gt;&gt;DB: Update last_run_at, run_count, next_run_at
+    end</code></pre>
+<p>Schedules use <code>SELECT ... FOR UPDATE (SKIP LOCKED)</code> to prevent double-dispatch if the dispatcher overlaps, and each schedule is processed in its own database savepoint so that one failure does not affect others.</p>
+<p>If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.</p>
+<h2 id="timezone-handling">Timezone handling</h2>
+<p>Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 <code>Europe/Lisbon</code> will always fire at 09:00 local time, even across clock changes.</p>
+<h2 id="managing-schedules">Managing schedules</h2>
+<p>From the <strong>Scheduled Jobs</strong> list you can:</p>
+<ul>
+<li><strong>Edit</strong> a schedule to change any field, including toggling the <strong>Enabled</strong> checkbox to pause or resume it</li>
+<li><strong>Delete</strong> a schedule permanently — any currently running job will complete, but no new runs will be dispatched</li>
+</ul>
+<p>The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner.</p>
+<h2 id="relationship-with-the-jobs-api">Relationship with the Jobs API</h2>
+<p>Scheduled Jobs and the <a href="../jobs-api/">Jobs API</a> use the same underlying task to execute agent work. The difference is how the job is triggered:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Jobs API</th>
+<th>Scheduled Jobs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Trigger</strong></td>
+<td>HTTP request</td>
+<td>Automatic (cron-based)</td>
+</tr>
+<tr>
+<td><strong>Auth</strong></td>
+<td>API key</td>
+<td>Dashboard login</td>
+</tr>
+<tr>
+<td><strong>Management</strong></td>
+<td>Programmatic</td>
+<td>Web UI</td>
+</tr>
+<tr>
+<td><strong>Use case</strong></td>
+<td>One-off or script-driven</td>
+<td>Recurring, set-and-forget</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>If you need programmatic control over scheduling (e.g., creating schedules from a script), use the <a href="../jobs-api/">Jobs API</a> with an external scheduler like GitLab CI scheduled pipelines or system cron.</p>
+</div>
 
 
 
