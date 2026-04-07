@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import zoneinfo
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -10,6 +11,9 @@ from django.utils.translation import gettext_lazy as _
 
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 
 class Frequency(models.TextChoices):
@@ -20,8 +24,21 @@ class Frequency(models.TextChoices):
     CUSTOM = "custom", _("Custom")
 
 
+class ScheduledJobManager(models.Manager["ScheduledJob"]):
+    def by_owner(self, user: User) -> models.QuerySet[ScheduledJob]:
+        """Return scheduled jobs visible to the given user.
+
+        Admin users see all jobs; regular users see only their own.
+        """
+        if user.is_admin:
+            return self.all()
+        return self.filter(user=user)
+
+
 class ScheduledJob(TimeStampedModel):
     """A user-defined schedule that runs the DAIV agent on a repository."""
+
+    objects = ScheduledJobManager()
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="scheduled_jobs", verbose_name=_("user")
@@ -133,3 +150,33 @@ class ScheduledJob(TimeStampedModel):
         cron_iter = croniter(self.get_effective_cron(), local_now)
         next_local = cron_iter.get_next(datetime)
         self.next_run_at = next_local.astimezone(UTC)
+
+
+class ScheduledJobRun(models.Model):
+    """Records each dispatch of a scheduled job, linking to the task result.
+
+    Instances are immutable after creation. The ``task_result`` FK may become
+    NULL when the underlying ``DBTaskResult`` row is pruned by the retention policy.
+    """
+
+    scheduled_job = models.ForeignKey(
+        ScheduledJob, on_delete=models.CASCADE, related_name="runs", verbose_name=_("scheduled job")
+    )
+    task_result = models.ForeignKey(
+        "django_tasks_database.DBTaskResult",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("task result"),
+    )
+    created = models.DateTimeField(_("created"), auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = _("Scheduled Job Run")
+        verbose_name_plural = _("Scheduled Job Runs")
+        ordering = ["-created"]
+        indexes = [models.Index(fields=["scheduled_job", "-created"], name="sched_run_job_created_idx")]
+
+    def __str__(self) -> str:
+        return f"Run {self.pk} for schedule {self.scheduled_job_id}"

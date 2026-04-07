@@ -89,8 +89,6 @@
 
         <!-- Quick Links -->
         <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="animation-delay: 300ms">
-            {% url 'api:openapi-view' as api_docs_url %}
-            {% include "accounts/_quick_link_card.html" with url=api_docs_url icon="code-bracket" title="API Documentation" description="Explore the API endpoints and test requests interactively." %}
             {% if user.is_admin %}
             {% url 'user_list' as users_url %}
             {% if total_users %}{% blocktranslate with count=total_users asvar users_badge %}{{ count }} total{% endblocktranslate %}{% endif %}
@@ -104,6 +102,8 @@
             {% url 'schedule_list' as schedules_url %}
             {% if active_schedules %}{% blocktranslate with count=active_schedules asvar schedules_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
             {% include "accounts/_quick_link_card.html" with url=schedules_url icon="clock" title="Scheduled Jobs" description="Automate agent runs on repositories with recurring schedules." badge=schedules_badge %}
+            {% url 'api:openapi-view' as api_docs_url %}
+            {% include "accounts/_quick_link_card.html" with url=api_docs_url icon="code-bracket" title="API Documentation" description="Explore the API endpoints and test requests interactively." %}
         </div>
     </main>
 </div>

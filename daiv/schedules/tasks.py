@@ -20,7 +20,7 @@ def dispatch_scheduled_jobs_cron_task():
     Each schedule is processed in its own savepoint so that one failure
     does not roll back updates for other schedules.
     """
-    from schedules.models import ScheduledJob
+    from schedules.models import ScheduledJob, ScheduledJobRun
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -36,6 +36,7 @@ def dispatch_scheduled_jobs_cron_task():
                 with transaction.atomic():
                     ref = schedule.ref or None
                     result = run_job_task.enqueue(repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref)
+                    ScheduledJobRun.objects.create(scheduled_job=schedule, task_result_id=result.id)
                     schedule.last_run_at = now
                     schedule.last_run_task_id = result.id
                     schedule.run_count = models.F("run_count") + 1

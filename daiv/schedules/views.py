@@ -2,23 +2,25 @@ import zoneinfo
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm
-from schedules.models import ScheduledJob
+from schedules.models import ScheduledJob, ScheduledJobRun
 
 COMMON_TIMEZONES = sorted(tz for tz in zoneinfo.available_timezones() if "/" in tz and not tz.startswith("Etc/"))
 
 
 class _ScheduleOwnerMixin:
-    """Scopes querysets to the current user for non-admin users and provides timezone context."""
+    """Scopes querysets to the current user."""
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        if not self.request.user.is_admin:
-            qs = qs.filter(user=self.request.user)
-        return qs
+        return ScheduledJob.objects.by_owner(self.request.user)
+
+
+class _TimezoneContextMixin:
+    """Provides timezone list for form views."""
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -26,20 +28,20 @@ class _ScheduleOwnerMixin:
         return context
 
 
-class ScheduleListView(LoginRequiredMixin, ListView):
+class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     model = ScheduledJob
     template_name = "schedules/schedule_list.html"
     context_object_name = "schedules"
     paginate_by = 25
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = ScheduledJob.objects.by_owner(self.request.user)
         if self.request.user.is_admin:
-            return qs.select_related("user")
-        return qs.filter(user=self.request.user)
+            qs = qs.select_related("user")
+        return qs
 
 
-class ScheduleCreateView(_ScheduleOwnerMixin, LoginRequiredMixin, CreateView):
+class ScheduleCreateView(_TimezoneContextMixin, _ScheduleOwnerMixin, LoginRequiredMixin, CreateView):
     model = ScheduledJob
     form_class = ScheduledJobCreateForm
     template_name = "schedules/schedule_form.html"
@@ -52,7 +54,7 @@ class ScheduleCreateView(_ScheduleOwnerMixin, LoginRequiredMixin, CreateView):
         return response
 
 
-class ScheduleUpdateView(_ScheduleOwnerMixin, LoginRequiredMixin, UpdateView):
+class ScheduleUpdateView(_TimezoneContextMixin, _ScheduleOwnerMixin, LoginRequiredMixin, UpdateView):
     model = ScheduledJob
     form_class = ScheduledJobUpdateForm
     template_name = "schedules/schedule_form.html"
@@ -75,3 +77,38 @@ class ScheduleDeleteView(_ScheduleOwnerMixin, LoginRequiredMixin, DeleteView):
         response = super().form_valid(form)
         messages.success(self.request, f"Schedule '{name}' deleted.")
         return response
+
+
+class _ScheduleRunMixin:
+    """Provides user-scoped lookup of the parent ScheduledJob for run views."""
+
+    schedule_pk_url_kwarg: str = "pk"
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(scheduled_job_id=self.kwargs[self.schedule_pk_url_kwarg])
+            .select_related("task_result")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["schedule"] = get_object_or_404(
+            ScheduledJob.objects.by_owner(self.request.user), pk=self.kwargs[self.schedule_pk_url_kwarg]
+        )
+        return context
+
+
+class ScheduleRunListView(_ScheduleRunMixin, LoginRequiredMixin, ListView):
+    model = ScheduledJobRun
+    template_name = "schedules/run_list.html"
+    context_object_name = "runs"
+    paginate_by = 25
+
+
+class ScheduleRunDetailView(_ScheduleRunMixin, LoginRequiredMixin, DetailView):
+    model = ScheduledJobRun
+    template_name = "schedules/run_detail.html"
+    context_object_name = "run"
+    schedule_pk_url_kwarg = "schedule_pk"

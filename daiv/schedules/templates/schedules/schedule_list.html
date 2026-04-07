@@ -57,7 +57,10 @@
                             {% endif %}
                             {% if schedule.run_count %}
                             <span>&middot;</span>
-                            <span>{{ schedule.run_count }} run{{ schedule.run_count|pluralize }}</span>
+                            <a href="{% url 'schedule_run_list' schedule.pk %}"
+                               class="underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
+                                {{ schedule.run_count }} run{{ schedule.run_count|pluralize }}
+                            </a>
                             {% endif %}
                         </div>
                     </div>
