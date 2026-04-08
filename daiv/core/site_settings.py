@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import functools
 import logging
-import os
 from typing import Any, ClassVar
 
+from get_docker_secret import get_docker_secret
 from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.core")
+
+# Docker secrets are static for the lifetime of the container, so we cache
+# lookups to avoid a file-open attempt on every SiteSettings attribute access.
+_SENTINEL = object()
+_docker_secret_cache: dict[str, str | None] = {}
+
+
+def _get_docker_secret_cached(name: str) -> str | None:
+    """Cached wrapper around ``get_docker_secret`` to avoid repeated file I/O."""
+    cached = _docker_secret_cache.get(name, _SENTINEL)
+    if cached is not _SENTINEL:
+        return cached  # type: ignore[return-value]
+    value = get_docker_secret(name, default=None)
+    _docker_secret_cache[name] = value
+    return value
 
 
 def _build_field_defaults() -> dict[str, Any]:
@@ -63,7 +78,7 @@ class SiteSettings:
     :class:`~core.models.SiteConfiguration`.
 
     Priority chain (highest to lowest):
-        1. Environment variable (hard override — UI shows field as locked)
+        1. Docker secret or environment variable (hard override — UI shows field as locked)
         2. Database value (non-null — set via the configuration UI)
         3. Field defaults (hardcoded fallback)
     """
@@ -90,9 +105,9 @@ class SiteSettings:
         if name not in field_defaults and name not in SiteConfiguration.ENCRYPTED_FIELDS:
             raise AttributeError(f"SiteSettings has no field '{name}'")
 
-        # 1. Environment variable wins
+        # 1. Docker secret / environment variable wins
         env_var = self.get_env_var_name(name)
-        env_value = os.environ.get(env_var)
+        env_value = _get_docker_secret_cached(env_var)
         if env_value is not None:
             if name in SiteConfiguration.ENCRYPTED_FIELDS:
                 return SecretStr(env_value)
@@ -116,8 +131,8 @@ class SiteSettings:
         return self.ENV_VAR_OVERRIDES.get(name, f"DAIV_{name.upper()}")
 
     def is_env_locked(self, name: str) -> bool:
-        """Check if a field is locked by an environment variable."""
-        return self.get_env_var_name(name) in os.environ
+        """Check if a field is locked by an environment variable or Docker secret."""
+        return _get_docker_secret_cached(self.get_env_var_name(name)) is not None
 
     def get_defaults(self) -> dict[str, str]:
         """Return all defaults formatted as strings (for form placeholders)."""
