@@ -189,7 +189,7 @@ class SiteConfigurationForm(forms.ModelForm):
             field_obj.secret_hint = None  # type: ignore[attr-defined]
 
     def _apply_env_locks(self) -> None:
-        """Disable fields locked by environment variables and set effective initial values for locked checkboxes."""
+        """Disable fields locked by environment variables and set effective initial values."""
         from core.site_settings import site_settings
 
         for name in self.env_locked_fields:
@@ -199,10 +199,13 @@ class SiteConfigurationForm(forms.ModelForm):
             field_obj.disabled = True
             field_obj.is_env_locked = True  # type: ignore[attr-defined]
             field_obj.widget.attrs["title"] = _("Locked by environment variable")
+            # When a field is locked by an env var the DB typically holds NULL,
+            # so the widget would appear empty without setting the effective value.
+            effective = getattr(site_settings, name, None)
             if isinstance(field_obj.widget, forms.CheckboxInput):
-                # When a boolean field is locked by an env var the DB typically
-                # holds NULL, so the checkbox would appear unchecked without this.
-                self.initial[name] = bool(getattr(site_settings, name, False))
+                self.initial[name] = bool(effective)
+            elif effective is not None:
+                self.initial[name] = effective
 
     def _apply_defaults(self, field_defaults: dict[str, str]) -> None:
         """Set effective defaults as placeholders, empty-choice labels, or checkbox initial values."""
