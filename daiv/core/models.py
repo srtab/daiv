@@ -348,9 +348,10 @@ class SiteConfiguration(models.Model):
 
         return mask_secret(value)
 
-    # Single worker is sufficient — we only need to avoid blocking the async event loop;
-    # concurrent DB lookups are not needed because the result is cached.
-    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    # Multiple workers so concurrent async callers don't queue behind a single slow
+    # DB/cache call and timeout.  The result is cached, so most calls resolve quickly;
+    # extra threads are only needed when the cache is cold or the DB is slow.
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     @classmethod
     def _fetch_from_cache_or_db(cls) -> SiteConfiguration | None:
