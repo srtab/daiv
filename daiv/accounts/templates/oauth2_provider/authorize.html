@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% load static i18n icon_tags %}
+
+{% block title %}Authorize — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <!-- Background: radial spotlight -->
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)">
+    </div>
+
+    <!-- Background: dot grid -->
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px">
+    </div>
+
+    <!-- Background: geometric accent lines -->
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -right-32 top-[20%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -right-16 top-[28%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+        <div class="absolute -left-32 bottom-[25%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+    </div>
+
+    <!-- Card -->
+    <div class="relative w-full max-w-[420px]">
+
+        {% if not error %}
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <a href="/">
+                <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+            </a>
+            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">{% trans "Authorization request" %}</p>
+        </div>
+
+        <!-- Application info -->
+        <div class="animate-fade-up rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 80ms">
+            <!-- App identity -->
+            <div class="flex items-center gap-4">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04]">
+                    {% icon "squares-plus" "h-6 w-6 text-gray-400" %}
+                </div>
+                <div class="min-w-0">
+                    <h2 class="text-[15px] font-semibold text-white truncate">{{ application.name }}</h2>
+                    <p class="mt-0.5 text-[13px] text-gray-500">{% trans "wants to access your account" %}</p>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="my-5 border-t border-white/[0.06]"></div>
+
+            <!-- Permissions -->
+            <div>
+                <p class="mb-3 text-[12px] font-medium uppercase tracking-[0.15em] text-gray-500">{% trans "Permissions requested" %}</p>
+                <ul class="space-y-2.5">
+                    {% for scope in scopes_descriptions %}
+                    <li class="flex items-center gap-3">
+                        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10">
+                            {% icon "check" "h-3.5 w-3.5 text-emerald-400" %}
+                        </div>
+                        <span class="text-[14px] text-gray-300">{{ scope }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <!-- Redirect URI notice -->
+            {% if application.redirect_uris %}
+            <div class="mt-5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+                <div class="flex items-start gap-2.5">
+                    {% icon "link" "mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" %}
+                    <p class="text-[12px] leading-relaxed text-gray-500">
+                        {% trans "Will redirect to" %}
+                        <span class="font-medium text-gray-400 break-all">{{ application.redirect_uris }}</span>
+                    </p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Form errors -->
+        {% if form.errors %}
+        <div class="animate-fade-up mt-4 rounded-xl border border-red-800/50 bg-red-950/80 px-4 py-3 text-[13px] text-red-200" style="animation-delay: 120ms">
+            {{ form.errors }}
+        </div>
+        {% endif %}
+
+        <!-- Actions -->
+        <form id="authorizationForm" method="post"
+              class="animate-fade-up mt-5 flex gap-3" style="animation-delay: 160ms">
+            {% csrf_token %}
+
+            {% for field in form %}
+                {% if field.is_hidden %}
+                    {{ field }}
+                {% endif %}
+            {% endfor %}
+
+            <button type="submit" class="btn-secondary flex-1 px-4 py-3">
+                {% trans "Deny" %}
+            </button>
+            <button type="submit" name="allow" value="Authorize"
+                    class="btn-primary flex-1 px-4 py-3">
+                {% trans "Authorize" %}
+            </button>
+        </form>
+
+        <!-- Fine print -->
+        <p class="animate-fade-up mt-5 text-center text-[12px] font-light tracking-wide text-gray-500" style="animation-delay: 220ms">
+            {% trans "Authorizing will grant this application access to your DAIV account" %}
+        </p>
+
+        {% else %}
+        <!-- Error state -->
+        <div class="animate-fade-up flex flex-col items-center">
+            <a href="/">
+                <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+            </a>
+        </div>
+
+        <div class="animate-fade-up mt-10 rounded-2xl border border-red-800/30 bg-red-950/30 p-6 text-center" style="animation-delay: 80ms">
+            <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-red-800/30 bg-red-950/50">
+                {% icon "exclamation-triangle" "h-6 w-6 text-red-400" %}
+            </div>
+            <h2 class="text-[15px] font-semibold text-white">{{ error.error }}</h2>
+            <p class="mt-2 text-[14px] text-gray-400">{{ error.description }}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -11,10 +11,8 @@ from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
 from automation.agent.base import ThinkingLevel  # noqa: TC001
-from automation.agent.conf import settings as deepagent_settings
 from automation.agent.constants import ModelName  # noqa: TC001
-from automation.agent.diff_to_metadata.conf import settings as diff_to_metadata_settings
-from core.conf import settings as core_settings
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -88,7 +86,7 @@ class Sandbox(BaseModel):
     """
 
     base_image: str | None = Field(
-        default=core_settings.SANDBOX_BASE_IMAGE,
+        default_factory=lambda: site_settings.sandbox_base_image,
         examples=["python:3.12-alpine", "node:18-alpine"],
         description=(
             "The base image for the sandbox to allow agents to execute shell commands. "
@@ -97,19 +95,20 @@ class Sandbox(BaseModel):
         ),
     )
     ephemeral: bool = Field(
-        default=core_settings.SANDBOX_EPHEMERAL,
+        default_factory=lambda: site_settings.sandbox_ephemeral,
         description="Whether to make sandbox sessions ephemeral (server decides persistence behavior).",
     )
     network_enabled: bool = Field(
-        default=core_settings.SANDBOX_NETWORK_ENABLED, description="Whether to enable the network in the sandbox."
+        default_factory=lambda: site_settings.sandbox_network_enabled,
+        description="Whether to enable the network in the sandbox.",
     )
     memory_bytes: int | None = Field(
-        default=core_settings.SANDBOX_MEMORY,
+        default_factory=lambda: site_settings.sandbox_memory,
         validation_alias=AliasChoices("memory_bytes", "memory"),
         description="The memory limit for the sandbox (bytes).",
     )
     cpus: float | None = Field(
-        default=core_settings.SANDBOX_CPU,
+        default_factory=lambda: site_settings.sandbox_cpu,
         validation_alias=AliasChoices("cpus", "cpu"),
         description="The CPU limit for the sandbox (CPUs).",
     )
@@ -132,17 +131,17 @@ class AgentModelConfig(BaseModel):
     """
 
     model: ModelName | str = Field(
-        default=deepagent_settings.MODEL_NAME,
+        default_factory=lambda: site_settings.agent_model_name,
         description=("Model name for DAIV tasks. Overrides DAIV_AGENT_MODEL_NAME environment variable."),
     )
     fallback_model: ModelName | str = Field(
-        default=deepagent_settings.FALLBACK_MODEL_NAME,
+        default_factory=lambda: site_settings.agent_fallback_model_name,
         description=(
             "Fallback model name for DAIV tasks. Overrides DAIV_AGENT_FALLBACK_MODEL_NAME environment variable."
         ),
     )
     thinking_level: ThinkingLevel | None = Field(
-        default=deepagent_settings.THINKING_LEVEL,
+        default_factory=lambda: site_settings.agent_thinking_level,
         description=("Thinking level for DAIV tasks. Overrides DAIV_AGENT_THINKING_LEVEL environment variable."),
     )
 
@@ -153,14 +152,14 @@ class DiffToMetadataModelConfig(BaseModel):
     """
 
     model: ModelName | str = Field(
-        default=diff_to_metadata_settings.MODEL_NAME,
+        default_factory=lambda: site_settings.diff_to_metadata_model_name,
         description=(
             "Model name to transform a diff into metadata for a pull request/commit message. "
             "Overrides DIFF_TO_METADATA_MODEL_NAME environment variable."
         ),
     )
     fallback_model: ModelName | str = Field(
-        default=diff_to_metadata_settings.FALLBACK_MODEL_NAME,
+        default_factory=lambda: site_settings.diff_to_metadata_fallback_model_name,
         description=(
             "Fallback model name for diff to metadata. "
             "Overrides DIFF_TO_METADATA_FALLBACK_MODEL_NAME environment variable."
@@ -184,6 +183,15 @@ class RepositoryConfig(BaseModel):
     Configuration for a repository.
     """
 
+    allowed_usernames: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "List of usernames allowed to interact with DAIV on this repository. "
+            "When empty, all users are allowed. "
+            "Useful for public repositories where you want to restrict who can trigger DAIV."
+        ),
+    )
+
     default_branch: str | None = Field(
         default=None,
         description=(
@@ -192,6 +200,12 @@ class RepositoryConfig(BaseModel):
     )
     context_file_name: str | None = Field(
         default="AGENTS.md", description="File name to load from the repository in the format of https://agents.md/."
+    )
+    suggest_context_file: bool = Field(
+        default=True,
+        description=(
+            "Suggest creating a context file (e.g. AGENTS.md) when DAIV opens a merge request and the file is missing."
+        ),
     )
 
     # Codebase restrictions
@@ -222,6 +236,15 @@ class RepositoryConfig(BaseModel):
         default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
     )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
+
+    def is_user_allowed(self, username: str) -> bool:
+        """
+        Check if a user is allowed to interact with DAIV on this repository.
+        When the allowlist is empty, all users are allowed.
+        """
+        if not self.allowed_usernames:
+            return True
+        return username.lower() in {u.lower() for u in self.allowed_usernames}
 
     @staticmethod
     def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:
@@ -265,7 +288,7 @@ class RepositoryConfig(BaseModel):
         if not config.default_branch:
             config.default_branch = repository.default_branch
 
-        cache.set(cache_key, config.model_dump(), CONFIGURATION_CACHE_TIMEOUT)
+        cache.set(cache_key, config.model_dump(exclude_unset=True), CONFIGURATION_CACHE_TIMEOUT)
         logger.info("Cached configuration for repository %s", repo_id)
         return config
 

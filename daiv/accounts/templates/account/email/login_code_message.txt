@@ -1,0 +1,9 @@
+{% load i18n %}{% autoescape off %}{% trans "Your sign-in code for DAIV is:" %}
+
+{{ code }}
+
+{% trans "Enter this code in your open browser window to complete sign-in." %}
+
+{% trans "This code expires in 5 minutes. If you did not request this, you can safely ignore this email." %}
+
+— DAIV{% endautoescape %}

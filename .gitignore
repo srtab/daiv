@@ -160,6 +160,7 @@ cython_debug/
 #.idea/
 
 config.secrets.env
+config.toml
 state-snapshots.txt
 
 .ruff_cache/
@@ -167,6 +168,9 @@ state-snapshots.txt
 .claude/
 
 request.json
+
+# Tailwind CSS build output
+daiv/static/css/styles.css
 
 # SWE-bench
 daiv-traces/

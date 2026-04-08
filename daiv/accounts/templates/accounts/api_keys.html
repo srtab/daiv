@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% load static icon_tags %}
+
+{% block title %}API Keys — DAIV{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh">
+    {% include "accounts/_header.html" %}
+
+    <!-- Content -->
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">API Keys</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">Create and manage keys for programmatic access.</p>
+            </div>
+            <a href="{% url 'dashboard' %}"
+               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                &larr; Dashboard
+            </a>
+        </div>
+
+        {% if new_key %}
+        <!-- Newly created key (shown once) -->
+        <div class="animate-fade-up mt-8 rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6" style="animation-delay: 50ms">
+            <div class="flex items-start gap-3">
+                {% icon "check-circle" "mt-0.5 h-5 w-5 shrink-0 text-emerald-400" %}
+                <div class="min-w-0 flex-1">
+                    <p class="text-[14px] font-medium text-emerald-200">Your new API key</p>
+                    <p class="mt-1 text-[13px] text-emerald-300/70">Copy it now — you won't be able to see it again.</p>
+                    <div class="mt-3 flex items-center gap-2">
+                        <code id="new-key" class="block flex-1 overflow-x-auto rounded-lg bg-black/30 px-4 py-2.5 font-mono text-[13px] text-emerald-200">{{ new_key }}</code>
+                        <button onclick="navigator.clipboard.writeText(document.getElementById('new-key').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)"
+                                class="shrink-0 rounded-lg border border-emerald-800/50 bg-emerald-900/30 px-3 py-2 text-[13px] font-medium text-emerald-300 transition-all hover:bg-emerald-900/50">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Create new key -->
+        <form method="post" action="{% url 'api_key_create' %}"
+              class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+            {% csrf_token %}
+            <h2 class="text-[15px] font-semibold text-white">Create a new key</h2>
+            <div class="mt-4 flex items-center gap-3">
+                <input type="text" name="name" required maxlength="128"
+                       placeholder="Key name (e.g. CI/CD, local dev)" class="flex-1">
+                <button type="submit" class="btn-primary shrink-0">
+                    Create key
+                </button>
+            </div>
+        </form>
+
+        <!-- Key list -->
+        <div class="animate-fade-up mt-6" style="animation-delay: 150ms">
+            {% if api_keys %}
+            <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+                {% for key in api_keys %}
+                <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if key.revoked %}opacity-50{% endif %}">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-3">
+                            <span class="text-[14px] font-medium text-white">{{ key.name }}</span>
+                            {% if key.revoked %}
+                            <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Revoked</span>
+                            {% endif %}
+                        </div>
+                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                            <span>Prefix: <code class="text-gray-400">{{ key.prefix }}...</code></span>
+                            <span>&middot;</span>
+                            <span>Created {{ key.created|timesince }} ago</span>
+                            {% if key.expires_at %}
+                            <span>&middot;</span>
+                            <span>Expires {{ key.expires_at|date:"M j, Y" }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if not key.revoked %}
+                    <form method="post" action="{% url 'api_key_revoke' key.pk %}">
+                        {% csrf_token %}
+                        <button type="submit"
+                                onclick="return confirm('Revoke key \'{{ key.name|escapejs }}\'? This cannot be undone.')"
+                                class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300">
+                            Revoke
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% include "accounts/_pagination.html" %}
+            {% else %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+                <p class="text-[14px] text-gray-500">No API keys yet. Create one above to get started.</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}

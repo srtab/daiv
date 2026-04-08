@@ -1,3 +1,5 @@
+ARG TAILWIND_VERSION="v4.2.2"
+
 #########################################################################################################
 # Python compile image
 #########################################################################################################
@@ -24,7 +26,7 @@ ENV UV_LINK_MODE=copy \
 # Create a virtual environment and make it relocatable
 RUN uv venv .venv --relocatable
 
-# Install uv
+# Install Python dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -34,6 +36,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Python build image
 #########################################################################################################
 FROM python:3.14.2-slim-bookworm AS python-builder
+
+ARG TAILWIND_VERSION
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -91,7 +95,13 @@ WORKDIR /home/daiv
 RUN chmod +x entrypoint start-app start-worker start-crontask \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
-  && mkdir -p data/media data/static data/mcp-proxy
+  && mkdir -p data/media data/static \
+  # Build Tailwind CSS
+  && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
+  && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \
+  && chmod +x "tailwindcss-linux-${ARCH}" \
+  && ./"tailwindcss-linux-${ARCH}" -i app/static_src/css/input.css -o app/static/css/styles.css --minify \
+  && rm "tailwindcss-linux-${ARCH}"
 
 HEALTHCHECK --interval=10s --start-period=30s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1

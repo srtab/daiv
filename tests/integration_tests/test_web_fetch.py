@@ -1,10 +1,10 @@
-from django.conf import settings
 from django.core.cache import cache
 
 import pytest
 from langsmith import testing as t
 
 from automation.agent.middlewares.web_fetch import _get_cached_response, web_fetch_tool
+from core.site_settings import site_settings
 
 TEST_SUITE = "DAIV: Web Fetch"
 
@@ -57,7 +57,7 @@ async def test_web_fetch_returns_raw_contents_when_prompt_is_empty():
 
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 async def test_web_fetch_reuses_cached_response_for_same_url_and_prompt():
-    if settings.WEB_FETCH_MODEL_NAME is None:
+    if site_settings.web_fetch_model_name is None:
         pytest.skip(
             "WEB_FETCH_MODEL_NAME is not configured; response caching is only used for model-processed prompts."
         )

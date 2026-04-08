@@ -7,6 +7,20 @@ from pydantic import BaseModel
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 
+class MergeRequestAction(StrEnum):
+    """
+    Gitlab Merge Request Action
+    """
+
+    MERGE = "merge"
+    OPEN = "open"
+    CLOSE = "close"
+    REOPEN = "reopen"
+    UPDATE = "update"
+    APPROVED = "approved"
+    UNAPPROVED = "unapproved"
+
+
 class IssueAction(StrEnum):
     """
     Gitlab Issue Action
@@ -191,3 +205,19 @@ class User(BaseModel):
     name: str
     username: str
     email: str
+
+
+class MergeRequestEvent(BaseModel):
+    """
+    Gitlab Merge Request event object_attributes from the merge_request webhook.
+    """
+
+    id: int
+    iid: int
+    title: str
+    state: Literal["opened", "closed", "merged", "locked"]
+    action: MergeRequestAction | None = None
+    source_branch: str
+    target_branch: str
+    author_id: int
+    merged_at: str | None = None

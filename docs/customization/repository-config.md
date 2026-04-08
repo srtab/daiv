@@ -8,6 +8,12 @@ Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of
 # Repository settings
 default_branch: main
 context_file_name: "AGENTS.md"
+suggest_context_file: true
+
+# Access control
+allowed_usernames:
+  - alice
+  - bob
 
 # Files the agent can see but won't read
 omit_content_patterns:
@@ -53,9 +59,30 @@ models:
 |--------|------|---------|-------------|
 | `default_branch` | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests. |
 | `context_file_name` | `str \| null` | `"AGENTS.md"` | Name of the [AGENTS.md](https://arxiv.org/abs/2602.11988) guidance file. Set to `null` to disable. |
+| `suggest_context_file` | `bool` | `true` | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](../features/issue-addressing.md#agentsmd-suggestion). |
 
 !!! tip
     The `AGENTS.md` file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the `/init` skill — see [Slash Commands & Skills](../features/slash-commands.md#init).
+
+## Access control
+
+Restrict which users can interact with DAIV on this repository. This is particularly useful for **public repositories** where you want to prevent arbitrary users from triggering DAIV.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowed_usernames` | `list[str]` | `[]` | Usernames allowed to interact with DAIV. When empty, all users are allowed. |
+
+```yaml
+allowed_usernames:
+  - alice
+  - bob
+  - charlie
+```
+
+When the list is empty or omitted, **all users** can interact with DAIV (default behavior). When populated, only the listed users can trigger DAIV through issues, comments, and merge request reviews. Username matching is case-insensitive.
+
+!!! tip
+    Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
 
 ## File access
 

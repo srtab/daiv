@@ -1,9 +1,10 @@
 # Makefile
 
-.PHONY: help test test-ci lint lint-check lint-format lint-fix lint-typing evals
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-typing evals tailwind-build tailwind-watch
 
 help:
 	@echo "Available commands:"
+	@echo "  make setup          - Set up local development environment"
 	@echo "  make test           - Run tests with coverage report"
 	@echo "  make lint           - Run lint check and format check"
 	@echo "  make lint-check     - Run lint check only (ruff)"
@@ -12,6 +13,30 @@ help:
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
 	@echo "  make integration-tests          - Run integration tests"
+
+setup:
+	@if [ ! -f docker/local/app/config.secrets.env ]; then \
+		cp docker/local/app/config.secrets.env.example docker/local/app/config.secrets.env && \
+		echo "Created docker/local/app/config.secrets.env from template."; \
+	else \
+		echo "docker/local/app/config.secrets.env already exists, skipping."; \
+	fi
+	@if [ ! -f docker/local/gitlab-runner/config.toml ]; then \
+		cp docker/local/gitlab-runner/config.toml.example docker/local/gitlab-runner/config.toml && \
+		echo "Created docker/local/gitlab-runner/config.toml from template."; \
+	else \
+		echo "docker/local/gitlab-runner/config.toml already exists, skipping."; \
+	fi
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Edit docker/local/app/config.secrets.env and add your API keys"
+	@echo "     (at minimum: one LLM provider key + CODEBASE_GITLAB_AUTH_TOKEN if using GitLab)"
+	@echo "  2. Start core services:  docker compose up --build"
+	@echo "  3. Optional services:"
+	@echo "       docker compose --profile gitlab up    # local GitLab instance"
+	@echo "       docker compose --profile sandbox up   # sandbox code executor"
+	@echo "       docker compose --profile mcp up       # MCP proxy"
+	@echo "       docker compose --profile full up      # all services"
 
 test:
 	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests
@@ -40,7 +65,7 @@ compilemessages:
 	uv run django-admin compilemessages
 
 integration-tests:
-	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m sandbox
+	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
 
 swebench:
 	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
@@ -77,6 +102,12 @@ swerebench-clean:
 
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
+
+tailwind-build:
+	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify
+
+tailwind-watch:
+	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --watch
 
 langsmith-fetch:
 	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 1 ./daiv-traces

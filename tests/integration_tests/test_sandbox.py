@@ -3,7 +3,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
 
 from automation.agent.graph import create_daiv_agent
-from core.conf import settings as core_settings
+from core.site_settings import site_settings
 
 from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls
 
@@ -77,7 +77,7 @@ def _extract_bash_tool_messages(messages: list) -> list[str]:
     ],
 )
 async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
-    if core_settings.SANDBOX_API_KEY is None:
+    if site_settings.sandbox_api_key is None:
         pytest.skip("SANDBOX_API_KEY is not configured.")
 
     t.log_inputs({"model_name": model_name, "inputs": inputs})
@@ -134,7 +134,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(model_name, user_message
     reach the sandbox, and that the agent receives a policy-denial error response.
     The agent should NOT execute the forbidden command successfully.
     """
-    if core_settings.SANDBOX_API_KEY is None:
+    if site_settings.sandbox_api_key is None:
         pytest.skip("SANDBOX_API_KEY is not configured.")
 
     t.log_inputs({

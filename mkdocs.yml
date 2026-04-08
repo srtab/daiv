@@ -8,8 +8,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  icon:
-    logo: material/robot-outline
+  logo: assets/logo.svg
 
   font:
     text: Inter
@@ -57,6 +56,36 @@ plugins:
   - git-revision-date-localized:
       enable_creation_date: true
       fallback_to_build_date: true
+  - llmstxt:
+      full_output: llms-full.txt
+      markdown_description: >
+        DAIV is an open-source async software engineering agent that integrates
+        natively with GitLab and GitHub through webhooks. Create an issue, get a
+        merge request. Mention DAIV in a review, get the fix. Licensed under
+        Apache 2.0.
+      sections:
+        Getting Started:
+        - getting-started/deployment.md: How to deploy DAIV with Docker
+        - getting-started/platform-setup.md: Setting up GitLab or GitHub integration
+        - getting-started/llm-providers.md: Configuring LLM providers
+        Features:
+        - features/issue-addressing.md: Automated issue-to-merge-request workflow
+        - features/pull-request-assistant.md: AI-powered pull request reviews and fixes
+        - features/jobs-api.md: REST API for programmatic agent triggering
+        - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
+        - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
+        - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
+        - features/slash-commands.md: Slash commands and custom skills
+        - features/subagents.md: Specialized subagents for exploration and execution
+        - features/sandbox.md: Secure sandboxed code execution
+        Customization:
+        - customization/repository-config.md: Per-repository configuration
+        - customization/agent-skills.md: Creating custom agent skills
+        - customization/mcp-tools.md: MCP tool integrations
+        Reference:
+        - reference/env-variables.md: Environment variables reference
+        - reference/agent-architecture.md: Agent architecture overview
+        - reference/monitoring.md: Monitoring and observability
 
 markdown_extensions:
   - attr_list
@@ -78,6 +107,9 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
+extra_css:
+  - assets/extra.css
+
 extra:
   generator: false
   version:
@@ -92,6 +124,10 @@ nav:
   - Features:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
+    - Jobs API: features/jobs-api.md
+    - Scheduled Jobs: features/scheduled-jobs.md
+    - MCP Endpoint: features/mcp-endpoint.md
+    - Merge Metrics: features/merge-metrics.md
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md

@@ -9,6 +9,7 @@ from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
 from .evaluators import correctness_evaluator
+from .utils import FAST_MODEL_NAMES
 
 DATA_DIR = Path(__file__).parent / "data" / "diff_to_metadata"
 TEST_SUITE = "DAIV: Diff to Metadata"
@@ -39,9 +40,11 @@ def load_cases() -> list[pytest.param]:
         yield pytest.param(inputs, reference_outputs, id=case_id)
 
 
+@pytest.mark.diff_to_metadata
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE, output_keys=["reference_outputs"])
+@pytest.mark.parametrize("model_name", FAST_MODEL_NAMES)
 @pytest.mark.parametrize("inputs,reference_outputs", load_cases())
-async def test_diff_to_metadata(inputs, reference_outputs):
+async def test_diff_to_metadata(model_name, inputs, reference_outputs):
     t.log_inputs(inputs)
     t.log_reference_outputs(reference_outputs)
 
@@ -53,7 +56,7 @@ async def test_diff_to_metadata(inputs, reference_outputs):
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:
             (agent_path / ctx.config.context_file_name).unlink()
-        changes_metadata_graph = create_diff_to_metadata_graph(ctx=ctx)
+        changes_metadata_graph = create_diff_to_metadata_graph(ctx=ctx, model_names=[model_name])
         outputs = await changes_metadata_graph.ainvoke(inputs)
         outputs = {
             "pr_metadata": outputs["pr_metadata"].model_dump(mode="json") if "pr_metadata" in outputs else None,

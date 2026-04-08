@@ -7,7 +7,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from langgraph.store.memory import InMemoryStore
 from ninja import Router
 
@@ -80,7 +80,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     async def event_generator():
         async with (
-            AsyncPostgresSaver.from_conn_string(django_settings.DB_URI) as checkpointer,
+            AsyncRedisSaver.from_conn_string(
+                django_settings.DJANGO_REDIS_CHECKPOINT_URL,
+                ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
+            ) as checkpointer,
             set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
         ):
             agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())

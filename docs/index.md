@@ -1,4 +1,6 @@
-<h1 align="center" style="font-size: 4rem; font-weight: 800; letter-spacing: -0.02em;">DAIV</h1>
+<p align="center">
+  <img src="assets/logo.svg" alt="DAIV" width="400">
+</p>
 
 <p align="center">
   <strong>Open-source async SWE agent for your Git platform</strong>
@@ -21,6 +23,8 @@ DAIV automates routine software engineering work so you can focus on creative pr
 - **Issue Addressing** — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.
 - **Pull Request Assistant** — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.
 - **Slash Commands & Skills** — Invoke commands and skills directly from issues and merge requests (`/help`, `/plan`, `/code-review`, `/clone-to-topics`). Built-in skills provide planning, code review, and security audits — and you can create your own.
+- **MCP Endpoint** — Connect your AI coding assistant (Claude Code, Cursor, Codex CLI) to DAIV via the [Model Context Protocol](https://modelcontextprotocol.io/). Delegate tasks from your editor and get results back without leaving your workflow.
+- **Scheduled Jobs** — Run agents on a recurring basis — hourly, daily, weekly, or any custom cron expression. Automate dependency audits, code quality scans, stale branch cleanup, and more without CI pipelines or external schedulers.
 
 ## Quick example
 
@@ -92,5 +96,21 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
     Tailor DAIV to your team with `.daiv.yml`, skills, and MCP tools.
 
     [:octicons-arrow-right-24: Repository Config](customization/repository-config.md)
+
+-   **Use from your editor**
+
+    ---
+
+    Connect Claude Code, Cursor, or Codex CLI to DAIV via MCP.
+
+    [:octicons-arrow-right-24: MCP Endpoint](features/mcp-endpoint.md)
+
+-   **Automate recurring tasks**
+
+    ---
+
+    Run agents on a schedule — dependency audits, cleanup, reports, and more.
+
+    [:octicons-arrow-right-24: Scheduled Jobs](features/scheduled-jobs.md)
 
 </div>

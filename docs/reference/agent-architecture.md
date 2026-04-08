@@ -15,7 +15,8 @@ DAIV's architecture consists of:
 graph TB
     WH[Webhook Event] --> CB[Callback Handler]
     CB --> TQ[Task Queue]
-    TQ --> MGR[Manager]
+    JOB[Jobs API] --> TQ
+    TQ --> MGR[Manager / Task]
     MGR --> AGENT[DAIV Agent]
 
     AGENT --> MW[Middleware Stack]
@@ -38,11 +39,11 @@ graph TB
 
 ## End-to-end flow
 
-1. **Webhook** — GitLab or GitHub sends an event (issue created, comment posted, etc.)
-2. **Callback handler** — validates the webhook, extracts event data, enqueues a background task
-3. **Manager** — sets up the runtime context (repository, branch, scope) and creates the agent
+1. **Trigger** — a webhook event from GitLab/GitHub, or a [Jobs API](../features/jobs-api.md) request
+2. **Dispatch** — the callback handler (webhooks) or API view (jobs) enqueues a background task
+3. **Context setup** — the task sets up the runtime context (repository, branch, scope) and creates the agent
 4. **Agent execution** — LangGraph runs the agent loop: call LLM → execute tools → repeat
-5. **Publishing** — the agent commits changes, creates/updates a merge request, and leaves a comment
+5. **Output** — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)
 
 ### Managers
 
@@ -126,8 +127,8 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 | Middleware | Condition |
 |------------|-----------|
 | `SandboxMiddleware` | Sandbox is configured (`DAIV_SANDBOX_BASE_IMAGE` is set) |
-| `WebSearchMiddleware` | `AUTOMATION_WEB_SEARCH_ENABLED` is `true` |
-| `WebFetchMiddleware` | `AUTOMATION_WEB_FETCH_ENABLED` is `true` |
+| `WebSearchMiddleware` | `DAIV_WEB_SEARCH_ENABLED` is `true` |
+| `WebFetchMiddleware` | `DAIV_WEB_FETCH_ENABLED` is `true` |
 | `ModelFallbackMiddleware` | A fallback model is configured |
 | `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode) |
 

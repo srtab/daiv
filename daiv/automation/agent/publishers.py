@@ -4,13 +4,15 @@ import logging
 from abc import abstractmethod
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
-from core.constants import BOT_LABEL, BOT_NAME
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
+from core.site_settings import site_settings
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
@@ -102,6 +104,7 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
+            self._suggest_context_file(merge_request)
         elif merge_request.draft and as_draft is False:
             merge_request = self.client.update_merge_request(
                 merge_request.repo_id, merge_request.merge_request_id, as_draft=as_draft
@@ -193,7 +196,7 @@ class GitChangePublisher(ChangePublisher):
             assignee_id=assignee_id,
             as_draft=as_draft,
             description=render_to_string(
-                "codebase/issue_merge_request.txt",
+                "automation/issue_merge_request.txt",
                 {
                     "description": description,
                     "source_repo_id": self.ctx.repository.slug,
@@ -204,3 +207,60 @@ class GitChangePublisher(ChangePublisher):
                 },
             ),
         )
+
+    def _suggest_context_file(self, merge_request: MergeRequest) -> None:
+        if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:
+            return
+
+        context_file_name = self.ctx.config.context_file_name
+        if not context_file_name:
+            return
+
+        try:
+            existing = self.client.get_repository_file(
+                self.ctx.repository.slug, context_file_name, ref=cast("str", self.ctx.config.default_branch)
+            )
+            if existing is not None:
+                return
+
+            issue_url = self._build_issue_creation_url(context_file_name)
+            comment_body = render_to_string(
+                "automation/suggest_context_file.txt",
+                {"context_file_name": context_file_name, "bot_name": BOT_NAME, "issue_url": issue_url},
+            )
+            self.client.create_merge_request_comment(
+                self.ctx.repository.slug, merge_request.merge_request_id, comment_body
+            )
+            logger.info(
+                "Suggested %s for %s MR #%s",
+                context_file_name,
+                self.ctx.repository.slug,
+                merge_request.merge_request_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to suggest %s for %s MR #%s",
+                context_file_name,
+                self.ctx.repository.slug,
+                merge_request.merge_request_id,
+                exc_info=True,
+            )
+
+    def _build_issue_creation_url(self, context_file_name: str) -> str:
+        """
+        Build a platform-specific URL that pre-fills the new-issue form.
+        The issue body is kept minimal so the /init skill handles the details.
+        """
+        title = f"Add `{context_file_name}` to the repository"
+        body = f"Create an `{context_file_name}` file for this repository."
+
+        html_url = self.ctx.repository.html_url
+
+        if self.ctx.git_platform == GitPlatform.GITLAB:
+            params = urlencode(
+                {"issue[title]": title, "issue[description]": f"{body}\n\n/label ~{BOT_AUTO_LABEL}\n"}, quote_via=quote
+            )
+            return f"{html_url}/-/issues/new?{params}"
+
+        params = urlencode({"title": title, "body": body, "labels": BOT_AUTO_LABEL}, quote_via=quote)
+        return f"{html_url}/issues/new?{params}"

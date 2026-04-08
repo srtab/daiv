@@ -9,13 +9,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.publishers import GitChangePublisher
 from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-from .base import CHECKPOINT_TTL_MINUTES, BaseManager
+from .base import BaseManager
 
 if TYPE_CHECKING:
     from codebase.base import Issue
@@ -40,7 +39,9 @@ class IssueAddressorManager(BaseManager):
         self.mention_comment_id = mention_comment_id
 
     @classmethod
-    async def address_issue(cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
+    async def address_issue(
+        cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx
+    ) -> dict[str, bool]:
         """
         Address the issue.
 
@@ -48,20 +49,24 @@ class IssueAddressorManager(BaseManager):
             issue (Issue): The issue object.
             mention_comment_id (str | None): The mention comment id. Defaults to None.
             runtime_ctx (RuntimeCtx): The runtime context.
+
+        Returns:
+            A dict with ``code_changes`` indicating whether code was published.
         """
         manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
         try:
-            await manager._address_issue()
-        except Exception as e:
-            logger.exception("Error addressing issue %d: %s", issue.iid, e)
+            return await manager._address_issue()
+        except Exception:
             manager._add_unable_to_address_issue_note()
+            raise
 
-    async def _address_issue(self):
+    async def _address_issue(self) -> dict[str, bool]:
         """
         Process the issue by addressing it with the appropriate actions.
         """
         messages = []
+        triggered_by = self.issue.author.username
 
         if self.mention_comment_id:
             # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
@@ -69,6 +74,7 @@ class IssueAddressorManager(BaseManager):
                 self.ctx.repository.slug, self.issue.iid, self.mention_comment_id
             )
             latest_comment = mention_comment.notes[-1]
+            triggered_by = latest_comment.author.username
             messages.append(
                 HumanMessage(name=latest_comment.author.username, id=latest_comment.id, content=latest_comment.body)
             )
@@ -84,43 +90,39 @@ class IssueAddressorManager(BaseManager):
             )
 
         async with AsyncRedisSaver.from_conn_string(
-            django_settings.DJANGO_REDIS_CHECKPOINT_URL, ttl={"default_ttl": CHECKPOINT_TTL_MINUTES}
+            django_settings.DJANGO_REDIS_CHECKPOINT_URL,
+            ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
         ) as checkpointer:
+            agent_kwargs = get_daiv_agent_kwargs(
+                model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
+            )
             daiv_agent = await create_daiv_agent(
-                ctx=self.ctx,
-                checkpointer=checkpointer,
-                store=self.store,
-                **get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()),
+                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
             agent_config = RunnableConfig(
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value],
+                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
                 metadata={
                     "author": self.issue.author.username,
+                    "triggered_by": triggered_by,
+                    "trigger": "mention" if self.mention_comment_id else "label",
+                    "repository": self.ctx.repository.slug,
+                    "git_platform": self.client.git_platform.value,
                     "issue_id": self.issue.iid,
                     "labels": [label.lower() for label in self.issue.labels],
                     "scope": self.ctx.scope,
+                    "model": agent_kwargs["model_names"][0],
+                    "thinking_level": agent_kwargs["thinking_level"],
                 },
             )
             try:
                 result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
             except Exception:
-                snapshot = await daiv_agent.aget_state(config=agent_config)
-
-                # If and unexpect error occurs while addressing the issue, a draft merge request is created to avoid
-                # losing the changes made by the agent.
-                snapshot_mr = snapshot.values.get("merge_request")
-
-                publisher = GitChangePublisher(self.ctx)
-                published_mr = await publisher.publish(
-                    merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
+                draft_published = await self._recover_draft(
+                    daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
                 )
-
-                # If the draft merge request is created successfully, we update the state to reflect the new MR.
-                if published_mr:
-                    await daiv_agent.aupdate_state(config=agent_config, values={"merge_request": published_mr})
-
-                self._add_unable_to_address_issue_note(draft_published=bool(published_mr))
+                self._add_unable_to_address_issue_note(draft_published=draft_published)
+                raise
             else:
                 if (
                     result
@@ -130,7 +132,14 @@ class IssueAddressorManager(BaseManager):
                 ):
                     self._leave_comment(response_text)
                 else:
+                    logger.warning(
+                        "Agent returned empty response for issue %d (result keys: %s)",
+                        self.issue.iid,
+                        list(result.keys()) if result else None,
+                    )
                     self._add_unable_to_address_issue_note()
+
+                return await self._read_code_changes(daiv_agent, agent_config)
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """

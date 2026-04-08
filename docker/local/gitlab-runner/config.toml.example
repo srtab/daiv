@@ -1,0 +1,29 @@
+concurrent = 4
+check_interval = 0
+
+[session_server]
+  session_timeout = 1800
+
+# To register a runner with your local GitLab instance:
+# 1. Start GitLab: docker compose --profile gitlab up -d gitlab
+# 2. Get root password: docker compose exec gitlab grep 'Password:' /etc/gitlab/initial_root_password
+# 3. Log in at http://localhost:8929 and go to Admin Area > CI/CD > Runners
+# 4. Create a new runner and copy the token
+# 5. Replace REPLACE_WITH_YOUR_RUNNER_TOKEN below with your token
+
+[[runners]]
+  name = "runner"
+  url = "http://gitlab:8929"
+  clone_url = "http://127.0.0.1:8929"
+  token = "REPLACE_WITH_YOUR_RUNNER_TOKEN"
+  executor = "docker"
+  request_concurrency = 2
+  [runners.docker]
+    network_mode = "host"
+    tls_verify = false
+    image = "docker:latest"
+    privileged = true
+    disable_cache = false
+    pull_policy = "if-not-present"
+    extra_hosts = ["postgres:127.0.0.1"]
+    volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]

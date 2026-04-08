@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% load static dashboard_tags i18n icon_tags %}
+
+{% block title %}Dashboard — DAIV{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh">
+    {% include "accounts/_header.html" %}
+
+    <!-- Content -->
+    <main class="mx-auto max-w-5xl px-6 py-12">
+        <!-- Title row with period filter -->
+        <div class="animate-fade-up flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-500">Welcome back, {{ user.name|default:user.email }}</p>
+            </div>
+            <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {% for p in periods %}
+                <a href="?period={{ p.key }}"
+                   class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                          {% if p.key == current_period %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
+                    {{ p.label }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Metrics: two-column layout -->
+        <div class="animate-fade-up mt-10 grid gap-6 sm:grid-cols-2" style="animation-delay: 150ms">
+            <!-- Agent Activity -->
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
+                <div class="flex items-center gap-2.5 pb-4">
+                    <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+                        {% icon "beaker" "h-3.5 w-3.5 text-gray-400" %}
+                    </div>
+                    <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Agent Activity</h2>
+                </div>
+                <div class="space-y-0 divide-y divide-white/[0.04]">
+                    {% for counter in counters %}
+                    <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
+                        <span class="text-[13px] text-gray-500">{{ counter.label }}</span>
+                        <div class="text-right">
+                            <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
+                            {% if counter.today %}
+                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Code Velocity -->
+            {% if merge_counters %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
+                <div class="flex items-center gap-2.5 pb-4">
+                    <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+                        {% icon "chart-bar" "h-3.5 w-3.5 text-gray-400" %}
+                    </div>
+                    <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Code Velocity</h2>
+                </div>
+                <div class="space-y-0 divide-y divide-white/[0.04]">
+                    {% for counter in merge_counters %}
+                    <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
+                        <span class="flex items-center gap-1.5 text-[13px] text-gray-500">
+                            {{ counter.label }}
+                            {% if counter.tooltip %}
+                            <span class="group relative cursor-help">
+                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
+                                <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                                    {{ counter.tooltip }}
+                                </span>
+                            </span>
+                            {% endif %}
+                        </span>
+                        <div class="text-right">
+                            <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
+                            {% if counter.today %}
+                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Quick Links -->
+        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="animation-delay: 300ms">
+            {% if user.is_admin %}
+            {% url 'user_list' as users_url %}
+            {% if total_users %}{% blocktranslate with count=total_users asvar users_badge %}{{ count }} total{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=users_url icon="users" title="Users" description="Manage user accounts and roles." badge=users_badge %}
+            {% url 'site_configuration' as config_url %}
+            {% include "accounts/_quick_link_card.html" with url=config_url icon="cog-6-tooth" title="Configuration" description="Manage models, features, and API keys." %}
+            {% endif %}
+            {% url 'api_keys' as api_keys_url %}
+            {% if active_api_keys %}{% blocktranslate with count=active_api_keys asvar api_keys_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=api_keys_url icon="key" title="API Keys" description="Manage API keys for programmatic access to DAIV." badge=api_keys_badge %}
+            {% url 'schedule_list' as schedules_url %}
+            {% if active_schedules %}{% blocktranslate with count=active_schedules asvar schedules_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
+            {% include "accounts/_quick_link_card.html" with url=schedules_url icon="clock" title="Scheduled Jobs" description="Automate agent runs on repositories with recurring schedules." badge=schedules_badge %}
+            {% url 'api:openapi-view' as api_docs_url %}
+            {% include "accounts/_quick_link_card.html" with url=api_docs_url icon="code-bracket" title="API Documentation" description="Explore the API endpoints and test requests interactively." %}
+        </div>
+    </main>
+</div>
+{% endblock %}

@@ -29,6 +29,23 @@ class Scope(StrEnum):
     """The conversation is scoped to a merge request."""
 
 
+class MergeRequestDiffStats(BaseModel):
+    """Aggregated diff statistics for a merge request."""
+
+    lines_added: int = Field(default=0, ge=0)
+    lines_removed: int = Field(default=0, ge=0)
+    files_changed: int = Field(default=0, ge=0)
+
+
+class MergeRequestCommit(BaseModel):
+    """Per-commit metadata from a merge request, used for author attribution."""
+
+    sha: str = Field(min_length=1)
+    author_email: str
+    lines_added: int = Field(default=0, ge=0)
+    lines_removed: int = Field(default=0, ge=0)
+
+
 class Repository(BaseModel):
     pk: int
     slug: str

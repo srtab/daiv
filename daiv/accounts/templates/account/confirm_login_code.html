@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load static icon_tags %}
+
+{% block title %}Enter code — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)"></div>
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px"></div>
+
+    <div class="relative w-full max-w-[380px]">
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+        </div>
+
+        <!-- Icon + message -->
+        <div class="animate-fade-up mb-8 text-center" style="animation-delay: 80ms">
+            <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
+                {% icon "envelope" "h-5 w-5 text-gray-400" %}
+            </div>
+            <h2 class="text-[16px] font-semibold text-white">Check your email</h2>
+            <p class="mt-2 text-[14px] font-light text-gray-400">
+                We sent a login code to your inbox.<br>Enter it below to continue.
+            </p>
+        </div>
+
+        <form method="post" class="animate-fade-up" style="animation-delay: 160ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                {% for field in form %}
+                <div>
+                    {% if field.errors %}
+                    <p class="mb-2 text-[14px] text-red-400">{{ field.errors.0 }}</p>
+                    {% endif %}
+                    <input type="text"
+                           name="{{ field.html_name }}"
+                           id="{{ field.id_for_label }}"
+                           value="{{ field.value|default:'' }}"
+                           {% if field.field.required %}required{% endif %}
+                           autocomplete="one-time-code"
+                           inputmode="numeric"
+                           placeholder="Enter code"
+                           class="py-3.5 text-center text-lg font-semibold tracking-[0.3em]">
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn-primary w-full px-4 py-3">
+                    Verify &amp; sign in
+                </button>
+            </div>
+        </form>
+
+        <p class="animate-fade-up mt-6 text-center text-[14px] text-gray-500" style="animation-delay: 220ms">
+            <a href="{% url 'account_login' %}" class="text-gray-400 transition-colors hover:text-white">Back to sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

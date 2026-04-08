@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import shlex
 from pathlib import Path
@@ -13,6 +15,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
+from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import AGENTS_SKILLS_PATH, BUILTIN_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -92,6 +95,9 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
     {{#metadata.is_builtin}}
     <builtin>true</builtin>
     {{/metadata.is_builtin}}
+    {{#metadata.is_global}}
+    <global>true</global>
+    {{/metadata.is_global}}
   </skill>
   {{/skills_list}}
 </available_skills>""",
@@ -127,21 +133,29 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # We need to always copy builtin skills before calling the super method to make them available in the filesystem
-        # not just to be captured and registered in "skills_metadata" on first run, but also to be available in the
-        # filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error will be raised.
-        builtin_skills = await self._copy_builtin_skills(agent_path=Path(runtime.context.gitrepo.working_dir))
+        # We need to always copy builtin and custom global skills before calling the super method to make them available
+        # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
+        # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
+        # will be raised.
+        builtin_skills, custom_global_skills = await self._copy_global_skills(
+            agent_path=Path(runtime.context.gitrepo.working_dir)
+        )
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
-        # Mark builtin skills as builtin. Unmark non-builtin skills. This is necessary because the builtin skills can
-        # be rewritten to the project skills directory by the user and they should not be marked as builtin anymore.
+        # Mark skills based on their origin. Custom global skills take precedence over built-in skills with the same
+        # name. Per-repository skills (not in either list) get both flags removed.
         if skills_update is not None:
             for skill in skills_update["skills_metadata"]:
-                if skill["name"] in builtin_skills:
+                if skill["name"] in custom_global_skills:
+                    skill["metadata"]["is_global"] = True
+                    skill["metadata"].pop("is_builtin", None)
+                elif skill["name"] in builtin_skills:
                     skill["metadata"]["is_builtin"] = True
+                    skill["metadata"].pop("is_global", None)
                 else:
                     skill["metadata"].pop("is_builtin", None)
+                    skill["metadata"].pop("is_global", None)
 
         # If the super method returns None, it means that the skills metadata was already captured and registered in
         # the state.
@@ -163,51 +177,78 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_builtin_skills(self, agent_path: Path) -> list[str]:
+    async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
         """
-        Copy builtin skills to the project skills directory if they don't exist.
+        Copy builtin and custom global skills to the project skills directory if they don't exist.
 
-        This allows the agent to find built-in skills and execute scripts bundled with them as if they were project
-        skills, even if the project skills directory is not set up. The copied skills folder includes a .gitignore file
-        to prevent the skills from being committed to the repository.
+        This allows the agent to find built-in and custom global skills and execute scripts bundled with them as if they
+        were project skills, even if the project skills directory is not set up. The copied skills folder includes a
+        .gitignore file to prevent the skills from being committed to the repository.
 
-        Users can override built-in skills by creating them with the same name in the project skills directory and
-        committing them to the repository.
+        Custom global skills override built-in skills with the same name. Users can override both by creating skills
+        with the same name in the project skills directory and committing them to the repository.
 
         Args:
             agent_path: The path to the agent's repository.
 
         Returns:
-            A list of builtin skill names.
+            A tuple of (builtin skill names, custom global skill names).
         """
-        builtin_skills = []
-        files_to_upload = []
+        files_to_upload: list[tuple[str, bytes]] = []
         project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
 
-        for builtin_skill_dir in BUILTIN_SKILLS_PATH.iterdir():
-            if not builtin_skill_dir.is_dir() or builtin_skill_dir.name == "__pycache__":
+        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, project_skills_path, files_to_upload)
+
+        custom_global_skills: list[str] = []
+        custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
+        if custom_skills_path is not None and custom_skills_path.is_dir():
+            try:
+                custom_global_skills = self._collect_skill_files(
+                    custom_skills_path, project_skills_path, files_to_upload
+                )
+            except OSError:
+                logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
+        elif custom_skills_path is not None:
+            logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
+
+        for response in await self._backend.aupload_files(files_to_upload):
+            if response.error:
+                raise RuntimeError(f"Failed to upload skill: {response.error}")
+        return builtin_skills, custom_global_skills
+
+    @staticmethod
+    def _collect_skill_files(
+        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]]
+    ) -> list[str]:
+        """
+        Walk skill directories under ``source_root`` and append files to ``files_to_upload``.
+
+        Returns the list of skill names found.
+        """
+        skill_names: list[str] = []
+        for skill_dir in source_root.iterdir():
+            if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
                 continue
 
-            builtin_skills.append(builtin_skill_dir.name)
+            skill_names.append(skill_dir.name)
 
-            for root, dirs, files in builtin_skill_dir.walk():
-                # Modifying dirs in-place will prune the (subsequent) files
+            for root, dirs, files in skill_dir.walk():
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for file in files:
                     source_path = Path(root) / Path(file)
                     if source_path.suffix == ".pyc":
                         continue
-                    dest_path = project_skills_path / source_path.relative_to(BUILTIN_SKILLS_PATH)
+                    dest_path = project_skills_path / source_path.relative_to(source_root)
                     if not dest_path.exists():
-                        files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                        try:
+                            files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                        except OSError:
+                            logger.warning("Failed to read skill file '%s', skipping", source_path)
 
-            dest_path = project_skills_path / builtin_skill_dir.relative_to(BUILTIN_SKILLS_PATH)
+            dest_path = project_skills_path / skill_dir.relative_to(source_root)
             files_to_upload.append((str(dest_path / ".gitignore"), b"*"))
 
-        for response in await self._backend.aupload_files(files_to_upload):
-            if response.error:
-                raise RuntimeError(f"Failed to upload builtin skill: {response.error}")
-        return builtin_skills
+        return skill_names
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

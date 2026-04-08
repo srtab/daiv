@@ -1,0 +1,17 @@
+<div>
+    <label for="id_{{ field.name }}" class="flex items-center gap-1 text-[14px] font-medium text-gray-400">
+        {{ field.label }}
+        {% if field.field.is_env_locked %}
+        {% include "core/_env_lock_badge.html" %}
+        {% endif %}
+    </label>
+    <div class="mt-2">
+        {{ field }}
+    </div>
+    {% if field.errors %}
+    <p class="mt-1.5 text-[13px] text-red-400">{{ field.errors.0 }}</p>
+    {% endif %}
+    {% if field.help_text %}
+    <p class="mt-1.5 text-[13px] text-gray-500">{{ field.help_text }}</p>
+    {% endif %}
+</div>

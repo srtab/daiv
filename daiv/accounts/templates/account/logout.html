@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Sign out — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="flex min-h-dvh items-center justify-center px-4">
+    <div class="w-full max-w-[380px] text-center">
+        <div class="animate-fade-up">
+            <h2 class="text-lg font-semibold text-white">Sign out</h2>
+            <p class="mt-2 text-[14px] text-gray-500">Are you sure you want to sign out?</p>
+        </div>
+        <form method="post" class="animate-fade-up mt-6 flex gap-3" style="animation-delay: 80ms">
+            {% csrf_token %}
+            <a href="{% url 'dashboard' %}" class="btn-secondary flex-1 px-4 py-3">
+                Cancel
+            </a>
+            <button type="submit" class="btn-primary flex-1 px-4 py-3">
+                Sign out
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

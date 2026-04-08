@@ -1,72 +1,82 @@
-from unittest.mock import patch
-
 import pytest
 from pydantic import ValidationError
 
-from automation.agent.mcp.schemas import McpConfiguration, McpProxyConfig, StdioMcpServer
+from automation.agent.mcp.schemas import ToolFilter, UserMcpServer, UserMcpServersConfig
 
 
-class TestMcpConfiguration:
-    def test_mcp_configuration_validates_server_names(self):
-        """Test that server name validation works."""
-        proxy_config = McpProxyConfig(
-            base_url="http://localhost:9090", addr=":9090", name="test-proxy", version="1.0.0"
-        )
+class TestToolFilter:
+    def test_allow_mode(self):
+        tf = ToolFilter(mode="allow", items=["tool_a", "tool_b"])
+        assert tf.mode == "allow"
+        assert tf.items == ["tool_a", "tool_b"]
 
-        stdio_server = StdioMcpServer(command="test-command")
-        servers = {"": stdio_server}  # Empty server name should fail
+    def test_block_mode(self):
+        tf = ToolFilter(mode="block", items=["tool_c"])
+        assert tf.mode == "block"
+        assert tf.items == ["tool_c"]
 
-        with pytest.raises(ValidationError, match="Server names cannot be empty"):
-            McpConfiguration(mcp_proxy=proxy_config, mcp_servers=servers)
+    def test_invalid_mode(self):
+        with pytest.raises(ValidationError):
+            ToolFilter(mode="invalid", items=["tool_a"])
 
-    def test_mcp_configuration_validates_whitespace_server_names(self):
-        """Test that whitespace-only server names are rejected."""
-        proxy_config = McpProxyConfig(
-            base_url="http://localhost:9090", addr=":9090", name="test-proxy", version="1.0.0"
-        )
+    def test_alias_list(self):
+        """Test that the 'list' alias works for the items field."""
+        data = {"mode": "allow", "list": ["tool_a"]}
+        tf = ToolFilter.model_validate(data)
+        assert tf.items == ["tool_a"]
 
-        stdio_server = StdioMcpServer(command="test-command")
-        servers = {"   ": stdio_server}  # Whitespace-only server name should fail
 
-        with pytest.raises(ValidationError, match="Server names cannot be empty"):
-            McpConfiguration(mcp_proxy=proxy_config, mcp_servers=servers)
+class TestUserMcpServer:
+    def test_sse_server(self):
+        server = UserMcpServer(type="sse", url="http://host:8080/sse")
+        assert server.type == "sse"
+        assert server.url == "http://host:8080/sse"
+        assert server.headers is None
 
-    @patch("automation.agent.mcp.conf.settings")
-    @patch("automation.agent.mcp.registry.mcp_registry")
-    def test_mcp_configuration_populate_with_auth_token(self, mock_registry, mock_settings):
-        """Test McpConfiguration.populate() with auth token."""
-        # Mock settings
-        mock_settings.PROXY_AUTH_TOKEN.get_secret_value.return_value = "test-token"
-        mock_settings.PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
-        mock_settings.PROXY_ADDR = ":9090"
+    def test_http_server_with_headers(self):
+        server = UserMcpServer(type="http", url="http://host:9000/mcp", headers={"Authorization": "Bearer token"})
+        assert server.type == "http"
+        assert server.headers == {"Authorization": "Bearer token"}
 
-        # Mock registry
-        mock_registry.get_mcp_servers_config.return_value = {"test_server": StdioMcpServer(command="test-command")}
+    def test_invalid_type(self):
+        with pytest.raises(ValidationError):
+            UserMcpServer(type="stdio", url="http://host:8080/sse")
 
-        config = McpConfiguration.populate()
 
-        assert config.mcp_proxy.base_url == "http://localhost:9090"
-        assert config.mcp_proxy.addr == ":9090"
-        assert config.mcp_proxy.name == "daiv-mcp-proxy"
-        assert config.mcp_proxy.version == "0.1.0"
-        assert config.mcp_proxy.options.auth_tokens == ["test-token"]
-        assert config.mcp_proxy.options.panic_if_invalid is False
-        assert config.mcp_proxy.options.log_enabled is True
-        assert "test_server" in config.mcp_servers
-
-    @patch("automation.agent.mcp.conf.settings")
-    @patch("automation.agent.mcp.registry.mcp_registry")
-    def test_mcp_configuration_populate_without_auth_token(self, mock_registry, mock_settings):
-        """Test McpConfiguration.populate() without auth token."""
-        # Mock settings
-        mock_settings.PROXY_AUTH_TOKEN = None
-        mock_settings.PROXY_HOST.encoded_string.return_value = "http://localhost:9090"
-        mock_settings.PROXY_ADDR = ":9090"
-
-        # Mock registry
-        mock_registry.get_mcp_servers_config.return_value = {}
-
-        config = McpConfiguration.populate()
-
-        assert config.mcp_proxy.options.auth_tokens == []
+class TestUserMcpServersConfig:
+    def test_empty_config(self):
+        config = UserMcpServersConfig()
         assert config.mcp_servers == {}
+
+    def test_config_with_servers(self):
+        raw = {
+            "mcpServers": {
+                "my-api": {"type": "sse", "url": "http://host:8080/sse"},
+                "another": {"type": "http", "url": "http://host:9000/mcp"},
+            }
+        }
+        config = UserMcpServersConfig.model_validate(raw)
+        assert len(config.mcp_servers) == 2
+        assert "my-api" in config.mcp_servers
+        assert config.mcp_servers["my-api"].type == "sse"
+        assert config.mcp_servers["another"].type == "http"
+
+    def test_config_with_alias(self):
+        """Test that mcpServers alias is required in JSON input."""
+        raw = {"mcpServers": {"test": {"type": "sse", "url": "http://host:8080/sse"}}}
+        config = UserMcpServersConfig.model_validate(raw)
+        assert "test" in config.mcp_servers
+
+    def test_config_with_headers_and_env_vars(self):
+        """Test that headers containing env var placeholders are preserved as-is."""
+        raw = {
+            "mcpServers": {
+                "my-api": {
+                    "type": "sse",
+                    "url": "http://host:8080/sse",
+                    "headers": {"Authorization": "Bearer ${MY_TOKEN}"},
+                }
+            }
+        }
+        config = UserMcpServersConfig.model_validate(raw)
+        assert config.mcp_servers["my-api"].headers["Authorization"] == "Bearer ${MY_TOKEN}"

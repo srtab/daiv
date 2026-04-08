@@ -6,19 +6,23 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pydantic import SecretStr
 
-from automation.conf import settings as automation_settings
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from core.conf import settings as core_settings
 
 
 @pytest.fixture(autouse=True)
-def mock_settings():
-    """Fixture to mock the secret token for testing."""
+def mock_settings(monkeypatch):
+    """Fixture to mock secret tokens for testing.
+
+    Sets environment variables so that ``site_settings`` resolves API keys
+    without hitting the database.  Pydantic-only settings (codebase) are
+    patched directly.
+    """
+    monkeypatch.setenv("DAIV_SANDBOX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
     with (
-        patch.object(core_settings, "SANDBOX_API_KEY", SecretStr("test-key")),
-        patch.object(automation_settings, "OPENROUTER_API_KEY", SecretStr("test-key")),
         patch.object(codebase_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
         patch.object(codebase_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
@@ -86,6 +90,8 @@ def mock_repo_client():
         mock_client.create_merge_request_comment.return_value = None
         mock_client.create_merge_request_note_emoji.return_value = None
         mock_client.mark_merge_request_comment_as_resolved.return_value = None
+        mock_client.get_merge_request_commits.return_value = []
+        mock_client.get_bot_commit_email.return_value = "daiv@users.noreply.gitlab.com"
 
         # Mock load_repo to return a temporary directory context manager
         @contextmanager

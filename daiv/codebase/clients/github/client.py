@@ -19,6 +19,8 @@ from codebase.base import (
     GitPlatform,
     Issue,
     MergeRequest,
+    MergeRequestCommit,
+    MergeRequestDiffStats,
     Note,
     NoteableType,
     NoteDiffPosition,
@@ -31,7 +33,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import Emoji
+from codebase.clients.base import Emoji, WebhookSetupResult
 from core.utils import async_download_url
 
 if TYPE_CHECKING:
@@ -92,34 +94,45 @@ class GitHubClient(RepoClient):
             topics=repo.topics,
         )
 
-    def list_repositories(self, search: str | None = None, topics: list[str] | None = None) -> list[Repository]:
+    def list_repositories(
+        self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
+    ) -> list[Repository]:
         """
         List all repositories.
 
         Args:
-            search: The search query.
+            search: The search query (in-memory name/slug match).
             topics: The topics to filter the repositories.
+            limit: Maximum number of repositories to return. None means no limit.
 
         Returns:
             The list of repositories.
         """
-        if search:
-            raise NotImplementedError("Search is not supported for GitHub client.")
-
-        return [
-            Repository(
-                pk=repo.id,
-                slug=repo.full_name,
-                name=repo.name,
-                default_branch=repo.default_branch,
-                git_platform=self.git_platform,
-                topics=repo.topics,
-                clone_url=repo.clone_url,
-                html_url=repo.html_url,
+        repos: list[Repository] = []
+        for repo in self.client_installation.get_repos():
+            if topics is not None and not any(topic in repo.topics for topic in topics):
+                continue
+            repos.append(
+                Repository(
+                    pk=repo.id,
+                    slug=repo.full_name,
+                    name=repo.name,
+                    default_branch=repo.default_branch,
+                    git_platform=self.git_platform,
+                    topics=repo.topics,
+                    clone_url=repo.clone_url,
+                    html_url=repo.html_url,
+                )
             )
-            for repo in self.client_installation.get_repos()
-            if topics is None or any(topic in repo.topics for topic in topics)
-        ]
+            # Break early only when no search filter needs full scan
+            if limit is not None and search is None and len(repos) >= limit:
+                break
+        if search:
+            search_lower = search.lower()
+            repos = [r for r in repos if search_lower in r.name.lower() or search_lower in r.slug.lower()]
+            if limit is not None:
+                repos = repos[:limit]
+        return repos
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
@@ -167,11 +180,12 @@ class GitHubClient(RepoClient):
         push_events_branch_filter: str | None = None,
         enable_ssl_verification: bool = True,
         secret_token: str | None = None,
-    ):
+        update: bool = False,
+    ) -> WebhookSetupResult:
         """
         Set webhooks for a repository.
         """
-        events = ["push", "issues", "pull_request_review", "issue_comment"]
+        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request"]
         config = {
             "url": url,
             "content_type": "json",
@@ -182,11 +196,13 @@ class GitHubClient(RepoClient):
 
         for hook in repo.get_hooks():
             if hook.url == url:
+                if not update:
+                    return WebhookSetupResult.SKIPPED
                 hook.edit("web", config, events, active=True)
-                return True
+                return WebhookSetupResult.UPDATED
 
         repo.create_hook("web", config, events, active=True)
-        return True
+        return WebhookSetupResult.CREATED
 
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
@@ -508,6 +524,71 @@ class GitHubClient(RepoClient):
         else:
             to_return = pr.create_issue_comment(body).id
         return to_return
+
+    def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
+        """
+        Get diff statistics for a pull request.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The pull request number.
+
+        Returns:
+            The diff statistics (lines added, lines removed, files changed).
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+        return MergeRequestDiffStats(
+            lines_added=pr.additions, lines_removed=pr.deletions, files_changed=pr.changed_files
+        )
+
+    def get_merge_request_commits(self, repo_id: str, merge_request_id: int) -> list[MergeRequestCommit]:
+        """
+        Get the pre-squash commit list for a pull request with per-commit stats.
+
+        Accessing ``commit.stats`` triggers a lazy per-commit API call, so this
+        is effectively N+1 requests (same pattern as GitLab). GitHub limits
+        PR commits to 250, so no explicit cap is applied.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The pull request number.
+
+        Returns:
+            List of commits with author email and line stats.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+        result: list[MergeRequestCommit] = []
+        for commit in pr.get_commits():
+            author = commit.commit.author if commit.commit else None
+            try:
+                stats = commit.stats
+                lines_added = stats.additions if stats else 0
+                lines_removed = stats.deletions if stats else 0
+            except GithubException:
+                logger.warning(
+                    "Failed to fetch stats for commit %s in %s#%d, skipping", commit.sha, repo_id, merge_request_id
+                )
+                lines_added = 0
+                lines_removed = 0
+            result.append(
+                MergeRequestCommit(
+                    sha=commit.sha,
+                    author_email=(author.email if author else "") or "",
+                    lines_added=lines_added,
+                    lines_removed=lines_removed,
+                )
+            )
+        return result
+
+    def get_bot_commit_email(self) -> str:
+        """
+        Return the email address DAIV uses when authoring commits on GitHub.
+        """
+        bot_login = f"{self.client_installation.app_slug}[bot]"
+        bot_user_id = self.current_user.id
+        return f"{bot_user_id}+{bot_login}@users.noreply.github.com"
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """

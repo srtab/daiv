@@ -50,7 +50,9 @@ class RepositoryConfigTest:
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
-            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
+            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}",
+            config.model_dump(exclude_unset=True),
+            CONFIGURATION_CACHE_TIMEOUT,
         )
 
     @patch("codebase.repo_config.cache")
@@ -67,7 +69,9 @@ class RepositoryConfigTest:
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
-            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
+            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}",
+            config.model_dump(exclude_unset=True),
+            CONFIGURATION_CACHE_TIMEOUT,
         )
 
     @patch("codebase.repo_config.cache")
@@ -90,7 +94,9 @@ class RepositoryConfigTest:
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
-            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
+            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}",
+            config.model_dump(exclude_unset=True),
+            CONFIGURATION_CACHE_TIMEOUT,
         )
 
     @patch("codebase.repo_config.cache")
@@ -109,7 +115,9 @@ class RepositoryConfigTest:
         assert config.issue_addressing.enabled is True
         assert config.slash_commands.enabled is True
         mock_cache.set.assert_called_once_with(
-            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}", config.model_dump(), CONFIGURATION_CACHE_TIMEOUT
+            f"{CONFIGURATION_CACHE_KEY_PREFIX}{repo_id}",
+            config.model_dump(exclude_unset=True),
+            CONFIGURATION_CACHE_TIMEOUT,
         )
 
     @patch("codebase.repo_config.cache")

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}DAIV{% endblock %}</title>
+    {% block meta_description %}<meta name="description" content="DAIV is an open-source async SWE agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.">{% endblock %}
+    {% block meta_robots %}{% endblock %}
+    {% block canonical %}{% endblock %}
+    {% block open_graph %}
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="DAIV — Open-source async SWE agent for your Git platform">
+    <meta property="og:description" content="DAIV integrates directly with GitLab and GitHub through webhooks. Create an issue, get a merge request. No context switching, no separate tools.">
+    <meta property="og:site_name" content="DAIV">
+    {% endblock %}
+    <meta name="twitter:card" content="summary">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="DAIV" />
+    <link rel="manifest" href="/site.webmanifest" />
+    {% block head_extra %}{% endblock %}
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    {% block alpine_plugins %}{% endblock %}
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+            integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"
+            crossorigin="anonymous"></script>
+</head>
+<body class="h-full bg-[#030712] font-sans text-white antialiased">
+    {% if messages %}
+    <div id="messages" class="fixed top-5 right-5 z-50 flex flex-col gap-2">
+        {% for message in messages %}
+        <div data-message
+             class="animate-fade-up rounded-lg border px-4 py-3 text-sm shadow-lg backdrop-blur-sm
+                    {% if message.tags == 'error' %}border-red-800/50 bg-red-950/80 text-red-200
+                    {% elif message.tags == 'success' %}border-emerald-800/50 bg-emerald-950/80 text-emerald-200
+                    {% elif message.tags == 'warning' %}border-amber-800/50 bg-amber-950/80 text-amber-200
+                    {% else %}border-gray-800/50 bg-gray-900/80 text-gray-300{% endif %}"
+             style="animation-delay: {{ forloop.counter0 }}00ms">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    <script type="module">
+        const dismiss = () => document.querySelectorAll('[data-message]').forEach((el, i) => {
+            setTimeout(() => {
+                el.style.transition = 'opacity 0.3s, transform 0.3s';
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-8px)';
+                setTimeout(() => el.remove(), 300);
+            }, i * 100);
+        });
+        setTimeout(dismiss, 5000);
+    </script>
+    {% endif %}
+    {% block content %}{% endblock %}
+</body>
+</html>

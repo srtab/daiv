@@ -3,7 +3,7 @@ import pytest
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
-from codebase.clients.gitlab.api.callbacks import IssueCallback, NoteCallback
+from codebase.clients.gitlab.api.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from codebase.clients.gitlab.api.models import (
     Issue,
     IssueAction,
@@ -11,6 +11,8 @@ from codebase.clients.gitlab.api.models import (
     Label,
     LabelChange,
     MergeRequest,
+    MergeRequestAction,
+    MergeRequestEvent,
     Note,
     NoteableType,
     NoteAction,
@@ -48,20 +50,26 @@ def stub_client():
 
 
 @pytest.fixture
-def monkeypatch_dependencies(monkeypatch, stub_client):
+def repo_config():
+    """Mutable RepositoryConfig instance."""
+    return RepositoryConfig()
+
+
+@pytest.fixture
+def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     """Monkeypatch RepoClient and RepositoryConfig for testing."""
     monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.RepoClient.create_instance", lambda: stub_client)
     monkeypatch.setattr(
-        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: RepositoryConfig()
+        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config
     )
 
 
-def create_note_callback(note_body: str) -> NoteCallback:
+def create_note_callback(note_body: str, username: str = "reviewer") -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        user=User(id=2, username=username, name="Reviewer", email=f"{username}@example.com"),
         merge_request=MergeRequest(
             id=10,
             iid=1,
@@ -225,12 +233,17 @@ def test_reject_when_system_note(monkeypatch_dependencies, stub_client):
 
 
 def create_issue_callback(
-    action: IssueAction, issue_labels: list[Label], issue_state: str = "opened", changes: IssueChanges | None = None
+    action: IssueAction,
+    issue_labels: list[Label],
+    issue_state: str = "opened",
+    changes: IssueChanges | None = None,
+    username: str = "testuser",
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
         object_kind="issue",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=10, username=username, name="Test User", email=f"{username}@example.com"),
         object_attributes=Issue(
             id=100,
             iid=42,
@@ -318,6 +331,7 @@ class TestIssueCallback:
         IssueCallback(
             object_kind="work_item",
             project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=10, username="testuser", name="Test User", email="testuser@example.com"),
             object_attributes=Issue(
                 id=100,
                 iid=42,
@@ -336,3 +350,169 @@ class TestIssueCallback:
         changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="DAIV")]))
         callback = create_issue_callback(action=IssueAction.UPDATE, issue_labels=[Label(title="DAIV")], changes=changes)
         assert callback.accept_callback() is True
+
+    def test_reject_callback_user_not_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that callback is rejected when user is not in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(
+            action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="mallory"
+        )
+        assert callback.accept_callback() is False
+
+    def test_accept_callback_user_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that callback is accepted when user is in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice", "bob")
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="alice")
+        assert callback.accept_callback() is True
+
+    def test_accept_callback_empty_allowlist(self, monkeypatch_dependencies):
+        """Test that callback is accepted when allowlist is empty (all users allowed)."""
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        assert callback.accept_callback() is True
+
+    def test_allowlist_case_insensitive(self, monkeypatch_dependencies, repo_config):
+        """Test that allowlist check is case-insensitive."""
+        repo_config.allowed_usernames = ("Alice",)
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], username="alice")
+        assert callback.accept_callback() is True
+
+
+class TestNoteCallbackAllowlist:
+    """Tests for GitLab NoteCallback allowlist."""
+
+    def test_reject_note_user_not_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that note callback is rejected when user is not in the allowed usernames list."""
+        repo_config.allowed_usernames = ("alice",)
+
+        callback = create_note_callback("@daiv please review this code", username="mallory")
+        assert callback.accept_callback() is False
+
+    def test_accept_note_user_in_allowlist(self, monkeypatch_dependencies, repo_config):
+        """Test that note callback is accepted when user is in the allowed usernames list."""
+        repo_config.allowed_usernames = ("reviewer",)
+
+        callback = create_note_callback("@daiv please review this code")
+        assert callback.accept_callback() is True
+
+
+def create_merge_request_callback(
+    action: MergeRequestAction = MergeRequestAction.MERGE, state: str = "merged", target_branch: str = "main"
+) -> MergeRequestCallback:
+    """Helper to create a MergeRequestCallback instance."""
+    return MergeRequestCallback(
+        object_kind="merge_request",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+        object_attributes=MergeRequestEvent(
+            id=10,
+            iid=1,
+            title="Some MR",
+            state=state,
+            action=action,
+            source_branch="feat/something",
+            target_branch=target_branch,
+            author_id=2,
+            merged_at="2026-04-01T10:00:00Z",
+        ),
+    )
+
+
+class TestMergeRequestCallback:
+    """Tests for GitLab MergeRequestCallback."""
+
+    def test_accept_callback_on_merge(self):
+        """Test that callback is accepted when MR is merged."""
+        callback = create_merge_request_callback()
+        assert callback.accept_callback() is True
+
+    def test_reject_callback_on_open(self):
+        """Test that callback is rejected when MR is opened."""
+        callback = create_merge_request_callback(action=MergeRequestAction.OPEN, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_on_close(self):
+        """Test that callback is rejected when MR is closed."""
+        callback = create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_on_update(self):
+        """Test that callback is rejected when MR is updated."""
+        callback = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_when_state_not_merged(self):
+        """Test that callback is rejected when action is merge but state is not merged."""
+        callback = create_merge_request_callback(action=MergeRequestAction.MERGE, state="opened")
+        assert callback.accept_callback() is False
+
+    def test_reject_callback_when_target_not_default_branch(self):
+        """Test that callback is rejected when MR targets a non-default branch."""
+        callback = create_merge_request_callback(target_branch="develop")
+        assert callback.accept_callback() is False
+
+    async def test_process_callback_enqueues_task(self):
+        """Test that process_callback enqueues the merge metrics task with correct args."""
+        from unittest.mock import AsyncMock, patch
+
+        callback = create_merge_request_callback()
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        mock_task.aenqueue.assert_called_once_with(
+            repo_id="group/repo",
+            merge_request_iid=1,
+            title="Some MR",
+            source_branch="feat/something",
+            target_branch="main",
+            merged_at="2026-04-01T10:00:00Z",
+            platform="gitlab",
+        )
+
+    def test_reject_callback_when_default_branch_is_none(self):
+        """Test that callback is rejected when project has no default branch."""
+        callback = MergeRequestCallback(
+            object_kind="merge_request",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch=None),
+            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+            object_attributes=MergeRequestEvent(
+                id=10,
+                iid=1,
+                title="Some MR",
+                state="merged",
+                action=MergeRequestAction.MERGE,
+                source_branch="feat/something",
+                target_branch="main",
+                author_id=2,
+            ),
+        )
+        assert callback.accept_callback() is False
+
+    async def test_process_callback_coalesces_none_merged_at(self):
+        """Test that process_callback passes empty string when merged_at is None."""
+        from unittest.mock import AsyncMock, patch
+
+        callback = MergeRequestCallback(
+            object_kind="merge_request",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
+            object_attributes=MergeRequestEvent(
+                id=10,
+                iid=1,
+                title="Some MR",
+                state="merged",
+                action=MergeRequestAction.MERGE,
+                source_branch="feat/something",
+                target_branch="main",
+                author_id=2,
+                merged_at=None,
+            ),
+        )
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""

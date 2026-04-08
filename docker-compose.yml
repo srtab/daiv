@@ -11,7 +11,6 @@ x-app-defaults: &x_app_default
   volumes:
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
-    - ./data/mcp-proxy:/home/app/data/mcp-proxy
     - .:/home/app/src
   depends_on:
     db:
@@ -20,10 +19,6 @@ x-app-defaults: &x_app_default
     redis:
       condition: service_healthy
       restart: true
-    gitlab:
-      condition: service_healthy
-    sandbox:
-      condition: service_healthy
 
 services:
   db:
@@ -47,7 +42,7 @@ services:
 
   redis:
     image: redis:8.6-alpine
-    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy noeviction
+    command: redis-server --save "" --appendonly yes --dir /data --maxmemory 512mb --maxmemory-policy volatile-ttl
     restart: unless-stopped
     container_name: daiv-redis
     healthcheck:
@@ -60,6 +55,14 @@ services:
       - ./data/redis:/data
     ports:
       - "6379:6379"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: daiv-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
 
   app:
     <<: *x_app_default
@@ -76,6 +79,12 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/app/docker/start-worker
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
     deploy:
       mode: replicated
@@ -85,11 +94,20 @@ services:
     <<: *x_app_default
     container_name: daiv-scheduler
     command: sh /home/app/docker/start-crontask
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'crontask' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports: []
 
   gitlab:
     image: gitlab/gitlab-ce:latest
     container_name: daiv-gitlab
+    profiles:
+      - gitlab
+      - full
     restart: on-failure
     logging:
       driver: "none"
@@ -113,6 +131,9 @@ services:
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
     container_name: daiv-gitlab-runner
+    profiles:
+      - gitlab
+      - full
     restart: unless-stopped
     volumes:
       - ./docker/local/gitlab-runner/config.toml:/etc/gitlab-runner/config.toml
@@ -124,50 +145,78 @@ services:
         condition: service_healthy
 
   sandbox:
-    build:
-      context: ./../daiv-sandbox
-      args:
-        DOCKER_GID: 999
+    image: ghcr.io/srtab/daiv-sandbox:latest
+    profiles:
+      - sandbox
+      - full
     stdin_open: true
     restart: unless-stopped
     container_name: daiv-sandbox
+    group_add:
+      - "${DOCKER_GID:-999}"
     env_file:
       - ./docker/local/sandbox/config.env
     ports:
       - "8888:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
 
-  mcp-proxy:
-    image: ghcr.io/tbxark/mcp-proxy:v0.43.2
+  mcp-sentry:
+    image: supercorp/supergateway:latest
+    profiles:
+      - mcp
+      - full
     restart: unless-stopped
-    container_name: daiv-mcp-proxy
-    entrypoint:
-      - /bin/sh
-      - -c
-      - '/main --config https://app:8000/api/automation/mcp-proxy/config/ --insecure --http-headers "Authorization: Bearer $${MCP_CONFIG_API_KEY}"'
+    container_name: daiv-mcp-sentry
+    command:
+      - --stdio
+      - "npx @sentry/mcp-server@latest"
+      - --healthEndpoint
+      - "/healthz"
     env_file:
       - docker/local/app/config.secrets.env
     environment:
-      NODE_ENV: development
-    ports:
-      - "9090:9090"
+      MCP_DISABLE_SKILLS: seer,docs,project-management
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  mcp-context7:
+    image: supercorp/supergateway:latest
+    profiles:
+      - mcp
+      - full
+    restart: unless-stopped
+    container_name: daiv-mcp-context7
+    command:
+      - --stdio
+      - "npx @upstash/context7-mcp@latest"
+      - --healthEndpoint
+      - "/healthz"
+    env_file:
+      - docker/local/app/config.secrets.env
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  smee:
+    build:
+      context: ./
+      dockerfile: ./docker/local/smee/Dockerfile
+    profiles:
+      - github
+    container_name: daiv-smee
+    restart: unless-stopped
+    command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
+    environment:
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
     depends_on:
       app:
         condition: service_healthy
         restart: true
-
-  # smee:
-  #   build:
-  #     context: ./
-  #     dockerfile: ./docker/local/smee/Dockerfile
-  #   container_name: daiv-smee
-  #   restart: unless-stopped
-  #   command: smee --url https://smee.io/GiX7tLSvzqK35HSy --target https://app:8000/api/codebase/callbacks/github/
-  #   environment:
-  #     NODE_TLS_REJECT_UNAUTHORIZED: 0
-  #   depends_on:
-  #     app:
-  #       condition: service_healthy
-  #       restart: true

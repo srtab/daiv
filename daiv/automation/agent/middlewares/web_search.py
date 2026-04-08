@@ -4,12 +4,15 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING, Annotated
 
+from django.utils import timezone
+
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
 from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 from langchain_core.tools import tool
 
-from automation.conf import settings
+from core.models import WebSearchEngineChoices
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -30,7 +33,7 @@ Usage examples:
 Examples:
   - Search documentation: `{WEB_SEARCH_NAME}(query="Python requests library documentation")`
   - Find solutions: `{WEB_SEARCH_NAME}(query="TypeError: 'NoneType' object is not callable")`
-  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version 2025")`"""
+  - Get latest library versions: `{WEB_SEARCH_NAME}(query="Pandas latest version")`"""
 
 
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
@@ -44,7 +47,7 @@ Use this tool to:
 
 IMPORTANT - Use the correct year in search queries:
   - You MUST use this year when searching for recent information, documentation, or current events.
-  - Example: If today is 2025-07-15 and the user asks for "latest React docs", search for "React documentation 2025", NOT "React documentation 2024".
+  - Example: If today is {{current_year}}-07-15 and the user asks for "latest React docs", search for "React documentation {{current_year}}", NOT "React documentation {{previous_year}}".
 
 CRITICAL REQUIREMENT - You MUST follow this when using web search:
   - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response when the answer primarily derives from search results.
@@ -69,12 +72,12 @@ async def _get_web_search_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    if settings.WEB_SEARCH_ENGINE == "duckduckgo":
+    if site_settings.web_search_engine == WebSearchEngineChoices.DUCKDUCKGO:
         return _get_duckduckgo_results(query)
-    elif settings.WEB_SEARCH_ENGINE == "tavily":
+    elif site_settings.web_search_engine == WebSearchEngineChoices.TAVILY:
         return await _get_tavily_results(query)
     else:
-        raise ValueError(f"Invalid web search engine: {settings.WEB_SEARCH_ENGINE}")
+        raise ValueError(f"Invalid web search engine: {site_settings.web_search_engine}")
 
 
 def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
@@ -90,7 +93,7 @@ def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
     api_wrapper = DuckDuckGoSearchAPIWrapper()
     return [
         {"title": result["title"], "link": result["link"], "content": result["snippet"]}
-        for result in api_wrapper.results(query, max_results=settings.WEB_SEARCH_MAX_RESULTS)
+        for result in api_wrapper.results(query, max_results=site_settings.web_search_max_results)
     ]
 
 
@@ -104,12 +107,13 @@ async def _get_tavily_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    assert settings.WEB_SEARCH_API_KEY is not None, "AUTOMATION_WEB_SEARCH_API_KEY is not set"
+    if site_settings.web_search_api_key is None:
+        raise RuntimeError("Web search API key is not configured. Set DAIV_WEB_SEARCH_API_KEY or use the config UI.")
 
-    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=settings.WEB_SEARCH_API_KEY)
+    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=site_settings.web_search_api_key.get_secret_value())
 
     results = await api_wrapper.raw_results_async(
-        query, max_results=settings.WEB_SEARCH_MAX_RESULTS, include_answer=True
+        query, max_results=site_settings.web_search_max_results, include_answer=True
     )
     results_content = [
         {"title": result["title"], "link": result["url"], "content": result["content"]} for result in results["results"]
@@ -157,5 +161,7 @@ class WebSearchMiddleware(AgentMiddleware):
         """
         Update the system prompt with the web search system prompt.
         """
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + WEB_SEARCH_SYSTEM_PROMPT)
+        current_year = timezone.now().year
+        web_search_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(current_year=current_year, previous_year=current_year - 1)
+        request = request.override(system_prompt=request.system_prompt + "\n\n" + web_search_prompt)
         return await handler(request)

@@ -2,6 +2,8 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from gitlab.exceptions import GitlabError
+
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -10,7 +12,19 @@ from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Issue, IssueAction, IssueChanges, MergeRequest, Note, NoteableType, NoteAction, Project, User
+from .models import (  # noqa: TC001
+    Issue,
+    IssueAction,
+    IssueChanges,
+    MergeRequest,
+    MergeRequestAction,
+    MergeRequestEvent,
+    Note,
+    NoteableType,
+    NoteAction,
+    Project,
+    User,
+)
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -22,6 +36,7 @@ class IssueCallback(BaseCallback):
 
     object_kind: Literal["issue", "work_item"]
     project: Project
+    user: User
     object_attributes: Issue
     changes: IssueChanges | None = None
 
@@ -38,6 +53,16 @@ class IssueCallback(BaseCallback):
             and self.object_attributes.state == "opened"
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
         ):
+            return False
+
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.user.username):
+            logger.info(
+                "Rejecting issue %s#%s: user '%s' is not in the allowed usernames list",
+                self.project.path_with_namespace,
+                self.object_attributes.iid,
+                self.user.username,
+            )
             return False
 
         # Check if DAIV has already reacted to the issue (prevents re-launching when label is removed and re-added)
@@ -78,7 +103,10 @@ class IssueCallback(BaseCallback):
         """
         Trigger the task to address the issue.
         """
-        self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
+        try:
+            self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
+        except GitlabError:
+            logger.warning("Failed to add reaction to issue %s", self.object_attributes.iid, exc_info=True)
         await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
         )
@@ -111,6 +139,15 @@ class NoteCallback(BaseCallback):
         ):
             return False
 
+        # Check if user is allowed to interact with DAIV
+        if not self._repo_config.is_user_allowed(self.user.username):
+            logger.info(
+                "Rejecting note on project %s: user '%s' is not in the allowed usernames list",
+                self.project.path_with_namespace,
+                self.user.username,
+            )
+            return False
+
         return bool(self._is_issue_comment or self._is_merge_request_comment)
 
     async def process_callback(self):
@@ -120,9 +157,12 @@ class NoteCallback(BaseCallback):
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
         if self.issue and self._is_issue_comment:
-            self._client.create_issue_emoji(
-                self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
-            )
+            try:
+                self._client.create_issue_emoji(
+                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
+                )
+            except GitlabError:
+                logger.warning("Failed to add reaction to issue comment %s", self.object_attributes.id, exc_info=True)
             await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
@@ -130,9 +170,12 @@ class NoteCallback(BaseCallback):
             )
 
         elif self.merge_request and self._is_merge_request_comment:
-            self._client.create_merge_request_note_emoji(
-                self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
-            )
+            try:
+                self._client.create_merge_request_note_emoji(
+                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
+                )
+            except GitlabError:
+                logger.warning("Failed to add reaction to MR comment %s", self.object_attributes.id, exc_info=True)
             await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,
@@ -166,6 +209,44 @@ class NoteCallback(BaseCallback):
             and self.issue
             and self.issue.state == "opened"
             and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+        )
+
+
+class MergeRequestCallback(BaseCallback):
+    """
+    Gitlab Merge Request Webhook for tracking merge metrics.
+    """
+
+    object_kind: Literal["merge_request"]
+    project: Project
+    user: User
+    object_attributes: MergeRequestEvent
+
+    def accept_callback(self) -> bool:
+        """
+        Accept the webhook only when a merge request is merged into the default branch.
+        """
+        return (
+            self.object_attributes.action == MergeRequestAction.MERGE
+            and self.object_attributes.state == "merged"
+            and bool(self.project.default_branch)
+            and self.object_attributes.target_branch == self.project.default_branch
+        )
+
+    async def process_callback(self):
+        """
+        Enqueue a task to record merge metrics.
+        """
+        from codebase.tasks import record_merge_metrics_task
+
+        await record_merge_metrics_task.aenqueue(
+            repo_id=self.project.path_with_namespace,
+            merge_request_iid=self.object_attributes.iid,
+            title=self.object_attributes.title,
+            source_branch=self.object_attributes.source_branch,
+            target_branch=self.object_attributes.target_branch,
+            merged_at=self.object_attributes.merged_at or "",
+            platform="gitlab",
         )
 
 

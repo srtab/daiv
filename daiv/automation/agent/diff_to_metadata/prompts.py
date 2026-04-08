@@ -9,14 +9,26 @@ You MUST follow these rules:
    - git diff hunks (if provided)
    - optional context fields explicitly provided by the user (e.g., issue id)
 2) Do NOT invent changes, motivations, tests, or impacts not supported by the diff.
-3) If memory specifies branch naming or commit message conventions, follow them exactly.
+   - Compare the before and after lines carefully.
+   - Only mention items that actually differ between the two.
+3) Be specific: name the actual entities, values, or operations that changed.
+   - Never use vague verbs like "improve", "update", or "enhance"
+     when you can state what concretely changed.
+4) If memory specifies branch naming or commit message conventions,
+   you MUST follow them — they override ALL defaults below.
+   - Pay close attention to required prefixes, delimiters, and casing rules.
    - If multiple conventions exist, choose the one that best matches the change type.
    - If conventions are ambiguous, choose the safest option and keep it simple.
-4) If memory is missing or has no relevant guidance:
-   - Use a sensible default:
-     - branch: <type>/<short-kebab-summary> where type ∈ {feat, fix, chore, docs, refactor, test}
-     - commit_message: Conventional Commits style "<type>: <short summary>" (subject only)
-5) Output MUST match the requested structured format exactly (no extra keys).""",
+5) If the additional context or diff references an issue/ticket identifier
+   (e.g., ABC-123, CAL-204) or an external service URL (e.g., Sentry issue,
+   Jira ticket, error-tracking link), incorporate identifiers into branch
+   and commit_message following the memory conventions, and list all
+   referenced IDs and URLs in the PR description.
+   - If no convention exists, prefix: "<TICKET-ID> <type>: <summary>".
+6) Only if memory is missing or has no relevant guidance, fall back to these defaults:
+   - branch: <type>/<short-kebab-summary> where type ∈ {feat, fix, chore, docs, refactor, test}
+   - commit_message: Conventional Commits style "<type>: <short summary>" (subject only)
+""",
     "mustache",
 )
 
@@ -35,25 +47,21 @@ Additional context related to the changes:
 ~~~
 {{/extra_context}}
 
-Output requirements:
-- Return a single JSON object with EXACTLY these keys:
-  - title
-  - description
-  - commit_message
-  - branch
-
 Field rules:
 - title: short PR title (max ~70 chars), based strictly on the diff.
 - description: Markdown with:
   1) a brief overview paragraph (1-3 sentences)
-  2) a "**Key Changes:**" section with 2-6 bullet points
-  Focus only on describing the actual code changes visible in the diff.
-  Do NOT include meta-commentary about the issue, prompt, or source of information.
+  2) a "**Key Changes:**" section with up to 6 bullet points
+  3) if the additional context provides issue/ticket IDs or external URLs
+     (e.g., Sentry issues, Jira tickets, error-tracking links),
+     append a "**References:**" section listing each ID or URL.
+  Focus the key-changes section on describing the actual code changes visible in the diff.
+  Do NOT include meta-commentary about the prompt or source of information.
 - commit_message:
-  - If memory defines a format, follow it.
+  - MUST follow the memory convention if one exists (including any ticket/issue prefix or wrapper).
   - Otherwise use: "<type>: <summary>" (Conventional Commits), single line.
 - branch:
-  - If memory defines a naming convention, follow it.
+  - MUST follow the memory convention if one exists (including any required issue-id segments).
   - Otherwise use: "<type>/<kebab-case-summary>".
   - Keep it lowercase, ascii, no spaces, avoid > 50 chars.""",
     "mustache",
@@ -68,13 +76,16 @@ Diff hunks (unified diff; may include multiple files):
 {{commit_message_diff}}
 ~~~
 
-Output requirements:
-- Return a single JSON object with EXACTLY this key:
-  - commit_message
+{{#extra_context}}
+Additional context related to the changes:
+~~~markdown
+{{extra_context}}
+~~~
+{{/extra_context}}
 
 Field rules:
 - commit_message:
-  - If memory defines a format, follow it.
+  - MUST follow the memory convention if one exists (including any ticket/issue prefix or wrapper).
   - Otherwise use: "<type>: <summary>" (Conventional Commits), single line.""",
     "mustache",
 )

@@ -1,0 +1,217 @@
+import asyncio
+import json
+import logging
+import uuid as uuid_mod
+from typing import TYPE_CHECKING, Annotated
+
+from django_tasks_db.models import DBTaskResult
+from jobs.tasks import run_job_task
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import Field
+
+from codebase.clients import RepoClient
+
+if TYPE_CHECKING:
+    from codebase.base import Repository
+
+logger = logging.getLogger("daiv.mcp_server")
+
+mcp = FastMCP(
+    name="DAIV",
+    instructions="""\
+DAIV is an autonomous coding agent that operates on Git repositories (GitLab and GitHub). \
+It reads, writes, and edits files, runs shell commands in a sandbox, creates commits and branches, \
+opens merge/pull requests, and debugs CI/CD pipelines.
+
+Use `list_repositories` to discover available repositories by name or topic. \
+If the user already knows the `repo_id`, skip discovery and call `submit_job` directly.
+
+Write specific prompts: include file paths, function names, error messages, or branch names. \
+Vague requests produce poor results. Use `ref` to target a branch or commit other than the default.
+
+Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
+continue polling with `get_job_status` if the result is not yet available.\
+""",
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
+
+
+TERMINAL_STATUSES = {"SUCCESSFUL", "FAILED"}
+POLL_INTERVAL = 2.0
+MAX_POLL_DURATION = 600.0  # 10 minutes
+
+
+@mcp.tool()
+async def submit_job(
+    repo_id: Annotated[
+        str,
+        Field(
+            description=(
+                'Repository identifier. Use "owner/repo" for GitHub or the full project path for GitLab'
+                ' (e.g. "group/project" or "group/subgroup/project").'
+            )
+        ),
+    ],
+    prompt: Annotated[
+        str,
+        Field(
+            description=(
+                "Task instruction for the agent. Be specific: include file paths, function names,"
+                " error messages, or branch names when relevant."
+            )
+        ),
+    ],
+    ref: Annotated[
+        str | None,
+        Field(description="Git reference (branch name or commit SHA). Defaults to the repository's default branch."),
+    ] = None,
+    wait: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, blocks until the job completes (up to 10 minutes) and returns the full result"
+                " instead of just the job ID."
+            )
+        ),
+    ] = False,
+) -> str:
+    """Submit a job to the DAIV agent for a repository."""
+    try:
+        result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref)
+    except Exception:
+        logger.exception("Failed to enqueue MCP job for repo_id=%s", repo_id)
+        return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})
+
+    job_id = str(result.id)
+    logger.info("MCP job submitted: job_id=%s, repo_id=%s", job_id, repo_id)
+
+    if not wait:
+        return json.dumps({"job_id": job_id})
+
+    return await _poll_job_until_complete(job_id)
+
+
+def _build_job_response(db_result: DBTaskResult) -> str:
+    """Build a JSON response string from a DBTaskResult."""
+    error = "Job execution failed." if db_result.status == "FAILED" else None
+    return json.dumps({
+        "job_id": str(db_result.id),
+        "status": db_result.status,
+        "result": db_result.return_value,
+        "error": error,
+        "created_at": db_result.enqueued_at.isoformat() if db_result.enqueued_at else None,
+        "started_at": db_result.started_at.isoformat() if db_result.started_at else None,
+        "finished_at": db_result.finished_at.isoformat() if db_result.finished_at else None,
+    })
+
+
+async def _poll_job_until_complete(job_id: str) -> str:
+    """Poll a job until it reaches a terminal status or the timeout is exceeded."""
+    job_uuid = uuid_mod.UUID(job_id)
+    elapsed = 0.0
+    last_result: DBTaskResult | None = None
+
+    while elapsed < MAX_POLL_DURATION:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+
+        try:
+            last_result = await DBTaskResult.objects.aget(id=job_uuid, task_path=run_job_task.module_path)
+        except DBTaskResult.DoesNotExist:
+            logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
+            continue
+        except Exception:
+            logger.exception("Failed to poll job status for job_id=%s", job_id)
+            return json.dumps({"error": "Failed to retrieve job status. Please try again later.", "job_id": job_id})
+
+        if last_result.status in TERMINAL_STATUSES:
+            return _build_job_response(last_result)
+
+    # Timeout — return current status so the caller isn't left without info
+    if last_result is not None:
+        logger.info(
+            "Polling timeout for job_id=%s after %.0fs, returning current status: %s",
+            job_id,
+            elapsed,
+            last_result.status,
+        )
+        return _build_job_response(last_result)
+
+    logger.warning("Polling timeout for job_id=%s after %.0fs, job never appeared in database", job_id, elapsed)
+    return json.dumps({
+        "error": f"Job '{job_id}' was submitted but has not appeared yet after {int(MAX_POLL_DURATION)}s. "
+        "The task queue may be backed up. Use get_job_status to check later.",
+        "job_id": job_id,
+    })
+
+
+@mcp.tool()
+async def get_job_status(
+    job_id: Annotated[str, Field(description="The job ID returned by submit_job.")],
+    wait: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, blocks until the job completes (up to 10 minutes) instead of returning immediately."
+            )
+        ),
+    ] = False,
+) -> str:
+    """Get the status and result of a previously submitted job. Status is one of: READY, RUNNING, SUCCESSFUL, FAILED."""
+    try:
+        job_uuid = uuid_mod.UUID(job_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid job_id format."})
+
+    try:
+        db_result = await DBTaskResult.objects.aget(id=job_uuid, task_path=run_job_task.module_path)
+    except DBTaskResult.DoesNotExist:
+        if wait:
+            return await _poll_job_until_complete(job_id)
+        return json.dumps({"error": "Job not found."})
+    except Exception:
+        logger.exception("Failed to retrieve job status for job_id=%s", job_id)
+        return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
+
+    if wait and db_result.status not in TERMINAL_STATUSES:
+        return await _poll_job_until_complete(job_id)
+
+    return _build_job_response(db_result)
+
+
+MAX_REPOSITORIES = 40
+
+
+def _serialize_repositories(repos: list[Repository]) -> list[dict]:
+    """Convert a list of Repository objects to serializable dicts."""
+    return [repo.model_dump(include={"slug", "name", "html_url", "default_branch", "topics"}) for repo in repos]
+
+
+@mcp.tool()
+async def list_repositories(
+    search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
+    topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+) -> str:
+    """
+    List repositories accessible to DAIV, optionally filtered by name or topic.
+    Results may be truncated; use search or topics to narrow down.
+    """
+    # Fetch one extra to detect truncation without loading everything
+    fetch_limit = MAX_REPOSITORIES + 1
+    try:
+        client = RepoClient.create_instance()
+        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=fetch_limit)
+    except Exception:
+        logger.exception("Failed to list repositories")
+        return json.dumps({"error": "Failed to list repositories. Please try again later."})
+
+    truncated = len(repos) > MAX_REPOSITORIES
+    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES])}
+    if truncated:
+        result["warning"] = (
+            f"Only the first {MAX_REPOSITORIES} repositories are shown. "
+            "There are more results available. Ask the user to provide a search term or topic to narrow down."
+        )
+    return json.dumps(result)

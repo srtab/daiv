@@ -9,5 +9,5 @@ class CommitMetadata(BaseModel):
 
 class PullRequestMetadata(BaseModel):
     title: str
-    branch: str = Field(pattern=r"[a-z0-9-_/]")
+    branch: str = Field(pattern=r"^[a-z0-9\-_/]+$")
     description: str

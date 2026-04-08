@@ -9,9 +9,25 @@ from django_extensions.db.models import TimeStampedModel
 from accounts.managers import APIKeyManager
 
 
+class Role(models.TextChoices):
+    ADMIN = "admin", _("Admin")
+    MEMBER = "member", _("Member")
+
+
 class User(AbstractUser):
     email = models.EmailField(_("email address"), unique=True)
     name = models.CharField(_("name"), max_length=128, blank=True)
+    role = models.CharField(_("role"), max_length=10, choices=Role.choices, default=Role.MEMBER)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == Role.ADMIN
+
+    def is_last_active_admin(self) -> bool:
+        """Check if this user is the only active admin in the system."""
+        if self.role != Role.ADMIN or not self.is_active:
+            return False
+        return not User.objects.filter(role=Role.ADMIN, is_active=True).exclude(pk=self.pk).exists()
 
     def __str__(self):
         return self.get_full_name() or self.name or self.username or self.email

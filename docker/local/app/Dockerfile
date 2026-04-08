@@ -1,4 +1,8 @@
+ARG TAILWIND_VERSION="v4.2.2"
+
 FROM debian:bookworm-slim
+
+ARG TAILWIND_VERSION
 
 LABEL maintainer="srtabs@gmail.com"
 
@@ -25,6 +29,7 @@ RUN apt-get update \
         gnupg \
         ca-certificates \
         ripgrep \
+        openssl \
     # Install GitHub CLI
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -60,3 +65,9 @@ COPY --chown=app:app docker/local/app /home/app/docker
 
 RUN uv sync \
     && mkdir -p /home/app/data
+
+# Install Tailwind CSS standalone CLI (v4)
+RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
+    && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \
+    && chmod +x "tailwindcss-linux-${ARCH}" \
+    && mv "tailwindcss-linux-${ARCH}" /home/app/.local/bin/tailwindcss

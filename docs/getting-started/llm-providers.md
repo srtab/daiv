@@ -56,6 +56,14 @@ openrouter:anthropic/claude-sonnet-4.6
 openrouter:openai/gpt-5.3-codex
 ```
 
+**Per-repository override** (`.daiv.yml`):
+
+```yaml
+models:
+  agent:
+    model: "openrouter:anthropic/claude-sonnet-4.6"
+```
+
 ---
 
 ## OpenAI
@@ -77,6 +85,14 @@ gpt-5.3-codex
 o4-mini
 ```
 
+**Per-repository override** (`.daiv.yml`):
+
+```yaml
+models:
+  agent:
+    model: "gpt-5.3-codex"
+```
+
 ---
 
 ## Anthropic
@@ -96,6 +112,14 @@ Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-cla
 ```
 claude-sonnet-4.6
 claude-opus-4.6
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```yaml
+models:
+  agent:
+    model: "claude-sonnet-4.6"
 ```
 
 !!! warning
@@ -121,4 +145,12 @@ Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) d
 ```
 gemini-2.5-pro-preview-05-06
 gemini-2.4-flash-preview-04-17
+```
+
+**Per-repository override** (`.daiv.yml`):
+
+```yaml
+models:
+  agent:
+    model: "gemini-2.5-pro-preview-05-06"
 ```

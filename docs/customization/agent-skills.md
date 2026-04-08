@@ -39,6 +39,50 @@ your-repository/
 
 Built-in skills are automatically copied to `.agents/skills/` at agent startup with a `.gitignore` to prevent them from being committed. You can override any built-in skill by creating one with the same name and committing it to the repository.
 
+## Custom global skills
+
+Custom global skills are user-defined skills that are available across **all repositories**, unlike per-repository skills. They follow the same directory format as built-in skills (a directory containing a `SKILL.md` file) and are loaded from a configurable path on the host filesystem.
+
+### Setup
+
+1. Create a directory with your custom skills on the host machine:
+
+    ```
+    custom-skills/
+    ├── my-workflow/
+    │   ├── SKILL.md
+    │   └── scripts/
+    │       └── helper.py
+    └── team-review/
+        └── SKILL.md
+    ```
+
+2. Mount it as a Docker volume into the DAIV worker container at `/home/daiv/data/skills/`:
+
+    ```yaml
+    # In your docker-compose.yml or stack.yml
+    worker:
+      volumes:
+        - ./custom-skills:/home/daiv/data/skills:ro
+    ```
+
+    The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](../reference/env-variables.md#daiv-agent)).
+
+### Override priority
+
+Skills are resolved in this order (highest priority wins):
+
+1. **Per-repository skills** — committed in the repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/`
+2. **Custom global skills** — mounted via Docker volume
+3. **Built-in skills** — shipped with DAIV
+
+This means custom global skills override built-in skills with the same name, and per-repository skills override both.
+
+### Notes
+
+- Skills are copied at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
+- Custom global skills are marked with a `<global>` tag in the agent's system prompt so the LLM can distinguish them from built-in and per-repository skills.
+
 ## Creating a skill
 
 ### SKILL.md format

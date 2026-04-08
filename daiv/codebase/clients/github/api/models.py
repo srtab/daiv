@@ -26,6 +26,15 @@ class Repository(BaseModel):
     default_branch: str
 
 
+class Label(BaseModel):
+    """
+    GitHub Label
+    """
+
+    id: int
+    name: str
+
+
 class Issue(BaseModel):
     """
     GitHub Issue
@@ -35,7 +44,7 @@ class Issue(BaseModel):
     number: int
     title: str
     state: Literal["open", "closed"]
-    labels: list[dict] = Field(default_factory=list)
+    labels: list[Label] = Field(default_factory=list)
     pull_request: dict | None = None
     draft: bool = False
 
@@ -49,7 +58,7 @@ class Issue(BaseModel):
         - daiv-max: High-performance mode
         """
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-        return any(label["name"].lower() in daiv_labels for label in self.labels)
+        return any(label.name.lower() in daiv_labels for label in self.labels)
 
     def is_pull_request(self) -> bool:
         """
@@ -62,15 +71,6 @@ class Issue(BaseModel):
         Check if the issue is an issue.
         """
         return not self.is_pull_request()
-
-
-class Label(BaseModel):
-    """
-    GitHub Label
-    """
-
-    id: int
-    name: str
 
 
 class IssueChange(BaseModel):
@@ -129,5 +129,9 @@ class PullRequest(BaseModel):
     title: str
     state: Literal["open", "closed"]
     draft: bool = False
+    merged: bool = False
+    merged_at: str | None = None
     head: Ref
     base: Ref
+    labels: list[Label] = Field(default_factory=list)
+    user: User | None = None

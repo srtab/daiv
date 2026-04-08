@@ -22,6 +22,7 @@ from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -127,7 +128,8 @@ Dedicated-tool failure policy:
 
 Environment awareness:
 - The sandbox is a minimal container. Common tools (test runners, package managers, linters) may not be installed.
-- If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`). Accept it is unavailable and adapt your approach or inform the user.
+- If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`) or retry with a different package manager or runner (e.g., switching from `uv` to `pipenv` to raw `python`). Accept the tool is unavailable and verify your changes using other means (linting, type-checking, code review).
+- If a command runs but fails due to missing infrastructure (database connection refused, environment variables, ModuleNotFoundError after dependency install), do not retry with a different approach. The sandbox lacks the required runtime environment — fall back to static verification instead.
 
 Safety / boundaries (never do these):
 - Do not access or print secrets/credentials.
@@ -329,7 +331,8 @@ class SandboxMiddleware(AgentMiddleware):
             close_session: Whether to close the session after the agent finishes the execution loop.
                 Useful when using the sandbox in subagents to avoid closing the session in the parent agent.
         """
-        assert settings.SANDBOX_API_KEY is not None, "SANDBOX_API_KEY is not set"
+        if site_settings.sandbox_api_key is None:
+            raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self.close_session = close_session
         self.tools = [bash_tool]
@@ -381,6 +384,7 @@ class SandboxMiddleware(AgentMiddleware):
                 # Ignore errors closing the session, it's not critical. Maybe the session was already closed.
                 logger.warning("Error closing sandbox session: %s", state["session_id"])
             return {"session_id": None}
+        return None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

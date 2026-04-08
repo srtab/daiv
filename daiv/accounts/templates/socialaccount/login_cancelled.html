@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sign in cancelled — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)"></div>
+
+    <div class="relative w-full max-w-[380px]">
+        <div class="animate-fade-up mb-8 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+        </div>
+
+        <div class="animate-fade-up text-center" style="animation-delay: 80ms">
+            <h2 class="text-[16px] font-semibold text-white">Sign in cancelled</h2>
+            <p class="mt-2 text-[14px] font-light text-gray-400">
+                You cancelled the sign in process.
+            </p>
+        </div>
+
+        <a href="{% url 'account_login' %}"
+           class="btn-primary animate-fade-up mt-8 w-full px-4 py-3"
+           style="animation-delay: 160ms">
+            Back to sign in
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -1,8 +1,9 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from gitlab.exceptions import GitlabGetError
 
-from codebase.base import GitPlatform, Repository, User
+from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji
 from codebase.clients.gitlab.client import GitLabClient
 
@@ -128,3 +129,189 @@ class TestGitLabClient:
         result = gitlab_client.create_merge_request_inline_discussion("ns/proj", 99, "body text", _POSITION)
 
         assert result == "unique-id-xyz"
+
+    def test_get_merge_request_diff_stats_standard_diff(self, gitlab_client):
+        """Test diff stats parsing with a standard unified diff."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {
+            "changes": [
+                {
+                    "diff": (
+                        "@@ -1,3 +1,4 @@\n"
+                        " unchanged line\n"
+                        "-removed line\n"
+                        "+added line 1\n"
+                        "+added line 2\n"
+                        " another unchanged\n"
+                    )
+                }
+            ]
+        }
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result == MergeRequestDiffStats(lines_added=2, lines_removed=1, files_changed=1)
+
+    def test_get_merge_request_diff_stats_excludes_diff_headers(self, gitlab_client):
+        """Test that +++ and --- diff headers are not counted as added/removed lines."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {
+            "changes": [{"diff": ("--- a/foo.py\n+++ b/foo.py\n@@ -1,2 +1,2 @@\n-old\n+new\n")}]
+        }
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result.lines_added == 1
+        assert result.lines_removed == 1
+
+    def test_get_merge_request_diff_stats_multiple_files(self, gitlab_client):
+        """Test diff stats across multiple changed files."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {
+            "changes": [{"diff": "@@ -1 +1 @@\n-a\n+b\n"}, {"diff": "@@ -1 +1,3 @@\n-x\n+y\n+z\n+w\n"}]
+        }
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result.lines_added == 4
+        assert result.lines_removed == 2
+        assert result.files_changed == 2
+
+    def test_get_merge_request_diff_stats_empty_diff(self, gitlab_client):
+        """Test diff stats when a file change has an empty diff (e.g., binary file)."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {"changes": [{"diff": ""}]}
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result.lines_added == 0
+        assert result.lines_removed == 0
+        assert result.files_changed == 1
+
+    def test_get_merge_request_diff_stats_no_changes(self, gitlab_client):
+        """Test diff stats with no file changes."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {"changes": []}
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result == MergeRequestDiffStats(lines_added=0, lines_removed=0, files_changed=0)
+
+    def test_get_merge_request_diff_stats_overflow_still_returns_partial(self, gitlab_client):
+        """Test that overflow flag logs a warning but still returns partial stats."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {"overflow": True, "changes": [{"diff": "@@ -1 +1 @@\n-old\n+new\n"}]}
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result.lines_added == 1
+        assert result.lines_removed == 1
+        assert result.files_changed == 1
+
+    def test_get_merge_request_diff_stats_only_additions(self, gitlab_client):
+        """Test diff stats for a new file with only additions."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.changes.return_value = {"changes": [{"diff": "@@ -0,0 +1,3 @@\n+line1\n+line2\n+line3\n"}]}
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_diff_stats("group/repo", 1)
+
+        assert result.lines_added == 3
+        assert result.lines_removed == 0
+
+    def test_get_merge_request_commits_returns_commit_list(self, gitlab_client):
+        """Test that commits are returned with author email and stats."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        commit_ref = Mock(id="abc123", author_email="dev@example.com")
+        mock_mr.commits.return_value = [commit_ref]
+        full_commit = Mock(stats={"additions": 10, "deletions": 5})
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_project.commits.get.return_value = full_commit
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_commits("group/repo", 1)
+
+        assert result == [
+            MergeRequestCommit(sha="abc123", author_email="dev@example.com", lines_added=10, lines_removed=5)
+        ]
+
+    def test_get_merge_request_commits_caps_at_100(self, gitlab_client):
+        """Test that commits are capped at 100."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        commits = [Mock(id=f"sha{i}", author_email="dev@example.com") for i in range(150)]
+        mock_mr.commits.return_value = commits
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_project.commits.get.return_value = Mock(stats={"additions": 1, "deletions": 0})
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_commits("group/repo", 1)
+
+        assert len(result) == 100
+
+    def test_get_merge_request_commits_handles_none_stats(self, gitlab_client):
+        """Test that None stats are treated as zero."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        commit_ref = Mock(id="abc123", author_email="dev@example.com")
+        mock_mr.commits.return_value = [commit_ref]
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_project.commits.get.return_value = Mock(stats=None)
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_commits("group/repo", 1)
+
+        assert result[0].lines_added == 0
+        assert result[0].lines_removed == 0
+
+    def test_get_merge_request_commits_handles_none_author_email(self, gitlab_client):
+        """Test that None author_email defaults to empty string."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        commit_ref = Mock(id="abc123", author_email=None)
+        mock_mr.commits.return_value = [commit_ref]
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_project.commits.get.return_value = Mock(stats={"additions": 1, "deletions": 0})
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_commits("group/repo", 1)
+
+        assert result[0].author_email == ""
+
+    def test_get_merge_request_commits_per_commit_error_continues(self, gitlab_client):
+        """Test that a per-commit API failure skips stats but still includes the commit."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        commit_ref1 = Mock(id="abc", author_email="dev@example.com")
+        commit_ref2 = Mock(id="def", author_email="dev@example.com")
+        mock_mr.commits.return_value = [commit_ref1, commit_ref2]
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_project.commits.get.side_effect = [GitlabGetError("404"), Mock(stats={"additions": 5, "deletions": 3})]
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_commits("group/repo", 1)
+
+        assert len(result) == 2
+        assert result[0].lines_added == 0  # failed commit gets zero stats
+        assert result[1].lines_added == 5

@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
+- Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
+- Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 authentication using PKCE. Enables MCP clients like Claude Code to connect to DAIV via a remote URL with browser-based authentication. Exposes `submit_job` and `get_job_status` tools. Includes OAuth metadata discovery (`/.well-known/oauth-authorization-server`), dynamic client registration (`/api/oauth/register`), and Bearer token validation for MCP requests.
+- Added code merge analytics that tracks lines added/removed, files changed, and DAIV vs human attribution whenever a MR/PR is merged to a default branch. Metrics are displayed in the dashboard under a new "Code Velocity" section with the same period filters.
+- Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code for existing users, and a styled dark-themed login page. Includes a post-login dashboard with API key management (create, list, revoke).
+- Added role-based user management with admin and member roles. Admins can create, edit, and delete users from the dashboard. New users receive a branded welcome email and sign in via OAuth or login-by-code. Social signup is restricted to pre-existing users only.
+- Added branded HTML email templates for welcome and sign-in code emails, with a shared base template and Portuguese translations.
+- Added activity counters to the dashboard showing jobs processed, success rate, issues resolved, MRs assisted, and active API keys, with a temporal filter (7d/30d/90d/all time).
+- Added `setup_langsmith_dashboard` management command to create a pre-configured LangSmith custom dashboard with 27 monitoring charts covering trace volume, latency, cost, tool usage, model comparison, and pipeline health. Supports `--project` and `--recreate` options.
+- Added `model` and `thinking_level` metadata to all LangSmith traces, enabling per-model dashboards and A/B comparison when switching between models.
+- Added async Jobs API (`POST /api/jobs`, `GET /api/jobs/{id}`) for programmatic agent execution with configurable per-user rate limiting (`JOBS_THROTTLE_RATE`). Enables scheduled CI pipelines, Slack bots, and scripted workflows to trigger DAIV agents without blocking.
+- Added `EnsureNonEmptyResponseMiddleware` to detect and recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
+- Added `--update` flag to `setup_webhooks` command to update existing webhooks on demand.
+- Added `--repo-id` option to `setup_webhooks` command to restrict setup to a specific repository.
+- Added `allowed_usernames` option to `.daiv.yml` to restrict which users can interact with DAIV on a per-repository basis. Useful for public repositories where you want to limit who can trigger DAIV.
+- Added user-defined MCP server support via a JSON config file (`MCP_SERVERS_CONFIG_FILE`) following the Claude Code `.mcp.json` standard. Supports `sse` and `http` transport types with environment variable expansion.
+- Added automatic suggestion to add an `AGENTS.md` file when DAIV creates a merge request for a repository that doesn't have one. The suggestion includes a one-click link to create a pre-filled issue. Can be disabled globally via `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False` or per-repository by setting `context_file_name: null` in `.daiv.yml`.
+- Added support for custom subagents defined per-repository. Place markdown files in `.agents/subagents/` with YAML frontmatter (`name`, `description`, optional `model`) and a body that becomes the subagent's system prompt. Custom subagents have the same capabilities as the built-in general-purpose subagent.
+- Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
+
+### Fixed
+
+- Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
+- Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
+- Fixed `PullRequestMetadata.branch` validation to reject invalid branch names (e.g., names with spaces or uppercase characters) that previously passed the incomplete regex.
+- Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
+
+### Changed
+
+- Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
+- Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
+- Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
+- Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
+- Increased Claude max output tokens from 4,096 to 16,384.
+- Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
+
+### Removed
+
+- Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
+- **BREAKING:** Removed the `mcp-proxy` container and its API configuration endpoint. Now MCP servers are configured with isolated per-MCP `supergateway` containers — each built-in MCP server (Sentry, Context7) now runs in its own container. Existing `docker-compose.yml` and stack files must be updated.
+- **BREAKING:** Removed `MCP_PROXY_HOST`, `MCP_PROXY_ADDR`, `MCP_PROXY_AUTH_TOKEN`, and `MCP_CONFIG_API_KEY` settings. MCP server credentials (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) are now configured on the MCP containers directly, not as DAIV application settings
+
+## [2.0.0] - 2026-03-14
+
+### Added
+
 - Added `create_api_key` management command to create API keys from the command line without opening a Django shell.
 - Added `/agents` slash command to list all available sub-agents with their names and descriptions.
 - Added `/clear` slash command to reset conversation context in issues and merge requests.
@@ -340,7 +386,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dependency on `gunicorn` and used `uvicorn` as the default server.
 
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/srtab/daiv/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/srtab/daiv/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/srtab/daiv/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/srtab/daiv/compare/v0.2.1...v0.3.0

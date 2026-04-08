@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sign in via {{ provider.name }} — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)"></div>
+
+    <div class="relative w-full max-w-[380px]">
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">
+                Continue to {{ provider.name }}
+            </p>
+        </div>
+
+        <form method="post" class="animate-fade-up" style="animation-delay: 100ms">
+            {% csrf_token %}
+            <button type="submit" class="btn-primary w-full px-4 py-3">
+                Continue with {{ provider.name }}
+            </button>
+        </form>
+
+        <p class="animate-fade-up mt-6 text-center text-[13px] text-gray-500" style="animation-delay: 180ms">
+            <a href="{% url 'account_login' %}" class="text-gray-400 transition-colors hover:text-white">Back to sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

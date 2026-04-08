@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% load static socialaccount icon_tags %}
+
+{% block title %}Sign in — DAIV{% endblock %}
+{% block meta_description %}{% endblock %}
+{% block meta_robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block open_graph %}{% endblock %}
+
+{% block content %}
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
+    <!-- Background: radial spotlight -->
+    <div class="pointer-events-none absolute inset-0"
+         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)">
+    </div>
+
+    <!-- Background: dot grid -->
+    <div class="pointer-events-none absolute inset-0 opacity-30"
+         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px">
+    </div>
+
+    <!-- Background: geometric accent lines -->
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -right-32 top-[20%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -right-16 top-[28%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+        <div class="absolute -left-32 bottom-[25%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
+        <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+    </div>
+
+    <!-- Card -->
+    <div class="relative w-full max-w-[380px]">
+
+        <!-- Logo -->
+        <div class="animate-fade-up mb-10 flex flex-col items-center">
+            <a href="/">
+                <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
+            </a>
+            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">Sign in to your account</p>
+        </div>
+
+        <!-- Social providers -->
+        {% get_providers as socialaccount_providers %}
+        {% if socialaccount_providers %}
+        <div class="animate-fade-up space-y-2.5" style="animation-delay: 80ms">
+            {% for provider in socialaccount_providers %}
+            {% if provider.id == "github" %}
+            <a href="{% provider_login_url provider.id process='login' %}"
+               class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
+                {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                Continue with GitHub
+            </a>
+            {% elif provider.id == "gitlab" %}
+            <a href="{% provider_login_url provider.id process='login' %}"
+               class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
+                {% icon "gitlab" "h-5 w-5 text-[#FC6D26] transition-colors group-hover:text-white" %}
+                Continue with GitLab
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        <!-- Divider -->
+        <div class="animate-fade-up relative my-7" style="animation-delay: 140ms">
+            <div class="absolute inset-0 flex items-center">
+                <div class="w-full border-t border-white/[0.06]"></div>
+            </div>
+            <div class="relative flex justify-center">
+                <span class="bg-[#030712] px-4 text-[12px] font-medium uppercase tracking-[0.2em] text-gray-500">or</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Login code form -->
+        <form method="post" action="{% url 'account_request_login_code' %}"
+              class="animate-fade-up" style="animation-delay: 200ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                <div class="relative">
+                    <input type="email" name="email" id="email" required autocomplete="email"
+                           placeholder="you@company.com" class="py-3">
+                </div>
+                <button type="submit" class="btn-primary w-full px-4 py-3">
+                    Continue with email
+                </button>
+            </div>
+            <p class="mt-4 text-center text-[12px] font-light tracking-wide text-gray-500">
+                We'll send a one-time code to your inbox
+            </p>
+        </form>
+    </div>
+</div>
+{% endblock %}
