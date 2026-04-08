@@ -101,6 +101,10 @@ SESSION_COOKIE_NAME = "__Secure-sessionid"
 SESSION_COOKIE_SECURE = True
 
 
+# Upload size limit (default 2.5 MB is too small for GitLab webhook payloads)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 # SECURITY - https://docs.djangoproject.com/en/dev/ref/middleware/#module-django.middleware.security
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
