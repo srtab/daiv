@@ -40,14 +40,12 @@
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|default:'' }}',
-                  timezone: '{{ form.timezone.value|default:'UTC' }}',
                   get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
                   get showCron() { return this.frequency === 'custom' },
                   get summary() {
                       const labels = {hourly: 'every hour', daily: 'daily', weekdays: 'weekdays (Mon–Fri)', weekly: 'weekly (Monday)', custom: 'custom schedule'};
                       let s = 'Runs ' + (labels[this.frequency] || this.frequency);
                       if (this.showTime && this.time) s += ' at ' + this.time;
-                      if (this.timezone) s += ' ' + this.timezone;
                       return s;
                   }
               }"
@@ -186,21 +184,6 @@
                 <input type="time" name="time" id="id_time" value="{{ form.time.value|default:'' }}" x-model="time" class="mt-2 !w-auto">
                 {% if form.time.errors %}
                 <p class="mt-1.5 text-[13px] text-red-400">{{ form.time.errors.0 }}</p>
-                {% endif %}
-            </div>
-
-            <!-- Timezone -->
-            <div class="mt-5">
-                <label for="id_timezone" class="block text-[14px] font-medium text-gray-400">Timezone</label>
-                <input type="text" name="timezone" id="id_timezone" value="{{ form.timezone.value|default:'UTC' }}"
-                       x-model="timezone" list="tz-list" maxlength="63" class="mt-2">
-                <datalist id="tz-list">
-                    {% for tz in timezones %}
-                    <option value="{{ tz }}">
-                    {% endfor %}
-                </datalist>
-                {% if form.timezone.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.timezone.errors.0 }}</p>
                 {% endif %}
             </div>
 

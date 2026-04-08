@@ -8,7 +8,7 @@ class ScheduledJobCreateForm(forms.ModelForm):
 
     class Meta:
         model = ScheduledJob
-        fields = ["name", "prompt", "repo_id", "ref", "frequency", "cron_expression", "time", "timezone"]
+        fields = ["name", "prompt", "repo_id", "ref", "frequency", "cron_expression", "time"]
 
     def _clean_conditional_fields(self, cleaned_data: dict) -> dict:
         """Clear fields that are irrelevant for the selected frequency."""

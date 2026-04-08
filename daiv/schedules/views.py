@@ -1,5 +1,3 @@
-import zoneinfo
-
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import get_object_or_404
@@ -9,23 +7,12 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm
 from schedules.models import ScheduledJob, ScheduledJobRun
 
-COMMON_TIMEZONES = sorted(tz for tz in zoneinfo.available_timezones() if "/" in tz and not tz.startswith("Etc/"))
-
 
 class _ScheduleOwnerMixin:
     """Scopes querysets to the current user."""
 
     def get_queryset(self):
         return ScheduledJob.objects.by_owner(self.request.user)
-
-
-class _TimezoneContextMixin:
-    """Provides timezone list for form views."""
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["timezones"] = COMMON_TIMEZONES
-        return context
 
 
 class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
@@ -41,9 +28,7 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
         return qs
 
 
-class ScheduleCreateView(
-    _TimezoneContextMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView
-):
+class ScheduleCreateView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView):
     model = ScheduledJob
     form_class = ScheduledJobCreateForm
     template_name = "schedules/schedule_form.html"
@@ -55,9 +40,7 @@ class ScheduleCreateView(
         return super().form_valid(form)
 
 
-class ScheduleUpdateView(
-    _TimezoneContextMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, UpdateView
-):
+class ScheduleUpdateView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, UpdateView):
     model = ScheduledJob
     form_class = ScheduledJobUpdateForm
     template_name = "schedules/schedule_form.html"
