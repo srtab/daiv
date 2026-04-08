@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import zoneinfo
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from croniter import croniter
@@ -64,9 +64,6 @@ class ScheduledJob(TimeStampedModel):
     time = models.TimeField(
         _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
     )
-    timezone = models.CharField(
-        _("timezone"), max_length=63, default="UTC", help_text=_("IANA timezone for the schedule.")
-    )
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
@@ -102,10 +99,6 @@ class ScheduledJob(TimeStampedModel):
                 })
         if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
             raise ValidationError({"time": _("Time is required for this frequency.")})
-        try:
-            zoneinfo.ZoneInfo(self.timezone)
-        except (KeyError, zoneinfo.ZoneInfoNotFoundError) as e:
-            raise ValidationError({"timezone": _("Invalid timezone.")}) from e
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
@@ -135,18 +128,16 @@ class ScheduledJob(TimeStampedModel):
     def compute_next_run(self, after: datetime | None = None) -> None:
         """Compute and set ``next_run_at`` based on the cron expression and timezone.
 
-        The next fire time is calculated in the schedule's local timezone so
+        The next fire time is calculated in the project's local timezone so
         that DST transitions are handled correctly, then stored as UTC.
 
         Raises:
-            zoneinfo.ZoneInfoNotFoundError: If the timezone is not valid.
             ValueError: If the frequency/cron configuration is invalid.
         """
-        tz = zoneinfo.ZoneInfo(self.timezone)
         if after is None:
-            after = datetime.now(tz=UTC)
+            after = timezone.now()
 
-        local_now = after.astimezone(tz)
+        local_now = timezone.localtime(after)
         cron_iter = croniter(self.get_effective_cron(), local_now)
         next_local = cron_iter.get_next(datetime)
         self.next_run_at = next_local.astimezone(UTC)
