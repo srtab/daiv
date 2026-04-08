@@ -7,15 +7,6 @@ from core.models import SiteConfiguration
 from core.site_settings import SiteSettings
 
 
-@pytest.fixture(autouse=True)
-def _clear_docker_secret_cache():
-    from core.site_settings import _docker_secret_cache
-
-    _docker_secret_cache.clear()
-    yield
-    _docker_secret_cache.clear()
-
-
 @pytest.fixture
 def ss():
     return SiteSettings()
