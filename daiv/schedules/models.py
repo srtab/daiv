@@ -64,6 +64,9 @@ class ScheduledJob(TimeStampedModel):
     time = models.TimeField(
         _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
     )
+    use_max = models.BooleanField(
+        _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
+    )
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)

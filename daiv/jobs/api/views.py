@@ -35,7 +35,9 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     Returns a job ID that can be used to poll for the result.
     """
     try:
-        result = await run_job_task.aenqueue(repo_id=payload.repo_id, prompt=payload.prompt, ref=payload.ref)
+        result = await run_job_task.aenqueue(
+            repo_id=payload.repo_id, prompt=payload.prompt, ref=payload.ref, use_max=payload.use_max
+        )
     except Exception:
         logger.exception("Failed to enqueue job for repo_id=%s", payload.repo_id)
         return 503, {"detail": "Failed to submit job. Please try again later."}
