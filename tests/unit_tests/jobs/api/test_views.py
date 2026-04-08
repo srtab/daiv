@@ -82,6 +82,25 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     assert response.status_code == 202
     data = response.json()
     assert data["job_id"] == mock_result.id
+    mock_task.aenqueue.assert_called_once_with(
+        repo_id="group/project", prompt="List all files", ref=None, use_max=False
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
+    mock_result = AsyncMock()
+    mock_result.id = str(uuid.uuid4())
+
+    with patch("jobs.api.views.run_job_task") as mock_task:
+        mock_task.aenqueue = AsyncMock(return_value=mock_result)
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post(
+            "/jobs", json={"repo_id": "group/project", "prompt": "Fix the bug", "use_max": True}
+        )
+
+    assert response.status_code == 202
+    mock_task.aenqueue.assert_called_once_with(repo_id="group/project", prompt="Fix the bug", ref=None, use_max=True)
 
 
 @pytest.mark.django_db(transaction=True)

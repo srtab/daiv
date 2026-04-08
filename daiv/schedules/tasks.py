@@ -35,7 +35,9 @@ def dispatch_scheduled_jobs_cron_task():
             try:
                 with transaction.atomic():
                     ref = schedule.ref or None
-                    result = run_job_task.enqueue(repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref)
+                    result = run_job_task.enqueue(
+                        repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref, use_max=schedule.use_max
+                    )
                     ScheduledJobRun.objects.create(scheduled_job=schedule, task_result_id=result.id)
                     schedule.last_run_at = now
                     schedule.last_run_task_id = result.id

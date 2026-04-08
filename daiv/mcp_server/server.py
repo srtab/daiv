@@ -67,6 +67,9 @@ async def submit_job(
         str | None,
         Field(description="Git reference (branch name or commit SHA). Defaults to the repository's default branch."),
     ] = None,
+    use_max: Annotated[
+        bool, Field(description="Use the max model configuration (more capable model with thinking set to high).")
+    ] = False,
     wait: Annotated[
         bool,
         Field(
@@ -79,7 +82,7 @@ async def submit_job(
 ) -> str:
     """Submit a job to the DAIV agent for a repository."""
     try:
-        result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref)
+        result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref, use_max=use_max)
     except Exception:
         logger.exception("Failed to enqueue MCP job for repo_id=%s", repo_id)
         return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})

@@ -8,6 +8,7 @@ class JobSubmitRequest(Schema):
     repo_id: str = Field(min_length=1)
     ref: str | None = None
     prompt: str = Field(min_length=1)
+    use_max: bool = False
 
 
 class JobSubmitResponse(Schema):
