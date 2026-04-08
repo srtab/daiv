@@ -3,7 +3,7 @@ ARG TAILWIND_VERSION="v4.2.2"
 #########################################################################################################
 # Python compile image
 #########################################################################################################
-FROM python:3.14.2-slim-bookworm AS app-compiler
+FROM python:3.15.0a8-slim-bookworm AS app-compiler
 
 ENV PYTHONUNBUFFERED=1
 
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #########################################################################################################
 # Python build image
 #########################################################################################################
-FROM python:3.14.2-slim-bookworm AS python-builder
+FROM python:3.15.0a8-slim-bookworm AS python-builder
 
 ARG TAILWIND_VERSION
 
