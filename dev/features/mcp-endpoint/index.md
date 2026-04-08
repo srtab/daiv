@@ -49,7 +49,7 @@ Any MCP client that supports Streamable HTTP transport can connect to DAIV using
 | `submit_job`     | Submit a prompt to the DAIV agent for a repository. Returns a `job_id` for polling, or set `wait=True` to block until the result is ready (up to 10 minutes). |
 | `get_job_status` | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion.                                                 |
 
-`submit_job` accepts an optional `ref` parameter to target a specific branch or commit. If omitted, the repository's default branch is used.
+`submit_job` accepts an optional `ref` parameter to target a specific branch or commit. If omitted, the repository's default branch is used. Set `use_max=True` to use the more capable model with thinking set to high.
 
 For the full request/response schema and job lifecycle, see the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md).
 

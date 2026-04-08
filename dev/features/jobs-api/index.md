@@ -54,11 +54,12 @@ POST /api/jobs
 
 **Request body:**
 
-| Field     | Type   | Required | Description                                                       |
-| --------- | ------ | -------- | ----------------------------------------------------------------- |
-| `repo_id` | string | yes      | Repository identifier (e.g., `group/project`)                     |
-| `prompt`  | string | yes      | The prompt to send to the agent                                   |
-| `ref`     | string | no       | Git ref (branch/tag). Defaults to the repository's default branch |
+| Field     | Type    | Required | Description                                                               |
+| --------- | ------- | -------- | ------------------------------------------------------------------------- |
+| `repo_id` | string  | yes      | Repository identifier (e.g., `group/project`)                             |
+| `prompt`  | string  | yes      | The prompt to send to the agent                                           |
+| `ref`     | string  | no       | Git ref (branch/tag). Defaults to the repository's default branch         |
+| `use_max` | boolean | no       | Use the more capable model with thinking set to high. Defaults to `false` |
 
 **Example:**
 
