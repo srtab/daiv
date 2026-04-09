@@ -41,9 +41,15 @@ PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "today"
 
 
+def _raw_pct(numerator: int, denominator: int) -> int | None:
+    """Return a ratio as a rounded integer percentage, or None when the denominator is zero."""
+    return round(numerator / denominator * 100) if denominator else None
+
+
 def _format_pct(numerator: int, denominator: int) -> str:
     """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
-    return f"{round(numerator / denominator * 100)}%" if denominator else "—"
+    raw = _raw_pct(numerator, denominator)
+    return f"{raw}%" if raw is not None else "—"
 
 
 def _format_duration(td: timedelta | None) -> str:
@@ -76,18 +82,18 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if days == 0:
             cutoff_date = localdate()
 
-        context["counters"] = self._get_activity_counters(cutoff_date)
+        context["activity"] = self._get_activity_data(cutoff_date)
         context["active_api_keys"] = APIKey.objects.filter(user=self.request.user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
-        context["merge_counters"] = self._get_merge_counters(cutoff_date)
+        context["velocity"] = self._get_velocity_data(cutoff_date)
         context["active_schedules"] = ScheduledJob.objects.filter(user=self.request.user, is_enabled=True).count()
         if self.request.user.is_admin:
             context["total_users"] = User.objects.count()
 
         return context
 
-    def _get_activity_counters(self, cutoff_date: date | None) -> list[dict]:
+    def _get_activity_data(self, cutoff_date: date | None) -> dict:
         activities = Activity.objects.all()
         if cutoff_date is not None:
             activities = activities.filter(created_at__date__gte=cutoff_date)
@@ -106,67 +112,66 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             failed_count=Count("id", filter=failed),
             issues=Count("id", filter=successful & code_changes_q & issue_trigger),
             mrs=Count("id", filter=successful & code_changes_q & mr_trigger),
-            scheduled=Count("id", filter=schedule_trigger),
+            scheduled=Count("id", filter=schedule_trigger & ~failed),
             avg_duration=Avg(duration_expr, filter=successful),
         )
 
-        # "Currently running" is period-independent
         running_count = Activity.objects.filter(status=ActivityStatus.RUNNING).count()
 
+        total = stats["total"]
         successful_count = stats["successful"]
         failed_count = stats["failed_count"]
+        issues_count = stats["issues"]
+        mrs_count = stats["mrs"]
+        scheduled_count = stats["scheduled"]
         activity_url = reverse("activity_list")
 
-        return [
-            {
-                "label": "Jobs processed",
-                "value": stats["total"],
-                "url": activity_url,
-                "tooltip": "Total agent executions in the selected period.",
-            },
-            {
-                "label": "Currently running",
-                "value": running_count,
-                "url": f"{activity_url}?status=RUNNING",
-                "tooltip": "Agent executions in progress right now.",
-            },
-            {
-                "label": "Success rate",
-                "value": _format_pct(successful_count, successful_count + failed_count),
-                "tooltip": "Percentage of completed runs that finished successfully.",
-            },
-            {
-                "label": "Failed",
-                "value": failed_count,
-                "url": f"{activity_url}?status=FAILED",
-                "tooltip": "Runs that ended with an error in the selected period.",
-            },
-            {
-                "label": "Issues resolved",
-                "value": stats["issues"],
-                "url": f"{activity_url}?trigger=issue_webhook&status=SUCCESSFUL",
-                "tooltip": "Issues where the agent successfully produced code changes.",
-            },
-            {
-                "label": "MR reviews addressed",
-                "value": stats["mrs"],
-                "url": f"{activity_url}?trigger=mr_webhook&status=SUCCESSFUL",
-                "tooltip": "MR/PR reviews where the agent successfully produced code changes.",
-            },
-            {
-                "label": "Scheduled runs",
-                "value": stats["scheduled"],
-                "url": f"{activity_url}?trigger=schedule",
-                "tooltip": "Runs triggered by scheduled jobs in the selected period.",
-            },
-            {
-                "label": "Avg duration",
-                "value": _format_duration(stats["avg_duration"]),
-                "tooltip": "Average execution time of successful runs in the selected period.",
-            },
+        # Non-overlapping segments for the breakdown bar.
+        # Trigger types are mutually exclusive, so issues/mrs/scheduled never overlap.
+        # issues/mrs require successful status (disjoint from failed);
+        # scheduled explicitly excludes failed. "Other" absorbs the remainder.
+        other_count = max(0, total - issues_count - mrs_count - scheduled_count - failed_count)
+        raw_segments = [
+            (
+                "Issues resolved",
+                issues_count,
+                "bg-emerald-500/50",
+                f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}&status={ActivityStatus.SUCCESSFUL}",
+            ),
+            (
+                "MR reviews",
+                mrs_count,
+                "bg-cyan-500/50",
+                f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}&status={ActivityStatus.SUCCESSFUL}",
+            ),
+            ("Scheduled", scheduled_count, "bg-amber-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
+            ("Other", other_count, "bg-gray-500/30", None),
+            ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={ActivityStatus.FAILED}"),
         ]
+        segments = []
+        for label, value, css, url in raw_segments:
+            if value <= 0:
+                continue
+            segments.append({
+                "label": label,
+                "value": value,
+                "pct": round(value / total * 100, 1) if total else 0,
+                "css": css,
+                "url": url,
+            })
 
-    def _get_merge_counters(self, cutoff_date: date | None) -> list[dict]:
+        return {
+            "total": total,
+            "running": running_count,
+            "success_rate": _format_pct(successful_count, successful_count + failed_count),
+            "success_rate_raw": _raw_pct(successful_count, successful_count + failed_count),
+            "failed": failed_count,
+            "avg_duration": _format_duration(stats["avg_duration"]),
+            "activity_url": activity_url,
+            "segments": segments,
+        }
+
+    def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:
         merges = MergeMetric.objects.all()
         if cutoff_date is not None:
             merges = merges.filter(merged_at__date__gte=cutoff_date)
@@ -181,39 +186,33 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             daiv_commits_sum=Sum("daiv_commits", default=0),
         )
 
+        if not stats["total"]:
+            return None
+
         total_lines = stats["total_added"] + stats["total_removed"]
         daiv_lines = stats["daiv_added"] + stats["daiv_removed"]
+        human_lines = max(0, total_lines - daiv_lines)
         total_commits = stats["total_commits_sum"]
+        daiv_commits = stats["daiv_commits_sum"]
+        human_commits = max(0, total_commits - daiv_commits)
+        max_lines = max(stats["total_added"], stats["total_removed"], 1)
 
-        return [
-            {
-                "label": "Total merges",
-                "value": stats["total"],
-                "tooltip": "Number of MRs/PRs merged into default branches.",
-            },
-            {
-                "label": "Lines added",
-                "value": stats["total_added"],
-                "tooltip": "Total lines added across all merged MRs/PRs.",
-            },
-            {
-                "label": "Lines removed",
-                "value": stats["total_removed"],
-                "tooltip": "Total lines removed across all merged MRs/PRs.",
-            },
-            {
-                "label": "DAIV contribution",
-                "value": _format_pct(daiv_lines, total_lines),
-                "tooltip": "Percentage of total lines (added + removed) authored by DAIV, based on commit authorship.",
-                "plain": True,
-            },
-            {
-                "label": "DAIV commit share",
-                "value": _format_pct(stats["daiv_commits_sum"], total_commits),
-                "tooltip": "Percentage of total commits authored by DAIV across all merged MRs/PRs.",
-                "plain": True,
-            },
-        ]
+        return {
+            "total_merges": stats["total"],
+            "lines_added": stats["total_added"],
+            "lines_removed": stats["total_removed"],
+            "net_lines": stats["total_added"] - stats["total_removed"],
+            "daiv_lines_pct": _format_pct(daiv_lines, total_lines),
+            "daiv_lines_pct_raw": min(_raw_pct(daiv_lines, total_lines) or 0, 100),
+            "daiv_lines": daiv_lines,
+            "human_lines": human_lines,
+            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
+            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
+            "daiv_commits": daiv_commits,
+            "human_commits": human_commits,
+            "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
+            "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
+        }
 
 
 class APIKeyListView(LoginRequiredMixin, ListView):
