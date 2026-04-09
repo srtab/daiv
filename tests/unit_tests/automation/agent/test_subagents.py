@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from langchain.agents.middleware import ModelFallbackMiddleware
 
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -60,6 +61,17 @@ class TestGeneralPurposeSubagent:
         result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx, web_fetch_enabled=False)
         assert not any(isinstance(m, WebFetchMiddleware) for m in result["middleware"])
 
+    def test_includes_fallback_middleware_when_fallback_models_provided(
+        self, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        fallback = [Mock(), Mock()]
+        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx, fallback_models=fallback)
+        assert any(isinstance(m, ModelFallbackMiddleware) for m in result["middleware"])
+
+    def test_excludes_fallback_middleware_when_no_fallback_models(self, mock_model, mock_backend, mock_runtime_ctx):
+        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx)
+        assert not any(isinstance(m, ModelFallbackMiddleware) for m in result["middleware"])
+
 
 class TestExploreSubagent:
     """Tests for create_explore_subagent."""
@@ -74,6 +86,33 @@ class TestExploreSubagent:
         assert result["system_prompt"]
         assert "READ-ONLY" in result["system_prompt"]
         assert "PROHIBITED" in result["system_prompt"]
+
+    def test_includes_fallback_middleware_when_setting_configured(self, mocker):
+        mocker.patch(
+            "automation.agent.subagents.site_settings",
+            agent_explore_model_name="openrouter:anthropic/claude-haiku-4.5",
+            agent_explore_fallback_model_name="openrouter:openai/gpt-5.4-mini",
+        )
+        result = create_explore_subagent(Mock())
+        assert any(isinstance(m, ModelFallbackMiddleware) for m in result["middleware"])
+
+    def test_excludes_fallback_middleware_when_setting_is_none(self, mocker):
+        mocker.patch(
+            "automation.agent.subagents.site_settings",
+            agent_explore_model_name="openrouter:anthropic/claude-haiku-4.5",
+            agent_explore_fallback_model_name=None,
+        )
+        result = create_explore_subagent(Mock())
+        assert not any(isinstance(m, ModelFallbackMiddleware) for m in result["middleware"])
+
+    def test_proceeds_without_fallback_on_invalid_model(self, mocker):
+        mocker.patch(
+            "automation.agent.subagents.site_settings",
+            agent_explore_model_name="openrouter:anthropic/claude-haiku-4.5",
+            agent_explore_fallback_model_name="totally-invalid-model",
+        )
+        result = create_explore_subagent(Mock())
+        assert not any(isinstance(m, ModelFallbackMiddleware) for m in result["middleware"])
 
 
 def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):
@@ -329,6 +368,27 @@ class TestCustomSubagents:
         names = {s["name"] for s in result}
         assert reserved_name not in names
         assert "custom" in names
+
+    async def test_includes_fallback_middleware_when_fallback_models_provided(
+        self, tmp_path: Path, mock_model, mock_runtime_ctx
+    ):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "custom.md").write_text(_make_subagent_md(name="custom", description="Custom agent"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        result = await load_custom_subagents(
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            fallback_models=[Mock()],
+        )
+
+        assert len(result) == 1
+        assert any(isinstance(m, ModelFallbackMiddleware) for m in result[0]["middleware"])
 
     async def test_skips_invalid_model(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from deepagents.backends.filesystem import FilesystemBackend

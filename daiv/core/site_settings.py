@@ -38,6 +38,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_max_model_name": ModelName.CLAUDE_OPUS_4_6,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "agent_explore_fallback_model_name": ModelName.GPT_5_4_MINI,
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
         # Diff to Metadata
