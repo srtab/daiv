@@ -4,11 +4,10 @@ from datetime import datetime
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
-from langchain_core.runnables import RunnableConfig
 from ninja import Router
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import extract_text_content
+from automation.agent.utils import build_langsmith_config, extract_text_content
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
@@ -48,24 +47,20 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
     repo_id, ref = request.headers.get(HEADER_REPO_ID), request.headers.get(HEADER_REF)
 
     input_data = {"messages": [msg.dict() for msg in payload.messages]}
-    config = RunnableConfig(
-        metadata={
-            "model_id": MODEL_ID,
-            "chat_stream": payload.stream,
-            "repo_id": repo_id,
-            "ref": ref,
-            "model": site_settings.agent_model_name,
-            "thinking_level": site_settings.agent_thinking_level,
-        }
-    )
 
     if payload.stream:
         return StreamingHttpResponse(
-            generate_stream(input_data, MODEL_ID, repo_id=repo_id, ref=ref, config=config),
-            content_type="text/event-stream",
+            generate_stream(input_data, MODEL_ID, repo_id=repo_id, ref=ref), content_type="text/event-stream"
         )
     try:
         async with set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx:
+            config = build_langsmith_config(
+                runtime_ctx,
+                trigger="chat",
+                model=site_settings.agent_model_name,
+                thinking_level=site_settings.agent_thinking_level,
+                extra_metadata={"model_id": MODEL_ID, "chat_stream": payload.stream},
+            )
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
             result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
 

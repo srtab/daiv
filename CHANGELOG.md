@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Standardized LangSmith metadata and tags across all agent invocation paths. The Jobs API and Chat API were missing critical metadata fields (`scope`, `repository`, `git_platform`) and had no tags, making their traces invisible in several LangSmith dashboard charts.
 - Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
 - Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
 - Fixed `PullRequestMetadata.branch` validation to reject invalid branch names (e.g., names with spaces or uppercase characters) that previously passed the incomplete regex.
