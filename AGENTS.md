@@ -18,7 +18,6 @@ uv run pytest tests/unit_tests/ -k "test_notes"
 - Unit tests live in `tests/unit_tests/` mirroring `daiv/` structure.
 - `asyncio_mode = "auto"` — no need for `@pytest.mark.asyncio`.
 - Never edit `pyproject.toml` directly; use `uv add <pkg>==<version>` / `uv remove <pkg>`.
-- **Always update `CHANGELOG.md`** after any change (use the `changelog-curator` subagent).
 - Translations: `make makemessages` → edit `.po` files → `make compilemessages`.
 
 ## Repo map
