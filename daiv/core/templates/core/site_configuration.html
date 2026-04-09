@@ -39,8 +39,8 @@
                     <div class="sticky top-8 space-y-0.5">
                         {% for group in field_groups %}
                         <a href="#{{ group.key }}"
-                           class="group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-gray-500 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
-                            {% icon group.icon "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
+                           class="group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
+                            {% icon group.icon "h-3.5 w-3.5 text-gray-500 transition-colors group-hover:text-gray-400" %}
                             {{ group.title }}
                         </a>
                         {% endfor %}
@@ -100,7 +100,7 @@
                     const isActive = link.getAttribute('href') === `#${id}`;
                     link.classList.toggle('bg-white/[0.06]', isActive);
                     link.classList.toggle('text-white', isActive);
-                    link.classList.toggle('text-gray-500', !isActive);
+                    link.classList.toggle('text-gray-400', !isActive);
                 });
             }
         }

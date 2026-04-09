@@ -13,13 +13,13 @@
         <div class="animate-fade-up flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
                 <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-500">Welcome back, {{ user.name|default:user.email }}</p>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">Welcome back, {{ user.name|default:user.email }}</p>
             </div>
             <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 {% for p in periods %}
                 <a href="?period={{ p.key }}"
                    class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
-                          {% if p.key == current_period %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
+                          {% if p.key == current_period %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     {{ p.label }}
                 </a>
                 {% endfor %}
@@ -39,7 +39,9 @@
                 <div class="space-y-0 divide-y divide-white/[0.04]">
                     {% for counter in counters %}
                     <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
-                        <span class="text-[13px] text-gray-500">{{ counter.label }}</span>
+                        <span class="text-[13px] text-gray-400">
+                            {% if counter.url %}<a href="{{ counter.url }}" class="hover:text-gray-300 transition-colors">{{ counter.label }}</a>{% else %}{{ counter.label }}{% endif %}
+                        </span>
                         <div class="text-right">
                             <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
                             {% if counter.today %}
@@ -63,11 +65,11 @@
                 <div class="space-y-0 divide-y divide-white/[0.04]">
                     {% for counter in merge_counters %}
                     <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
-                        <span class="flex items-center gap-1.5 text-[13px] text-gray-500">
+                        <span class="flex items-center gap-1.5 text-[13px] text-gray-400">
                             {{ counter.label }}
                             {% if counter.tooltip %}
                             <span class="group relative cursor-help">
-                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
+                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-500 transition-colors group-hover:text-gray-400" %}
                                 <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                                     {{ counter.tooltip }}
                                 </span>
@@ -99,6 +101,8 @@
             {% url 'api_keys' as api_keys_url %}
             {% if active_api_keys %}{% blocktranslate with count=active_api_keys asvar api_keys_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
             {% include "accounts/_quick_link_card.html" with url=api_keys_url icon="key" title="API Keys" description="Manage API keys for programmatic access to DAIV." badge=api_keys_badge %}
+            {% url 'activity_list' as activity_url %}
+            {% include "accounts/_quick_link_card.html" with url=activity_url icon="bolt" title="Agent Activity" description="View all agent activity across jobs, schedules, and webhooks." %}
             {% url 'schedule_list' as schedules_url %}
             {% if active_schedules %}{% blocktranslate with count=active_schedules asvar schedules_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
             {% include "accounts/_quick_link_card.html" with url=schedules_url icon="clock" title="Scheduled Jobs" description="Automate agent runs on repositories with recurring schedules." badge=schedules_badge %}

@@ -14,7 +14,10 @@ async def test_submit_job_success():
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
-    with patch("mcp_server.server.run_job_task") as mock_task:
+    with (
+        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+    ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         result = await submit_job(repo_id="group/project", prompt="Fix the bug")
 
@@ -28,7 +31,10 @@ async def test_submit_job_passes_ref():
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
-    with patch("mcp_server.server.run_job_task") as mock_task:
+    with (
+        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+    ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         await submit_job(repo_id="group/project", prompt="Fix the bug", ref="feature-branch")
         mock_task.aenqueue.assert_called_once_with(
@@ -65,6 +71,7 @@ async def test_submit_job_wait_success():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
@@ -96,6 +103,7 @@ async def test_submit_job_wait_failed():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
@@ -129,6 +137,7 @@ async def test_submit_job_wait_polls_until_complete():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
@@ -159,6 +168,7 @@ async def test_submit_job_wait_timeout():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
@@ -296,6 +306,7 @@ async def test_poll_job_db_exception():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
@@ -323,6 +334,7 @@ async def test_poll_job_timeout_never_found():
     with (
         patch("mcp_server.server.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),

@@ -20,7 +20,10 @@ def dispatch_scheduled_jobs_cron_task():
     Each schedule is processed in its own savepoint so that one failure
     does not roll back updates for other schedules.
     """
-    from schedules.models import ScheduledJob, ScheduledJobRun
+    from activity.models import TriggerType
+    from activity.services import create_activity
+
+    from schedules.models import ScheduledJob
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -38,7 +41,6 @@ def dispatch_scheduled_jobs_cron_task():
                     result = run_job_task.enqueue(
                         repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref, use_max=schedule.use_max
                     )
-                    ScheduledJobRun.objects.create(scheduled_job=schedule, task_result_id=result.id)
                     schedule.last_run_at = now
                     schedule.last_run_task_id = result.id
                     schedule.run_count = models.F("run_count") + 1
@@ -46,7 +48,20 @@ def dispatch_scheduled_jobs_cron_task():
                     schedule.save(
                         update_fields=["last_run_at", "last_run_task_id", "run_count", "next_run_at", "modified"]
                     )
-                    dispatched += 1
+                dispatched += 1
+                try:
+                    create_activity(
+                        trigger_type=TriggerType.SCHEDULE,
+                        task_result_id=result.id,
+                        repo_id=schedule.repo_id,
+                        ref=ref or "",
+                        prompt=schedule.prompt,
+                        scheduled_job=schedule,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to create activity for scheduled job pk=%d (%s)", schedule.pk, schedule.name
+                    )
             except Exception:
                 logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
                 failed += 1

@@ -72,7 +72,13 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     mock_result = AsyncMock()
     mock_result.id = str(uuid.uuid4())
 
-    with patch("jobs.api.views.run_job_task") as mock_task:
+    mock_activity = AsyncMock()
+    mock_activity.id = uuid.uuid4()
+
+    with (
+        patch("jobs.api.views.run_job_task") as mock_task,
+        patch("jobs.api.views.acreate_activity", new_callable=AsyncMock, return_value=mock_activity),
+    ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -82,6 +88,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     assert response.status_code == 202
     data = response.json()
     assert data["job_id"] == mock_result.id
+    assert data["activity_id"] == str(mock_activity.id)
     mock_task.aenqueue.assert_called_once_with(
         repo_id="group/project", prompt="List all files", ref=None, use_max=False
     )
@@ -92,7 +99,13 @@ async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
     mock_result = AsyncMock()
     mock_result.id = str(uuid.uuid4())
 
-    with patch("jobs.api.views.run_job_task") as mock_task:
+    mock_activity = AsyncMock()
+    mock_activity.id = uuid.uuid4()
+
+    with (
+        patch("jobs.api.views.run_job_task") as mock_task,
+        patch("jobs.api.views.acreate_activity", new_callable=AsyncMock, return_value=mock_activity),
+    ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -145,6 +158,7 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient, 
     assert response.status_code == 200
     data = response.json()
     assert data["job_id"] == str(db_result.id)
+    assert data["activity_id"] == ""
     assert data["status"] == "SUCCESSFUL"
     assert data["result"] == "Here are the files..."
     assert data["error"] is None

@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% load dashboard_tags i18n icon_tags markdown_tags static %}
+
+{% block title %}Activity Detail — DAIV{% endblock %}
+
+{% block alpine_plugins %}
+{% if is_in_flight %}
+<script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh" {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
+    {% include "accounts/_header.html" %}
+
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">Activity Detail</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                    {{ activity.get_trigger_type_display }} &middot; {{ activity.repo_id }}
+                </p>
+            </div>
+            <a href="{% url 'activity_list' %}"
+               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                &larr; Activity
+            </a>
+        </div>
+
+        <!-- Context card -->
+        <div class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Trigger type badge -->
+                {% if activity.trigger_type == "api_job" or activity.trigger_type == "mcp_job" %}
+                <span class="rounded-full bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-300">{{ activity.get_trigger_type_display }}</span>
+                {% elif activity.trigger_type == "schedule" %}
+                <span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-[11px] font-medium text-violet-300">Schedule</span>
+                {% elif activity.trigger_type == "issue_webhook" %}
+                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">Issue</span>
+                {% elif activity.trigger_type == "mr_webhook" %}
+                <span class="rounded-full bg-cyan-900/40 px-2 py-0.5 text-[11px] font-medium text-cyan-300">MR/PR</span>
+                {% endif %}
+
+                <!-- Status badge -->
+                {% if is_in_flight %}
+                <span :class="statusClass()" class="status-badge" x-text="statusLabel()">
+                    {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
+                </span>
+                {% elif activity.status == "SUCCESSFUL" %}
+                <span class="rounded-full bg-emerald-900/40 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Successful</span>
+                {% elif activity.status == "FAILED" %}
+                <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Failed</span>
+                {% endif %}
+
+                {% if activity.duration %}
+                <span class="text-[13px] text-gray-400">
+                    Duration: {{ activity.started_at|timesince:activity.finished_at }}
+                </span>
+                {% endif %}
+            </div>
+
+            <!-- Metadata -->
+            <div class="mt-4 space-y-2 text-[13px] text-gray-400">
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Repository:</span>
+                    <span class="text-gray-300">{{ activity.repo_id }}</span>
+                    {% if activity.ref %}
+                    <span class="text-gray-400">&middot;</span>
+                    <span class="text-gray-300">{{ activity.ref }}</span>
+                    {% endif %}
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Created:</span>
+                    <span class="text-gray-300">{{ activity.created_at|date:"M j, Y H:i:s" }} UTC</span>
+                </div>
+
+                {% if activity.started_at %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Started:</span>
+                    <span class="text-gray-300">{{ activity.started_at|date:"M j, Y H:i:s" }} UTC</span>
+                </div>
+                {% endif %}
+
+                {% if activity.finished_at %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Finished:</span>
+                    <span class="text-gray-300">{{ activity.finished_at|date:"M j, Y H:i:s" }} UTC</span>
+                </div>
+                {% endif %}
+
+                {% if activity.scheduled_job %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Schedule:</span>
+                    <a href="{% url 'schedule_update' activity.scheduled_job.pk %}"
+                       class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
+                        {{ activity.scheduled_job.name }}
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if activity.issue_iid %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Issue:</span>
+                    <span class="text-gray-300">#{{ activity.issue_iid }}</span>
+                </div>
+                {% endif %}
+
+                {% if activity.merge_request_iid %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">MR/PR:</span>
+                    <span class="text-gray-300">!{{ activity.merge_request_iid }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Prompt (for jobs/schedules) -->
+        {% if activity.prompt %}
+        <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 150ms">
+            <h2 class="text-[14px] font-semibold text-gray-300">Prompt</h2>
+            <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
+                {{ activity.prompt|render_markdown }}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Result section -->
+        <div class="animate-fade-up mt-6" style="animation-delay: 200ms">
+            {% if activity.status == "SUCCESSFUL" %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+                <h2 class="text-[14px] font-semibold text-gray-300">Result</h2>
+                {% if activity.task_result and activity.task_result.return_value %}
+                <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
+                    {{ activity.task_result.return_value|render_markdown }}
+                </div>
+                {% elif activity.result_summary %}
+                <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
+                    {{ activity.result_summary|render_markdown }}
+                </div>
+                {% else %}
+                <p class="mt-3 text-[13px] text-gray-400">No result data available.</p>
+                {% endif %}
+            </div>
+
+            {% elif activity.status == "FAILED" %}
+            <div class="rounded-2xl border border-red-900/30 bg-red-950/20 p-6">
+                <h2 class="text-[14px] font-semibold text-red-300">Error</h2>
+                {% if activity.task_result and activity.task_result.exception_class_path %}
+                <p class="mt-3 text-[14px] font-medium text-red-300">{{ activity.task_result.exception_class_path }}</p>
+                    {% if activity.task_result.traceback %}
+                    <div class="mt-4 rounded-xl bg-black/30 p-4">
+                        <pre class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-red-300/80">{{ activity.task_result.traceback }}</pre>
+                    </div>
+                    {% endif %}
+                {% elif activity.error_message %}
+                <div class="mt-3 rounded-xl bg-black/30 p-4">
+                    <pre class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-red-300/80">{{ activity.error_message }}</pre>
+                </div>
+                {% else %}
+                <p class="mt-3 text-[13px] text-red-400/60">No error details available.</p>
+                {% endif %}
+            </div>
+
+            {% elif activity.status == "RUNNING" or activity.status == "READY" %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+                <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                    {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
+                </span>
+                <p class="mt-4 text-[14px] text-gray-400">This activity is still in progress. The page will update automatically when it completes.</p>
+            </div>
+
+            {% elif not activity.task_result %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+                <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">Result pruned</span>
+                <p class="mt-4 text-[14px] text-gray-400">
+                    The task result for this activity is no longer available. Completed results are removed after the retention period.
+                </p>
+                {% if activity.result_summary %}
+                <div class="prose-dark mt-4 rounded-xl bg-black/30 p-4">
+                    {{ activity.result_summary|render_markdown }}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+
+{% endblock %}

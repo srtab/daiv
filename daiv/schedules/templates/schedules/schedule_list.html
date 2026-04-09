@@ -41,7 +41,7 @@
                             {% endif %}
                             <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">{{ schedule.get_frequency_display }}</span>
                         </div>
-                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-400">
                             <span>{{ schedule.repo_id }}</span>
                             {% if user.is_admin and schedule.user != user %}
                             <span>&middot;</span>
@@ -57,7 +57,7 @@
                             {% endif %}
                             {% if schedule.run_count %}
                             <span>&middot;</span>
-                            <a href="{% url 'schedule_run_list' schedule.pk %}"
+                            <a href="{% url 'activity_list' %}?schedule={{ schedule.pk }}"
                                class="underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
                                 {{ schedule.run_count }} run{{ schedule.run_count|pluralize }}
                             </a>
@@ -74,7 +74,7 @@
             {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <p class="text-[14px] text-gray-500">No scheduled jobs yet. Create one to automate agent runs.</p>
+                <p class="text-[14px] text-gray-400">No scheduled jobs yet. Create one to automate agent runs.</p>
             </div>
             {% endif %}
         </div>

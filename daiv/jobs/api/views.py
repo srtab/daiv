@@ -3,6 +3,8 @@ import uuid as uuid_mod
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
+from activity.models import Activity, TriggerType
+from activity.services import acreate_activity
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
@@ -41,7 +43,21 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     except Exception:
         logger.exception("Failed to enqueue job for repo_id=%s", payload.repo_id)
         return 503, {"detail": "Failed to submit job. Please try again later."}
-    return 202, JobSubmitResponse(job_id=result.id)
+
+    activity_id = ""
+    try:
+        activity = await acreate_activity(
+            trigger_type=TriggerType.API_JOB,
+            task_result_id=result.id,
+            repo_id=payload.repo_id,
+            ref=payload.ref or "",
+            prompt=payload.prompt,
+        )
+        activity_id = str(activity.id)
+    except Exception:
+        logger.exception("Failed to create activity for job %s", result.id)
+
+    return 202, JobSubmitResponse(job_id=result.id, activity_id=activity_id)
 
 
 @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})
@@ -63,8 +79,16 @@ async def get_job_status(request: HttpRequest, job_id: str):
     if db_result.status == "FAILED":
         error = "Job execution failed"
 
+    try:
+        activity = await Activity.objects.filter(task_result_id=job_uuid).afirst()
+        activity_id = str(activity.id) if activity else ""
+    except Exception:
+        logger.warning("Failed to look up activity for job_id=%s", job_uuid, exc_info=True)
+        activity_id = ""
+
     return 200, JobStatusResponse(
         job_id=str(db_result.id),
+        activity_id=activity_id,
         status=db_result.status,
         result=db_result.return_value,
         error=error,

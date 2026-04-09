@@ -14,7 +14,9 @@ import threading
 from typing import TYPE_CHECKING
 
 from django.core.asgi import get_asgi_application
+from django.db import close_old_connections
 
+from asgiref.sync import sync_to_async
 from starlette.responses import JSONResponse
 
 if TYPE_CHECKING:
@@ -87,9 +89,31 @@ class Application:
                     response = JSONResponse({"error": "MCP endpoint is temporarily unavailable."}, status_code=503)
                     await response(scope, receive, send)
                 return
-            await mcp_app(scope, receive, send)
+            await _dispatch_with_connection_management(mcp_app, scope, receive, send)
         else:
             await django_application(scope, receive, send)
+
+
+async def _dispatch_with_connection_management(app: ASGIApp, scope: Scope, receive: Receive, send: Send) -> None:
+    """
+    Dispatch to a non-Django ASGI app with Django database connection lifecycle management.
+
+    Django's request_started/request_finished signals call close_old_connections() to reset
+    health-check state and return stale connections to the pool. Non-Django ASGI sub-apps
+    bypass these signals, so database connections cached in sync_to_async worker threads
+    never get their health_check_done flag reset — causing OperationalError on stale connections.
+
+    This mirrors Django's own request lifecycle by calling close_old_connections() before and
+    after dispatching, in the same thread used by sync_to_async (thread_sensitive=True by default).
+    """
+    await sync_to_async(close_old_connections)()
+    try:
+        await app(scope, receive, send)
+    finally:
+        try:
+            await sync_to_async(close_old_connections)()
+        except Exception:
+            logger.warning("Failed to close old database connections after MCP dispatch", exc_info=True)
 
 
 application = Application()

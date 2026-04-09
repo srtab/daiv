@@ -144,33 +144,3 @@ class ScheduledJob(TimeStampedModel):
         cron_iter = croniter(self.get_effective_cron(), local_now)
         next_local = cron_iter.get_next(datetime)
         self.next_run_at = next_local.astimezone(UTC)
-
-
-class ScheduledJobRun(models.Model):
-    """Records each dispatch of a scheduled job, linking to the task result.
-
-    Instances are immutable after creation. The ``task_result`` FK may become
-    NULL when the underlying ``DBTaskResult`` row is pruned by the retention policy.
-    """
-
-    scheduled_job = models.ForeignKey(
-        ScheduledJob, on_delete=models.CASCADE, related_name="runs", verbose_name=_("scheduled job")
-    )
-    task_result = models.ForeignKey(
-        "django_tasks_database.DBTaskResult",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        verbose_name=_("task result"),
-    )
-    created = models.DateTimeField(_("created"), auto_now_add=True, db_index=True)
-
-    class Meta:
-        verbose_name = _("Scheduled Job Run")
-        verbose_name_plural = _("Scheduled Job Runs")
-        ordering = ["-created"]
-        indexes = [models.Index(fields=["scheduled_job", "-created"], name="sched_run_job_created_idx")]
-
-    def __str__(self) -> str:
-        return f"Run {self.pk} for schedule {self.scheduled_job_id}"

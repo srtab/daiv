@@ -88,11 +88,22 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         )
 
         total = stats["total"]
+        activity_url = reverse("activity_list")
         return [
-            {"label": "Jobs processed", "value": total, "today": stats["today_total"]},
+            {"label": "Jobs processed", "value": total, "today": stats["today_total"], "url": activity_url},
             {"label": "Success rate", "value": _format_pct(stats["successful"], total)},
-            {"label": "Issues resolved", "value": stats["issues"], "today": stats["today_issues"]},
-            {"label": "MR reviews addressed", "value": stats["mrs"], "today": stats["today_mrs"]},
+            {
+                "label": "Issues resolved",
+                "value": stats["issues"],
+                "today": stats["today_issues"],
+                "url": f"{activity_url}?trigger=issue_webhook&status=SUCCESSFUL",
+            },
+            {
+                "label": "MR reviews addressed",
+                "value": stats["mrs"],
+                "today": stats["today_mrs"],
+                "url": f"{activity_url}?trigger=mr_webhook&status=SUCCESSFUL",
+            },
         ]
 
     def _get_merge_counters(self, cutoff_date: date | None, today: date) -> list[dict]:

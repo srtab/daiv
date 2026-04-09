@@ -74,9 +74,130 @@ a, button, [role="button"] {
     @apply h-4 w-4 rounded border-white/[0.15] bg-white/[0.03] text-white accent-white;
   }
 
+  input[type="date"],
+  input[type="time"] {
+    color-scheme: dark;
+  }
+
   input:disabled,
   select:disabled,
   textarea:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+}
+
+/* -- Prose dark: markdown rendered inside dark boxes ---------------------- */
+
+@layer components {
+  .prose-dark {
+    @apply text-[13px] leading-relaxed text-gray-300;
+  }
+
+  .prose-dark h1 {
+    @apply mt-6 mb-3 text-lg font-semibold text-gray-100 first:mt-0;
+  }
+
+  .prose-dark h2 {
+    @apply mt-5 mb-2.5 text-base font-semibold text-gray-100 first:mt-0;
+  }
+
+  .prose-dark h3 {
+    @apply mt-4 mb-2 text-[14px] font-semibold text-gray-200 first:mt-0;
+  }
+
+  .prose-dark p {
+    @apply my-2.5;
+  }
+
+  .prose-dark ul {
+    @apply my-2.5 list-disc pl-5;
+  }
+
+  .prose-dark ol {
+    @apply my-2.5 list-decimal pl-5;
+  }
+
+  .prose-dark li {
+    @apply my-1;
+  }
+
+  .prose-dark a {
+    @apply text-blue-400 underline decoration-blue-400/30 hover:text-blue-300 hover:decoration-blue-300/50;
+  }
+
+  .prose-dark code {
+    @apply rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px] text-gray-200;
+  }
+
+  .prose-dark pre {
+    @apply my-3 overflow-x-auto rounded-lg bg-black/40 p-3;
+  }
+
+  .prose-dark pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .prose-dark blockquote {
+    @apply my-3 border-l-2 border-gray-600 pl-4 text-gray-400;
+  }
+
+  .prose-dark table {
+    @apply my-3 w-full text-left;
+  }
+
+  .prose-dark th {
+    @apply border-b border-white/[0.08] pb-2 text-[12px] font-semibold text-gray-200;
+  }
+
+  .prose-dark td {
+    @apply border-b border-white/[0.04] py-2 text-[12px] text-gray-300;
+  }
+
+  .prose-dark hr {
+    @apply my-4 border-white/[0.06];
+  }
+
+  .prose-dark strong {
+    @apply font-semibold text-gray-200;
+  }
+}
+
+/* -- Status badge variants ------------------------------------------------ */
+
+@layer components {
+  .status-badge {
+    @apply rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+
+  .status-badge-success {
+    @apply bg-emerald-900/40 text-emerald-300;
+  }
+
+  .status-badge-failed {
+    @apply bg-red-900/40 text-red-300;
+  }
+
+  .status-badge-running {
+    @apply bg-blue-900/40 text-blue-300;
+  }
+
+  .status-badge-pending {
+    @apply bg-gray-800/60 text-gray-400;
+  }
+}
+
+/* -- Combobox size variant ------------------------------------------------ */
+
+@layer components {
+  .combobox-sm input[type="text"] {
+    @apply rounded-lg px-3 py-1.5 pr-8 text-[13px];
+  }
+
+  .combobox-sm .combobox-icon {
+    @apply h-3.5 w-3.5;
+  }
+
+  .combobox-sm .combobox-option {
+    @apply px-3 py-2 text-[13px];
   }
 }

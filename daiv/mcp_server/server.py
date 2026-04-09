@@ -4,6 +4,8 @@ import logging
 import uuid as uuid_mod
 from typing import TYPE_CHECKING, Annotated
 
+from activity.models import TriggerType
+from activity.services import acreate_activity
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
 from mcp.server.fastmcp import FastMCP
@@ -88,6 +90,13 @@ async def submit_job(
         return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})
 
     job_id = str(result.id)
+    try:
+        await acreate_activity(
+            trigger_type=TriggerType.MCP_JOB, task_result_id=result.id, repo_id=repo_id, ref=ref or "", prompt=prompt
+        )
+    except Exception:
+        logger.exception("Failed to create activity for MCP job %s", job_id)
+
     logger.info("MCP job submitted: job_id=%s, repo_id=%s", job_id, repo_id)
 
     if not wait:
