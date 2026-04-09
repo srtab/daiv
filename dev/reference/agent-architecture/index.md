@@ -136,10 +136,12 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 The main agent can delegate work to two subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
 
-| Subagent        | Model                   | Tools                | Use case                                     |
-| --------------- | ----------------------- | -------------------- | -------------------------------------------- |
-| General-purpose | Same as main agent      | Full tool access     | Complex searches, multi-step research        |
-| Explore         | Claude Haiku 4.5 (fast) | Read-only filesystem | Quick file lookups, code structure questions |
+| Subagent        | Model                   | Fallback           | Tools                | Use case                                     |
+| --------------- | ----------------------- | ------------------ | -------------------- | -------------------------------------------- |
+| General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
+| Explore         | Claude Haiku 4.5 (fast) | GPT-5.4-mini       | Read-only filesystem | Quick file lookups, code structure questions |
+
+All subagents (including [custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents)) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
 
 ## Dynamic system prompt
 

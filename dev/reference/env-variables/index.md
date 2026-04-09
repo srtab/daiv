@@ -302,16 +302,17 @@ These variables control the models and behavior of DAIV's agents. You can also o
 
 The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
-| Variable                         | Description                                                                        | Default             |
-| -------------------------------- | ---------------------------------------------------------------------------------- | ------------------- |
-| `DAIV_AGENT_RECURSION_LIMIT`     | Maximum recursion depth for agent execution                                        | `500`               |
-| `DAIV_AGENT_MODEL_NAME`          | Primary model for agent tasks                                                      | `claude-sonnet-4-6` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails                                          | `gpt-5-3-codex`     |
-| `DAIV_AGENT_THINKING_LEVEL`      | Extended thinking level (`minimal`, `low`, `medium`, `high`, or `None` to disable) | `medium`            |
-| `DAIV_AGENT_MAX_MODEL_NAME`      | Model used when the `daiv-max` label is present                                    | `claude-opus-4-6`   |
-| `DAIV_AGENT_MAX_THINKING_LEVEL`  | Thinking level for `daiv-max` tasks                                                | `high`              |
-| `DAIV_AGENT_EXPLORE_MODEL_NAME`  | Model for the explore subagent (fast, read-only)                                   | `claude-haiku-4-5`  |
-| `DAIV_AGENT_CUSTOM_SKILLS_PATH`  | Path to custom global skills directory. Set to `None` to disable.                  | `~/data/skills`     |
+| Variable                                 | Description                                                                        | Default             |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`             | Maximum recursion depth for agent execution                                        | `500`               |
+| `DAIV_AGENT_MODEL_NAME`                  | Primary model for agent tasks                                                      | `claude-sonnet-4-6` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME`         | Fallback model if the primary model fails                                          | `gpt-5-3-codex`     |
+| `DAIV_AGENT_THINKING_LEVEL`              | Extended thinking level (`minimal`, `low`, `medium`, `high`, or `None` to disable) | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`              | Model used when the `daiv-max` label is present                                    | `claude-opus-4-6`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`          | Thinking level for `daiv-max` tasks                                                | `high`              |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME`          | Model for the explore subagent (fast, read-only)                                   | `claude-haiku-4-5`  |
+| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails                                          | `gpt-5-4-mini`      |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`          | Path to custom global skills directory. Set to `None` to disable.                  | `~/data/skills`     |
 
 ### Jobs API
 
