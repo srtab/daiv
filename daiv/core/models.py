@@ -138,6 +138,13 @@ class SiteConfiguration(models.Model):
     agent_explore_model_name = models.CharField(
         _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
     )
+    agent_explore_fallback_model_name = models.CharField(
+        _("explore fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model when the explore model fails."),
+    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
     )
@@ -282,6 +289,7 @@ class SiteConfiguration(models.Model):
         "agent_fallback_model_name",
         "agent_max_model_name",
         "agent_explore_model_name",
+        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "web_fetch_model_name",

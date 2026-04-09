@@ -97,6 +97,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_max_model_name",
             "agent_max_thinking_level",
             "agent_explore_model_name",
+            "agent_explore_fallback_model_name",
             "agent_recursion_limit",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
