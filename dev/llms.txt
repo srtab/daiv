@@ -18,6 +18,7 @@ DAIV is an open-source async software engineering agent that integrates natively
 - [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): REST API for programmatic agent triggering
 - [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md): Recurring agent runs on a cron schedule
 - [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md): MCP server endpoint for AI coding assistants
+- [Activity Tracking](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md): Unified log of all agent executions
 - [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md): Code merge analytics and DAIV contribution tracking
 - [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and custom skills
 - [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution

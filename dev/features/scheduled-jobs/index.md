@@ -75,7 +75,7 @@ From the **Scheduled Jobs** list you can:
 - **Edit** a schedule to change any field, including toggling the **Enabled** checkbox to pause or resume it
 - **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
 
-The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner.
+The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner. Clicking the run count opens the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) page filtered to that schedule's runs.
 
 ## Relationship with the Jobs API
 
