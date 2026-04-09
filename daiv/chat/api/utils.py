@@ -7,14 +7,15 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.utils import build_langsmith_config
 from chat.api.schemas import ChatCompletionChunk
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.runnables.schema import StreamEvent
 
 
@@ -39,9 +40,7 @@ def extract_text_from_event_data(event_data: StreamEvent) -> str:
     return ""
 
 
-async def generate_stream(
-    input_data: dict, model_id: str, *, repo_id: str, ref: str, config: RunnableConfig
-) -> AsyncGenerator[str]:
+async def generate_stream(input_data: dict, model_id: str, *, repo_id: str, ref: str) -> AsyncGenerator[str]:
     """
     Generate a stream of chat completion events.
 
@@ -50,7 +49,6 @@ async def generate_stream(
         model_id: The model ID.
         repo_id: The repository ID.
         ref: The reference.
-        config: The config.
 
     Returns:
         The stream of chat completion events.
@@ -60,6 +58,13 @@ async def generate_stream(
 
     async with set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx:
         try:
+            config = build_langsmith_config(
+                runtime_ctx,
+                trigger="chat",
+                model=site_settings.agent_model_name,
+                thinking_level=site_settings.agent_thinking_level,
+                extra_metadata={"model_id": model_id, "chat_stream": True},
+            )
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
 
             async for message_chunk, _metadata in daiv_agent.astream(input_data, config=config, context=runtime_ctx):

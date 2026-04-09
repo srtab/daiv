@@ -7,13 +7,12 @@ from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
+from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -236,19 +235,17 @@ class CommentsAddressorManager(BaseManager):
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
-            agent_config = RunnableConfig(
+            agent_config = build_langsmith_config(
+                self.ctx,
+                trigger="mention",
+                model=agent_kwargs["model_names"][0],
+                thinking_level=agent_kwargs["thinking_level"],
+                agent_name=daiv_agent.get_name(),
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
-                metadata={
+                extra_metadata={
                     "author": self.merge_request.author.username,
                     "triggered_by": mention_comment.notes[0].author.username,
-                    "trigger": "mention",
-                    "repository": self.ctx.repository.slug,
-                    "git_platform": self.client.git_platform.value,
                     "merge_request_id": self.merge_request.merge_request_id,
-                    "scope": self.ctx.scope,
-                    "model": agent_kwargs["model_names"][0],
-                    "thinking_level": agent_kwargs["thinking_level"],
                 },
             )
 
