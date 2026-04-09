@@ -259,12 +259,14 @@ async def load_custom_subagents(
 
     for source_path in sources:
         try:
-            items = await backend.als_info(source_path)
+            result = await backend.als(source_path)
         except Exception:
             logger.debug("Could not list %s, skipping custom subagents from this source", source_path)
             continue
 
-        md_files = [item["path"] for item in items if not item.get("is_dir") and item["path"].endswith(".md")]
+        md_files = [
+            item["path"] for item in (result.entries or []) if not item.get("is_dir") and item["path"].endswith(".md")
+        ]
         if not md_files:
             continue
 

@@ -256,7 +256,7 @@ class TestCustomSubagents:
 
     async def test_returns_empty_when_no_source_exists(self, mock_model, mock_runtime_ctx):
         backend = Mock()
-        backend.als_info = AsyncMock(side_effect=FileNotFoundError("not found"))
+        backend.als = AsyncMock(side_effect=FileNotFoundError("not found"))
 
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]

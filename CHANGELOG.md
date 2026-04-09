@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 - Increased Claude max output tokens from 4,096 to 16,384.
 - Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
+- Upgraded `deepagents` from 0.4.12 to 0.5.1, adding prompt caching, large message eviction, CRLF normalization, and multimodal file support; migrated from deprecated `als_info` backend method to the new `als` API.
 
 ### Removed
 
