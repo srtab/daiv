@@ -2,7 +2,7 @@
 {% if is_paginated %}
 {% querystring_without "page" as qs %}
 <nav class="mt-4 flex items-center justify-between">
-    <span class="text-[13px] text-gray-500">
+    <span class="text-[13px] text-gray-400">
         Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
     </span>
     <div class="flex items-center gap-2">

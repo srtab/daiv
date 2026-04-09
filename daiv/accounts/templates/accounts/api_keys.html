@@ -67,7 +67,7 @@
                             <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Revoked</span>
                             {% endif %}
                         </div>
-                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-400">
                             <span>Prefix: <code class="text-gray-400">{{ key.prefix }}...</code></span>
                             <span>&middot;</span>
                             <span>Created {{ key.created|timesince }} ago</span>
@@ -93,7 +93,7 @@
             {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <p class="text-[14px] text-gray-500">No API keys yet. Create one above to get started.</p>
+                <p class="text-[14px] text-gray-400">No API keys yet. Create one above to get started.</p>
             </div>
             {% endif %}
         </div>

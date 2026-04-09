@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% load dashboard_tags i18n icon_tags static %}
+
+{% block title %}Agent Activity — DAIV{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
+        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="min-h-dvh" x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
+    {% include "accounts/_header.html" %}
+
+    <main class="mx-auto max-w-5xl py-12">
+        <div class="animate-fade-up flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
+                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                    {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
+                </p>
+            </div>
+            <a href="{% url 'dashboard' %}"
+               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                &larr; Dashboard
+            </a>
+        </div>
+
+        <!-- Filters -->
+        <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-4" style="animation-delay: 50ms">
+            <!-- Status pills -->
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <a href="?{% querystring_without 'status' 'page' %}"
+                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                              {% if not current_status %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        All
+                    </a>
+                    {% for value, label in statuses %}
+                    <a href="?{% querystring_without 'status' 'page' %}&status={{ value }}"
+                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                              {% if current_status == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        {{ label }}
+                    </a>
+                    {% endfor %}
+                </div>
+
+                <!-- Trigger type filter -->
+                <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <a href="?{% querystring_without 'trigger' 'page' %}"
+                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                              {% if not current_trigger %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        All types
+                    </a>
+                    {% for value, label in trigger_types %}
+                    <a href="?{% querystring_without 'trigger' 'page' %}&trigger={{ value }}"
+                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                              {% if current_trigger == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        {{ label }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Second row: repo, date filters -->
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Repository async search -->
+                <div class="combobox-sm relative w-96" x-data="{
+                    ...repoSearch('{{ current_repo }}'),
+                    _initial: '{{ current_repo }}' || null,
+                    init() {
+                        this.$watch('selected', (value) => {
+                            if (value === this._initial) return;
+                            const params = new URLSearchParams(window.location.search);
+                            if (value) { params.set('repo', value); } else { params.delete('repo'); }
+                            params.delete('page');
+                            window.location.search = params.toString();
+                        });
+                    }
+                }">
+                    {% include "codebase/_repo_combobox.html" %}
+                </div>
+
+                <form method="get" class="flex items-center gap-2">
+                    {% if current_status %}<input type="hidden" name="status" value="{{ current_status }}">{% endif %}
+                    {% if current_trigger %}<input type="hidden" name="trigger" value="{{ current_trigger }}">{% endif %}
+                    {% if current_repo %}<input type="hidden" name="repo" value="{{ current_repo }}">{% endif %}
+                    {% if current_schedule %}<input type="hidden" name="schedule" value="{{ current_schedule }}">{% endif %}
+                    <input type="date" name="from" value="{{ current_from }}"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-[13px] text-gray-300"
+                           placeholder="From" onchange="this.form.submit()">
+                    <span class="text-[13px] text-gray-400">to</span>
+                    <input type="date" name="to" value="{{ current_to }}"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-[13px] text-gray-300"
+                           placeholder="To" onchange="this.form.submit()">
+                </form>
+
+                {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
+                <a href="{% url 'activity_list' %}"
+                   class="text-[13px] text-gray-400 transition-colors hover:text-white">
+                    Clear filters
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Activity list -->
+        <div class="animate-fade-up mt-6" style="animation-delay: 100ms">
+            {% if activities %}
+            <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+                {% for a in activities %}
+                <a href="{% url 'activity_detail' a.pk %}"
+                   class="group flex items-center justify-between border-b border-white/[0.06] px-6 py-3.5 last:border-b-0 transition-colors hover:bg-white/[0.02]"
+                   :id="'activity-' + '{{ a.pk }}'">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot"
+                                  :class="dotClass('{{ a.pk }}', '{{ a.status }}')"></span>
+                            <p class="text-[13px] font-medium text-gray-100 truncate">
+                                {% if a.trigger_type == "issue_webhook" %}
+                                    Issue #{{ a.issue_iid }}
+                                {% elif a.trigger_type == "mr_webhook" %}
+                                    MR/PR !{{ a.merge_request_iid }}
+                                {% elif a.prompt %}
+                                    {{ a.prompt|truncatechars:100 }}
+                                {% endif %}
+                            </p>
+                            <span class="shrink-0 text-[12px] text-gray-600">{{ a.repo_id }}</span>
+                        </div>
+                        <div class="mt-1.5 flex items-center gap-2.5 pl-4">
+                            {% include "activity/_trigger_badge.html" with trigger_type=a.trigger_type trigger_type_display=a.get_trigger_type_display %}
+                            <span class="text-[11px] text-gray-500">{{ a.created_at|date:"M j, Y H:i" }}</span>
+                            {% if a.duration %}
+                            <span class="text-[11px] text-gray-600">&middot;</span>
+                            <span class="text-[11px] text-gray-500">{{ a.started_at|timesince:a.finished_at }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <svg class="ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>
+                </a>
+                {% endfor %}
+            </div>
+            {% include "accounts/_pagination.html" %}
+            {% else %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+                <p class="text-[14px] text-gray-400">
+                    {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
+                        No activities match your filters.
+                    {% else %}
+                        No agent activity recorded yet.
+                    {% endif %}
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}

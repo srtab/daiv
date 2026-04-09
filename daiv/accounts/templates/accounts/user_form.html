@@ -64,7 +64,7 @@
                 {% if form.role.errors %}
                 <p class="mt-1.5 text-[13px] text-red-400">{{ form.role.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-500">Admins can manage users. Members can access the dashboard, API keys, and MCP.</p>
+                <p class="mt-1.5 text-[13px] text-gray-400">Admins can manage users. Members can access the dashboard, API keys, and MCP.</p>
             </div>
 
             {% if object %}
@@ -78,7 +78,7 @@
                 {% if form.is_active.errors %}
                 <p class="mt-1.5 text-[13px] text-red-400">{{ form.is_active.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-500">Inactive users cannot sign in.</p>
+                <p class="mt-1.5 text-[13px] text-gray-400">Inactive users cannot sign in.</p>
             </div>
             {% endif %}
 

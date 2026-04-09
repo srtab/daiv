@@ -35,17 +35,17 @@
             <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}"
                    class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
-                          {% if not current_role %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
+                          {% if not current_role %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     All
                 </a>
                 <a href="?role=admin{% if search_query %}&q={{ search_query|urlencode }}{% endif %}"
                    class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
-                          {% if current_role == 'admin' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
+                          {% if current_role == 'admin' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     Admin
                 </a>
                 <a href="?role=member{% if search_query %}&q={{ search_query|urlencode }}{% endif %}"
                    class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
-                          {% if current_role == 'member' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
+                          {% if current_role == 'member' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     Member
                 </a>
             </div>
@@ -69,7 +69,7 @@
                             <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Inactive</span>
                             {% endif %}
                         </div>
-                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-400">
                             <span>{{ u.email }}</span>
                             <span>&middot;</span>
                             <span>Joined {{ u.date_joined|timesince }} ago</span>
@@ -85,7 +85,7 @@
             {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <p class="text-[14px] text-gray-500">
+                <p class="text-[14px] text-gray-400">
                     {% if search_query or current_role %}No users match your search.{% else %}No users yet.{% endif %}
                 </p>
             </div>

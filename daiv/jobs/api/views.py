@@ -3,6 +3,8 @@ import uuid as uuid_mod
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
+from activity.models import TriggerType
+from activity.services import acreate_activity
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
@@ -41,6 +43,18 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     except Exception:
         logger.exception("Failed to enqueue job for repo_id=%s", payload.repo_id)
         return 503, {"detail": "Failed to submit job. Please try again later."}
+
+    try:
+        await acreate_activity(
+            trigger_type=TriggerType.API_JOB,
+            task_result_id=result.id,
+            repo_id=payload.repo_id,
+            ref=payload.ref or "",
+            prompt=payload.prompt,
+        )
+    except Exception:
+        logger.exception("Failed to create activity for job %s", result.id)
+
     return 202, JobSubmitResponse(job_id=result.id)
 
 

@@ -1,0 +1,9 @@
+{% if status == "SUCCESSFUL" %}
+<span class="status-badge status-badge-success">Successful</span>
+{% elif status == "FAILED" %}
+<span class="status-badge status-badge-failed">Failed</span>
+{% elif status == "RUNNING" %}
+<span class="status-badge status-badge-running">Running</span>
+{% else %}
+<span class="status-badge status-badge-pending">Pending</span>
+{% endif %}
