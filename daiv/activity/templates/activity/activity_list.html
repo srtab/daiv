@@ -113,48 +113,33 @@
             <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
                 {% for a in activities %}
                 <a href="{% url 'activity_detail' a.pk %}"
-                   class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02]"
+                   class="group flex items-center justify-between border-b border-white/[0.06] px-6 py-3.5 last:border-b-0 transition-colors hover:bg-white/[0.02]"
                    :id="'activity-' + '{{ a.pk }}'">
                     <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-3">
-                            <!-- Trigger type badge -->
-                            {% if a.trigger_type == "api_job" or a.trigger_type == "mcp_job" %}
-                            <span class="rounded-full bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-300">{{ a.get_trigger_type_display }}</span>
-                            {% elif a.trigger_type == "schedule" %}
-                            <span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-[11px] font-medium text-violet-300">Schedule</span>
-                            {% elif a.trigger_type == "issue_webhook" %}
-                            <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">Issue</span>
-                            {% elif a.trigger_type == "mr_webhook" %}
-                            <span class="rounded-full bg-cyan-900/40 px-2 py-0.5 text-[11px] font-medium text-cyan-300">MR/PR</span>
-                            {% endif %}
-
-                            <!-- Status badge -->
-                            <span :class="statusClass('{{ a.pk }}', '{{ a.status }}')"
-                                  class="status-badge"
-                                  x-text="statusLabel('{{ a.pk }}', '{{ a.status }}')">
-                                {% if a.status == "SUCCESSFUL" %}Successful{% elif a.status == "FAILED" %}Failed{% elif a.status == "RUNNING" %}Running{% else %}Pending{% endif %}
-                            </span>
-
-                            <span class="text-[13px] text-gray-400">{{ a.repo_id }}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot"
+                                  :class="dotClass('{{ a.pk }}', '{{ a.status }}')"></span>
+                            <p class="text-[13px] font-medium text-gray-100 truncate">
+                                {% if a.trigger_type == "issue_webhook" %}
+                                    Issue #{{ a.issue_iid }}
+                                {% elif a.trigger_type == "mr_webhook" %}
+                                    MR/PR !{{ a.merge_request_iid }}
+                                {% elif a.prompt %}
+                                    {{ a.prompt|truncatechars:100 }}
+                                {% endif %}
+                            </p>
+                            <span class="shrink-0 text-[12px] text-gray-600">{{ a.repo_id }}</span>
                         </div>
-                        <div class="mt-1 text-[13px] text-gray-400 truncate">
-                            {% if a.trigger_type == "issue_webhook" %}
-                                Issue #{{ a.issue_iid }}
-                            {% elif a.trigger_type == "mr_webhook" %}
-                                MR/PR !{{ a.merge_request_iid }}
-                            {% elif a.prompt %}
-                                {{ a.prompt|truncatechars:100 }}
-                            {% endif %}
-                        </div>
-                        <div class="mt-1 flex items-center gap-3 text-[12px] text-gray-400">
-                            <span>{{ a.created_at|date:"M j, Y H:i" }} UTC</span>
+                        <div class="mt-1.5 flex items-center gap-2.5 pl-4">
+                            {% include "activity/_trigger_badge.html" with trigger_type=a.trigger_type trigger_type_display=a.get_trigger_type_display %}
+                            <span class="text-[11px] text-gray-500">{{ a.created_at|date:"M j, Y H:i" }} UTC</span>
                             {% if a.duration %}
-                            <span>&middot;</span>
-                            <span>{{ a.started_at|timesince:a.finished_at }}</span>
+                            <span class="text-[11px] text-gray-600">&middot;</span>
+                            <span class="text-[11px] text-gray-500">{{ a.started_at|timesince:a.finished_at }}</span>
                             {% endif %}
                         </div>
                     </div>
-                    <span class="text-[13px] text-gray-400">&rarr;</span>
+                    <svg class="ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>
                 </a>
                 {% endfor %}
             </div>

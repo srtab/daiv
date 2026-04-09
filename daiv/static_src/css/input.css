@@ -221,6 +221,31 @@ a, button, [role="button"] {
   }
 }
 
+/* -- Status dot variants -------------------------------------------------- */
+
+@layer components {
+  .status-dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply bg-emerald-400;
+  }
+
+  .status-dot-failed {
+    @apply bg-red-400;
+  }
+
+  .status-dot-running {
+    @apply bg-blue-400;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  .status-dot-pending {
+    @apply bg-gray-500;
+  }
+}
+
 /* -- Combobox size variant ------------------------------------------------ */
 
 @layer components {

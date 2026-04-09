@@ -1,24 +1,21 @@
 /**
- * Shared Alpine.js components for real-time activity status updates via SSE.
+ * Alpine.js components for real-time activity status updates via SSE.
  *
- * Usage (list page):
- *   <div x-data="activityStream('/stream/', '1,2,3')">
- *     <span :class="statusClass('1', 'RUNNING')" class="status-badge"
- *           x-text="statusLabel('1', 'RUNNING')"></span>
- *   </div>
+ * activityStream (list page) — tracks multiple activities:
+ *   dotClass(id, fallback)    → "status-dot-{variant}" CSS class
+ *   statusClass(id, fallback) → "status-badge-{variant}" CSS class
+ *   statusLabel(id, fallback) → human-readable label
  *
- * Usage (detail page):
- *   <div x-data="activityDetail('/stream/', '42')">
- *     <span :class="statusClass()" class="status-badge"
- *           x-text="statusLabel()"></span>
- *   </div>
+ * activityDetail (detail page) — tracks one activity, reloads on completion:
+ *   statusClass() → "status-badge-{variant}" CSS class
+ *   statusLabel() → human-readable label
  */
 document.addEventListener("alpine:init", () => {
-    function statusClassFor(status) {
-        if (status === "SUCCESSFUL") return "status-badge-success";
-        if (status === "FAILED") return "status-badge-failed";
-        if (status === "RUNNING") return "status-badge-running";
-        return "status-badge-pending";
+    function statusVariantFor(status) {
+        if (status === "SUCCESSFUL") return "success";
+        if (status === "FAILED") return "failed";
+        if (status === "RUNNING") return "running";
+        return "pending";
     }
 
     function statusLabelFor(status) {
@@ -45,7 +42,10 @@ document.addEventListener("alpine:init", () => {
             source.onerror = () => source.close();
         },
         statusClass(id, fallback) {
-            return statusClassFor(this.updates[id]?.status || fallback);
+            return "status-badge-" + statusVariantFor(this.updates[id]?.status || fallback);
+        },
+        dotClass(id, fallback) {
+            return "status-dot-" + statusVariantFor(this.updates[id]?.status || fallback);
         },
         statusLabel(id, fallback) {
             return statusLabelFor(this.updates[id]?.status || fallback);
@@ -73,7 +73,7 @@ document.addEventListener("alpine:init", () => {
             source.onerror = () => source.close();
         },
         statusClass() {
-            return statusClassFor(this.currentStatus);
+            return "status-badge-" + statusVariantFor(this.currentStatus);
         },
         statusLabel() {
             return statusLabelFor(this.currentStatus);
