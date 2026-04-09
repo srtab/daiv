@@ -74,6 +74,7 @@ plugins:
         - features/jobs-api.md: REST API for programmatic agent triggering
         - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
         - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
+        - features/activity-tracking.md: Unified log of all agent executions
         - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
         - features/slash-commands.md: Slash commands and custom skills
         - features/subagents.md: Specialized subagents for exploration and execution
@@ -127,6 +128,7 @@ nav:
     - Jobs API: features/jobs-api.md
     - Scheduled Jobs: features/scheduled-jobs.md
     - MCP Endpoint: features/mcp-endpoint.md
+    - Activity Tracking: features/activity-tracking.md
     - Merge Metrics: features/merge-metrics.md
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
