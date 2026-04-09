@@ -132,7 +132,7 @@
                         </div>
                         <div class="mt-1.5 flex items-center gap-2.5 pl-4">
                             {% include "activity/_trigger_badge.html" with trigger_type=a.trigger_type trigger_type_display=a.get_trigger_type_display %}
-                            <span class="text-[11px] text-gray-500">{{ a.created_at|date:"M j, Y H:i" }} UTC</span>
+                            <span class="text-[11px] text-gray-500">{{ a.created_at|date:"M j, Y H:i" }}</span>
                             {% if a.duration %}
                             <span class="text-[11px] text-gray-600">&middot;</span>
                             <span class="text-[11px] text-gray-500">{{ a.started_at|timesince:a.finished_at }}</span>

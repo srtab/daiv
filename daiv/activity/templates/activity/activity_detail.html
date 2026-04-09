@@ -60,20 +60,20 @@
 
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Created:</span>
-                    <span class="text-gray-300">{{ activity.created_at|date:"M j, Y H:i:s" }} UTC</span>
+                    <span class="text-gray-300">{{ activity.created_at|date:"M j, Y H:i:s" }}</span>
                 </div>
 
                 {% if activity.started_at %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Started:</span>
-                    <span class="text-gray-300">{{ activity.started_at|date:"M j, Y H:i:s" }} UTC</span>
+                    <span class="text-gray-300">{{ activity.started_at|date:"M j, Y H:i:s" }}</span>
                 </div>
                 {% endif %}
 
                 {% if activity.finished_at %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Finished:</span>
-                    <span class="text-gray-300">{{ activity.finished_at|date:"M j, Y H:i:s" }} UTC</span>
+                    <span class="text-gray-300">{{ activity.finished_at|date:"M j, Y H:i:s" }}</span>
                 </div>
                 {% endif %}
 

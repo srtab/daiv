@@ -13,12 +13,10 @@ class JobSubmitRequest(Schema):
 
 class JobSubmitResponse(Schema):
     job_id: str
-    activity_id: str
 
 
 class JobStatusResponse(Schema):
     job_id: str
-    activity_id: str
     status: Literal["READY", "RUNNING", "SUCCESSFUL", "FAILED"]
     result: str | None = None
     error: str | None = None
