@@ -39,15 +39,18 @@
                 <div class="space-y-0 divide-y divide-white/[0.04]">
                     {% for counter in counters %}
                     <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
-                        <span class="text-[13px] text-gray-400">
+                        <span class="flex items-center gap-1.5 text-[13px] text-gray-400">
                             {% if counter.url %}<a href="{{ counter.url }}" class="hover:text-gray-300 transition-colors">{{ counter.label }}</a>{% else %}{{ counter.label }}{% endif %}
-                        </span>
-                        <div class="text-right">
-                            <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
-                            {% if counter.today %}
-                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
+                            {% if counter.tooltip %}
+                            <span class="group relative cursor-help">
+                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-500 transition-colors group-hover:text-gray-400" %}
+                                <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                                    {{ counter.tooltip }}
+                                </span>
+                            </span>
                             {% endif %}
-                        </div>
+                        </span>
+                        <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
                     </div>
                     {% endfor %}
                 </div>
@@ -76,12 +79,7 @@
                             </span>
                             {% endif %}
                         </span>
-                        <div class="text-right">
-                            <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
-                            {% if counter.today %}
-                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
-                            {% endif %}
-                        </div>
+                        <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
                     </div>
                     {% endfor %}
                 </div>

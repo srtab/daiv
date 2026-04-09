@@ -5,15 +5,14 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
-from django.db.models import Count, Q, Sum
+from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.timezone import localdate
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
-from django_tasks.base import TaskResultStatus
-from django_tasks_db.models import DBTaskResult
+from activity.models import Activity, ActivityStatus, TriggerType
 
 from accounts.emails import send_welcome_email
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
@@ -31,18 +30,36 @@ def homepage(request):
     return render(request, "accounts/homepage.html")
 
 
-ISSUE_TASK_PATH = "codebase.tasks.address_issue_task"
-MR_TASK_PATH = "codebase.tasks.address_mr_comments_task"
-TASK_PATHS = (ISSUE_TASK_PATH, MR_TASK_PATH)
-
-PERIOD_CHOICES = [("7d", "7 days", 7), ("30d", "30 days", 30), ("90d", "90 days", 90), ("all", "All time", None)]
+PERIOD_CHOICES = [
+    ("today", "Today", 0),
+    ("7d", "7 days", 7),
+    ("30d", "30 days", 30),
+    ("90d", "90 days", 90),
+    ("all", "All time", None),
+]
 PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
-DEFAULT_PERIOD = "30d"
+DEFAULT_PERIOD = "today"
 
 
 def _format_pct(numerator: int, denominator: int) -> str:
     """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
     return f"{round(numerator / denominator * 100)}%" if denominator else "—"
+
+
+def _format_duration(td: timedelta | None) -> str:
+    """Format a timedelta as a compact human-readable string, or a dash when None."""
+    if td is None:
+        return "—"
+    total_seconds = int(td.total_seconds())
+    if total_seconds < 0:
+        return "—"
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -55,63 +72,105 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if period not in PERIOD_DAYS:
             period = DEFAULT_PERIOD
         days = PERIOD_DAYS[period]
-        today = localdate()
-        cutoff_date = today - timedelta(days=days) if days is not None else None
+        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
+        if days == 0:
+            cutoff_date = localdate()
 
-        context["counters"] = self._get_activity_counters(cutoff_date, today)
+        context["counters"] = self._get_activity_counters(cutoff_date)
         context["active_api_keys"] = APIKey.objects.filter(user=self.request.user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
-        context["merge_counters"] = self._get_merge_counters(cutoff_date, today)
+        context["merge_counters"] = self._get_merge_counters(cutoff_date)
         context["active_schedules"] = ScheduledJob.objects.filter(user=self.request.user, is_enabled=True).count()
         if self.request.user.is_admin:
             context["total_users"] = User.objects.count()
 
         return context
 
-    def _get_activity_counters(self, cutoff_date: date | None, today: date) -> list[dict]:
-        tasks = DBTaskResult.objects.filter(task_path__in=TASK_PATHS)
+    def _get_activity_counters(self, cutoff_date: date | None) -> list[dict]:
+        activities = Activity.objects.all()
         if cutoff_date is not None:
-            tasks = tasks.filter(enqueued_at__date__gte=cutoff_date)
+            activities = activities.filter(created_at__date__gte=cutoff_date)
 
-        successful = Q(status=TaskResultStatus.SUCCESSFUL)
-        code_changes = Q(return_value__code_changes=True)
-        today_q = Q(enqueued_at__date=today)
-        stats = tasks.aggregate(
+        successful = Q(status=ActivityStatus.SUCCESSFUL)
+        failed = Q(status=ActivityStatus.FAILED)
+        code_changes_q = Q(code_changes=True)
+        issue_trigger = Q(trigger_type=TriggerType.ISSUE_WEBHOOK)
+        mr_trigger = Q(trigger_type=TriggerType.MR_WEBHOOK)
+        schedule_trigger = Q(trigger_type=TriggerType.SCHEDULE)
+        duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
+
+        stats = activities.aggregate(
             total=Count("id"),
             successful=Count("id", filter=successful),
-            issues=Count("id", filter=successful & code_changes & Q(task_path=ISSUE_TASK_PATH)),
-            mrs=Count("id", filter=successful & code_changes & Q(task_path=MR_TASK_PATH)),
-            today_total=Count("id", filter=today_q),
-            today_issues=Count("id", filter=today_q & successful & code_changes & Q(task_path=ISSUE_TASK_PATH)),
-            today_mrs=Count("id", filter=today_q & successful & code_changes & Q(task_path=MR_TASK_PATH)),
+            failed_count=Count("id", filter=failed),
+            issues=Count("id", filter=successful & code_changes_q & issue_trigger),
+            mrs=Count("id", filter=successful & code_changes_q & mr_trigger),
+            scheduled=Count("id", filter=schedule_trigger),
+            avg_duration=Avg(duration_expr, filter=successful),
         )
 
-        total = stats["total"]
+        # "Currently running" is period-independent
+        running_count = Activity.objects.filter(status=ActivityStatus.RUNNING).count()
+
+        successful_count = stats["successful"]
+        failed_count = stats["failed_count"]
         activity_url = reverse("activity_list")
+
         return [
-            {"label": "Jobs processed", "value": total, "today": stats["today_total"], "url": activity_url},
-            {"label": "Success rate", "value": _format_pct(stats["successful"], total)},
+            {
+                "label": "Jobs processed",
+                "value": stats["total"],
+                "url": activity_url,
+                "tooltip": "Total agent executions in the selected period.",
+            },
+            {
+                "label": "Currently running",
+                "value": running_count,
+                "url": f"{activity_url}?status=RUNNING",
+                "tooltip": "Agent executions in progress right now.",
+            },
+            {
+                "label": "Success rate",
+                "value": _format_pct(successful_count, successful_count + failed_count),
+                "tooltip": "Percentage of completed runs that finished successfully.",
+            },
+            {
+                "label": "Failed",
+                "value": failed_count,
+                "url": f"{activity_url}?status=FAILED",
+                "tooltip": "Runs that ended with an error in the selected period.",
+            },
             {
                 "label": "Issues resolved",
                 "value": stats["issues"],
-                "today": stats["today_issues"],
                 "url": f"{activity_url}?trigger=issue_webhook&status=SUCCESSFUL",
+                "tooltip": "Issues where the agent successfully produced code changes.",
             },
             {
                 "label": "MR reviews addressed",
                 "value": stats["mrs"],
-                "today": stats["today_mrs"],
                 "url": f"{activity_url}?trigger=mr_webhook&status=SUCCESSFUL",
+                "tooltip": "MR/PR reviews where the agent successfully produced code changes.",
+            },
+            {
+                "label": "Scheduled runs",
+                "value": stats["scheduled"],
+                "url": f"{activity_url}?trigger=schedule",
+                "tooltip": "Runs triggered by scheduled jobs in the selected period.",
+            },
+            {
+                "label": "Avg duration",
+                "value": _format_duration(stats["avg_duration"]),
+                "tooltip": "Average execution time of successful runs in the selected period.",
             },
         ]
 
-    def _get_merge_counters(self, cutoff_date: date | None, today: date) -> list[dict]:
+    def _get_merge_counters(self, cutoff_date: date | None) -> list[dict]:
         merges = MergeMetric.objects.all()
         if cutoff_date is not None:
             merges = merges.filter(merged_at__date__gte=cutoff_date)
 
-        today_q = Q(merged_at__date=today)
         stats = merges.aggregate(
             total=Count("id"),
             total_added=Sum("lines_added", default=0),
@@ -120,9 +179,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             daiv_removed=Sum("daiv_lines_removed", default=0),
             total_commits_sum=Sum("total_commits", default=0),
             daiv_commits_sum=Sum("daiv_commits", default=0),
-            today_total=Count("id", filter=today_q),
-            today_added=Sum("lines_added", default=0, filter=today_q),
-            today_removed=Sum("lines_removed", default=0, filter=today_q),
         )
 
         total_lines = stats["total_added"] + stats["total_removed"]
@@ -134,19 +190,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "label": "Total merges",
                 "value": stats["total"],
                 "tooltip": "Number of MRs/PRs merged into default branches.",
-                "today": stats["today_total"],
             },
             {
                 "label": "Lines added",
                 "value": stats["total_added"],
                 "tooltip": "Total lines added across all merged MRs/PRs.",
-                "today": stats["today_added"],
             },
             {
                 "label": "Lines removed",
                 "value": stats["total_removed"],
                 "tooltip": "Total lines removed across all merged MRs/PRs.",
-                "today": stats["today_removed"],
             },
             {
                 "label": "DAIV contribution",

@@ -29,8 +29,8 @@ class Activity(models.Model):
     """Unified record of every agent execution, regardless of trigger source.
 
     Denormalized fields (status, started_at, finished_at, result_summary,
-    error_message) ensure the record remains useful after the linked
-    DBTaskResult row is pruned by the retention policy.
+    error_message, code_changes) ensure the record remains useful after
+    the linked DBTaskResult row is pruned by the retention policy.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -69,6 +69,7 @@ class Activity(models.Model):
     # Denormalized result / error (survives DBTaskResult pruning)
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
+    code_changes = models.BooleanField(_("code changes"), default=False)
 
     # Denormalized timing
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
@@ -113,9 +114,13 @@ class Activity(models.Model):
                 setattr(self, field, value)
                 changed.append(field)
 
-        if tr.status == ActivityStatus.SUCCESSFUL and tr.return_value and not self.result_summary:
-            self.result_summary = str(tr.return_value)[:2000]
-            changed.append("result_summary")
+        if tr.status == ActivityStatus.SUCCESSFUL and tr.return_value:
+            if not self.result_summary:
+                self.result_summary = str(tr.return_value)[:2000]
+                changed.append("result_summary")
+            if isinstance(tr.return_value, dict) and tr.return_value.get("code_changes") and not self.code_changes:
+                self.code_changes = True
+                changed.append("code_changes")
 
         if tr.status == ActivityStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path

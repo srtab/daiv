@@ -134,10 +134,12 @@ class ActivityStreamView(LoginRequiredMixin, View):
             activities = Activity.objects.filter(id__in=tracking).select_related("task_result")
 
             to_update: list[Activity] = []
+            fields_to_update: set[str] = set()
             async for activity in activities:
                 changed_fields = activity.sync_from_task_result()
                 if changed_fields:
                     to_update.append(activity)
+                    fields_to_update.update(changed_fields)
                     data = json.dumps({
                         "id": str(activity.id),
                         "status": activity.status,
@@ -149,8 +151,7 @@ class ActivityStreamView(LoginRequiredMixin, View):
                 if activity.status in terminal:
                     tracking.discard(activity.id)
 
-            if to_update:
-                all_fields = {"status", "started_at", "finished_at", "result_summary", "error_message"}
-                await Activity.objects.abulk_update(to_update, fields=all_fields)
+            if to_update and fields_to_update:
+                await Activity.objects.abulk_update(to_update, fields=fields_to_update)
 
         yield 'data: {"done": true}\n\n'
