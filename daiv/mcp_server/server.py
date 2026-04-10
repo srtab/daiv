@@ -109,11 +109,12 @@ async def submit_job(
 def _build_job_response(db_result: DBTaskResult) -> str:
     """Build a JSON response string from a DBTaskResult."""
     error = "Job execution failed." if db_result.status == "FAILED" else None
-    result = parse_agent_result(db_result.return_value)["response"] or None
+    parsed = parse_agent_result(db_result.return_value)
     return json.dumps({
         "job_id": str(db_result.id),
         "status": db_result.status,
-        "result": result,
+        "result": parsed["response"] or None,
+        "merge_request_url": parsed["merge_request_web_url"],
         "error": error,
         "created_at": db_result.enqueued_at.isoformat() if db_result.enqueued_at else None,
         "started_at": db_result.started_at.isoformat() if db_result.started_at else None,

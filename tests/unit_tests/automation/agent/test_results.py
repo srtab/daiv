@@ -8,34 +8,50 @@ class TestParseAgentResult:
 
     def test_new_dict_format(self):
         rv = {"response": "Here are the files...", "code_changes": True}
-        assert parse_agent_result(rv) == AgentResult(response="Here are the files...", code_changes=True)
+        assert parse_agent_result(rv) == AgentResult(
+            response="Here are the files...", code_changes=True, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_new_dict_format_no_code_changes(self):
         rv = {"response": "Done", "code_changes": False}
-        assert parse_agent_result(rv) == AgentResult(response="Done", code_changes=False)
+        assert parse_agent_result(rv) == AgentResult(
+            response="Done", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_legacy_dict_code_changes_only(self):
         """Old format returned by address_issue_task / address_mr_comments_task before this change."""
         rv = {"code_changes": True}
-        assert parse_agent_result(rv) == AgentResult(response="", code_changes=True)
+        assert parse_agent_result(rv) == AgentResult(
+            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_legacy_dict_code_changes_false(self):
         rv = {"code_changes": False}
-        assert parse_agent_result(rv) == AgentResult(response="", code_changes=False)
+        assert parse_agent_result(rv) == AgentResult(
+            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_empty_dict(self):
-        assert parse_agent_result({}) == AgentResult(response="", code_changes=False)
+        assert parse_agent_result({}) == AgentResult(
+            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_legacy_string(self):
         """Old format returned by run_job_task before this change."""
-        assert parse_agent_result("some text") == AgentResult(response="some text", code_changes=False)
+        assert parse_agent_result("some text") == AgentResult(
+            response="some text", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_empty_string(self):
-        assert parse_agent_result("") == AgentResult(response="", code_changes=False)
+        assert parse_agent_result("") == AgentResult(
+            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     def test_none(self):
         """return_value is None for failed/in-progress tasks."""
-        assert parse_agent_result(None) == AgentResult(response="", code_changes=False)
+        assert parse_agent_result(None) == AgentResult(
+            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        )
 
     @pytest.mark.parametrize("rv", [{"response": "", "code_changes": False}, {"response": "", "code_changes": True}])
     def test_empty_response_preserves_code_changes(self, rv):
@@ -49,3 +65,21 @@ class TestParseAgentResult:
         result = parse_agent_result(rv)
         assert result["response"] == ""
         assert result["code_changes"] is False
+
+    def test_merge_request_fields(self):
+        rv = {
+            "response": "Created MR",
+            "code_changes": True,
+            "merge_request_id": 42,
+            "merge_request_web_url": "https://gitlab.example.com/repo/-/merge_requests/42",
+        }
+        result = parse_agent_result(rv)
+        assert result["merge_request_id"] == 42
+        assert result["merge_request_web_url"] == "https://gitlab.example.com/repo/-/merge_requests/42"
+
+    def test_merge_request_fields_absent(self):
+        """Legacy dicts without MR fields default to None."""
+        rv = {"response": "Done", "code_changes": False}
+        result = parse_agent_result(rv)
+        assert result["merge_request_id"] is None
+        assert result["merge_request_web_url"] is None

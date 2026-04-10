@@ -78,10 +78,12 @@ async def get_job_status(request: HttpRequest, job_id: str):
     if db_result.status == "FAILED":
         error = "Job execution failed"
 
+    parsed = parse_agent_result(db_result.return_value)
     return 200, JobStatusResponse(
         job_id=str(db_result.id),
         status=db_result.status,
-        result=parse_agent_result(db_result.return_value)["response"] or None,
+        result=parsed["response"] or None,
+        merge_request_url=parsed["merge_request_web_url"],
         error=error,
         created_at=db_result.enqueued_at,
         started_at=db_result.started_at,

@@ -97,7 +97,14 @@
                 {% if activity.merge_request_iid %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">MR/PR:</span>
+                    {% if activity.merge_request_web_url %}
+                    <a href="{{ activity.merge_request_web_url }}" target="_blank" rel="noopener"
+                       class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
+                        !{{ activity.merge_request_iid }}
+                    </a>
+                    {% else %}
                     <span class="text-gray-300">!{{ activity.merge_request_iid }}</span>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>

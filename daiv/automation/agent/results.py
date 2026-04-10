@@ -19,6 +19,12 @@ class AgentResult(TypedDict):
     code_changes: bool
     """Whether the agent published code changes to the repository."""
 
+    merge_request_id: int | None
+    """The merge request IID/number, or None if no MR is linked."""
+
+    merge_request_web_url: str | None
+    """The full URL to the merge request, or None if no MR is linked."""
+
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
@@ -27,8 +33,15 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
     or old ``{"code_changes": bool}`` without a "response" key).
     """
     if isinstance(rv, dict):
-        return AgentResult(response=rv.get("response", ""), code_changes=bool(rv.get("code_changes")))
-    return AgentResult(response=str(rv) if rv else "", code_changes=False)
+        return AgentResult(
+            response=rv.get("response", ""),
+            code_changes=bool(rv.get("code_changes")),
+            merge_request_id=rv.get("merge_request_id"),
+            merge_request_web_url=rv.get("merge_request_web_url"),
+        )
+    return AgentResult(
+        response=str(rv) if rv else "", code_changes=False, merge_request_id=None, merge_request_web_url=None
+    )
 
 
 async def build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, response: str) -> AgentResult:
@@ -38,4 +51,10 @@ async def build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, re
     We read it from the persisted checkpoint instead.
     """
     snapshot = await agent.aget_state(config=config)
-    return AgentResult(response=response, code_changes=bool(snapshot.values.get("code_changes")))
+    mr = snapshot.values.get("merge_request")
+    return AgentResult(
+        response=response,
+        code_changes=bool(snapshot.values.get("code_changes")),
+        merge_request_id=mr.merge_request_id if mr else None,
+        merge_request_web_url=mr.web_url if mr else None,
+    )
