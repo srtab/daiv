@@ -97,7 +97,14 @@
                 {% if activity.merge_request_iid %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">MR/PR:</span>
+                    {% if activity.merge_request_web_url %}
+                    <a href="{{ activity.merge_request_web_url }}" target="_blank" rel="noopener"
+                       class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
+                        !{{ activity.merge_request_iid }}
+                    </a>
+                    {% else %}
                     <span class="text-gray-300">!{{ activity.merge_request_iid }}</span>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>
@@ -118,9 +125,9 @@
             {% if activity.status == "SUCCESSFUL" %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
                 <h2 class="text-[14px] font-semibold text-gray-300">Result</h2>
-                {% if activity.task_result and activity.task_result.return_value %}
+                {% if activity.task_result and activity.task_result.return_value.response %}
                 <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
-                    {{ activity.task_result.return_value|render_markdown }}
+                    {{ activity.task_result.return_value.response|render_markdown }}
                 </div>
                 {% elif activity.result_summary %}
                 <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">

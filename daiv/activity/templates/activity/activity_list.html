@@ -124,7 +124,9 @@
                                     Issue #{{ a.issue_iid }}
                                 {% elif a.trigger_type == "mr_webhook" %}
                                     MR/PR !{{ a.merge_request_iid }}
-                                {% elif a.prompt %}
+                                {% endif %}
+                                {% if a.prompt %}
+                                    {% if a.trigger_type == "issue_webhook" or a.trigger_type == "mr_webhook" %}&mdash;{% endif %}
                                     {{ a.prompt|truncatechars:100 }}
                                 {% endif %}
                             </p>

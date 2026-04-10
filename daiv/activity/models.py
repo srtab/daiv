@@ -5,6 +5,8 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from automation.agent.results import parse_agent_result
+
 
 class ActivityStatus(models.TextChoices):
     READY = "READY", _("Pending")
@@ -54,6 +56,7 @@ class Activity(models.Model):
     # Issue / MR context
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
 
     # Schedule linkage
@@ -115,12 +118,20 @@ class Activity(models.Model):
                 changed.append(field)
 
         if tr.status == ActivityStatus.SUCCESSFUL and tr.return_value:
-            if not self.result_summary:
-                self.result_summary = str(tr.return_value)[:2000]
+            parsed = parse_agent_result(tr.return_value)
+
+            if parsed["response"] and not self.result_summary:
+                self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")
-            if isinstance(tr.return_value, dict) and tr.return_value.get("code_changes") and not self.code_changes:
+            if parsed["code_changes"] and not self.code_changes:
                 self.code_changes = True
                 changed.append("code_changes")
+            if parsed["merge_request_id"] and not self.merge_request_iid:
+                self.merge_request_iid = parsed["merge_request_id"]
+                changed.append("merge_request_iid")
+            if parsed["merge_request_web_url"] and not self.merge_request_web_url:
+                self.merge_request_web_url = parsed["merge_request_web_url"]
+                changed.append("merge_request_web_url")
 
         if tr.status == ActivityStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path

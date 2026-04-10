@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.publishers import GitChangePublisher
+from automation.agent.results import AgentResult, build_agent_result
 from codebase.clients import RepoClient
 from codebase.utils import GitManager
 
@@ -57,12 +58,11 @@ class BaseManager:
         return False
 
     @staticmethod
-    async def _read_code_changes(agent: CompiledAgent, config: RunnableConfig) -> dict[str, bool]:
+    async def _build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, response: str) -> AgentResult:
         """
-        Read the ``code_changes`` flag from the agent's persisted state.
+        Build a standardized :class:`AgentResult` from the agent's persisted state.
 
         ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
         We read it from the persisted checkpoint instead.
         """
-        snapshot = await agent.aget_state(config=config)
-        return {"code_changes": bool(snapshot.values.get("code_changes"))}
+        return await build_agent_result(agent, config, response=response)

@@ -151,7 +151,9 @@ def create_job_result(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_successful(authenticated_client: TestAsyncClient, create_job_result):
-    db_result = await create_job_result(status="SUCCESSFUL", return_value="Here are the files...")
+    db_result = await create_job_result(
+        status="SUCCESSFUL", return_value={"response": "Here are the files...", "code_changes": False}
+    )
     response = await authenticated_client.get(f"/jobs/{db_result.id}")
 
     assert response.status_code == 200

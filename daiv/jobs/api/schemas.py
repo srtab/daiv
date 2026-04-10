@@ -19,6 +19,7 @@ class JobStatusResponse(Schema):
     job_id: str
     status: Literal["READY", "RUNNING", "SUCCESSFUL", "FAILED"]
     result: str | None = None
+    merge_request_url: str | None = None
     error: str | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
