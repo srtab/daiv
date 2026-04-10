@@ -100,9 +100,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         successful = Q(status=ActivityStatus.SUCCESSFUL)
         failed = Q(status=ActivityStatus.FAILED)
-        code_changes_q = Q(code_changes=True)
         issue_trigger = Q(trigger_type=TriggerType.ISSUE_WEBHOOK)
         mr_trigger = Q(trigger_type=TriggerType.MR_WEBHOOK)
+        mcp_trigger = Q(trigger_type=TriggerType.MCP_JOB)
         schedule_trigger = Q(trigger_type=TriggerType.SCHEDULE)
         duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
 
@@ -110,8 +110,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             total=Count("id"),
             successful=Count("id", filter=successful),
             failed_count=Count("id", filter=failed),
-            issues=Count("id", filter=successful & code_changes_q & issue_trigger),
-            mrs=Count("id", filter=successful & code_changes_q & mr_trigger),
+            issues=Count("id", filter=issue_trigger & ~failed),
+            mrs=Count("id", filter=mr_trigger & ~failed),
+            mcp_jobs=Count("id", filter=mcp_trigger & ~failed),
             scheduled=Count("id", filter=schedule_trigger & ~failed),
             avg_duration=Avg(duration_expr, filter=successful),
         )
@@ -123,27 +124,18 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         failed_count = stats["failed_count"]
         issues_count = stats["issues"]
         mrs_count = stats["mrs"]
+        mcp_jobs_count = stats["mcp_jobs"]
         scheduled_count = stats["scheduled"]
         activity_url = reverse("activity_list")
 
         # Non-overlapping segments for the breakdown bar.
-        # Trigger types are mutually exclusive, so issues/mrs/scheduled never overlap.
-        # issues/mrs require successful status (disjoint from failed);
-        # scheduled explicitly excludes failed. "Other" absorbs the remainder.
-        other_count = max(0, total - issues_count - mrs_count - scheduled_count - failed_count)
+        # Trigger types are mutually exclusive, so issues/mrs/mcp/scheduled never overlap.
+        # Each segment excludes failed; "Other" absorbs the remainder (e.g. API jobs).
+        other_count = max(0, total - issues_count - mrs_count - mcp_jobs_count - scheduled_count - failed_count)
         raw_segments = [
-            (
-                "Issues resolved",
-                issues_count,
-                "bg-emerald-500/50",
-                f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}&status={ActivityStatus.SUCCESSFUL}",
-            ),
-            (
-                "MR reviews",
-                mrs_count,
-                "bg-cyan-500/50",
-                f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}&status={ActivityStatus.SUCCESSFUL}",
-            ),
+            ("Issues", issues_count, "bg-emerald-500/50", f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}"),
+            ("MR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}"),
+            ("MCP Job", mcp_jobs_count, "bg-violet-500/50", f"{activity_url}?trigger={TriggerType.MCP_JOB}"),
             ("Scheduled", scheduled_count, "bg-amber-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
             ("Other", other_count, "bg-gray-500/30", None),
             ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={ActivityStatus.FAILED}"),
@@ -182,6 +174,8 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             total_removed=Sum("lines_removed", default=0),
             daiv_added=Sum("daiv_lines_added", default=0),
             daiv_removed=Sum("daiv_lines_removed", default=0),
+            human_added=Sum("human_lines_added", default=0),
+            human_removed=Sum("human_lines_removed", default=0),
             total_commits_sum=Sum("total_commits", default=0),
             daiv_commits_sum=Sum("daiv_commits", default=0),
         )
@@ -189,9 +183,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if not stats["total"]:
             return None
 
-        total_lines = stats["total_added"] + stats["total_removed"]
         daiv_lines = stats["daiv_added"] + stats["daiv_removed"]
-        human_lines = max(0, total_lines - daiv_lines)
+        human_lines = stats["human_added"] + stats["human_removed"]
+        attribution_total = daiv_lines + human_lines
         total_commits = stats["total_commits_sum"]
         daiv_commits = stats["daiv_commits_sum"]
         human_commits = max(0, total_commits - daiv_commits)
@@ -202,8 +196,8 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "lines_added": stats["total_added"],
             "lines_removed": stats["total_removed"],
             "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_lines_pct": _format_pct(daiv_lines, total_lines),
-            "daiv_lines_pct_raw": min(_raw_pct(daiv_lines, total_lines) or 0, 100),
+            "daiv_lines_pct": _format_pct(daiv_lines, attribution_total),
+            "daiv_lines_pct_raw": min(_raw_pct(daiv_lines, attribution_total) or 0, 100),
             "daiv_lines": daiv_lines,
             "human_lines": human_lines,
             "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
