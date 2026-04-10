@@ -9,7 +9,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -102,10 +102,14 @@ POLL_INTERVAL = 2.0
 MAX_DURATION = 300.0
 
 
-class ActivityStreamView(LoginRequiredMixin, View):
+class ActivityStreamView(View):
     """SSE endpoint that streams status updates for in-flight activities."""
 
-    async def get(self, request: HttpRequest) -> HttpResponse:
+    async def get(self, request: HttpRequest) -> HttpResponseBase:
+        user = await request.auser()
+        if not user.is_authenticated:
+            return HttpResponse(status=403)
+
         ids_param = request.GET.get("ids", "")
         uuids: list[uuid.UUID] = []
         for part in ids_param.split(","):
