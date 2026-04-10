@@ -16,6 +16,7 @@ from core.utils import generate_uuid
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
     from codebase.base import Issue
     from codebase.context import RuntimeCtx
 
@@ -40,7 +41,7 @@ class IssueAddressorManager(BaseManager):
     @classmethod
     async def address_issue(
         cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx
-    ) -> dict[str, bool]:
+    ) -> AgentResult:
         """
         Address the issue.
 
@@ -50,7 +51,7 @@ class IssueAddressorManager(BaseManager):
             runtime_ctx (RuntimeCtx): The runtime context.
 
         Returns:
-            A dict with ``code_changes`` indicating whether code was published.
+            An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
         manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
@@ -60,7 +61,7 @@ class IssueAddressorManager(BaseManager):
             manager._add_unable_to_address_issue_note()
             raise
 
-    async def _address_issue(self) -> dict[str, bool]:
+    async def _address_issue(self) -> AgentResult:
         """
         Process the issue by addressing it with the appropriate actions.
         """
@@ -121,6 +122,7 @@ class IssueAddressorManager(BaseManager):
                 self._add_unable_to_address_issue_note(draft_published=draft_published)
                 raise
             else:
+                response_text = ""
                 if (
                     result
                     and "messages" in result
@@ -136,7 +138,7 @@ class IssueAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_issue_note()
 
-                return await self._read_code_changes(daiv_agent, agent_config)
+                return await self._build_agent_result(daiv_agent, agent_config, response=response_text)
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """

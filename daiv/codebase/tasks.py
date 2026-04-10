@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.management import call_command
@@ -15,6 +16,9 @@ from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
+
+if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.tasks")
 
@@ -33,7 +37,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 @task(dedup=True)
 async def address_issue_task(
     repo_id: str, issue_iid: int, mention_comment_id: str | None = None, ref: str | None = None
-) -> dict[str, bool]:
+) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
@@ -180,7 +184,7 @@ async def record_merge_metrics_task(
 
 
 @task(dedup=True)
-async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_comment_id: str) -> dict[str, bool]:
+async def address_mr_comments_task(repo_id: str, merge_request_id: int, mention_comment_id: str) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 

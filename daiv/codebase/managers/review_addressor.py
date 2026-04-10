@@ -20,6 +20,7 @@ from core.utils import generate_uuid
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.agents")
@@ -199,7 +200,7 @@ class CommentsAddressorManager(BaseManager):
     @classmethod
     async def address_comments(
         cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx
-    ) -> dict[str, bool]:
+    ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
@@ -209,7 +210,7 @@ class CommentsAddressorManager(BaseManager):
             runtime_ctx (RuntimeCtx): The runtime context.
 
         Returns:
-            A dict with ``code_changes`` indicating whether code was published.
+            An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
         manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
@@ -219,7 +220,7 @@ class CommentsAddressorManager(BaseManager):
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self) -> dict[str, bool]:
+    async def _address_comments(self) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
@@ -273,6 +274,7 @@ class CommentsAddressorManager(BaseManager):
                 self._add_unable_to_address_review_note(draft_published=draft_published)
                 raise
             else:
+                response_text = ""
                 if (
                     result
                     and "messages" in result
@@ -288,7 +290,7 @@ class CommentsAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_review_note()
 
-                return await self._read_code_changes(daiv_agent, agent_config)
+                return await self._build_agent_result(daiv_agent, agent_config, response=response_text)
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
         """

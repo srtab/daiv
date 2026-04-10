@@ -9,6 +9,7 @@ from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
 
+from automation.agent.results import parse_agent_result
 from chat.api.security import AuthBearer
 from core.site_settings import site_settings
 from jobs.tasks import run_job_task
@@ -80,7 +81,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
     return 200, JobStatusResponse(
         job_id=str(db_result.id),
         status=db_result.status,
-        result=db_result.return_value,
+        result=parse_agent_result(db_result.return_value)["response"] or None,
         error=error,
         created_at=db_result.enqueued_at,
         started_at=db_result.started_at,

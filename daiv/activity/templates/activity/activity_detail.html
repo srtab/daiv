@@ -118,9 +118,9 @@
             {% if activity.status == "SUCCESSFUL" %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
                 <h2 class="text-[14px] font-semibold text-gray-300">Result</h2>
-                {% if activity.task_result and activity.task_result.return_value %}
+                {% if activity.task_result and activity.task_result.return_value.response %}
                 <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
-                    {{ activity.task_result.return_value|render_markdown }}
+                    {{ activity.task_result.return_value.response|render_markdown }}
                 </div>
                 {% elif activity.result_summary %}
                 <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">

@@ -5,6 +5,8 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from automation.agent.results import parse_agent_result
+
 
 class ActivityStatus(models.TextChoices):
     READY = "READY", _("Pending")
@@ -115,10 +117,12 @@ class Activity(models.Model):
                 changed.append(field)
 
         if tr.status == ActivityStatus.SUCCESSFUL and tr.return_value:
-            if not self.result_summary:
-                self.result_summary = str(tr.return_value)[:2000]
+            parsed = parse_agent_result(tr.return_value)
+
+            if parsed["response"] and not self.result_summary:
+                self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")
-            if isinstance(tr.return_value, dict) and tr.return_value.get("code_changes") and not self.code_changes:
+            if parsed["code_changes"] and not self.code_changes:
                 self.code_changes = True
                 changed.append("code_changes")
 
