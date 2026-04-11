@@ -2,7 +2,8 @@
 ASGI config for daiv project.
 
 Combines the Django ASGI application with the MCP server under /mcp.
-The MCP streamable HTTP app is wrapped with OAuth2 token validation middleware.
+The MCP streamable HTTP app includes built-in OAuth2 token validation
+via FastMCP's auth system (token_verifier + AuthSettings).
 
 For more information on this file, see
 https://docs.djangoproject.com/en/stable/howto/deployment/asgi/
@@ -36,11 +37,11 @@ _mcp_lock = threading.Lock()
 
 def _get_mcp_application() -> ASGIApp:
     """
-    Lazily build the MCP ASGI application with OAuth auth middleware.
+    Lazily build the MCP ASGI application.
 
-    The underlying Starlette app includes a built-in lifespan that manages
-    the MCP session manager. Lifespan events are forwarded through the auth
-    middleware to reach it for proper startup and shutdown.
+    The Starlette app returned by FastMCP includes built-in auth middleware,
+    the /.well-known/oauth-protected-resource metadata endpoint, and a
+    lifespan that manages the MCP session manager.
     """
     global _mcp_application
     if _mcp_application is not None:
@@ -50,16 +51,22 @@ def _get_mcp_application() -> ASGIApp:
         if _mcp_application is not None:
             return _mcp_application
 
-        from mcp_server.auth import OAuthTokenAuthMiddleware
         from mcp_server.server import mcp
 
-        starlette_app = mcp.streamable_http_app()
-        _mcp_application = OAuthTokenAuthMiddleware(starlette_app)
+        _mcp_application = mcp.streamable_http_app()
         return _mcp_application
 
 
+def _is_mcp_path(path: str) -> bool:
+    """Check if the request path should be routed to the MCP application.
+
+    Includes the RFC 9728 protected resource metadata path served by the MCP SDK's built-in auth.
+    """
+    return path == "/mcp" or path.startswith("/mcp/") or path == "/.well-known/oauth-protected-resource/mcp"
+
+
 class Application:
-    """Combined ASGI application that dispatches /mcp to MCP server, everything else to Django."""
+    """Combined ASGI application that dispatches MCP paths to the MCP server, everything else to Django."""
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -80,7 +87,7 @@ class Application:
             return
 
         path = scope.get("path", "")
-        if scope["type"] in ("http", "websocket") and (path == "/mcp" or path.startswith("/mcp/")):
+        if scope["type"] in ("http", "websocket") and _is_mcp_path(path):
             try:
                 mcp_app = _get_mcp_application()
             except Exception:

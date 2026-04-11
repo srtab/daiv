@@ -8,17 +8,22 @@ from activity.models import TriggerType
 from activity.services import acreate_activity
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
+from core.conf import settings as core_settings
+from mcp_server.auth import DjangoOAuthTokenVerifier
 
 if TYPE_CHECKING:
     from codebase.base import Repository
 
 logger = logging.getLogger("daiv.mcp_server")
+
+_external_url = str(core_settings.EXTERNAL_URL).rstrip("/")
 
 mcp = FastMCP(
     name="DAIV",
@@ -38,6 +43,8 @@ continue polling with `get_job_status` if the result is not yet available.\
 """,
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    auth=AuthSettings(issuer_url=_external_url, resource_server_url=f"{_external_url}/mcp", required_scopes=["mcp"]),
+    token_verifier=DjangoOAuthTokenVerifier(),
 )
 
 
