@@ -9,7 +9,8 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -96,6 +97,49 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
         activity: Activity = context["activity"]
         context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
         return context
+
+
+class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
+    """Serve the activity result as a downloadable Markdown file."""
+
+    model = Activity
+
+    def get_queryset(self) -> QuerySet[Activity]:
+        return super().get_queryset().filter(status=ActivityStatus.SUCCESSFUL).select_related("task_result")
+
+    def get(self, request, *args, **kwargs):
+        activity = self.get_object()
+        content = self._build_markdown(activity)
+        if not content:
+            raise Http404
+        filename = self._build_filename(activity)
+        response = HttpResponse(content, content_type="text/markdown; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def _build_markdown(self, activity: Activity) -> str:
+        response_text = activity.response_text
+        if not response_text:
+            return ""
+
+        meta_lines = ["---", f"repository: {activity.repo_id}", f"trigger: {activity.get_trigger_type_display()}"]
+        if activity.ref:
+            meta_lines.append(f"ref: {activity.ref}")
+        meta_lines.append(f"created: {activity.created_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        if activity.finished_at:
+            meta_lines.append(f"finished: {activity.finished_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        if activity.issue_iid:
+            meta_lines.append(f"issue: '#{activity.issue_iid}'")
+        if activity.merge_request_iid:
+            meta_lines.append(f"merge_request: '!{activity.merge_request_iid}'")
+        meta_lines.append("---")
+
+        return "\n".join(meta_lines) + "\n\n" + response_text
+
+    def _build_filename(self, activity: Activity) -> str:
+        repo_slug = slugify(activity.repo_id.replace("/", "-")) or "unknown"
+        date_str = activity.created_at.strftime("%Y-%m-%d")
+        return f"daiv-{repo_slug}-{date_str}.md"
 
 
 POLL_INTERVAL = 2.0

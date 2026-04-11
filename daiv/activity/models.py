@@ -100,6 +100,15 @@ class Activity(models.Model):
             return (self.finished_at - self.started_at).total_seconds()
         return None
 
+    @property
+    def response_text(self) -> str:
+        """Return the response text from the task result, or the truncated denormalized summary if unavailable."""
+        if self.task_result and self.task_result.return_value:
+            parsed = parse_agent_result(self.task_result.return_value)
+            if parsed["response"]:
+                return parsed["response"]
+        return self.result_summary
+
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.
 
