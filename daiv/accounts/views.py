@@ -114,6 +114,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             mrs=Count("id", filter=mr_trigger & ~failed),
             mcp_jobs=Count("id", filter=mcp_trigger & ~failed),
             scheduled=Count("id", filter=schedule_trigger & ~failed),
+            code_changes=Count("id", filter=successful & Q(code_changes=True)),
             avg_duration=Avg(duration_expr, filter=successful),
         )
 
@@ -152,12 +153,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "url": url,
             })
 
+        code_changes_count = stats["code_changes"]
+
         return {
             "total": total,
             "running": running_count,
             "success_rate": _format_pct(successful_count, successful_count + failed_count),
             "success_rate_raw": _raw_pct(successful_count, successful_count + failed_count),
             "failed": failed_count,
+            "code_changes": code_changes_count,
+            "code_changes_pct": _format_pct(code_changes_count, successful_count),
             "avg_duration": _format_duration(stats["avg_duration"]),
             "activity_url": activity_url,
             "segments": segments,
@@ -172,10 +177,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             total=Count("id"),
             total_added=Sum("lines_added", default=0),
             total_removed=Sum("lines_removed", default=0),
-            daiv_added=Sum("daiv_lines_added", default=0),
-            daiv_removed=Sum("daiv_lines_removed", default=0),
-            human_added=Sum("human_lines_added", default=0),
-            human_removed=Sum("human_lines_removed", default=0),
+            daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
             total_commits_sum=Sum("total_commits", default=0),
             daiv_commits_sum=Sum("daiv_commits", default=0),
         )
@@ -183,23 +185,23 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if not stats["total"]:
             return None
 
-        daiv_lines = stats["daiv_added"] + stats["daiv_removed"]
-        human_lines = stats["human_added"] + stats["human_removed"]
-        attribution_total = daiv_lines + human_lines
+        total_merges = stats["total"]
+        daiv_merges = stats["daiv_merges"]
+        human_merges = total_merges - daiv_merges
         total_commits = stats["total_commits_sum"]
         daiv_commits = stats["daiv_commits_sum"]
         human_commits = max(0, total_commits - daiv_commits)
         max_lines = max(stats["total_added"], stats["total_removed"], 1)
 
         return {
-            "total_merges": stats["total"],
+            "total_merges": total_merges,
             "lines_added": stats["total_added"],
             "lines_removed": stats["total_removed"],
             "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_lines_pct": _format_pct(daiv_lines, attribution_total),
-            "daiv_lines_pct_raw": min(_raw_pct(daiv_lines, attribution_total) or 0, 100),
-            "daiv_lines": daiv_lines,
-            "human_lines": human_lines,
+            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
+            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
+            "daiv_merges": daiv_merges,
+            "human_merges": human_merges,
             "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
             "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
             "daiv_commits": daiv_commits,
