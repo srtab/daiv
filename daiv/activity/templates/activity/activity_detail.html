@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load dashboard_tags i18n icon_tags markdown_tags static %}
+{% load activity_tags dashboard_tags i18n icon_tags markdown_tags static %}
 
 {% block title %}Activity Detail — DAIV{% endblock %}
 
@@ -13,16 +13,16 @@
 <div class="min-h-dvh" {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
     {% include "accounts/_header.html" %}
 
-    <main class="mx-auto max-w-5xl py-12">
+    <main class="mx-auto max-w-6xl px-6 py-12">
         <div class="animate-fade-up flex items-center justify-between">
             <div>
                 <h1 class="text-2xl font-bold tracking-tight">Activity Detail</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                <p class="mt-1.5 text-[15px] font-light text-gray-400">
                     {{ activity.get_trigger_type_display }} &middot; {{ activity.repo_id }}
                 </p>
             </div>
             <a href="{% url 'activity_list' %}"
-               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+               class="text-[15px] text-gray-400 transition-colors hover:text-white">
                 &larr; Activity
             </a>
         </div>
@@ -40,15 +40,19 @@
                 {% include "activity/_status_badge.html" with status=activity.status %}
                 {% endif %}
 
+                {% if activity.code_changes %}
+                <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">Code changes</span>
+                {% endif %}
+
                 {% if activity.duration %}
-                <span class="text-[13px] text-gray-400">
-                    Duration: {{ activity.started_at|timesince:activity.finished_at }}
+                <span class="text-sm text-gray-400">
+                    Duration: {{ activity.duration|duration }}
                 </span>
                 {% endif %}
             </div>
 
             <!-- Metadata -->
-            <div class="mt-4 space-y-2 text-[13px] text-gray-400">
+            <div class="mt-4 space-y-2 text-sm text-gray-400">
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Repository:</span>
                     <span class="text-gray-300">{{ activity.repo_id }}</span>
@@ -113,7 +117,7 @@
         <!-- Prompt -->
         {% if activity.prompt %}
         <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 150ms">
-            <h2 class="text-[14px] font-semibold text-gray-300">Prompt</h2>
+            <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
             <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
                 {{ activity.prompt|render_markdown }}
             </div>
@@ -124,7 +128,7 @@
         <div class="animate-fade-up mt-6" style="animation-delay: 200ms">
             {% if activity.status == "SUCCESSFUL" %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <h2 class="text-[14px] font-semibold text-gray-300">Result</h2>
+                <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
                 {% if activity.task_result and activity.task_result.return_value.response %}
                 <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
                     {{ activity.task_result.return_value.response|render_markdown }}
@@ -134,41 +138,43 @@
                     {{ activity.result_summary|render_markdown }}
                 </div>
                 {% else %}
-                <p class="mt-3 text-[13px] text-gray-400">No result data available.</p>
+                <p class="mt-3 text-sm text-gray-400">No result data available.</p>
                 {% endif %}
             </div>
 
             {% elif activity.status == "FAILED" %}
             <div class="rounded-2xl border border-red-900/30 bg-red-950/20 p-6">
-                <h2 class="text-[14px] font-semibold text-red-300">Error</h2>
+                <h2 class="text-[15px] font-semibold text-red-300">Error</h2>
                 {% if activity.task_result and activity.task_result.exception_class_path %}
-                <p class="mt-3 text-[14px] font-medium text-red-300">{{ activity.task_result.exception_class_path }}</p>
+                <p class="mt-3 text-[15px] font-medium text-red-300">{{ activity.task_result.exception_class_path }}</p>
                     {% if activity.task_result.traceback %}
                     <div class="mt-4 rounded-xl bg-black/30 p-4">
-                        <pre class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-red-300/80">{{ activity.task_result.traceback }}</pre>
+                        <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.task_result.traceback }}</pre>
                     </div>
                     {% endif %}
                 {% elif activity.error_message %}
                 <div class="mt-3 rounded-xl bg-black/30 p-4">
-                    <pre class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-red-300/80">{{ activity.error_message }}</pre>
+                    <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.error_message }}</pre>
                 </div>
                 {% else %}
-                <p class="mt-3 text-[13px] text-red-400/60">No error details available.</p>
+                <p class="mt-3 text-sm text-red-400/60">No error details available.</p>
                 {% endif %}
             </div>
 
             {% elif activity.status == "RUNNING" or activity.status == "READY" %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">
-                    {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
-                </span>
-                <p class="mt-4 text-[14px] text-gray-400">This activity is still in progress. The page will update automatically when it completes.</p>
+                {% if activity.status == "RUNNING" %}
+                <span class="status-badge status-badge-running">Running</span>
+                {% else %}
+                <span class="status-badge status-badge-pending">Pending</span>
+                {% endif %}
+                <p class="mt-4 text-[15px] text-gray-400">This activity is still in progress. The page will update automatically when it completes.</p>
             </div>
 
             {% elif not activity.task_result %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">Result pruned</span>
-                <p class="mt-4 text-[14px] text-gray-400">
+                <span class="status-badge status-badge-pending">Result pruned</span>
+                <p class="mt-4 text-[15px] text-gray-400">
                     The task result for this activity is no longer available. Completed results are removed after the retention period.
                 </p>
                 {% if activity.result_summary %}

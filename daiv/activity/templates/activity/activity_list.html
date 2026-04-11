@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load dashboard_tags i18n icon_tags static %}
+{% load activity_tags dashboard_tags i18n icon_tags static %}
 
 {% block title %}Agent Activity — DAIV{% endblock %}
 
@@ -15,16 +15,16 @@
 <div class="min-h-dvh" x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
     {% include "accounts/_header.html" %}
 
-    <main class="mx-auto max-w-5xl py-12">
+    <main class="mx-auto max-w-6xl px-6 py-12">
         <div class="animate-fade-up flex items-center justify-between">
             <div>
                 <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                <p class="mt-1.5 text-[15px] font-light text-gray-400">
                     {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
                 </p>
             </div>
             <a href="{% url 'dashboard' %}"
-               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+               class="text-[15px] text-gray-400 transition-colors hover:text-white">
                 &larr; Dashboard
             </a>
         </div>
@@ -35,13 +35,13 @@
             <div class="flex flex-wrap items-center gap-4">
                 <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <a href="?{% querystring_without 'status' 'page' %}"
-                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                               {% if not current_status %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                         All
                     </a>
                     {% for value, label in statuses %}
                     <a href="?{% querystring_without 'status' 'page' %}&status={{ value }}"
-                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                               {% if current_status == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                         {{ label }}
                     </a>
@@ -51,13 +51,13 @@
                 <!-- Trigger type filter -->
                 <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <a href="?{% querystring_without 'trigger' 'page' %}"
-                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                               {% if not current_trigger %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                         All types
                     </a>
                     {% for value, label in trigger_types %}
                     <a href="?{% querystring_without 'trigger' 'page' %}&trigger={{ value }}"
-                       class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                               {% if current_trigger == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                         {{ label }}
                     </a>
@@ -90,17 +90,17 @@
                     {% if current_repo %}<input type="hidden" name="repo" value="{{ current_repo }}">{% endif %}
                     {% if current_schedule %}<input type="hidden" name="schedule" value="{{ current_schedule }}">{% endif %}
                     <input type="date" name="from" value="{{ current_from }}"
-                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-[13px] text-gray-300"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
                            placeholder="From" onchange="this.form.submit()">
-                    <span class="text-[13px] text-gray-400">to</span>
+                    <span class="text-sm text-gray-400">to</span>
                     <input type="date" name="to" value="{{ current_to }}"
-                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-[13px] text-gray-300"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
                            placeholder="To" onchange="this.form.submit()">
                 </form>
 
                 {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
                 <a href="{% url 'activity_list' %}"
-                   class="text-[13px] text-gray-400 transition-colors hover:text-white">
+                   class="text-sm text-gray-400 transition-colors hover:text-white">
                     Clear filters
                 </a>
                 {% endif %}
@@ -113,13 +113,13 @@
             <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
                 {% for a in activities %}
                 <a href="{% url 'activity_detail' a.pk %}"
-                   class="group flex items-center justify-between border-b border-white/[0.06] px-6 py-3.5 last:border-b-0 transition-colors hover:bg-white/[0.02]"
+                   class="group flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02]"
                    :id="'activity-' + '{{ a.pk }}'">
                     <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-3">
                             <span class="status-dot"
                                   :class="dotClass('{{ a.pk }}', '{{ a.status }}')"></span>
-                            <p class="text-[13px] font-medium text-gray-100 truncate">
+                            <p class="text-[15px] font-medium text-white truncate">
                                 {% if a.trigger_type == "issue_webhook" %}
                                     Issue #{{ a.issue_iid }}
                                 {% elif a.trigger_type == "mr_webhook" %}
@@ -130,14 +130,19 @@
                                     {{ a.prompt|truncatechars:100 }}
                                 {% endif %}
                             </p>
-                            <span class="shrink-0 text-[12px] text-gray-600">{{ a.repo_id }}</span>
-                        </div>
-                        <div class="mt-1.5 flex items-center gap-2.5 pl-4">
                             {% include "activity/_trigger_badge.html" with trigger_type=a.trigger_type trigger_type_display=a.get_trigger_type_display %}
-                            <span class="text-[11px] text-gray-500">{{ a.created_at|date:"M j, Y H:i" }}</span>
+                        </div>
+                        <div class="mt-1 flex items-center gap-3 pl-5">
+                            <span class="text-sm text-gray-400">{{ a.repo_id }}</span>
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.created_at|date:"M j, Y H:i" }}</span>
                             {% if a.duration %}
-                            <span class="text-[11px] text-gray-600">&middot;</span>
-                            <span class="text-[11px] text-gray-500">{{ a.started_at|timesince:a.finished_at }}</span>
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.duration|duration }}</span>
+                            {% endif %}
+                            {% if a.code_changes %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="rounded-full bg-emerald-900/40 px-2 py-0.5 text-xs font-medium text-emerald-300">Code changes</span>
                             {% endif %}
                         </div>
                     </div>
@@ -148,7 +153,7 @@
             {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <p class="text-[14px] text-gray-400">
+                <p class="text-[15px] text-gray-400">
                     {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
                         No activities match your filters.
                     {% else %}

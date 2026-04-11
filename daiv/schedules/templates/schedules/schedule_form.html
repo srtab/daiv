@@ -15,16 +15,16 @@
     {% include "accounts/_header.html" %}
 
     <!-- Content -->
-    <main class="mx-auto max-w-5xl py-12">
+    <main class="mx-auto max-w-6xl px-6 py-12">
         <div class="animate-fade-up flex items-center justify-between">
             <div>
                 <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit schedule{% else %}Create schedule{% endif %}</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-400">
+                <p class="mt-1.5 text-[15px] font-light text-gray-400">
                     {% if object %}Update "{{ object.name }}".{% else %}Set up a recurring agent run on a repository.{% endif %}
                 </p>
             </div>
             <a href="{% url 'schedule_list' %}"
-               class="text-[14px] text-gray-400 transition-colors hover:text-white">
+               class="text-[15px] text-gray-400 transition-colors hover:text-white">
                 &larr; Schedules
             </a>
         </div>
@@ -32,7 +32,7 @@
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
             {% for error in form.non_field_errors %}
-            <p class="text-[14px] text-red-200">{{ error }}</p>
+            <p class="text-[15px] text-red-200">{{ error }}</p>
             {% endfor %}
         </div>
         {% endif %}
@@ -55,54 +55,54 @@
 
             <!-- Name -->
             <div>
-                <label for="id_name" class="block text-[14px] font-medium text-gray-400">Name <span class="text-red-400">*</span></label>
+                <label for="id_name" class="block text-[15px] font-medium text-gray-400">Name <span class="text-red-400">*</span></label>
                 <input type="text" name="name" id="id_name" value="{{ form.name.value|default:'' }}" maxlength="200" required
                        placeholder="e.g., Daily code review" class="mt-2">
                 {% if form.name.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.name.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>
                 {% endif %}
             </div>
 
             <!-- Prompt -->
             <div class="mt-5">
-                <label for="id_prompt" class="block text-[14px] font-medium text-gray-400">Prompt <span class="text-red-400">*</span></label>
+                <label for="id_prompt" class="block text-[15px] font-medium text-gray-400">Prompt <span class="text-red-400">*</span></label>
                 <textarea name="prompt" id="id_prompt" rows="4" required
                           placeholder="Describe what the agent should do in each run...&#10;&#10;e.g., Review open merge requests and leave feedback on code quality."
                           class="mt-2">{{ form.prompt.value|default:'' }}</textarea>
                 {% if form.prompt.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.prompt.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.prompt.errors.0 }}</p>
                 {% endif %}
             </div>
 
             <!-- Repository + Branch -->
             <div class="mt-5 grid grid-cols-3 gap-4">
                 <div class="col-span-2" x-data="repoSearch('{{ form.repo_id.value|default:'' }}')">
-                    <label class="block text-[14px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
+                    <label class="block text-[15px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
                     <div class="relative mt-2">
                         {% include "codebase/_repo_combobox.html" with combobox_name="repo_id" %}
                     </div>
                     {% if form.repo_id.errors %}
-                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.repo_id.errors.0 }}</p>
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.repo_id.errors.0 }}</p>
                     {% endif %}
-                    <p class="mt-1.5 text-[13px] text-gray-400">Search and select a repository.</p>
+                    <p class="mt-1.5 text-sm text-gray-400">Search and select a repository.</p>
                 </div>
 
                 <div>
-                    <label for="id_ref" class="block text-[14px] font-medium text-gray-400">Branch / Ref</label>
+                    <label for="id_ref" class="block text-[15px] font-medium text-gray-400">Branch / Ref</label>
                     <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255"
                            placeholder="Default branch" class="mt-2">
                     {% if form.ref.errors %}
-                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.ref.errors.0 }}</p>
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.ref.errors.0 }}</p>
                     {% endif %}
                 </div>
             </div>
 
             <!-- Frequency -->
             <div class="mt-5">
-                <label class="block text-[14px] font-medium text-gray-400">Frequency</label>
+                <label class="block text-[15px] font-medium text-gray-400">Frequency</label>
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     {% for value, label in form.frequency.field.choices %}
-                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200"
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                            :class="frequency === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
                         <input type="radio" name="frequency" value="{{ value }}" x-model="frequency" class="sr-only">
                         {{ label }}
@@ -110,44 +110,44 @@
                     {% endfor %}
                 </div>
                 {% if form.frequency.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.frequency.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.frequency.errors.0 }}</p>
                 {% endif %}
             </div>
 
             <!-- Cron Expression (shown only for Custom) -->
             <div class="mt-5" x-show="showCron" x-cloak>
-                <label for="id_cron_expression" class="block text-[14px] font-medium text-gray-400">Cron Expression <span class="text-red-400">*</span></label>
+                <label for="id_cron_expression" class="block text-[15px] font-medium text-gray-400">Cron Expression <span class="text-red-400">*</span></label>
                 <input type="text" name="cron_expression" id="id_cron_expression" value="{{ form.cron_expression.value|default:'' }}" maxlength="100"
                        placeholder="e.g., 0 9 * * 1-5" class="mt-2 font-mono">
                 {% if form.cron_expression.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.cron_expression.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.cron_expression.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-400">Five-field cron expression: minute hour day-of-month month day-of-week.</p>
+                <p class="mt-1.5 text-sm text-gray-400">Five-field cron expression: minute hour day-of-month month day-of-week.</p>
             </div>
 
             <!-- Time (hidden for Hourly and Custom) -->
             <div class="mt-5" x-show="showTime" x-cloak>
-                <label for="id_time" class="block text-[14px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
+                <label for="id_time" class="block text-[15px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
                 <input type="time" name="time" id="id_time" value="{{ form.time.value|default:'' }}" x-model="time" class="mt-2 !w-auto">
                 {% if form.time.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.time.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>
                 {% endif %}
             </div>
 
             <!-- Schedule summary -->
-            <p class="mt-4 text-[13px] text-blue-400/80" x-text="summary"></p>
+            <p class="mt-4 text-sm text-blue-400/80" x-text="summary"></p>
 
             <!-- Max mode -->
             <div class="mt-5">
                 <label class="flex cursor-pointer items-center gap-3">
                     <input type="hidden" name="use_max" value="false">
                     <input type="checkbox" name="use_max" value="true" {% if form.use_max.value %}checked{% endif %}>
-                    <span class="text-[14px] font-medium text-gray-400">Max mode</span>
+                    <span class="text-[15px] font-medium text-gray-400">Max mode</span>
                 </label>
                 {% if form.use_max.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.use_max.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.use_max.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-400">Use the more capable model with thinking set to high.</p>
+                <p class="mt-1.5 text-sm text-gray-400">Use the more capable model with thinking set to high.</p>
             </div>
 
             {% if object %}
@@ -156,12 +156,12 @@
                 <label class="flex cursor-pointer items-center gap-3">
                     <input type="hidden" name="is_enabled" value="false">
                     <input type="checkbox" name="is_enabled" value="true" {% if form.is_enabled.value %}checked{% endif %}>
-                    <span class="text-[14px] font-medium text-gray-400">Enabled</span>
+                    <span class="text-[15px] font-medium text-gray-400">Enabled</span>
                 </label>
                 {% if form.is_enabled.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.is_enabled.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.is_enabled.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-400">Disabled schedules will not run until re-enabled.</p>
+                <p class="mt-1.5 text-sm text-gray-400">Disabled schedules will not run until re-enabled.</p>
             </div>
             {% endif %}
 

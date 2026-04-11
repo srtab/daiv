@@ -62,23 +62,23 @@ a, button, [role="button"] {
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
            bg-white text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98];
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-white/[0.06] bg-white/[0.03] text-gray-400 transition-all duration-200
            hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white;
   }
 
   .btn-danger {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
            bg-red-600 text-white transition-all duration-200 hover:bg-red-700 active:scale-[0.98];
   }
 
   .btn-danger-outline {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-red-800/30 bg-red-950/20 text-red-400 transition-all duration-200
            hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
   }
@@ -95,13 +95,13 @@ a, button, [role="button"] {
   input[type="url"],
   textarea {
     @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5
-           text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200
+           text-[15px] text-white placeholder-gray-500 outline-none transition-all duration-200
            focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08];
   }
 
   select {
     @apply block w-full rounded-xl border border-white/[0.06] bg-[#0d1117] px-4 py-2.5
-           text-[14px] text-white outline-none transition-all duration-200
+           text-[15px] text-white outline-none transition-all duration-200
            focus:border-white/[0.15] focus:ring-1 focus:ring-white/[0.08];
   }
 
@@ -125,7 +125,7 @@ a, button, [role="button"] {
 
 @layer components {
   .prose-dark {
-    @apply text-[13px] leading-relaxed text-gray-300;
+    @apply text-sm leading-relaxed text-gray-300;
   }
 
   .prose-dark h1 {
@@ -137,7 +137,7 @@ a, button, [role="button"] {
   }
 
   .prose-dark h3 {
-    @apply mt-4 mb-2 text-[14px] font-semibold text-gray-200 first:mt-0;
+    @apply mt-4 mb-2 text-[15px] font-semibold text-gray-200 first:mt-0;
   }
 
   .prose-dark p {
@@ -161,7 +161,7 @@ a, button, [role="button"] {
   }
 
   .prose-dark code {
-    @apply rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px] text-gray-200;
+    @apply rounded bg-white/[0.06] px-1.5 py-0.5 text-[13px] text-gray-200;
   }
 
   .prose-dark pre {
@@ -181,11 +181,11 @@ a, button, [role="button"] {
   }
 
   .prose-dark th {
-    @apply border-b border-white/[0.08] pb-2 text-[12px] font-semibold text-gray-200;
+    @apply border-b border-white/[0.08] pb-2 text-[13px] font-semibold text-gray-200;
   }
 
   .prose-dark td {
-    @apply border-b border-white/[0.04] py-2 text-[12px] text-gray-300;
+    @apply border-b border-white/[0.04] py-2 text-[13px] text-gray-300;
   }
 
   .prose-dark hr {
@@ -201,7 +201,7 @@ a, button, [role="button"] {
 
 @layer components {
   .status-badge {
-    @apply rounded-full px-2 py-0.5 text-[11px] font-medium;
+    @apply rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
 
   .status-badge-success {
@@ -250,7 +250,7 @@ a, button, [role="button"] {
 
 @layer components {
   .combobox-sm input[type="text"] {
-    @apply rounded-lg px-3 py-1.5 pr-8 text-[13px];
+    @apply rounded-lg px-3 py-1.5 pr-8 text-sm;
   }
 
   .combobox-sm .combobox-icon {
@@ -258,6 +258,6 @@ a, button, [role="button"] {
   }
 
   .combobox-sm .combobox-option {
-    @apply px-3 py-2 text-[13px];
+    @apply px-3 py-2 text-sm;
   }
 }

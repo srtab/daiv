@@ -134,10 +134,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Each segment excludes failed; "Other" absorbs the remainder (e.g. API jobs).
         other_count = max(0, total - issues_count - mrs_count - mcp_jobs_count - scheduled_count - failed_count)
         raw_segments = [
-            ("Issues", issues_count, "bg-emerald-500/50", f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}"),
-            ("MR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-violet-500/50", f"{activity_url}?trigger={TriggerType.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-amber-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
+            ("Issues", issues_count, "bg-amber-500/50", f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}"),
+            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}"),
+            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{activity_url}?trigger={TriggerType.MCP_JOB}"),
+            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
             ("Other", other_count, "bg-gray-500/30", None),
             ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={ActivityStatus.FAILED}"),
         ]
