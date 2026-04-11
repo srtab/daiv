@@ -8,15 +8,15 @@
     {% include "accounts/_header.html" %}
 
     <!-- Content -->
-    <main class="mx-auto max-w-5xl py-12">
+    <main class="mx-auto max-w-6xl px-6 py-12">
         <div class="animate-fade-up flex items-center justify-between">
             <div>
                 <h1 class="text-2xl font-bold tracking-tight">Users</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-400">Manage who has access to DAIV.</p>
+                <p class="mt-1.5 text-[15px] font-light text-gray-400">Manage who has access to DAIV.</p>
             </div>
             <div class="flex items-center gap-3">
                 <a href="{% url 'dashboard' %}"
-                   class="text-[14px] text-gray-400 transition-colors hover:text-white">
+                   class="text-[15px] text-gray-400 transition-colors hover:text-white">
                     &larr; Dashboard
                 </a>
                 <a href="{% url 'user_create' %}" class="btn-primary">
@@ -34,17 +34,17 @@
             </form>
             <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}"
-                   class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                   class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                           {% if not current_role %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     All
                 </a>
                 <a href="?role=admin{% if search_query %}&q={{ search_query|urlencode }}{% endif %}"
-                   class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                   class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                           {% if current_role == 'admin' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     Admin
                 </a>
                 <a href="?role=member{% if search_query %}&q={{ search_query|urlencode }}{% endif %}"
-                   class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
+                   class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
                           {% if current_role == 'member' %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
                     Member
                 </a>
@@ -59,24 +59,24 @@
                 <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not u.is_active %}opacity-50{% endif %}">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-3">
-                            <span class="text-[14px] font-medium text-white">{{ u.name|default:u.email }}</span>
+                            <span class="text-[15px] font-medium text-white">{{ u.name|default:u.email }}</span>
                             {% if u.role == 'admin' %}
-                            <span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-[11px] font-medium text-violet-300">Admin</span>
+                            <span class="rounded-full bg-violet-900/40 px-2.5 py-0.5 text-xs font-medium text-violet-300">Admin</span>
                             {% else %}
-                            <span class="rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">Member</span>
+                            <span class="rounded-full bg-gray-800/60 px-2.5 py-0.5 text-xs font-medium text-gray-400">Member</span>
                             {% endif %}
                             {% if not u.is_active %}
-                            <span class="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">Inactive</span>
+                            <span class="rounded-full bg-red-900/40 px-2.5 py-0.5 text-xs font-medium text-red-300">Inactive</span>
                             {% endif %}
                         </div>
-                        <div class="mt-1 flex items-center gap-3 text-[13px] text-gray-400">
+                        <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
                             <span>{{ u.email }}</span>
                             <span>&middot;</span>
                             <span>Joined {{ u.date_joined|timesince }} ago</span>
                         </div>
                     </div>
                     <a href="{% url 'user_update' u.pk %}"
-                       class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                       class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
                         Edit
                     </a>
                 </div>
@@ -85,7 +85,7 @@
             {% include "accounts/_pagination.html" %}
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <p class="text-[14px] text-gray-400">
+                <p class="text-[15px] text-gray-400">
                     {% if search_query or current_role %}No users match your search.{% else %}No users yet.{% endif %}
                 </p>
             </div>

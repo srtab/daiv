@@ -22,13 +22,13 @@
         <ul>
             <template x-for="repo in results" :key="repo.slug" hidden>
                 <li x-combobox:option :value="repo.slug"
-                    class="combobox-option cursor-pointer px-3 py-2 text-[14px]"
+                    class="combobox-option cursor-pointer px-3 py-2 text-[15px]"
                     :class="$comboboxOption.isActive ? 'bg-white/[0.08] text-white' : 'text-gray-300 hover:bg-white/[0.06]'">
                     <span x-text="repo.slug"></span>
                     <span x-show="repo.name !== repo.slug" x-text="'— ' + repo.name" class="ml-1 text-gray-400"></span>
                 </li>
             </template>
         </ul>
-        <p x-show="results.length === 0 && !isLoading" class="combobox-option px-3 py-2 text-[14px] text-gray-400">No repositories found.</p>
+        <p x-show="results.length === 0 && !isLoading" class="combobox-option px-3 py-2 text-[15px] text-gray-400">No repositories found.</p>
     </div>
 </div>

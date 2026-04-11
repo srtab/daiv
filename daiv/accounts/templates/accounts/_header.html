@@ -1,13 +1,13 @@
 {% load static %}
 <header class="border-b border-white/[0.06]">
-    <div class="mx-auto flex items-center justify-between px-6 py-4 {{ header_max_w|default:'max-w-5xl' }}">
+    <div class="mx-auto flex items-center justify-between px-6 py-4 {{ header_max_w|default:'max-w-6xl' }}">
         <div class="flex items-center">
             <a href="{% url 'dashboard' %}">
                 <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
             </a>
         </div>
         <div class="flex items-center gap-5">
-            <span class="text-[14px] text-gray-400">{{ user.name|default:user.email }}</span>
+            <span class="text-[15px] text-gray-400">{{ user.name|default:user.email }}</span>
             <a href="{% url 'account_logout' %}" class="btn-secondary rounded-lg px-3.5 py-1.5">
                 Sign out
             </a>

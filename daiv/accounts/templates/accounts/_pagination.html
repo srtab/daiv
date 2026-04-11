@@ -2,19 +2,19 @@
 {% if is_paginated %}
 {% querystring_without "page" as qs %}
 <nav class="mt-4 flex items-center justify-between">
-    <span class="text-[13px] text-gray-400">
+    <span class="text-sm text-gray-400">
         Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
     </span>
     <div class="flex items-center gap-2">
         {% if page_obj.has_previous %}
         <a href="?{{ qs }}page={{ page_obj.previous_page_number }}"
-           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
             &larr; Previous
         </a>
         {% endif %}
         {% if page_obj.has_next %}
         <a href="?{{ qs }}page={{ page_obj.next_page_number }}"
-           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[13px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
             Next &rarr;
         </a>
         {% endif %}
