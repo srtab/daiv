@@ -30,7 +30,7 @@ class ActivityListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self) -> QuerySet[Activity]:
-        qs = Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job")
+        qs = Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
 
         if (status := self.request.GET.get("status", "")) and status in ActivityStatus.values:
             qs = qs.filter(status=status)
@@ -91,7 +91,7 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "activity"
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job")
+        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
