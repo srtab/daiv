@@ -6,7 +6,7 @@ from activity.models import TriggerType
 from activity.services import acreate_activity
 from github.GithubException import GithubException
 
-from accounts.utils import resolve_user_from_social
+from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -95,7 +95,7 @@ class IssueCallback(GitHubCallback):
                 "Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number, exc_info=True
             )
         result = await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
-        daiv_user = await resolve_user_from_social("github", self.sender.id)
+        daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
             await acreate_activity(
                 trigger_type=TriggerType.ISSUE_WEBHOOK,
@@ -103,6 +103,7 @@ class IssueCallback(GitHubCallback):
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 user=daiv_user,
+                external_username=self.sender.username,
             )
         except Exception:
             logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
@@ -148,7 +149,7 @@ class IssueCommentCallback(GitHubCallback):
         """
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
         """
-        daiv_user = await resolve_user_from_social("github", self.comment.user.id)
+        daiv_user = await resolve_user("github", self.comment.user.id, username=self.comment.user.username)
 
         if self._is_issue_comment:
             try:
@@ -168,6 +169,7 @@ class IssueCommentCallback(GitHubCallback):
                     issue_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
                     user=daiv_user,
+                    external_username=self.comment.user.username,
                 )
             except Exception:
                 logger.exception(
@@ -194,6 +196,7 @@ class IssueCommentCallback(GitHubCallback):
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
                     user=daiv_user,
+                    external_username=self.comment.user.username,
                 )
             except Exception:
                 logger.exception(

@@ -6,7 +6,7 @@ from activity.models import TriggerType
 from activity.services import acreate_activity
 from gitlab.exceptions import GitlabError
 
-from accounts.utils import resolve_user_from_social
+from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -113,7 +113,7 @@ class IssueCallback(BaseCallback):
         result = await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
         )
-        daiv_user = await resolve_user_from_social("gitlab", self.user.id)
+        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
             await acreate_activity(
                 trigger_type=TriggerType.ISSUE_WEBHOOK,
@@ -121,6 +121,7 @@ class IssueCallback(BaseCallback):
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
                 user=daiv_user,
+                external_username=self.user.username,
             )
         except Exception:
             logger.exception(
@@ -174,7 +175,7 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        daiv_user = await resolve_user_from_social("gitlab", self.user.id)
+        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
 
         if self.issue and self._is_issue_comment:
             try:
@@ -196,6 +197,7 @@ class NoteCallback(BaseCallback):
                     issue_iid=self.issue.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
                     user=daiv_user,
+                    external_username=self.user.username,
                 )
             except Exception:
                 logger.exception(
@@ -224,6 +226,7 @@ class NoteCallback(BaseCallback):
                     merge_request_iid=self.merge_request.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
                     user=daiv_user,
+                    external_username=self.user.username,
                 )
             except Exception:
                 logger.exception(

@@ -23,6 +23,7 @@ def create_activity(
     mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
+    external_username: str = "",
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult."""
     return Activity.objects.create(
@@ -36,6 +37,7 @@ def create_activity(
         mention_comment_id=mention_comment_id,
         scheduled_job=scheduled_job,
         user=user,
+        external_username=external_username,
     )
 
 
@@ -51,6 +53,7 @@ async def acreate_activity(
     mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
+    external_username: str = "",
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -64,4 +67,5 @@ async def acreate_activity(
         mention_comment_id=mention_comment_id,
         scheduled_job=scheduled_job,
         user=user,
+        external_username=external_username,
     )

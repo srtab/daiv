@@ -36,11 +36,12 @@ class ActivityManager(models.Manager["Activity"]):
     def by_owner(self, user: User) -> models.QuerySet[Activity]:
         """Return activities visible to the given user.
 
-        Admin users see all activities; regular users see only their own.
+        Admin users see all activities; regular users see activities linked
+        by user FK or matching their external_username.
         """
         if user.is_admin:
             return self.all()
-        return self.filter(user=user)
+        return self.filter(models.Q(user=user) | models.Q(external_username=user.username))
 
 
 class Activity(models.Model):
@@ -71,6 +72,17 @@ class Activity(models.Model):
     )
 
     status = models.CharField(_("status"), max_length=10, choices=ActivityStatus.choices, default=ActivityStatus.READY)
+
+    external_username = models.CharField(
+        _("external username"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_(
+            "Git platform username from webhook payload."
+            " Used for activity visibility matching and to backfill the user FK when they later join DAIV."
+        ),
+    )
 
     # Context fields
     repo_id = models.CharField(_("repository"), max_length=255)
@@ -115,6 +127,11 @@ class Activity(models.Model):
             models.Index(fields=["status", "-created_at"], name="activity_status_created_idx"),
             models.Index(fields=["scheduled_job", "-created_at"], name="activity_schedule_created_idx"),
             models.Index(fields=["user", "-created_at"], name="activity_user_created_idx"),
+            models.Index(
+                fields=["external_username", "-created_at"],
+                name="activity_ext_user_created_idx",
+                condition=models.Q(external_username__gt=""),
+            ),
         ]
 
     def __str__(self) -> str:

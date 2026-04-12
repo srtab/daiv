@@ -9,19 +9,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.accounts")
 
 
-async def resolve_user_from_social(provider: str, uid: int) -> User | None:
-    """Resolve a DAIV user from an external social account (GitLab/GitHub).
+async def resolve_user(provider: str, uid: int, *, username: str = "", email: str = "") -> User | None:
+    """Resolve a DAIV user from an external git platform identity.
 
-    Looks up the allauth SocialAccount by provider and external user ID.
-    Returns None if no matching DAIV user is found or if the lookup fails.
+    Resolution order:
+    1. Username match against DAIV user (most common match for orgs where platform and DAIV usernames align)
+    2. Email match against DAIV user (when provided)
+    3. Social account lookup by provider + uid (allauth fallback)
+
+    Returns None if no matching DAIV user is found.
     """
     from allauth.socialaccount.models import SocialAccount
 
+    from accounts.models import User as UserModel
+
     try:
-        social = await SocialAccount.objects.select_related("user").aget(provider=provider, uid=str(uid))
-    except SocialAccount.DoesNotExist:
-        return None
+        if username:
+            try:
+                return await UserModel.objects.aget(username=username)
+            except UserModel.DoesNotExist:
+                pass
+
+        if email:
+            try:
+                return await UserModel.objects.aget(email=email)
+            except UserModel.DoesNotExist:
+                pass
+
+        try:
+            social = await SocialAccount.objects.select_related("user").aget(provider=provider, uid=str(uid))
+        except SocialAccount.DoesNotExist:
+            return None
+        return social.user
     except Exception:
-        logger.exception("Failed to resolve user from social account provider=%s uid=%s", provider, uid)
+        logger.exception(
+            "Failed to resolve user provider=%s uid=%s username=%s email=%s", provider, uid, username, email
+        )
         return None
-    return social.user
