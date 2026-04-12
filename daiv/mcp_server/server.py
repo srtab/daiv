@@ -16,7 +16,7 @@ from pydantic import Field
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
-from mcp_server.auth import DjangoOAuthTokenVerifier
+from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -98,9 +98,20 @@ async def submit_job(
         return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})
 
     job_id = str(result.id)
+    mcp_user = None
+    try:
+        mcp_user = await get_current_user()
+    except Exception:
+        logger.exception("Failed to resolve current user for MCP job %s", job_id)
+
     try:
         await acreate_activity(
-            trigger_type=TriggerType.MCP_JOB, task_result_id=result.id, repo_id=repo_id, ref=ref or "", prompt=prompt
+            trigger_type=TriggerType.MCP_JOB,
+            task_result_id=result.id,
+            repo_id=repo_id,
+            ref=ref or "",
+            prompt=prompt,
+            user=mcp_user,
         )
     except Exception:
         logger.exception("Failed to create activity for MCP job %s", job_id)

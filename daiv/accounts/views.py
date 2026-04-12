@@ -82,21 +82,21 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if days == 0:
             cutoff_date = localdate()
 
-        context["activity"] = self._get_activity_data(cutoff_date)
-        context["active_api_keys"] = APIKey.objects.filter(user=self.request.user, revoked=False).count()
+        user = self.request.user
+        context["activity"] = self._get_activity_data(cutoff_date, user)
+        context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
-        context["velocity"] = self._get_velocity_data(cutoff_date)
-        context["active_schedules"] = ScheduledJob.objects.filter(user=self.request.user, is_enabled=True).count()
-        if self.request.user.is_admin:
+        context["velocity"] = self._get_velocity_data(cutoff_date) if user.is_admin else None
+        context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
+        if user.is_admin:
             context["total_users"] = User.objects.count()
 
         return context
 
-    def _get_activity_data(self, cutoff_date: date | None) -> dict:
-        activities = Activity.objects.all()
-        if cutoff_date is not None:
-            activities = activities.filter(created_at__date__gte=cutoff_date)
+    def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
+        owned = Activity.objects.by_owner(user)
+        activities = owned.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else owned
 
         successful = Q(status=ActivityStatus.SUCCESSFUL)
         failed = Q(status=ActivityStatus.FAILED)
@@ -118,7 +118,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             avg_duration=Avg(duration_expr, filter=successful),
         )
 
-        running_count = Activity.objects.filter(status=ActivityStatus.RUNNING).count()
+        running_count = owned.filter(status=ActivityStatus.RUNNING).count()
 
         total = stats["total"]
         successful_count = stats["successful"]
@@ -218,12 +218,16 @@ class APIKeyListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        return super().get_queryset().filter(user=self.request.user).order_by("revoked", "-created")
+        qs = super().get_queryset().order_by("revoked", "-created")
+        if self.request.user.is_admin:
+            return qs.select_related("user")
+        return qs.filter(user=self.request.user)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["new_key"] = self.request.session.pop("new_api_key", None)
         context["form"] = APIKeyCreateForm()
+        context["is_admin"] = self.request.user.is_admin
         return context
 
 
@@ -256,7 +260,8 @@ class APIKeyCreateView(LoginRequiredMixin, View):
 
 class APIKeyRevokeView(LoginRequiredMixin, View):
     def post(self, request, pk):
-        api_key = APIKey.objects.filter(pk=pk, user=request.user).first()
+        qs = APIKey.objects.all() if request.user.is_admin else APIKey.objects.filter(user=request.user)
+        api_key = qs.filter(pk=pk).first()
         if api_key is None:
             messages.error(request, "API key not found.")
         elif api_key.revoked:

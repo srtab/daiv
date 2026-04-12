@@ -57,6 +57,7 @@ def dispatch_scheduled_jobs_cron_task():
                         ref=ref or "",
                         prompt=schedule.prompt,
                         scheduled_job=schedule,
+                        user=schedule.user,
                     )
                 except Exception:
                     logger.exception(

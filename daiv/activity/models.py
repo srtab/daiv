@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.results import parse_agent_result
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 
 class ActivityStatus(models.TextChoices):
@@ -27,6 +32,17 @@ class TriggerType(models.TextChoices):
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
 
 
+class ActivityManager(models.Manager["Activity"]):
+    def by_owner(self, user: User) -> models.QuerySet[Activity]:
+        """Return activities visible to the given user.
+
+        Admin users see all activities; regular users see only their own.
+        """
+        if user.is_admin:
+            return self.all()
+        return self.filter(user=user)
+
+
 class Activity(models.Model):
     """Unified record of every agent execution, regardless of trigger source.
 
@@ -37,6 +53,14 @@ class Activity(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     trigger_type = models.CharField(_("trigger type"), max_length=20, choices=TriggerType.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="activities",
+        verbose_name=_("user"),
+    )
     task_result = models.OneToOneField(
         "django_tasks_database.DBTaskResult",
         on_delete=models.SET_NULL,
@@ -79,6 +103,8 @@ class Activity(models.Model):
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
 
+    objects = ActivityManager()
+
     class Meta:
         verbose_name = _("Activity")
         verbose_name_plural = _("Activities")
@@ -88,6 +114,7 @@ class Activity(models.Model):
             models.Index(fields=["repo_id", "-created_at"], name="activity_repo_created_idx"),
             models.Index(fields=["status", "-created_at"], name="activity_status_created_idx"),
             models.Index(fields=["scheduled_job", "-created_at"], name="activity_schedule_created_idx"),
+            models.Index(fields=["user", "-created_at"], name="activity_user_created_idx"),
         ]
 
     def __str__(self) -> str:

@@ -68,6 +68,10 @@
                             {% endif %}
                         </div>
                         <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
+                            {% if is_admin %}
+                            <span>{{ key.user.name|default:key.user.email }}</span>
+                            <span>&middot;</span>
+                            {% endif %}
                             <span>Prefix: <code class="text-gray-400">{{ key.prefix }}...</code></span>
                             <span>&middot;</span>
                             <span>Created {{ key.created|timesince }} ago</span>
