@@ -35,6 +35,40 @@ def _create_api_key(user, name="test-key"):
 
 
 @pytest.mark.django_db
+class TestAPIKeyListView:
+    def test_member_sees_only_own_keys(self, logged_in_client, user, other_user):
+        _create_api_key(user, name="alice-key")
+        _create_api_key(other_user, name="bob-key")
+
+        response = logged_in_client.get(reverse("api_keys"))
+        assert response.status_code == 200
+
+        keys = response.context["api_keys"]
+        assert len(keys) == 1
+        assert keys[0].name == "alice-key"
+
+    def test_admin_sees_all_keys(self, other_user):
+        admin = User.objects.create_user(
+            username="admin",
+            email="admin@test.com",
+            password="testpass123",  # noqa: S106
+            role=Role.ADMIN,
+        )
+        _create_api_key(admin, name="admin-key")
+        _create_api_key(other_user, name="bob-key")
+
+        client = Client()
+        client.force_login(admin)
+        response = client.get(reverse("api_keys"))
+        assert response.status_code == 200
+
+        keys = response.context["api_keys"]
+        assert len(keys) == 2
+        assert {k.name for k in keys} == {"admin-key", "bob-key"}
+        assert response.context["is_admin"] is True
+
+
+@pytest.mark.django_db
 class TestAPIKeyCreateView:
     def test_create_stores_key_in_session(self, logged_in_client, user):
         response = logged_in_client.post(reverse("api_key_create"), {"name": "my-key"})

@@ -26,6 +26,7 @@ async def get_current_user() -> User | None:
     try:
         oauth_token = await OAuthAccessToken.objects.select_related("user").aget(token_checksum=token_checksum)
     except OAuthAccessToken.DoesNotExist:
+        logger.warning("OAuth token not found during user resolution (token may have been revoked)")
         return None
 
     return oauth_token.user

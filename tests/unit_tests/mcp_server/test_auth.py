@@ -151,3 +151,17 @@ async def test_get_current_user_returns_none_without_token():
         result = await get_current_user()
 
     assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_returns_none_when_token_deleted(access_token):
+    """Token was valid at auth time but deleted before get_current_user runs (TOCTOU)."""
+    mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
+
+    # Delete the token to simulate revocation between verify_token and get_current_user
+    await access_token.adelete()
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        result = await get_current_user()
+
+    assert result is None
