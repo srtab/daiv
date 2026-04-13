@@ -101,7 +101,7 @@
                 {% if activity.issue_iid %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Issue:</span>
-                    <span class="text-gray-300">#{{ activity.issue_iid }}</span>
+                    <span class="text-gray-300">#{{ activity.issue_iid|unlocalize }}</span>
                 </div>
                 {% endif %}
 
@@ -111,10 +111,10 @@
                     {% if activity.merge_request_web_url %}
                     <a href="{{ activity.merge_request_web_url }}" target="_blank" rel="noopener"
                        class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
-                        !{{ activity.merge_request_iid }}
+                        !{{ activity.merge_request_iid|unlocalize }}
                     </a>
                     {% else %}
-                    <span class="text-gray-300">!{{ activity.merge_request_iid }}</span>
+                    <span class="text-gray-300">!{{ activity.merge_request_iid|unlocalize }}</span>
                     {% endif %}
                 </div>
                 {% endif %}
