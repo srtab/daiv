@@ -1,5 +1,8 @@
+from datetime import UTC, datetime
+from unittest.mock import patch
+
 import pytest
-from activity.models import Activity, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
 
 from accounts.models import User
 
@@ -67,3 +70,39 @@ class TestByOwner:
 
         qs = Activity.objects.by_owner(user)
         assert orphan.pk in set(qs.values_list("pk", flat=True))
+
+
+@pytest.mark.django_db
+class TestSyncAndSave:
+    def test_returns_true_and_persists_when_changed(self, create_db_task_result):
+        finished = datetime(2026, 4, 13, 12, 0, 0, tzinfo=UTC)
+        tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Job done."}, finished_at=finished)
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.READY, task_result=tr
+        )
+
+        assert activity.sync_and_save() is True
+
+        activity.refresh_from_db()
+        assert activity.status == ActivityStatus.SUCCESSFUL
+        assert activity.finished_at == finished
+        assert activity.result_summary == "Job done."
+
+    def test_returns_false_and_skips_save_when_no_changes(self, create_db_task_result):
+        finished = datetime(2026, 4, 13, 12, 0, 0, tzinfo=UTC)
+        tr = create_db_task_result(
+            status="SUCCESSFUL", return_value={"response": "Already synced."}, finished_at=finished
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="group/project",
+            status=ActivityStatus.SUCCESSFUL,
+            task_result=tr,
+            finished_at=finished,
+            result_summary="Already synced.",
+        )
+
+        with patch.object(Activity, "save") as mock_save:
+            assert activity.sync_and_save() is False
+
+        mock_save.assert_not_called()

@@ -174,34 +174,42 @@ class ActivityStreamView(View):
         )
 
     async def _stream(self, activity_ids: list[uuid.UUID], user: User):
+        """Stream current Activity state to the browser.
+
+        Sync from DBTaskResult happens in the worker via django-tasks signals; this view
+        only reads already-synced rows and emits SSE events for state changes.
+        """
         tracking = set(activity_ids)
         terminal = ActivityStatus.terminal()
         start = time.monotonic()
+        last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
         while tracking and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
 
-            activities = Activity.objects.by_owner(user).filter(id__in=tracking).select_related("task_result")
+            activities = (
+                Activity.objects
+                .by_owner(user)
+                .filter(id__in=tracking)
+                .only("id", "status", "started_at", "finished_at")
+            )
 
-            to_update: list[Activity] = []
-            fields_to_update: set[str] = set()
             async for activity in activities:
-                changed_fields = activity.sync_from_task_result()
-                if changed_fields:
-                    to_update.append(activity)
-                    fields_to_update.update(changed_fields)
+                started_iso = activity.started_at.isoformat() if activity.started_at else None
+                finished_iso = activity.finished_at.isoformat() if activity.finished_at else None
+                current_state = (activity.status, started_iso, finished_iso)
+
+                if last_emitted.get(activity.id) != current_state:
+                    last_emitted[activity.id] = current_state
                     data = json.dumps({
                         "id": str(activity.id),
                         "status": activity.status,
-                        "started_at": activity.started_at.isoformat() if activity.started_at else None,
-                        "finished_at": activity.finished_at.isoformat() if activity.finished_at else None,
+                        "started_at": started_iso,
+                        "finished_at": finished_iso,
                     })
                     yield f"data: {data}\n\n"
 
                 if activity.status in terminal:
                     tracking.discard(activity.id)
-
-            if to_update and fields_to_update:
-                await Activity.objects.abulk_update(to_update, fields=fields_to_update)
 
         yield 'data: {"done": true}\n\n'

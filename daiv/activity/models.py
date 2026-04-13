@@ -153,6 +153,20 @@ class Activity(models.Model):
                 return parsed["response"]
         return self.result_summary
 
+    def sync_and_save(self) -> bool:
+        """Sync from the linked DBTaskResult and persist changed fields.
+
+        Returns True if any field was updated (and a save was issued), else False.
+
+        Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
+        in long-lived loops (signal handlers, management commands) must catch.
+        """
+        changed = self.sync_from_task_result()
+        if not changed:
+            return False
+        self.save(update_fields=changed)
+        return True
+
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.
 

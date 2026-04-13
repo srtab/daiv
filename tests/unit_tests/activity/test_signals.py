@@ -1,7 +1,22 @@
+from datetime import UTC, datetime
+from unittest.mock import patch
+
 import pytest
-from activity.models import Activity, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
+from django_tasks.signals import task_finished, task_started
 
 from accounts.models import User
+
+
+def _create_activity(*, task_result=None, status=ActivityStatus.READY, **kwargs):
+    defaults = {
+        "trigger_type": TriggerType.API_JOB,
+        "repo_id": "group/project",
+        "status": status,
+        "task_result": task_result,
+    }
+    defaults.update(kwargs)
+    return Activity.objects.create(**defaults)
 
 
 @pytest.mark.django_db
@@ -76,3 +91,70 @@ class TestBackfillActivityUser:
 
         orphan.refresh_from_db()
         assert orphan.user is None
+
+
+@pytest.mark.django_db
+class TestSyncActivityOnTaskSignals:
+    def test_task_finished_syncs_successful_activity(self, create_db_task_result):
+        finished = datetime(2026, 4, 13, 12, 0, 0, tzinfo=UTC)
+        tr = create_db_task_result(
+            status="SUCCESSFUL",
+            return_value={"response": "Job done.", "code_changes": True, "merge_request_id": 42},
+            started_at=datetime(2026, 4, 13, 11, 0, 0, tzinfo=UTC),
+            finished_at=finished,
+        )
+        activity = _create_activity(task_result=tr, status=ActivityStatus.READY)
+
+        task_finished.send(sender=type(None), task_result=tr.task_result)
+
+        activity.refresh_from_db()
+        assert activity.status == ActivityStatus.SUCCESSFUL
+        assert activity.finished_at == finished
+        assert activity.result_summary == "Job done."
+        assert activity.code_changes is True
+        assert activity.merge_request_iid == 42
+
+    def test_task_finished_syncs_failed_activity(self, create_db_task_result):
+        tr = create_db_task_result(
+            status="FAILED",
+            exception_class_path="builtins.ValueError",
+            traceback="Traceback (most recent call last): ...",
+            started_at=datetime(2026, 4, 13, 11, 0, 0, tzinfo=UTC),
+            finished_at=datetime(2026, 4, 13, 11, 5, 0, tzinfo=UTC),
+        )
+        activity = _create_activity(task_result=tr, status=ActivityStatus.RUNNING)
+
+        task_finished.send(sender=type(None), task_result=tr.task_result)
+
+        activity.refresh_from_db()
+        assert activity.status == ActivityStatus.FAILED
+        assert "ValueError" in activity.error_message
+        assert "Traceback" in activity.error_message
+
+    def test_task_started_syncs_running_status(self, create_db_task_result):
+        started = datetime(2026, 4, 13, 11, 0, 0, tzinfo=UTC)
+        tr = create_db_task_result(status="RUNNING", started_at=started)
+        activity = _create_activity(task_result=tr, status=ActivityStatus.READY)
+
+        task_started.send(sender=type(None), task_result=tr.task_result)
+
+        activity.refresh_from_db()
+        assert activity.status == ActivityStatus.RUNNING
+        assert activity.started_at == started
+
+    def test_task_finished_no_activity_does_not_raise(self, create_db_task_result):
+        tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
+
+        task_finished.send(sender=type(None), task_result=tr.task_result)
+
+    def test_task_started_no_activity_does_not_raise(self, create_db_task_result):
+        tr = create_db_task_result(status="RUNNING")
+
+        task_started.send(sender=type(None), task_result=tr.task_result)
+
+    def test_signal_handler_swallows_sync_errors(self, create_db_task_result):
+        tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
+        _create_activity(task_result=tr, status=ActivityStatus.READY)
+
+        with patch.object(Activity, "sync_from_task_result", side_effect=RuntimeError("boom")):
+            task_finished.send(sender=type(None), task_result=tr.task_result)
