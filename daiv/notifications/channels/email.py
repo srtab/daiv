@@ -28,8 +28,8 @@ class EmailChannel(NotificationChannel):
     def resolve_address(self, user: User) -> str | None:
         binding = (
             UserChannelBinding.objects
-            .filter(user=user, channel_type=self.channel_type)
-            .order_by("-is_verified", "-updated_at")
+            .filter(user=user, channel_type=self.channel_type, is_verified=True)
+            .order_by("-updated_at")
             .first()
         )
         return binding.address if binding else None

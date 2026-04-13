@@ -17,6 +17,24 @@ class TestEmailChannelResolveAddress:
         UserChannelBinding.objects.filter(user=member_user, channel_type="email").delete()
         assert EmailChannel().resolve_address(member_user) is None
 
+    def test_skips_unverified_bindings(self, member_user):
+        UserChannelBinding.objects.filter(user=member_user, channel_type="email").delete()
+        UserChannelBinding.objects.create(
+            user=member_user, channel_type="email", address="unverified@test.com", is_verified=False
+        )
+        assert EmailChannel().resolve_address(member_user) is None
+
+    def test_prefers_most_recently_updated_verified_binding(self, member_user):
+        UserChannelBinding.objects.filter(user=member_user, channel_type="email").delete()
+        UserChannelBinding.objects.create(
+            user=member_user, channel_type="email", address="old@test.com", is_verified=True
+        )
+        newer = UserChannelBinding.objects.create(
+            user=member_user, channel_type="email", address="new@test.com", is_verified=True
+        )
+        newer.save()  # bump updated_at
+        assert EmailChannel().resolve_address(member_user) == "new@test.com"
+
 
 @pytest.mark.django_db
 class TestEmailChannelSend:
