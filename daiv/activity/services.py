@@ -7,6 +7,7 @@ from activity.models import Activity
 if TYPE_CHECKING:
     import uuid
 
+    from accounts.models import User
     from schedules.models import ScheduledJob
 
 
@@ -21,6 +22,8 @@ def create_activity(
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
+    user: User | None = None,
+    external_username: str = "",
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult."""
     return Activity.objects.create(
@@ -33,6 +36,8 @@ def create_activity(
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
         scheduled_job=scheduled_job,
+        user=user,
+        external_username=external_username,
     )
 
 
@@ -47,6 +52,8 @@ async def acreate_activity(
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
+    user: User | None = None,
+    external_username: str = "",
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -59,4 +66,6 @@ async def acreate_activity(
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
         scheduled_job=scheduled_job,
+        user=user,
+        external_username=external_username,
     )

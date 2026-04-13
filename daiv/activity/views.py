@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
     from django.http import HttpRequest
 
+    from accounts.models import User
+
 
 class ActivityListView(LoginRequiredMixin, ListView):
     model = Activity
@@ -29,7 +31,7 @@ class ActivityListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self) -> QuerySet[Activity]:
-        qs = super().get_queryset().select_related("task_result", "scheduled_job")
+        qs = Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
 
         if (status := self.request.GET.get("status", "")) and status in ActivityStatus.values:
             qs = qs.filter(status=status)
@@ -90,7 +92,7 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "activity"
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return super().get_queryset().select_related("task_result", "scheduled_job")
+        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -166,12 +168,12 @@ class ActivityStreamView(View):
             return HttpResponse(status=400)
 
         return StreamingHttpResponse(
-            self._stream(uuids),
+            self._stream(uuids, user),
             content_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    async def _stream(self, activity_ids: list[uuid.UUID]):
+    async def _stream(self, activity_ids: list[uuid.UUID], user: User):
         tracking = set(activity_ids)
         terminal = ActivityStatus.terminal()
         start = time.monotonic()
@@ -179,7 +181,7 @@ class ActivityStreamView(View):
         while tracking and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
 
-            activities = Activity.objects.filter(id__in=tracking).select_related("task_result")
+            activities = Activity.objects.by_owner(user).filter(id__in=tracking).select_related("task_result")
 
             to_update: list[Activity] = []
             fields_to_update: set[str] = set()

@@ -52,6 +52,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             repo_id=payload.repo_id,
             ref=payload.ref or "",
             prompt=payload.prompt,
+            user=request.auth,
         )
     except Exception:
         logger.exception("Failed to create activity for job %s", result.id)

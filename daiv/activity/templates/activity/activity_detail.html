@@ -62,6 +62,13 @@
                     {% endif %}
                 </div>
 
+                {% if user.is_admin and activity.user and activity.user != user %}
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Owner:</span>
+                    <span class="text-gray-300">{{ activity.user }}</span>
+                </div>
+                {% endif %}
+
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Created:</span>
                     <span class="text-gray-300">{{ activity.created_at|date:"M j, Y H:i:s" }}</span>
