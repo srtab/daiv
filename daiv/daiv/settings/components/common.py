@@ -11,7 +11,17 @@ SITE_ID = 1
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "activity", "automation", "codebase", "core", "mcp_server", "schedules", "slash_commands"]
+LOCAL_APPS = [
+    "accounts",
+    "activity",
+    "automation",
+    "codebase",
+    "core",
+    "mcp_server",
+    "notifications",
+    "schedules",
+    "slash_commands",
+]
 
 THIRD_PARTY_APPS = [
     "crontask",
