@@ -13,11 +13,13 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from activity.models import Activity, ActivityStatus, TriggerType
+from django_filters.views import FilterView
 
 from accounts.emails import send_welcome_email
+from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin
-from accounts.models import APIKey, Role, User
+from accounts.models import APIKey, User
 from codebase.models import MergeMetric
 from schedules.models import ScheduledJob
 
@@ -278,27 +280,22 @@ class APIKeyRevokeView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
-class UserListView(AdminRequiredMixin, ListView):
+class UserListView(AdminRequiredMixin, FilterView):
     model = User
+    filterset_class = UserFilter
     template_name = "accounts/users.html"
     context_object_name = "users"
     ordering = ["-date_joined"]
     paginate_by = 25
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        q = self.request.GET.get("q", "").strip()
-        if q:
-            qs = qs.filter(Q(name__icontains=q) | Q(email__icontains=q))
-        role = self.request.GET.get("role", "").strip()
-        if role in {Role.ADMIN, Role.MEMBER}:
-            qs = qs.filter(role=role)
-        return qs
+    # Invalid URL params (e.g. ?role=bogus) drop silently instead of blanking the list.
+    strict = False
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["search_query"] = self.request.GET.get("q", "")
-        context["current_role"] = self.request.GET.get("role", "")
+        form = context["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        context["search_query"] = cleaned.get("q") or ""
+        context["current_role"] = cleaned.get("role") or ""
         return context
 
 

@@ -89,11 +89,11 @@
                     {% if current_trigger %}<input type="hidden" name="trigger" value="{{ current_trigger }}">{% endif %}
                     {% if current_repo %}<input type="hidden" name="repo" value="{{ current_repo }}">{% endif %}
                     {% if current_schedule %}<input type="hidden" name="schedule" value="{{ current_schedule }}">{% endif %}
-                    <input type="date" name="from" value="{{ current_from }}"
+                    <input type="date" name="date_from" value="{{ current_from }}"
                            class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
                            placeholder="From" onchange="this.form.submit()">
                     <span class="text-sm text-gray-400">to</span>
-                    <input type="date" name="to" value="{{ current_to }}"
+                    <input type="date" name="date_to" value="{{ current_to }}"
                            class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
                            placeholder="To" onchange="this.form.submit()">
                 </form>

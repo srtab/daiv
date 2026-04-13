@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import time
 import uuid
-from datetime import date
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.utils.text import slugify
 from django.views import View
-from django.views.generic import DetailView, ListView
+from django.views.generic import DetailView
 
+from django_filters.views import FilterView
+
+from activity.filters import ActivityFilter
 from activity.models import Activity, ActivityStatus, TriggerType
 from schedules.models import ScheduledJob
 
@@ -24,54 +25,31 @@ if TYPE_CHECKING:
     from accounts.models import User
 
 
-class ActivityListView(LoginRequiredMixin, ListView):
+class ActivityListView(LoginRequiredMixin, FilterView):
     model = Activity
+    filterset_class = ActivityFilter
     template_name = "activity/activity_list.html"
     context_object_name = "activities"
     paginate_by = 25
+    # Preserve pre-django-filter UX: an invalid URL param (e.g. ?status=bogus) should
+    # silently drop that filter, not blank the whole list.
+    strict = False
 
     def get_queryset(self) -> QuerySet[Activity]:
-        qs = Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
-
-        if (status := self.request.GET.get("status", "")) and status in ActivityStatus.values:
-            qs = qs.filter(status=status)
-
-        if (trigger := self.request.GET.get("trigger", "")) and trigger in dict(TriggerType.choices):
-            qs = qs.filter(trigger_type=trigger)
-
-        if repo := self.request.GET.get("repo", ""):
-            qs = qs.filter(repo_id=repo)
-
-        if schedule_id := self.request.GET.get("schedule", ""):
-            with contextlib.suppress(ValueError, TypeError):
-                qs = qs.filter(scheduled_job_id=int(schedule_id))
-
-        if date_from := self.request.GET.get("from", ""):
-            try:
-                date.fromisoformat(date_from)
-            except ValueError:
-                pass
-            else:
-                qs = qs.filter(created_at__date__gte=date_from)
-
-        if date_to := self.request.GET.get("to", ""):
-            try:
-                date.fromisoformat(date_to)
-            except ValueError:
-                pass
-            else:
-                qs = qs.filter(created_at__date__lte=date_to)
-
-        return qs
+        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["current_status"] = self.request.GET.get("status", "")
-        context["current_trigger"] = self.request.GET.get("trigger", "")
-        context["current_repo"] = self.request.GET.get("repo", "")
-        context["current_schedule"] = self.request.GET.get("schedule", "")
-        context["current_from"] = self.request.GET.get("from", "")
-        context["current_to"] = self.request.GET.get("to", "")
+        form = context["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        context["current_status"] = cleaned.get("status") or ""
+        context["current_trigger"] = cleaned.get("trigger") or ""
+        context["current_repo"] = cleaned.get("repo") or ""
+        context["current_schedule"] = cleaned.get("schedule") or ""
+        # Date fields are read raw: cleaned_data yields `date` objects, but the
+        # HTML `<input type="date">` needs the original ISO string to round-trip.
+        context["current_from"] = self.request.GET.get("date_from", "")
+        context["current_to"] = self.request.GET.get("date_to", "")
         context["trigger_types"] = TriggerType.choices
         context["statuses"] = ActivityStatus.choices
         # Resolve schedule name for display
