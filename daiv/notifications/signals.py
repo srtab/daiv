@@ -3,13 +3,17 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from activity.signals import activity_finished
 
 from notifications.choices import NotifyOn
+from notifications.models import UserChannelBinding
 from notifications.services import notify
 
 if TYPE_CHECKING:
@@ -78,3 +82,20 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
         )
     except Exception:
         logger.exception("Failed to create notification for activity %s", activity.pk)
+
+
+@receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid="notifications.seed_email_binding")
+def seed_email_binding(sender, instance, created, **kwargs) -> None:
+    if not instance.email:
+        return
+
+    binding, was_created = UserChannelBinding.objects.get_or_create(
+        user=instance,
+        channel_type="email",
+        defaults={"address": instance.email, "is_verified": True, "verified_at": timezone.now()},
+    )
+    if not was_created and binding.address != instance.email:
+        binding.address = instance.email
+        binding.is_verified = True
+        binding.verified_at = timezone.now()
+        binding.save(update_fields=["address", "is_verified", "verified_at", "updated_at"])

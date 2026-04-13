@@ -9,8 +9,8 @@ from notifications.services import create_notification, notify
 @pytest.mark.django_db
 class TestCreateNotification:
     def test_creates_notification_and_deliveries(self, member_user):
-        UserChannelBinding.objects.create(
-            user=member_user, channel_type="email", address="member@test.com", is_verified=True
+        UserChannelBinding.objects.get_or_create(
+            user=member_user, channel_type="email", address="member@test.com", defaults={"is_verified": True}
         )
         notification = create_notification(
             recipient=member_user,
