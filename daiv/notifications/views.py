@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
@@ -83,9 +84,7 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
 
 
 @method_decorator(require_POST, name="dispatch")
-class MarkAllReadView(LoginRequiredMixin, TemplateView):
-    template_name = "notifications/notification_list.html"
-
+class MarkAllReadView(LoginRequiredMixin, View):
     def post(self, request):
         Notification.objects.filter(recipient=request.user, read_at__isnull=True).update(read_at=timezone.now())
         return HttpResponse(status=204)
