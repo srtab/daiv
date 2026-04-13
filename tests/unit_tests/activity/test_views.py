@@ -141,3 +141,53 @@ class TestActivityDownloadMarkdownView:
 
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+class TestActivityListView:
+    def test_unauthenticated_redirects_to_login(self):
+        response = Client().get(reverse("activity_list"))
+        assert response.status_code == 302
+        assert "/accounts/login/" in response.url
+
+    def test_owner_scoping_applied_before_filters(self, logged_in_client, user):
+        mine = _create_activity(user=user, repo_id="mine/repo")
+        other = User.objects.create_user(
+            username="bob",
+            email="bob@test.com",
+            password="testpass123",  # noqa: S106
+        )
+        theirs = _create_activity(user=other, repo_id="mine/repo")
+
+        response = logged_in_client.get(reverse("activity_list"), {"repo": "mine/repo"})
+
+        assert response.status_code == 200
+        activities = list(response.context["activities"])
+        assert mine in activities
+        # by_owner must run before the filterset — without it, the repo filter would leak `theirs`.
+        assert theirs not in activities
+
+    def test_filter_by_status(self, logged_in_client, user):
+        success = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL)
+        failed = _create_activity(user=user, status=ActivityStatus.FAILED)
+        response = logged_in_client.get(reverse("activity_list"), {"status": ActivityStatus.SUCCESSFUL})
+        activities = list(response.context["activities"])
+        assert success in activities
+        assert failed not in activities
+
+    def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
+        """Lock in the URL contract after the `from`/`to` → `date_from`/`date_to` rename."""
+        _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"), {"date_from": "2020-01-01", "date_to": "2100-01-01"})
+        assert response.status_code == 200
+        # Values round-trip to the template context so the date inputs stay populated.
+        assert response.context["current_from"] == "2020-01-01"
+        assert response.context["current_to"] == "2100-01-01"
+
+    def test_invalid_filter_drops_silently(self, logged_in_client, user):
+        activity = _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"), {"status": "bogus"})
+        assert response.status_code == 200
+        # Invalid choice is dropped; full (owner-scoped) list is shown and context key is empty.
+        assert activity in response.context["activities"]
+        assert response.context["current_status"] == ""
