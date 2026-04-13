@@ -66,3 +66,41 @@ def create_notification(
             error_message=skipped_reason or "",
         )
     return notification
+
+
+def dispatch_notification(notification: Notification) -> None:
+    """Enqueue delivery tasks for each pending delivery on ``notification``."""
+    from notifications.tasks import deliver_notification_task
+
+    pending = notification.deliveries.filter(status=DeliveryStatus.PENDING).values_list("id", flat=True)
+    for delivery_id in pending:
+        deliver_notification_task.enqueue(str(delivery_id))
+
+
+def notify(
+    *,
+    recipient: User,
+    event_type: str,
+    source_type: str = "",
+    source_id: str = "",
+    subject: str,
+    body: str,
+    link_url: str = "",
+    channels: Sequence[str],
+    context: dict | None = None,
+) -> Notification:
+    """Public API for triggering a notification. Creates the notification and schedules delivery
+    on transaction commit."""
+    notification = create_notification(
+        recipient=recipient,
+        event_type=event_type,
+        source_type=source_type,
+        source_id=source_id,
+        subject=subject,
+        body=body,
+        link_url=link_url,
+        channels=channels,
+        context=context,
+    )
+    transaction.on_commit(lambda: dispatch_notification(notification))
+    return notification

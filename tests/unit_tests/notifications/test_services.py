@@ -1,7 +1,9 @@
+from django.test import TestCase
+
 import pytest
 from notifications.choices import DeliveryStatus
 from notifications.models import Notification, UserChannelBinding
-from notifications.services import create_notification
+from notifications.services import create_notification, notify
 
 
 @pytest.mark.django_db
@@ -75,3 +77,26 @@ class TestCreateNotification:
         d = n.deliveries.get()
         assert d.status == DeliveryStatus.SKIPPED
         assert "unknown channel" in d.error_message.lower()
+
+
+@pytest.mark.django_db
+class TestNotify:
+    def test_creates_notification_and_enqueues_on_commit(self, member_user):
+        UserChannelBinding.objects.get_or_create(
+            user=member_user, channel_type="email", defaults={"address": member_user.email, "is_verified": True}
+        )
+        with TestCase.captureOnCommitCallbacks(execute=False) as callbacks:
+            notification = notify(
+                recipient=member_user,
+                event_type="schedule.finished",
+                source_type="activity.Activity",
+                source_id="abc",
+                subject="Subject",
+                body="Body",
+                link_url="/x/",
+                channels=["email"],
+            )
+
+        assert notification.deliveries.filter(status="pending").count() == 1
+        # One on_commit callback = the dispatch
+        assert len(callbacks) == 1
