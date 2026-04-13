@@ -50,6 +50,26 @@ class NotificationListView(LoginRequiredMixin, ListView):
         return ctx
 
 
+class BellDropdownView(LoginRequiredMixin, TemplateView):
+    template_name = "notifications/_bell_dropdown.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
+        ctx["notifications"] = list(qs[:10])
+        ctx["unread_count"] = qs.filter(read_at__isnull=True).count()
+        return ctx
+
+
+class BellBadgeView(LoginRequiredMixin, TemplateView):
+    template_name = "notifications/_bell.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["unread_count"] = Notification.objects.filter(recipient=self.request.user, read_at__isnull=True).count()
+        return ctx
+
+
 @method_decorator(require_POST, name="dispatch")
 class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
     template_name = "notifications/_notification_row.html"

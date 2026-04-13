@@ -1,0 +1,12 @@
+{% load i18n %}
+<div>
+  <div class="flex items-center justify-between border-b border-white/[0.06] px-4 py-2">
+    <span class="text-xs font-medium text-gray-300">{% translate "Notifications" %}</span>
+    <a href="{% url 'notifications:list' %}" class="text-xs text-gray-400 hover:text-white">{% translate "View all" %}</a>
+  </div>
+  {% for notification in notifications %}
+    {% include "notifications/_notification_row.html" %}
+  {% empty %}
+    <p class="px-4 py-8 text-center text-xs text-gray-500">{% translate "No notifications yet." %}</p>
+  {% endfor %}
+</div>
