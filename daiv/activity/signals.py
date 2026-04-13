@@ -5,11 +5,15 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models.signals import post_save
-from django.dispatch import receiver
+from django.dispatch import Signal, receiver
 
 from django_tasks.signals import task_finished, task_started
 
 logger = logging.getLogger("daiv.activity")
+
+# Emitted when an Activity transitions to a terminal status (SUCCESSFUL or FAILED).
+# Arguments: activity (Activity instance).
+activity_finished = Signal()
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -34,6 +38,17 @@ def backfill_activity_user(sender: type, instance: Any, created: bool, **kwargs:
         logger.info("Backfilled %d activities for new user %s (pk=%s)", updated, instance.username, instance.pk)
 
 
+def emit_activity_finished_if_terminal(activity: Any, previous_status: str | None) -> None:
+    """Emit activity_finished if the activity just transitioned to a terminal status."""
+    from activity.models import ActivityStatus
+
+    if activity.status not in ActivityStatus.terminal():
+        return
+    if previous_status in ActivityStatus.terminal():
+        return  # Already emitted on a prior save
+    activity_finished.send(sender=type(activity), activity=activity)
+
+
 def _sync_activity_for_task(task_result_id: Any) -> None:
     """Pull latest status/timing/result from the linked DBTaskResult into the Activity row.
 
@@ -48,7 +63,9 @@ def _sync_activity_for_task(task_result_id: Any) -> None:
         activity = Activity.objects.select_related("task_result").filter(task_result_id=task_result_id).first()
         if activity is None:
             return
+        previous_status = activity.status
         activity.sync_and_save()
+        emit_activity_finished_if_terminal(activity, previous_status=previous_status)
     except Exception:
         logger.exception("Failed to sync activity for task_result_id=%s", task_result_id)
 

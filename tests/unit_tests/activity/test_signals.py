@@ -158,3 +158,59 @@ class TestSyncActivityOnTaskSignals:
 
         with patch.object(Activity, "sync_from_task_result", side_effect=RuntimeError("boom")):
             task_finished.send(sender=type(None), task_result=tr.task_result)
+
+
+@pytest.mark.django_db
+class TestActivityFinishedSignal:
+    def test_emitted_on_transition_to_successful(self, member_user):
+        from unittest.mock import MagicMock
+
+        from activity.signals import activity_finished, emit_activity_finished_if_terminal
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE, user=member_user, repo_id="r/x", status=ActivityStatus.RUNNING
+        )
+        received = MagicMock()
+        activity_finished.connect(received, dispatch_uid="test-succ")
+        try:
+            activity.status = ActivityStatus.SUCCESSFUL
+            activity.save()
+            emit_activity_finished_if_terminal(activity, previous_status=ActivityStatus.RUNNING)
+
+            assert received.called
+            _, kwargs = received.call_args
+            assert kwargs["activity"] is activity
+        finally:
+            activity_finished.disconnect(dispatch_uid="test-succ")
+
+    def test_not_emitted_when_still_running(self, member_user):
+        from unittest.mock import MagicMock
+
+        from activity.signals import activity_finished, emit_activity_finished_if_terminal
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE, user=member_user, repo_id="r/x", status=ActivityStatus.RUNNING
+        )
+        received = MagicMock()
+        activity_finished.connect(received, dispatch_uid="test-run")
+        try:
+            emit_activity_finished_if_terminal(activity, previous_status=ActivityStatus.READY)
+            assert not received.called
+        finally:
+            activity_finished.disconnect(dispatch_uid="test-run")
+
+    def test_not_emitted_when_already_terminal(self, member_user):
+        from unittest.mock import MagicMock
+
+        from activity.signals import activity_finished, emit_activity_finished_if_terminal
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE, user=member_user, repo_id="r/x", status=ActivityStatus.SUCCESSFUL
+        )
+        received = MagicMock()
+        activity_finished.connect(received, dispatch_uid="test-term")
+        try:
+            emit_activity_finished_if_terminal(activity, previous_status=ActivityStatus.SUCCESSFUL)
+            assert not received.called
+        finally:
+            activity_finished.disconnect(dispatch_uid="test-term")
