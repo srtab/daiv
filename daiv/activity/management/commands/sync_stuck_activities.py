@@ -5,6 +5,7 @@ import logging
 from django.core.management.base import BaseCommand, CommandError
 
 from activity.models import Activity, ActivityStatus
+from activity.signals import emit_activity_finished_if_terminal
 
 logger = logging.getLogger("daiv.activity")
 
@@ -17,14 +18,16 @@ class Command(BaseCommand):
             Activity.objects
             .filter(task_result__isnull=False)
             .exclude(status__in=list(ActivityStatus.terminal()))
-            .select_related("task_result")
+            .select_related("task_result", "scheduled_job")
         )
 
         synced = skipped = errored = 0
         for activity in qs.iterator():
             try:
+                previous_status = activity.status
                 if activity.sync_and_save():
                     synced += 1
+                    emit_activity_finished_if_terminal(activity, previous_status=previous_status)
                 else:
                     skipped += 1
             except Exception:

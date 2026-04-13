@@ -92,7 +92,7 @@ class ScheduledJob(TimeStampedModel):
         return self.name
 
     def clean(self) -> None:
-        from notifications.channels.registry import _registry
+        from notifications.channels.registry import is_registered
 
         super().clean()
         if self.frequency == Frequency.CUSTOM:
@@ -112,7 +112,7 @@ class ScheduledJob(TimeStampedModel):
         if not isinstance(self.notify_channels, list):
             errors["notify_channels"] = "notify_channels must be a list"
         else:
-            unknown = [c for c in self.notify_channels if c not in _registry]
+            unknown = [c for c in self.notify_channels if not is_registered(c)]
             if unknown:
                 errors["notify_channels"] = f"unknown channel type(s): {unknown}"
             if self.notify_on != NotifyOn.NEVER and not self.notify_channels:

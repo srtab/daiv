@@ -60,7 +60,12 @@ def _sync_activity_for_task(task_result_id: Any) -> None:
     from activity.models import Activity
 
     try:
-        activity = Activity.objects.select_related("task_result").filter(task_result_id=task_result_id).first()
+        activity = (
+            Activity.objects
+            .select_related("task_result", "scheduled_job")
+            .filter(task_result_id=task_result_id)
+            .first()
+        )
         if activity is None:
             return
         previous_status = activity.status
