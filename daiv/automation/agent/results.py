@@ -41,7 +41,7 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             code_changes=bool(rv.get("code_changes")),
             merge_request_id=rv.get("merge_request_id"),
             merge_request_web_url=rv.get("merge_request_web_url"),
-            usage=rv.get("usage"),
+            usage=rv.get("usage") if isinstance(rv.get("usage"), dict) else None,
         )
     return AgentResult(
         response=str(rv) if rv else "",

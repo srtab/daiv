@@ -43,6 +43,9 @@ def _calc_model_cost(model_name: str, usage_metadata: dict[str, Any]) -> Decimal
     except LookupError:
         logger.warning("No pricing found for model %r", model_name)
         return None
+    except Exception:
+        logger.warning("Cost calculation failed for model %r", model_name, exc_info=True)
+        return None
     return result.total_price
 
 

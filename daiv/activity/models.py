@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -9,6 +10,8 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.results import parse_agent_result
+
+logger = logging.getLogger("daiv.activity")
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -224,8 +227,12 @@ class Activity(models.Model):
                     self.total_tokens = usage["total_tokens"]
                     changed.append("total_tokens")
                 if usage.get("cost_usd") is not None:
-                    self.cost_usd = Decimal(usage["cost_usd"])
-                    changed.append("cost_usd")
+                    try:
+                        self.cost_usd = Decimal(usage["cost_usd"])
+                    except Exception:
+                        logger.warning("Invalid cost_usd value %r for activity %s", usage["cost_usd"], self.pk)
+                    else:
+                        changed.append("cost_usd")
                 if usage.get("by_model") is not None:
                     self.usage_by_model = usage["by_model"]
                     changed.append("usage_by_model")

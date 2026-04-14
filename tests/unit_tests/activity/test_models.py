@@ -185,3 +185,28 @@ class TestSyncFromTaskResultUsage:
 
         changed = activity.sync_from_task_result()
         assert "input_tokens" not in changed
+
+    def test_syncs_tokens_when_cost_is_null(self, create_db_task_result):
+        """When cost_usd is None (unknown model), tokens are still synced."""
+        tr = create_db_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Done",
+                "usage": {
+                    "input_tokens": 3000,
+                    "output_tokens": 1000,
+                    "total_tokens": 4000,
+                    "cost_usd": None,
+                    "by_model": {},
+                },
+            },
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.READY, task_result=tr
+        )
+
+        changed = activity.sync_from_task_result()
+        assert "input_tokens" in changed
+        assert activity.input_tokens == 3000
+        assert activity.cost_usd is None
+        assert "cost_usd" not in changed

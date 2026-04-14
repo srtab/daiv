@@ -116,3 +116,9 @@ class TestBuildUsageSummary:
         assert summary.input_tokens == 1100
         assert summary.cost_usd is None
         assert summary.by_model["claude-sonnet-4-6"].get("cost_usd") is not None
+
+    def test_reasoning_tokens_in_by_model(self):
+        handler_data = {"claude-sonnet-4-6": _usage_metadata(input_tokens=1000, output_tokens=500, reasoning=200)}
+        summary = build_usage_summary(handler_data)
+        model_usage = summary.by_model["claude-sonnet-4-6"]
+        assert model_usage["output_token_details"]["reasoning"] == 200
