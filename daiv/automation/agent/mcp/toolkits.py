@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 
+def _get_connection_url(conn) -> str:
+    """Extract the URL from a langchain MCP connection object."""
+    return getattr(conn, "url", "unknown")
+
+
 class MCPToolkit(BaseToolkit):
     """
     Toolkit for using MCP servers.
@@ -25,12 +30,19 @@ class MCPToolkit(BaseToolkit):
         from automation.agent.mcp.registry import mcp_registry
 
         connections, tool_filters = mcp_registry.get_connections_and_filters()
+
+        if not connections:
+            return []
+
+        server_urls = {name: _get_connection_url(conn) for name, conn in connections.items()}
+        logger.debug("Connecting to MCP servers: %s", server_urls)
+
         client = MultiServerMCPClient(connections, tool_name_prefix=True)
 
         try:
             tools = await client.get_tools()
         except Exception:
-            logger.warning("Error getting tools from MCP servers.", exc_info=True)
+            logger.warning("Error getting tools from MCP servers: %s", server_urls, exc_info=True)
             tools = []
 
         if tool_filters:
