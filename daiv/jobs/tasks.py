@@ -7,7 +7,13 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.results import AgentResult, build_agent_result
-from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
+from automation.agent.usage_tracking import build_usage_summary
+from automation.agent.utils import (
+    attach_usage_tracker,
+    build_langsmith_config,
+    extract_text_content,
+    get_daiv_agent_kwargs,
+)
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -44,6 +50,7 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None, use_ma
                 extra_metadata={"ref": ref},
                 configurable={"thread_id": str(uuid.uuid4())},
             )
+            usage_handler = attach_usage_tracker(config)
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
             result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:
@@ -58,4 +65,6 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None, use_ma
     response_text = extract_text_content(messages[-1].content)
 
     logger.info("Job completed for repo_id=%s", repo_id)
-    return await build_agent_result(daiv_agent, config, response=response_text)
+    return await build_agent_result(
+        daiv_agent, config, response=response_text, usage=build_usage_summary(usage_handler.usage_metadata).to_dict()
+    )

@@ -17,6 +17,7 @@ from core.utils import extract_valid_image_mimetype, is_valid_url
 from .schemas import Image
 
 if TYPE_CHECKING:
+    from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
     from langchain_core.messages import ImageContentBlock
 
     from codebase.context import RuntimeCtx
@@ -290,6 +291,20 @@ def build_langsmith_config(
         config_kwargs["configurable"] = configurable
 
     return RunnableConfig(**config_kwargs)
+
+
+def attach_usage_tracker(config: RunnableConfig) -> UsageMetadataCallbackHandler:
+    """Create a UsageMetadataCallbackHandler and attach it to the config's callback list.
+
+    Returns the handler so the caller can retrieve usage after the run via
+    ``build_usage_summary(handler.usage_metadata)``.
+    """
+    from .usage_tracking import UsageMetadataCallbackHandler
+
+    handler = UsageMetadataCallbackHandler()
+    callbacks = config.get("callbacks") or []
+    config["callbacks"] = [handler, *callbacks]
+    return handler
 
 
 def extract_body_from_frontmatter(frontmatter_text: str) -> str:
