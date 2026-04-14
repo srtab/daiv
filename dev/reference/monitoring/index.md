@@ -190,6 +190,52 @@ python manage.py setup_langsmith_dashboard --recreate
 
 ______________________________________________________________________
 
+## Internal usage and cost tracking
+
+DAIV tracks token usage and estimated cost for every agent execution internally — independent of LangSmith.
+
+### How it works
+
+1. A `UsageMetadataCallbackHandler` (from LangChain) is attached to the `RunnableConfig` before each agent invocation.
+1. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations and tool-internal model calls.
+1. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
+1. The usage summary is stored in the `AgentResult` and denormalized onto the `Activity` record for long-term retention.
+
+### What's tracked
+
+| Field            | Description                                        |
+| ---------------- | -------------------------------------------------- |
+| `input_tokens`   | Total input (prompt) tokens across all model calls |
+| `output_tokens`  | Total output (completion) tokens                   |
+| `total_tokens`   | Sum of input + output                              |
+| `cost_usd`       | Estimated USD cost from genai-prices               |
+| `usage_by_model` | Per-model breakdown of tokens and cost             |
+
+Token detail buckets (when available from the provider):
+
+- **Cache creation / cache read** — Anthropic prompt caching tokens
+- **Reasoning tokens** — thinking/chain-of-thought tokens (Anthropic extended thinking, OpenAI reasoning)
+
+### Where to see it
+
+- **Activity list** — cost or token count shown per row
+- **Activity detail** — full breakdown with per-model details
+- **Markdown export** — usage metadata included in YAML frontmatter
+
+### Known limitations
+
+- **Subagent calls** are not tracked — the `SubAgentMiddleware` creates a separate execution context that does not inherit the parent's callbacks.
+- **Summarization middleware calls** may not be tracked if the middleware overrides the config.
+- If a model is **not in the genai-prices database**, token usage is still recorded but cost is stored as `null`. A warning is logged.
+- Cost estimates are **approximations** based on published list prices. Actual billing may differ based on your provider agreement.
+- **Chat API flows** attach the tracker for callback propagation but do not persist usage to Activity records (chat does not create Activity records).
+
+### Relationship to LangSmith
+
+LangSmith remains the recommended tool for detailed **trace-level** observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides **run-level** usage summaries that persist on Activity records and do not require a LangSmith account.
+
+______________________________________________________________________
+
 ## Bash command policy logs
 
 DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the `daiv.tools` logger.

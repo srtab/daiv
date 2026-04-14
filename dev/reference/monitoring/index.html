@@ -1278,6 +1278,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#internal-usage-and-cost-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal usage and cost tracking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Internal usage and cost tracking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whats-tracked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's tracked
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-see-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to see it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relationship-to-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to LangSmith
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bash-command-policy-logs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1596,6 +1668,78 @@
     <span class="md-ellipsis">
       
         Dashboard tips
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-usage-and-cost-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal usage and cost tracking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Internal usage and cost tracking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whats-tracked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's tracked
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-see-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to see it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relationship-to-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to LangSmith
       
     </span>
   </a>
@@ -2048,6 +2192,68 @@
 <li><strong>Performance</strong> — monitor execution time and token usage per run</li>
 </ul>
 <hr />
+<h2 id="internal-usage-and-cost-tracking">Internal usage and cost tracking</h2>
+<p>DAIV tracks token usage and estimated cost for every agent execution internally — independent of LangSmith.</p>
+<h3 id="how-it-works">How it works</h3>
+<ol>
+<li>A <code>UsageMetadataCallbackHandler</code> (from LangChain) is attached to the <code>RunnableConfig</code> before each agent invocation.</li>
+<li>The handler captures <code>usage_metadata</code> from every LLM call during graph execution — including fallback model invocations and tool-internal model calls.</li>
+<li>After the run, token counts are aggregated per model and cost is calculated using <a href="https://github.com/pydantic/genai-prices">genai-prices</a> (maintained by Pydantic).</li>
+<li>The usage summary is stored in the <code>AgentResult</code> and denormalized onto the <code>Activity</code> record for long-term retention.</li>
+</ol>
+<h3 id="whats-tracked">What's tracked</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>input_tokens</code></td>
+<td>Total input (prompt) tokens across all model calls</td>
+</tr>
+<tr>
+<td><code>output_tokens</code></td>
+<td>Total output (completion) tokens</td>
+</tr>
+<tr>
+<td><code>total_tokens</code></td>
+<td>Sum of input + output</td>
+</tr>
+<tr>
+<td><code>cost_usd</code></td>
+<td>Estimated USD cost from genai-prices</td>
+</tr>
+<tr>
+<td><code>usage_by_model</code></td>
+<td>Per-model breakdown of tokens and cost</td>
+</tr>
+</tbody>
+</table>
+<p>Token detail buckets (when available from the provider):</p>
+<ul>
+<li><strong>Cache creation / cache read</strong> — Anthropic prompt caching tokens</li>
+<li><strong>Reasoning tokens</strong> — thinking/chain-of-thought tokens (Anthropic extended thinking, OpenAI reasoning)</li>
+</ul>
+<h3 id="where-to-see-it">Where to see it</h3>
+<ul>
+<li><strong>Activity list</strong> — cost or token count shown per row</li>
+<li><strong>Activity detail</strong> — full breakdown with per-model details</li>
+<li><strong>Markdown export</strong> — usage metadata included in YAML frontmatter</li>
+</ul>
+<h3 id="known-limitations">Known limitations</h3>
+<ul>
+<li><strong>Subagent calls</strong> are not tracked — the <code>SubAgentMiddleware</code> creates a separate execution context that does not inherit the parent's callbacks.</li>
+<li><strong>Summarization middleware calls</strong> may not be tracked if the middleware overrides the config.</li>
+<li>If a model is <strong>not in the genai-prices database</strong>, token usage is still recorded but cost is stored as <code>null</code>. A warning is logged.</li>
+<li>Cost estimates are <strong>approximations</strong> based on published list prices. Actual billing may differ based on your provider agreement.</li>
+<li><strong>Chat API flows</strong> attach the tracker for callback propagation but do not persist usage to Activity records (chat does not create Activity records).</li>
+</ul>
+<h3 id="relationship-to-langsmith">Relationship to LangSmith</h3>
+<p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Activity records and do not require a LangSmith account.</p>
+<hr />
 <h2 id="bash-command-policy-logs">Bash command policy logs</h2>
 <p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
 <h3 id="log-events">Log events</h3>
@@ -2130,7 +2336,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 9, 2026 23:27:05 UTC">April 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 14, 2026 23:13:19 UTC">April 14, 2026</span>
   </span>
 
     
@@ -2140,7 +2346,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 9, 2026 23:27:05 UTC">April 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 14, 2026 23:13:19 UTC">April 14, 2026</span>
   </span>
 
     
