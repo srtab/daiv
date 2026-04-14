@@ -40,7 +40,7 @@
         <form method="post"
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
-                  time: '{{ form.time.value|default:'' }}',
+                  time: '{{ form.time.value|time:"H:i" }}',
                   get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
                   get showCron() { return this.frequency === 'custom' },
                   get summary() {
@@ -142,7 +142,7 @@
                 <!-- Time (hidden for Hourly and Custom) -->
                 <div x-show="showTime" x-cloak>
                     <label for="id_time" class="block text-[15px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
-                    <input type="time" name="time" id="id_time" value="{{ form.time.value|default:'' }}" x-model="time" class="mt-2 !w-auto">
+                    <input type="time" name="time" id="id_time" x-model="time" class="mt-2 !w-auto">
                     {% if form.time.errors %}
                     <p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>
                     {% endif %}
