@@ -28,7 +28,7 @@ class TestSentryMCPServer:
         assert server.tool_filter is not None
         assert server.tool_filter.mode == "allow"
         assert "find_organizations" in server.tool_filter.items
-        assert "search_issues" in server.tool_filter.items
+        assert "list_issues" in server.tool_filter.items
 
     @patch("automation.agent.mcp.servers.settings")
     def test_sentry_get_connection_returns_correct_url(self, mock_settings):
