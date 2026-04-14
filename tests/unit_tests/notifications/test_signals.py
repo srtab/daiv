@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
@@ -9,11 +11,7 @@ from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
-def schedule(member_user):
-    # Use get_or_create so this stays compatible once Task 14 (auto-seeder) is in place.
-    UserChannelBinding.objects.get_or_create(
-        user=member_user, channel_type=ChannelType.EMAIL, defaults={"address": member_user.email, "is_verified": True}
-    )
+def schedule(member_user, email_binding):
     return ScheduledJob.objects.create(
         user=member_user,
         name="s",
@@ -86,6 +84,44 @@ class TestOnActivityFinished:
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.count() == 1
 
+    def test_on_success_sends_on_success(self, member_user, schedule):
+        schedule.notify_on = NotifyOn.ON_SUCCESS
+        schedule.save()
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 1
+
+    def test_on_success_skips_failure(self, member_user, schedule):
+        schedule.notify_on = NotifyOn.ON_SUCCESS
+        schedule.save()
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.FAILED,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_exception_in_notify_is_swallowed(self, member_user, schedule):
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        with patch("notifications.signals.notify", side_effect=RuntimeError("boom")):
+            activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
 
 @pytest.mark.django_db
 class TestUserBindingSeeder:
@@ -123,3 +159,11 @@ class TestUserBindingSeeder:
         user.name = "New Name"
         user.save()
         assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 1
+
+    def test_skips_user_without_email(self):
+        user = User.objects.create_user(
+            username="noemail",
+            email="",
+            password="x",  # noqa: S106
+        )
+        assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 0

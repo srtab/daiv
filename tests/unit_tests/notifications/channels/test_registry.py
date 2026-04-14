@@ -1,6 +1,6 @@
 import pytest
 from notifications.channels.base import NotificationChannel
-from notifications.channels.registry import _registry, all_channels, get_channel, register_channel
+from notifications.channels.registry import all_channels, get_channel, register_channel
 from notifications.exceptions import UnknownChannelError
 
 
@@ -17,6 +17,9 @@ class _DummyChannel(NotificationChannel):
 
 @pytest.fixture(autouse=True)
 def _preserve_registry():
+    """Snapshot and restore the channel registry around each test."""
+    from notifications.channels.registry import _registry
+
     snapshot = dict(_registry)
     yield
     _registry.clear()

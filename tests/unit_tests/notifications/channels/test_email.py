@@ -1,4 +1,7 @@
+import time
+
 from django.core import mail
+from django.utils import timezone
 
 import pytest
 from notifications.channels.email import EmailChannel
@@ -9,7 +12,7 @@ from notifications.models import Notification, NotificationDelivery, UserChannel
 class TestEmailChannelResolveAddress:
     def test_returns_binding_address(self, member_user):
         UserChannelBinding.objects.create(
-            user=member_user, channel_type="email", address="alt@test.com", is_verified=True
+            user=member_user, channel_type="email", address="alt@test.com", is_verified=True, verified_at=timezone.now()
         )
         assert EmailChannel().resolve_address(member_user) == "alt@test.com"
 
@@ -27,12 +30,13 @@ class TestEmailChannelResolveAddress:
     def test_prefers_most_recently_updated_verified_binding(self, member_user):
         UserChannelBinding.objects.filter(user=member_user, channel_type="email").delete()
         UserChannelBinding.objects.create(
-            user=member_user, channel_type="email", address="old@test.com", is_verified=True
+            user=member_user, channel_type="email", address="old@test.com", is_verified=True, verified_at=timezone.now()
         )
-        newer = UserChannelBinding.objects.create(
-            user=member_user, channel_type="email", address="new@test.com", is_verified=True
+        # Sleep briefly to guarantee a distinct timestamp for modified
+        time.sleep(0.05)
+        UserChannelBinding.objects.create(
+            user=member_user, channel_type="email", address="new@test.com", is_verified=True, verified_at=timezone.now()
         )
-        newer.save()  # bump modified
         assert EmailChannel().resolve_address(member_user) == "new@test.com"
 
 
