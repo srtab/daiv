@@ -128,7 +128,7 @@ services:
       - "./data/gitlab/logs:/var/log/gitlab"
       - "./data/gitlab/data:/var/opt/gitlab"
 
-  gitlab-runner:
+  gitlab_runner:
     image: gitlab/gitlab-runner:latest
     container_name: daiv-gitlab-runner
     profiles:
@@ -161,7 +161,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  mcp-sentry:
+  mcp_sentry:
     image: supercorp/supergateway:latest
     profiles:
       - mcp
@@ -184,7 +184,7 @@ services:
       retries: 3
       start_period: 30s
 
-  mcp-context7:
+  mcp_context7:
     image: supercorp/supergateway:latest
     profiles:
       - mcp

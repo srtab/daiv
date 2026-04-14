@@ -10,11 +10,12 @@ class MCPSettings(BaseSettings):
     )
 
     # Built-in MCP server URLs (supergateway containers). Set to None to disable.
+    # Note: Docker Swarm normalizes service names with dashes to underscores.
     SENTRY_URL: str | None = Field(
-        default="http://mcp-sentry:8000/sse", description="The SSE URL of the Sentry supergateway container"
+        default="http://mcp_sentry:8000/sse", description="The SSE URL of the Sentry supergateway container"
     )
     CONTEXT7_URL: str | None = Field(
-        default="http://mcp-context7:8000/sse", description="The SSE URL of the Context7 supergateway container"
+        default="http://mcp_context7:8000/sse", description="The SSE URL of the Context7 supergateway container"
     )
 
 
