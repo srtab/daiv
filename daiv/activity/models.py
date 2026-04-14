@@ -110,6 +110,13 @@ class Activity(models.Model):
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
 
+    # Denormalized usage / cost (survives DBTaskResult pruning)
+    input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
+    output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=10, decimal_places=6, null=True, blank=True)
+    usage_by_model = models.JSONField(_("usage by model"), null=True, blank=True)
+
     # Denormalized timing
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
@@ -204,6 +211,25 @@ class Activity(models.Model):
             if parsed["merge_request_web_url"] and not self.merge_request_web_url:
                 self.merge_request_web_url = parsed["merge_request_web_url"]
                 changed.append("merge_request_web_url")
+
+            if (usage := parsed["usage"]) and self.input_tokens is None:
+                from decimal import Decimal
+
+                if usage.get("input_tokens") is not None:
+                    self.input_tokens = usage["input_tokens"]
+                    changed.append("input_tokens")
+                if usage.get("output_tokens") is not None:
+                    self.output_tokens = usage["output_tokens"]
+                    changed.append("output_tokens")
+                if usage.get("total_tokens") is not None:
+                    self.total_tokens = usage["total_tokens"]
+                    changed.append("total_tokens")
+                if usage.get("cost_usd") is not None:
+                    self.cost_usd = Decimal(usage["cost_usd"])
+                    changed.append("cost_usd")
+                if usage.get("by_model") is not None:
+                    self.usage_by_model = usage["by_model"]
+                    changed.append("usage_by_model")
 
         if tr.status == ActivityStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path
