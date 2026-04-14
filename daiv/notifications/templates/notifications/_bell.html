@@ -1,7 +1,7 @@
 {% load i18n %}
 <div id="notifications-bell" class="relative"
      hx-get="{% url 'notifications:bell_badge' %}"
-     hx-trigger="load, every 60s [document.visibilityState === 'visible']"
+     hx-trigger="every 60s [document.visibilityState === 'visible']"
      hx-swap="outerHTML"
      x-data="{ open: false }">
   <button type="button" @click="open = !open"
