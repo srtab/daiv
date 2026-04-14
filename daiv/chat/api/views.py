@@ -7,7 +7,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from ninja import Router
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import build_langsmith_config, extract_text_content
+from automation.agent.utils import attach_usage_tracker, build_langsmith_config, extract_text_content
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.constants import BOT_NAME
@@ -61,6 +61,7 @@ async def create_chat_completion(request: HttpRequest, payload: ChatCompletionRe
                 thinking_level=site_settings.agent_thinking_level,
                 extra_metadata={"model_id": MODEL_ID, "chat_stream": payload.stream},
             )
+            attach_usage_tracker(config)
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
             result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
 
