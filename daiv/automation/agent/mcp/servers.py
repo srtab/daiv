@@ -9,10 +9,7 @@ from .schemas import ToolFilter
 @mcp_server
 class SentryMCPServer(MCPServer):
     name = "sentry"
-    tool_filter = ToolFilter(
-        mode="allow",
-        items=["find_organizations", "find_projects", "search_issues", "search_events", "get_issue_details"],
-    )
+    tool_filter = ToolFilter(mode="allow", items=["find_organizations", "find_projects", "list_issues", "list_events"])
 
     def is_enabled(self) -> bool:
         return settings.SENTRY_URL is not None
