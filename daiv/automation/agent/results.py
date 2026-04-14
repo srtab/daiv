@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
@@ -25,6 +25,9 @@ class AgentResult(TypedDict):
     merge_request_web_url: str | None
     """The full URL to the merge request, or None if no MR is linked."""
 
+    usage: dict[str, Any] | None
+    """Token usage and cost summary, or None if not available."""
+
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
@@ -38,13 +41,20 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             code_changes=bool(rv.get("code_changes")),
             merge_request_id=rv.get("merge_request_id"),
             merge_request_web_url=rv.get("merge_request_web_url"),
+            usage=rv.get("usage"),
         )
     return AgentResult(
-        response=str(rv) if rv else "", code_changes=False, merge_request_id=None, merge_request_web_url=None
+        response=str(rv) if rv else "",
+        code_changes=False,
+        merge_request_id=None,
+        merge_request_web_url=None,
+        usage=None,
     )
 
 
-async def build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, response: str) -> AgentResult:
+async def build_agent_result(
+    agent: CompiledAgent, config: RunnableConfig, *, response: str, usage: dict[str, Any] | None = None
+) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
     ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
@@ -57,4 +67,5 @@ async def build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, re
         code_changes=bool(snapshot.values.get("code_changes")),
         merge_request_id=mr.merge_request_id if mr else None,
         merge_request_web_url=mr.web_url if mr else None,
+        usage=usage,
     )
