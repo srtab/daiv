@@ -11,7 +11,17 @@ SITE_ID = 1
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "activity", "automation", "codebase", "core", "mcp_server", "schedules", "slash_commands"]
+LOCAL_APPS = [
+    "accounts",
+    "activity",
+    "automation",
+    "codebase",
+    "core",
+    "mcp_server",
+    "notifications",
+    "schedules",
+    "slash_commands",
+]
 
 THIRD_PARTY_APPS = [
     "crontask",
@@ -64,6 +74,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "notifications.context_processors.unread_notification_count",
             ]
         },
     }

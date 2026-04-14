@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
+from notifications.choices import NotifyOn
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -72,6 +73,8 @@ class ScheduledJob(TimeStampedModel):
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
     last_run_task_id = models.UUIDField(_("last run task ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
+    notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    notify_channels = models.JSONField(_("notify channels"), default=list, blank=True)
 
     class Meta:
         verbose_name = _("Scheduled Job")
@@ -80,15 +83,21 @@ class ScheduledJob(TimeStampedModel):
         indexes = [models.Index(fields=["is_enabled", "next_run_at"], name="sched_enabled_next_idx")]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(frequency="custom") | ~models.Q(cron_expression=""),
+                condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
                 name="sched_custom_requires_cron",
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(notify_on=NotifyOn.NEVER) | ~models.Q(notify_channels=[]),
+                name="sched_notify_requires_channels",
+            ),
         ]
 
     def __str__(self) -> str:
         return self.name
 
     def clean(self) -> None:
+        from notifications.channels.registry import is_registered
+
         super().clean()
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
@@ -102,6 +111,18 @@ class ScheduledJob(TimeStampedModel):
                 })
         if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
             raise ValidationError({"time": _("Time is required for this frequency.")})
+
+        errors: dict[str, str] = {}
+        if not isinstance(self.notify_channels, list):
+            errors["notify_channels"] = "notify_channels must be a list"
+        else:
+            unknown = [c for c in self.notify_channels if not is_registered(c)]
+            if unknown:
+                errors["notify_channels"] = f"unknown channel type(s): {unknown}"
+            if self.notify_on != NotifyOn.NEVER and not self.notify_channels:
+                errors["notify_channels"] = "notify_channels cannot be empty when notify_on != 'never'"
+        if errors:
+            raise ValidationError(errors)
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""

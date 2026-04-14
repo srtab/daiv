@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load i18n static %}
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
 
@@ -41,6 +41,7 @@
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|default:'' }}',
+                  notifyOn: '{{ form.notify_on.value|default:'never' }}',
                   get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
                   get showCron() { return this.frequency === 'custom' },
                   get summary() {
@@ -164,6 +165,41 @@
                 <p class="mt-1.5 text-sm text-gray-400">Disabled schedules will not run until re-enabled.</p>
             </div>
             {% endif %}
+
+            <!-- Notifications -->
+            <div class="mt-6 space-y-4 border-t border-white/[0.06] pt-6">
+                <h3 class="text-[15px] font-medium text-white">{% translate "Notifications" %}</h3>
+
+                <div>
+                    <label for="{{ form.notify_on.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                        {{ form.notify_on.label }}
+                    </label>
+                    <select name="{{ form.notify_on.html_name }}" id="{{ form.notify_on.id_for_label }}"
+                            x-model="notifyOn"
+                            class="mt-2">
+                        {% for value, label in form.notify_on.field.choices %}
+                        <option value="{{ value }}" {% if form.notify_on.value == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if form.notify_on.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.notify_on.errors.0 }}</p>
+                    {% endif %}
+                </div>
+
+                <div x-show="notifyOn !== 'never'" x-transition x-cloak>
+                    <p class="block text-[15px] font-medium text-gray-400">{{ form.notify_channels.label }}</p>
+                    <div class="mt-2 space-y-2">
+                        {% for choice in form.notify_channels %}
+                        <label class="flex items-center gap-2 text-sm text-gray-200">
+                            {{ choice.tag }} <span>{{ choice.choice_label }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% if form.notify_channels.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.notify_channels.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
 
             <!-- Actions -->
             <div class="mt-8 flex items-center gap-3">

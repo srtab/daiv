@@ -1,0 +1,21 @@
+{% extends "core/emails/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1 style="margin: 0 0 8px; font-size: 20px; font-weight: 600; color: #111827;">
+    {{ notification.subject }}
+</h1>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280; white-space: pre-wrap;">{{ notification.body }}</p>
+{% if link_absolute_url %}
+<table role="presentation" cellpadding="0" cellspacing="0">
+    <tr>
+        <td style="border-radius: 8px; background-color: #111827;">
+            <a href="{{ link_absolute_url }}"
+               style="display: inline-block; padding: 12px 24px; font-size: 14px; font-weight: 600; color: #ffffff; text-decoration: none;">
+                {% translate "View details" %}
+            </a>
+        </td>
+    </tr>
+</table>
+{% endif %}
+{% endblock %}

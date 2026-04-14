@@ -157,14 +157,19 @@ class Activity(models.Model):
         """Sync from the linked DBTaskResult and persist changed fields.
 
         Returns True if any field was updated (and a save was issued), else False.
+        Emits ``activity_finished`` when the status transitions to a terminal state.
 
         Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
         """
+        from activity.signals import emit_activity_finished_if_terminal
+
+        previous_status = self.status
         changed = self.sync_from_task_result()
         if not changed:
             return False
         self.save(update_fields=changed)
+        emit_activity_finished_if_terminal(self, previous_status=previous_status)
         return True
 
     def sync_from_task_result(self) -> list[str]:

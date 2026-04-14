@@ -17,7 +17,7 @@ class Command(BaseCommand):
             Activity.objects
             .filter(task_result__isnull=False)
             .exclude(status__in=list(ActivityStatus.terminal()))
-            .select_related("task_result")
+            .select_related("task_result", "scheduled_job")
         )
 
         synced = skipped = errored = 0

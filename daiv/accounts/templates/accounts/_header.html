@@ -7,6 +7,7 @@
             </a>
         </div>
         <div class="flex items-center gap-5">
+            {% include "notifications/_bell.html" %}
             <span class="text-[15px] text-gray-400">{{ user.name|default:user.email }}</span>
             <a href="{% url 'account_logout' %}" class="btn-secondary rounded-lg px-3.5 py-1.5">
                 Sign out

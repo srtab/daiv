@@ -1,0 +1,11 @@
+{{ notification.subject }}
+{% spaceless %}={% for _ in notification.subject %}={% endfor %}{% endspaceless %}
+
+{{ notification.body }}
+
+{% if notification.link_url %}
+View details: {{ link_absolute_url }}
+{% endif %}
+
+--
+DAIV
