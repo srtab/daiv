@@ -502,7 +502,7 @@ docs = [
 requires-dist = [
     { name = "croniter", specifier = "==6.2.2" },
     { name = "ddgs", specifier = "==9.13.0" },
-    { name = "deepagents", specifier = "==0.5.1" },
+    { name = "deepagents", specifier = "==0.5.2" },
     { name = "django", specifier = "==6.0.4" },
     { name = "django-allauth", extras = ["socialaccount"], specifier = "==65.16.0" },
     { name = "django-crontask", specifier = "==1.1.3" },
@@ -636,7 +636,7 @@ wheels = [
 
 [[package]]
 name = "deepagents"
-version = "0.5.1"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain" },
@@ -646,9 +646,9 @@ dependencies = [
     { name = "langsmith" },
     { name = "wcmatch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/69/a28e6cd6dd037a28720ae82ef69eacdf8cf8b5291870ac6760e66796b1ae/deepagents-0.5.1.tar.gz", hash = "sha256:5d2b5e1a50dfbf2af97800725d7ac9850e96bab022365e0c2fc3f6291f279635", size = 110322, upload-time = "2026-04-07T22:58:04.581Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/33/6d4306ebd47a3adce30b49807e3a338f72eeb2d6f44f28ad67458cd9736a/deepagents-0.5.2.tar.gz", hash = "sha256:7e942017b5d6a923deb111bc0ff097d07c0b20b64fd96818561d00a8259525d0", size = 121705, upload-time = "2026-04-10T20:39:48.642Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/97/30b8ca49a72c7bf555732dc33ca623e3883b3e030b1b55f3085d92c6f289/deepagents-0.5.1-py3-none-any.whl", hash = "sha256:714853597feee9b24e7385fa575b72568536dcb263b9e91f3ba5d2fd073967a1", size = 123746, upload-time = "2026-04-07T22:58:03.341Z" },
+    { url = "https://files.pythonhosted.org/packages/db/3a/fb70ab92f86c952f5666ea5f423432888f9e83bb37c2338e6782a308d98c/deepagents-0.5.2-py3-none-any.whl", hash = "sha256:48da8e85bac79c2d4ddf859c6a3aea75d0e642ac55f9efe07492338c8b8d3d94", size = 137658, upload-time = "2026-04-10T20:39:47.443Z" },
 ]
 
 [[package]]
