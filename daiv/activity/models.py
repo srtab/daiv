@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -213,8 +214,6 @@ class Activity(models.Model):
                 changed.append("merge_request_web_url")
 
             if (usage := parsed["usage"]) and self.input_tokens is None:
-                from decimal import Decimal
-
                 if usage.get("input_tokens") is not None:
                     self.input_tokens = usage["input_tokens"]
                     changed.append("input_tokens")

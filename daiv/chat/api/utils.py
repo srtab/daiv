@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import attach_usage_tracker, build_langsmith_config
+from automation.agent.utils import build_langsmith_config
 from chat.api.schemas import ChatCompletionChunk
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
@@ -65,7 +65,6 @@ async def generate_stream(input_data: dict, model_id: str, *, repo_id: str, ref:
                 thinking_level=site_settings.agent_thinking_level,
                 extra_metadata={"model_id": model_id, "chat_stream": True},
             )
-            attach_usage_tracker(config)
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx)
 
             async for message_chunk, _metadata in daiv_agent.astream(input_data, config=config, context=runtime_ctx):

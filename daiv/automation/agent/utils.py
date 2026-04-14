@@ -294,10 +294,10 @@ def build_langsmith_config(
 
 
 def attach_usage_tracker(config: RunnableConfig) -> UsageMetadataCallbackHandler:
-    """Create a UsageMetadataCallbackHandler and attach it to the config's callback list.
+    """Attach a ``UsageMetadataCallbackHandler`` to *config* and return it.
 
-    Returns the handler so the caller can retrieve usage after the run via
-    ``build_usage_summary(handler.usage_metadata)``.
+    After the agent run, call ``build_usage_summary(handler.usage_metadata)``
+    to get the aggregated usage summary.
     """
     from .usage_tracking import UsageMetadataCallbackHandler
 

@@ -1,6 +1,6 @@
-# daiv/automation/agent/usage_tracking.py
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -23,21 +23,11 @@ class UsageSummary:
     by_model: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict suitable for AgentResult storage."""
-        return {
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "total_tokens": self.total_tokens,
-            "cost_usd": self.cost_usd,
-            "by_model": self.by_model,
-        }
+        return dataclasses.asdict(self)
 
 
 def _calc_model_cost(model_name: str, usage_metadata: dict[str, Any]) -> Decimal | None:
-    """Calculate cost for a single model's usage via genai-prices.
-
-    Returns None if the model is not found in the pricing database.
-    """
+    """Return None if the model is not in the pricing database."""
     input_details = usage_metadata.get("input_token_details") or {}
     genai_usage = Usage(
         input_tokens=usage_metadata.get("input_tokens", 0),
@@ -45,28 +35,19 @@ def _calc_model_cost(model_name: str, usage_metadata: dict[str, Any]) -> Decimal
         cache_write_tokens=input_details.get("cache_creation") or 0,
         cache_read_tokens=input_details.get("cache_read") or 0,
     )
+    # OpenRouter model names contain a slash (e.g. "anthropic/claude-sonnet-4.6")
+    # and need an explicit provider_id to resolve correctly.
+    provider_id = "openrouter" if "/" in model_name else None
     try:
-        result = calc_price(genai_usage, model_ref=model_name)
+        result = calc_price(genai_usage, model_ref=model_name, provider_id=provider_id)
     except LookupError:
-        # OpenRouter model names (e.g. "anthropic/claude-sonnet-4.6") need explicit provider_id
-        try:
-            result = calc_price(genai_usage, model_ref=model_name, provider_id="openrouter")
-        except LookupError:
-            logger.warning("No pricing found for model %r", model_name)
-            return None
+        logger.warning("No pricing found for model %r", model_name)
+        return None
     return result.total_price
 
 
 def build_usage_summary(handler_data: dict[str, dict[str, Any]]) -> UsageSummary:
-    """Build a UsageSummary from UsageMetadataCallbackHandler.usage_metadata.
-
-    Args:
-        handler_data: The ``usage_metadata`` dict from ``UsageMetadataCallbackHandler``,
-            keyed by model name, values are ``UsageMetadata`` dicts.
-
-    Returns:
-        Aggregated usage summary with per-model breakdown and cost.
-    """
+    """Build a UsageSummary from ``UsageMetadataCallbackHandler.usage_metadata``."""
     if not handler_data:
         return UsageSummary()
 
@@ -108,14 +89,7 @@ def build_usage_summary(handler_data: dict[str, dict[str, Any]]) -> UsageSummary
 
     cost_usd = str(total_cost) if all_priced else None
 
-    logger.info(
-        "Usage summary: input=%d output=%d total=%d cost=%s models=%s",
-        total_input,
-        total_output,
-        total_total,
-        cost_usd,
-        list(by_model.keys()),
-    )
+    logger.info("Usage summary: input=%d output=%d total=%d cost=%s", total_input, total_output, total_total, cost_usd)
 
     return UsageSummary(
         input_tokens=total_input,

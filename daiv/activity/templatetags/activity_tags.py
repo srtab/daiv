@@ -1,6 +1,10 @@
+from decimal import Decimal
+
 from django import template
 
 register = template.Library()
+
+_CENT = Decimal("0.01")
 
 
 @register.filter
@@ -25,10 +29,8 @@ def format_cost(value):
     """Format a Decimal cost as a compact USD string."""
     if value is None:
         return ""
-    from decimal import Decimal
-
-    d = Decimal(str(value))
-    if d < Decimal("0.01"):
+    d = value if isinstance(value, Decimal) else Decimal(str(value))
+    if d < _CENT:
         return f"${d:.4f}"
     return f"${d:.2f}"
 
