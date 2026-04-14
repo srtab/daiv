@@ -20,7 +20,6 @@ def schedule(member_user, email_binding):
         frequency=Frequency.DAILY,
         time="12:00",
         notify_on=NotifyOn.ALWAYS,
-        notify_channels=[ChannelType.EMAIL],
     )
 
 

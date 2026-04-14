@@ -9,11 +9,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="scheduledjob",
-            name="notify_channels",
-            field=models.JSONField(blank=True, default=list, verbose_name="notify channels"),
-        ),
-        migrations.AddField(
-            model_name="scheduledjob",
             name="notify_on",
             field=models.CharField(
                 choices=[
@@ -26,12 +21,5 @@ class Migration(migrations.Migration):
                 max_length=16,
                 verbose_name="notify on",
             ),
-        ),
-        migrations.AddConstraint(
-            model_name="scheduledjob",
-            constraint=models.CheckConstraint(
-                condition=models.Q(notify_on="never") | ~models.Q(notify_channels=[]),
-                name="sched_notify_requires_channels",
-            ),
-        ),
+        )
     ]
