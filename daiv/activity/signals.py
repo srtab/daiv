@@ -68,9 +68,7 @@ def _sync_activity_for_task(task_result_id: Any) -> None:
         )
         if activity is None:
             return
-        previous_status = activity.status
         activity.sync_and_save()
-        emit_activity_finished_if_terminal(activity, previous_status=previous_status)
     except Exception:
         logger.exception("Failed to sync activity for task_result_id=%s", task_result_id)
 
