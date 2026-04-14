@@ -112,6 +112,10 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
             meta_lines.append(f"issue: '#{activity.issue_iid}'")
         if activity.merge_request_iid:
             meta_lines.append(f"merge_request: '!{activity.merge_request_iid}'")
+        if activity.total_tokens:
+            meta_lines.append(f"total_tokens: {activity.total_tokens}")
+        if activity.cost_usd is not None:
+            meta_lines.append(f"cost_usd: '{activity.cost_usd}'")
         meta_lines.append("---")
 
         return "\n".join(meta_lines) + "\n\n" + response_text

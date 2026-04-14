@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -106,3 +107,106 @@ class TestSyncAndSave:
             assert activity.sync_and_save() is False
 
         mock_save.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestSyncFromTaskResultUsage:
+    def test_syncs_usage_fields_from_successful_result(self, create_db_task_result):
+        tr = create_db_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Done",
+                "code_changes": False,
+                "usage": {
+                    "input_tokens": 5000,
+                    "output_tokens": 2000,
+                    "total_tokens": 7000,
+                    "cost_usd": "0.033",
+                    "by_model": {"claude-sonnet-4-6": {"input_tokens": 5000, "output_tokens": 2000}},
+                },
+            },
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.READY, task_result=tr
+        )
+
+        changed = activity.sync_from_task_result()
+        assert "input_tokens" in changed
+        assert "output_tokens" in changed
+        assert "total_tokens" in changed
+        assert "cost_usd" in changed
+        assert "usage_by_model" in changed
+
+        assert activity.input_tokens == 5000
+        assert activity.output_tokens == 2000
+        assert activity.total_tokens == 7000
+        assert activity.cost_usd == Decimal("0.033")
+        assert activity.usage_by_model == {"claude-sonnet-4-6": {"input_tokens": 5000, "output_tokens": 2000}}
+
+    def test_no_usage_leaves_fields_null(self, create_db_task_result):
+        """Old results without usage field leave Activity usage fields as null."""
+        tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done"})
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.READY, task_result=tr
+        )
+
+        changed = activity.sync_from_task_result()
+        assert "input_tokens" not in changed
+        assert activity.input_tokens is None
+        assert activity.cost_usd is None
+
+    def test_usage_not_overwritten_on_re_sync(self, create_db_task_result):
+        """Once usage is synced, re-syncing doesn't overwrite."""
+        tr = create_db_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Done",
+                "usage": {
+                    "input_tokens": 5000,
+                    "output_tokens": 2000,
+                    "total_tokens": 7000,
+                    "cost_usd": "0.033",
+                    "by_model": {},
+                },
+            },
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="group/project",
+            status=ActivityStatus.SUCCESSFUL,
+            task_result=tr,
+            result_summary="Done",
+            input_tokens=5000,
+            output_tokens=2000,
+            total_tokens=7000,
+            cost_usd=Decimal("0.033"),
+            usage_by_model={},
+        )
+
+        changed = activity.sync_from_task_result()
+        assert "input_tokens" not in changed
+
+    def test_syncs_tokens_when_cost_is_null(self, create_db_task_result):
+        """When cost_usd is None (unknown model), tokens are still synced."""
+        tr = create_db_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Done",
+                "usage": {
+                    "input_tokens": 3000,
+                    "output_tokens": 1000,
+                    "total_tokens": 4000,
+                    "cost_usd": None,
+                    "by_model": {},
+                },
+            },
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.READY, task_result=tr
+        )
+
+        changed = activity.sync_from_task_result()
+        assert "input_tokens" in changed
+        assert activity.input_tokens == 3000
+        assert activity.cost_usd is None
+        assert "cost_usd" not in changed
