@@ -5,6 +5,7 @@ from django.test import Client
 from django.urls import reverse
 
 import pytest
+from activity.models import TriggerType
 
 from accounts.models import User
 from schedules.models import ScheduledJob
@@ -124,8 +125,6 @@ class TestScheduleRunNowView:
         mock_task.enqueue.assert_called_once_with(
             repo_id=schedule.repo_id, prompt=schedule.prompt, ref=None, use_max=schedule.use_max
         )
-        from activity.models import TriggerType
-
         mock_create.assert_called_once_with(
             trigger_type=TriggerType.SCHEDULE,
             task_result_id=mock_result.id,
@@ -137,7 +136,6 @@ class TestScheduleRunNowView:
         )
         assert response.status_code == 302
 
-        # Schedule tracking fields are unchanged
         schedule.refresh_from_db()
         assert schedule.run_count == 0
 
