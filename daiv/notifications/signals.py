@@ -13,6 +13,7 @@ from django.utils.translation import gettext as _
 
 from activity.signals import activity_finished
 
+from notifications.channels.registry import all_channels
 from notifications.choices import ChannelType, NotifyOn
 from notifications.models import UserChannelBinding
 from notifications.services import notify
@@ -66,7 +67,9 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
         return
     if not _status_matches(schedule.notify_on, activity.status):
         return
-    if not schedule.notify_channels:
+
+    channels = [cls.channel_type for cls in all_channels()]
+    if not channels:
         return
 
     try:
@@ -78,7 +81,7 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
             subject=_render_subject(schedule, activity),
             body=_render_body(schedule, activity),
             link_url=reverse("activity_detail", args=[activity.pk]),
-            channels=list(schedule.notify_channels),
+            channels=channels,
             context={"status": activity.status, "schedule_name": schedule.name},
         )
     except Exception:
