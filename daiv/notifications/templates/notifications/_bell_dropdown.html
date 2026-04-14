@@ -9,4 +9,7 @@
   {% empty %}
     <p class="px-4 py-8 text-center text-xs text-gray-500">{% translate "No notifications yet." %}</p>
   {% endfor %}
+  <div class="border-t border-white/[0.06] px-4 py-2 text-right">
+    <a href="{% url 'user_channels' %}" class="text-xs text-gray-400 hover:text-white">{% translate "Notification settings" %}</a>
+  </div>
 </div>

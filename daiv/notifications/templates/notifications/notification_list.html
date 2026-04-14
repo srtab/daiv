@@ -7,14 +7,17 @@
 <div class="min-h-dvh">
   {% include "accounts/_header.html" %}
   <main class="mx-auto max-w-3xl px-6 py-12">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-4">
       <h1 class="text-2xl font-bold tracking-tight">{% translate "Notifications" %}</h1>
-      {% if unread_count %}
-        <form method="post" action="{% url 'notifications:mark_all_read' %}">
-          {% csrf_token %}
-          <button class="text-xs text-gray-400 hover:text-white">{% translate "Mark all as read" %}</button>
-        </form>
-      {% endif %}
+      <div class="flex items-center gap-4">
+        {% if unread_count %}
+          <form method="post" action="{% url 'notifications:mark_all_read' %}">
+            {% csrf_token %}
+            <button class="text-xs text-gray-400 hover:text-white">{% translate "Mark all as read" %}</button>
+          </form>
+        {% endif %}
+        <a href="{% url 'user_channels' %}" class="text-xs text-gray-400 hover:text-white">{% translate "Settings" %}</a>
+      </div>
     </div>
 
     <div class="mt-6 flex gap-2 text-sm">
