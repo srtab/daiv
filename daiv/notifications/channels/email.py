@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from urllib.parse import urljoin
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -35,9 +34,9 @@ class EmailChannel(NotificationChannel):
         return binding.address if binding else None
 
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
-        link_absolute_url = (
-            urljoin(getattr(settings, "SITE_BASE_URL", ""), notification.link_url) if notification.link_url else ""
-        )
+        from core.utils import build_absolute_url
+
+        link_absolute_url = build_absolute_url(notification.link_url) if notification.link_url else ""
         context = {"notification": notification, "link_absolute_url": link_absolute_url}
         text_body = render_to_string("notifications/emails/notification.txt", context)
         html_body = render_to_string("notifications/emails/notification.html", context)

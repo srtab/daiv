@@ -1,12 +1,31 @@
+from django.contrib.sites.models import Site
+
 import httpx
+import pytest
 
 from core.utils import (
     async_download_url,
     batch_async_download_url,
+    build_absolute_url,
     build_uri,
     extract_valid_image_mimetype,
     is_valid_url,
 )
+
+
+@pytest.mark.django_db
+class BuildAbsoluteUrlTest:
+    def test_builds_url_with_site_domain(self):
+        Site.objects.filter(pk=1).update(domain="app.example.com")
+        assert build_absolute_url("/notifications/") == "https://app.example.com/notifications/"
+
+    def test_builds_url_with_bare_path(self):
+        Site.objects.filter(pk=1).update(domain="app.example.com")
+        assert build_absolute_url("/") == "https://app.example.com/"
+
+    def test_uses_current_site_domain(self):
+        Site.objects.filter(pk=1).update(domain="custom.domain.org")
+        assert build_absolute_url("/activity/42/") == "https://custom.domain.org/activity/42/"
 
 
 class IsValidUrlTest:

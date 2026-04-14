@@ -6,6 +6,7 @@ from functools import wraps
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
+from django.contrib.sites.models import Site
 from django.core.cache import cache
 
 import httpx
@@ -22,6 +23,12 @@ logger = logging.getLogger("daiv.core")
 SUPPORTED_MIMETYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by default
+
+
+def build_absolute_url(path: str) -> str:
+    """Build an absolute URL from a relative path using the current Site domain."""
+    site = Site.objects.get_current()
+    return f"https://{site.domain}{path}"
 
 
 def is_valid_url(url: str) -> bool:
