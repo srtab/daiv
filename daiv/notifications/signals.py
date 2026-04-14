@@ -12,7 +12,7 @@ from django.utils.translation import gettext as _
 
 from activity.signals import activity_finished
 
-from notifications.choices import NotifyOn
+from notifications.choices import ChannelType, NotifyOn
 from notifications.models import UserChannelBinding
 from notifications.services import notify
 
@@ -91,7 +91,7 @@ def seed_email_binding(sender, instance, created, **kwargs) -> None:
 
     binding, was_created = UserChannelBinding.objects.get_or_create(
         user=instance,
-        channel_type="email",
+        channel_type=ChannelType.EMAIL,
         defaults={"address": instance.email, "is_verified": True, "verified_at": timezone.now()},
     )
     if not was_created and binding.address != instance.email:

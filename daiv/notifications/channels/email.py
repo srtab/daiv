@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 
 if TYPE_CHECKING:
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @register_channel
 class EmailChannel(NotificationChannel):
-    channel_type = "email"
+    channel_type = ChannelType.EMAIL
     display_name = _("Email")
 
     def resolve_address(self, user: User) -> str | None:

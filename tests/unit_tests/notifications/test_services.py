@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 import pytest
-from notifications.choices import DeliveryStatus
+from notifications.choices import ChannelType, DeliveryStatus
 from notifications.models import Notification, UserChannelBinding
 from notifications.services import create_notification, notify
 
@@ -10,7 +10,7 @@ from notifications.services import create_notification, notify
 class TestCreateNotification:
     def test_creates_notification_and_deliveries(self, member_user):
         UserChannelBinding.objects.get_or_create(
-            user=member_user, channel_type="email", address="member@test.com", defaults={"is_verified": True}
+            user=member_user, channel_type=ChannelType.EMAIL, address="member@test.com", defaults={"is_verified": True}
         )
         notification = create_notification(
             recipient=member_user,
@@ -20,19 +20,19 @@ class TestCreateNotification:
             subject="Subject",
             body="Body",
             link_url="/x/",
-            channels=["email"],
+            channels=[ChannelType.EMAIL],
         )
         assert isinstance(notification, Notification)
         assert notification.deliveries.count() == 1
 
         d = notification.deliveries.get()
-        assert d.channel_type == "email"
+        assert d.channel_type == ChannelType.EMAIL
         assert d.status == DeliveryStatus.PENDING
         assert d.attempts == 0
 
     def test_address_is_resolved_from_channel(self, member_user):
         UserChannelBinding.objects.create(
-            user=member_user, channel_type="email", address="resolved@test.com", is_verified=True
+            user=member_user, channel_type=ChannelType.EMAIL, address="resolved@test.com", is_verified=True
         )
         n = create_notification(
             recipient=member_user,
@@ -42,13 +42,13 @@ class TestCreateNotification:
             subject="s",
             body="b",
             link_url="/",
-            channels=["email"],
+            channels=[ChannelType.EMAIL],
         )
         assert n.deliveries.get().address == "resolved@test.com"
 
     def test_unresolved_address_is_skipped(self, member_user):
         # Clear any existing email binding so no address resolves.
-        UserChannelBinding.objects.filter(user=member_user, channel_type="email").delete()
+        UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.EMAIL).delete()
         n = create_notification(
             recipient=member_user,
             event_type="schedule.finished",
@@ -57,7 +57,7 @@ class TestCreateNotification:
             subject="s",
             body="b",
             link_url="/",
-            channels=["email"],
+            channels=[ChannelType.EMAIL],
         )
         d = n.deliveries.get()
         assert d.status == DeliveryStatus.SKIPPED
@@ -83,7 +83,9 @@ class TestCreateNotification:
 class TestNotify:
     def test_creates_notification_and_enqueues_on_commit(self, member_user):
         UserChannelBinding.objects.get_or_create(
-            user=member_user, channel_type="email", defaults={"address": member_user.email, "is_verified": True}
+            user=member_user,
+            channel_type=ChannelType.EMAIL,
+            defaults={"address": member_user.email, "is_verified": True},
         )
         with TestCase.captureOnCommitCallbacks(execute=False) as callbacks:
             notification = notify(
@@ -94,7 +96,7 @@ class TestNotify:
                 subject="Subject",
                 body="Body",
                 link_url="/x/",
-                channels=["email"],
+                channels=[ChannelType.EMAIL],
             )
 
         assert notification.deliveries.filter(status="pending").count() == 1

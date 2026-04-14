@@ -4,7 +4,7 @@ from django.test import TestCase
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
-from notifications.choices import NotifyOn
+from notifications.choices import ChannelType, NotifyOn
 from notifications.models import Notification, NotificationDelivery
 from notifications.tasks import _deliver_notification
 
@@ -22,7 +22,7 @@ def test_schedule_failure_sends_email(member_user):
         frequency=Frequency.DAILY,
         time="12:00",
         notify_on=NotifyOn.ON_FAILURE,
-        notify_channels=["email"],
+        notify_channels=[ChannelType.EMAIL],
     )
     activity = Activity.objects.create(
         trigger_type=TriggerType.SCHEDULE,
@@ -41,7 +41,7 @@ def test_schedule_failure_sends_email(member_user):
     notification = Notification.objects.get(recipient=member_user)
     assert notification.event_type == "schedule.finished"
     delivery = NotificationDelivery.objects.get(notification=notification)
-    assert delivery.channel_type == "email"
+    assert delivery.channel_type == ChannelType.EMAIL
 
     # Execute the queued delivery task synchronously
     _deliver_notification(delivery.id)

@@ -1,5 +1,5 @@
 import pytest
-from notifications.choices import NotifyOn
+from notifications.choices import ChannelType, NotifyOn
 
 from schedules.forms import ScheduledJobCreateForm
 
@@ -33,7 +33,7 @@ class TestScheduledJobCreateForm:
         assert "notify_channels" in form.errors
 
     def test_accepts_always_with_email(self):
-        form = ScheduledJobCreateForm(data=_valid_data(notify_on=NotifyOn.ALWAYS, notify_channels=["email"]))
+        form = ScheduledJobCreateForm(data=_valid_data(notify_on=NotifyOn.ALWAYS, notify_channels=[ChannelType.EMAIL]))
         assert form.is_valid(), form.errors
 
     def test_rejects_unknown_channel(self):

@@ -1,7 +1,7 @@
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
-from notifications.choices import NotifyOn
+from notifications.choices import ChannelType, NotifyOn
 from notifications.models import Notification, UserChannelBinding
 
 from accounts.models import User
@@ -12,7 +12,7 @@ from schedules.models import Frequency, ScheduledJob
 def schedule(member_user):
     # Use get_or_create so this stays compatible once Task 14 (auto-seeder) is in place.
     UserChannelBinding.objects.get_or_create(
-        user=member_user, channel_type="email", defaults={"address": member_user.email, "is_verified": True}
+        user=member_user, channel_type=ChannelType.EMAIL, defaults={"address": member_user.email, "is_verified": True}
     )
     return ScheduledJob.objects.create(
         user=member_user,
@@ -22,7 +22,7 @@ def schedule(member_user):
         frequency=Frequency.DAILY,
         time="12:00",
         notify_on=NotifyOn.ALWAYS,
-        notify_channels=["email"],
+        notify_channels=[ChannelType.EMAIL],
     )
 
 
@@ -95,9 +95,9 @@ class TestUserBindingSeeder:
             email="new@test.com",
             password="x",  # noqa: S106
         )
-        assert UserChannelBinding.objects.filter(user=user, channel_type="email").count() == 1
+        assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 1
 
-        binding = UserChannelBinding.objects.get(user=user, channel_type="email")
+        binding = UserChannelBinding.objects.get(user=user, channel_type=ChannelType.EMAIL)
         assert binding.address == "new@test.com"
         assert binding.is_verified is True
         assert binding.verified_at is not None
@@ -111,7 +111,7 @@ class TestUserBindingSeeder:
         user.email = "b@test.com"
         user.save()
 
-        binding = UserChannelBinding.objects.get(user=user, channel_type="email")
+        binding = UserChannelBinding.objects.get(user=user, channel_type=ChannelType.EMAIL)
         assert binding.address == "b@test.com"
 
     def test_idempotent_on_repeated_save_same_email(self):
@@ -122,4 +122,4 @@ class TestUserBindingSeeder:
         )
         user.name = "New Name"
         user.save()
-        assert UserChannelBinding.objects.filter(user=user, channel_type="email").count() == 1
+        assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 1

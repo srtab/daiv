@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from notifications.choices import DeliveryStatus
+from notifications.choices import ChannelType, DeliveryStatus
 
 
 class Notification(models.Model):
@@ -42,7 +42,7 @@ class NotificationDelivery(models.Model):
     notification = models.ForeignKey(
         Notification, on_delete=models.CASCADE, related_name="deliveries", verbose_name=_("notification")
     )
-    channel_type = models.CharField(_("channel type"), max_length=32)
+    channel_type = models.CharField(_("channel type"), max_length=32, choices=ChannelType.choices)
     address = models.CharField(_("address"), max_length=255)
     status = models.CharField(
         _("status"), max_length=16, choices=DeliveryStatus.choices, default=DeliveryStatus.PENDING
@@ -67,7 +67,7 @@ class UserChannelBinding(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_bindings", verbose_name=_("user")
     )
-    channel_type = models.CharField(_("channel type"), max_length=32)
+    channel_type = models.CharField(_("channel type"), max_length=32, choices=ChannelType.choices)
     address = models.CharField(_("address"), max_length=255)
     extra_config = models.JSONField(_("extra config"), default=dict, blank=True)
     is_verified = models.BooleanField(_("verified"), default=False)

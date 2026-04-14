@@ -42,7 +42,10 @@ class Migration(migrations.Migration):
             name="NotificationDelivery",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ("channel_type", models.CharField(max_length=32, verbose_name="channel type")),
+                (
+                    "channel_type",
+                    models.CharField(choices=[("email", "Email")], max_length=32, verbose_name="channel type"),
+                ),
                 ("address", models.CharField(max_length=255, verbose_name="address")),
                 (
                     "status",
@@ -77,7 +80,10 @@ class Migration(migrations.Migration):
             name="UserChannelBinding",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ("channel_type", models.CharField(max_length=32, verbose_name="channel type")),
+                (
+                    "channel_type",
+                    models.CharField(choices=[("email", "Email")], max_length=32, verbose_name="channel type"),
+                ),
                 ("address", models.CharField(max_length=255, verbose_name="address")),
                 ("extra_config", models.JSONField(blank=True, default=dict, verbose_name="extra config")),
                 ("is_verified", models.BooleanField(default=False, verbose_name="verified")),

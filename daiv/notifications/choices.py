@@ -9,6 +9,10 @@ class NotifyOn(models.TextChoices):
     ON_FAILURE = "on_failure", _("On failure only")
 
 
+class ChannelType(models.TextChoices):
+    EMAIL = "email", _("Email")
+
+
 class DeliveryStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     SENT = "sent", _("Sent")
