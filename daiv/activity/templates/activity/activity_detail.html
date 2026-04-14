@@ -119,6 +119,51 @@
                 </div>
                 {% endif %}
             </div>
+
+            {% if activity.total_tokens %}
+            <!-- Usage / Cost -->
+            <div class="mt-4 border-t border-white/[0.06] pt-4">
+                <h3 class="text-sm font-medium text-gray-400">Token Usage</h3>
+                <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                    <div>
+                        <span class="text-gray-500">Input:</span>
+                        <span class="text-gray-300">{{ activity.input_tokens|format_tokens }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Output:</span>
+                        <span class="text-gray-300">{{ activity.output_tokens|format_tokens }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Total:</span>
+                        <span class="text-gray-300">{{ activity.total_tokens|format_tokens }}</span>
+                    </div>
+                    {% if activity.cost_usd %}
+                    <div>
+                        <span class="text-gray-500">Est. Cost:</span>
+                        <span class="text-gray-300">{{ activity.cost_usd|format_cost }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if activity.usage_by_model and activity.usage_by_model.keys|length > 1 %}
+                <details class="mt-3">
+                    <summary class="cursor-pointer text-sm text-gray-500 hover:text-gray-400">Per-model breakdown</summary>
+                    <div class="mt-2 space-y-1 text-sm">
+                        {% for model_name, model_usage in activity.usage_by_model.items %}
+                        <div class="flex flex-wrap gap-x-4 text-gray-400">
+                            <span class="font-mono text-gray-300">{{ model_name }}</span>
+                            <span>{{ model_usage.input_tokens|format_tokens }} in</span>
+                            <span>{{ model_usage.output_tokens|format_tokens }} out</span>
+                            {% if model_usage.cost_usd %}
+                            <span>{{ model_usage.cost_usd|format_cost }}</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </details>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
 
         <!-- Prompt -->

@@ -148,6 +148,13 @@
                             <span class="text-sm text-gray-500">&middot;</span>
                             <span class="rounded-full bg-emerald-900/40 px-2 py-0.5 text-xs font-medium text-emerald-300">Code changes</span>
                             {% endif %}
+                            {% if a.cost_usd %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.cost_usd|format_cost }}</span>
+                            {% elif a.total_tokens %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.total_tokens|format_tokens }} tokens</span>
+                            {% endif %}
                         </div>
                     </div>
                     <svg class="ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>

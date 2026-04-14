@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -8,6 +10,8 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.results import parse_agent_result
+
+logger = logging.getLogger("daiv.activity")
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -110,6 +114,13 @@ class Activity(models.Model):
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
 
+    # Denormalized usage / cost (survives DBTaskResult pruning)
+    input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
+    output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=10, decimal_places=6, null=True, blank=True)
+    usage_by_model = models.JSONField(_("usage by model"), null=True, blank=True)
+
     # Denormalized timing
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
@@ -204,6 +215,27 @@ class Activity(models.Model):
             if parsed["merge_request_web_url"] and not self.merge_request_web_url:
                 self.merge_request_web_url = parsed["merge_request_web_url"]
                 changed.append("merge_request_web_url")
+
+            if (usage := parsed["usage"]) and self.input_tokens is None:
+                if usage.get("input_tokens") is not None:
+                    self.input_tokens = usage["input_tokens"]
+                    changed.append("input_tokens")
+                if usage.get("output_tokens") is not None:
+                    self.output_tokens = usage["output_tokens"]
+                    changed.append("output_tokens")
+                if usage.get("total_tokens") is not None:
+                    self.total_tokens = usage["total_tokens"]
+                    changed.append("total_tokens")
+                if usage.get("cost_usd") is not None:
+                    try:
+                        self.cost_usd = Decimal(usage["cost_usd"])
+                    except Exception:
+                        logger.warning("Invalid cost_usd value %r for activity %s", usage["cost_usd"], self.pk)
+                    else:
+                        changed.append("cost_usd")
+                if usage.get("by_model") is not None:
+                    self.usage_by_model = usage["by_model"]
+                    changed.append("usage_by_model")
 
         if tr.status == ActivityStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path

@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langgraph.store.memory import InMemoryStore
 
@@ -58,11 +58,13 @@ class BaseManager:
         return False
 
     @staticmethod
-    async def _build_agent_result(agent: CompiledAgent, config: RunnableConfig, *, response: str) -> AgentResult:
+    async def _build_agent_result(
+        agent: CompiledAgent, config: RunnableConfig, *, response: str, usage: dict[str, Any] | None = None
+    ) -> AgentResult:
         """
         Build a standardized :class:`AgentResult` from the agent's persisted state.
 
         ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
         We read it from the persisted checkpoint instead.
         """
-        return await build_agent_result(agent, config, response=response)
+        return await build_agent_result(agent, config, response=response, usage=usage)
