@@ -29,7 +29,7 @@ class EmailChannel(NotificationChannel):
         binding = (
             UserChannelBinding.objects
             .filter(user=user, channel_type=self.channel_type, is_verified=True)
-            .order_by("-updated_at")
+            .order_by("-modified")
             .first()
         )
         return binding.address if binding else None

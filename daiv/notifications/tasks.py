@@ -40,7 +40,7 @@ def _deliver_notification(delivery_id: UUID) -> None:
     except UnknownChannelError as exc:
         delivery.status = DeliveryStatus.SKIPPED
         delivery.error_message = str(exc)
-        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at"])
+        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
         return
 
     try:
@@ -49,7 +49,7 @@ def _deliver_notification(delivery_id: UUID) -> None:
         logger.warning("Unrecoverable failure delivering %s: %s", delivery_id, exc)
         delivery.status = DeliveryStatus.FAILED
         delivery.error_message = str(exc)
-        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at"])
+        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
         return
     except Exception as exc:
         logger.exception(
@@ -62,10 +62,10 @@ def _deliver_notification(delivery_id: UUID) -> None:
         delivery.error_message = str(exc)
         if delivery.attempts >= MAX_DELIVERY_ATTEMPTS:
             delivery.status = DeliveryStatus.FAILED
-            delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at"])
+            delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
             return
         # Stay PENDING; re-enqueue with backoff
-        delivery.save(update_fields=["error_message", "attempts", "last_attempted_at"])
+        delivery.save(update_fields=["error_message", "attempts", "last_attempted_at", "modified"])
         backoff = RETRY_BACKOFF_SECONDS[min(delivery.attempts - 1, len(RETRY_BACKOFF_SECONDS) - 1)]
         run_after = timezone.now() + timedelta(seconds=backoff)
         transaction.on_commit(lambda: deliver_notification_task.using(run_after=run_after).enqueue(str(delivery.id)))
@@ -74,7 +74,9 @@ def _deliver_notification(delivery_id: UUID) -> None:
     delivery.status = DeliveryStatus.SENT
     delivery.delivered_at = timezone.now()
     delivery.error_message = ""
-    delivery.save(update_fields=["status", "delivered_at", "error_message", "attempts", "last_attempted_at"])
+    delivery.save(
+        update_fields=["status", "delivered_at", "error_message", "attempts", "last_attempted_at", "modified"]
+    )
 
 
 @task()

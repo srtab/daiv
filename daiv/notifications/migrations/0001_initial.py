@@ -6,6 +6,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+import django_extensions.db.fields
+
 
 class Migration(migrations.Migration):
     initial = True
@@ -17,6 +19,14 @@ class Migration(migrations.Migration):
             name="Notification",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "created",
+                    django_extensions.db.fields.CreationDateTimeField(auto_now_add=True, verbose_name="created"),
+                ),
+                (
+                    "modified",
+                    django_extensions.db.fields.ModificationDateTimeField(auto_now=True, verbose_name="modified"),
+                ),
                 ("event_type", models.CharField(max_length=64, verbose_name="event type")),
                 ("source_type", models.CharField(blank=True, default="", max_length=64, verbose_name="source type")),
                 ("source_id", models.CharField(blank=True, default="", max_length=64, verbose_name="source id")),
@@ -24,7 +34,6 @@ class Migration(migrations.Migration):
                 ("body", models.TextField(verbose_name="body")),
                 ("link_url", models.CharField(blank=True, default="", max_length=500, verbose_name="link URL")),
                 ("context", models.JSONField(blank=True, default=dict, verbose_name="context")),
-                ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="created at")),
                 ("read_at", models.DateTimeField(blank=True, null=True, verbose_name="read at")),
                 (
                     "recipient",
@@ -36,12 +45,20 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"ordering": ["-created_at"]},
+            options={"ordering": ["-created"]},
         ),
         migrations.CreateModel(
             name="NotificationDelivery",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "created",
+                    django_extensions.db.fields.CreationDateTimeField(auto_now_add=True, verbose_name="created"),
+                ),
+                (
+                    "modified",
+                    django_extensions.db.fields.ModificationDateTimeField(auto_now=True, verbose_name="modified"),
+                ),
                 (
                     "channel_type",
                     models.CharField(choices=[("email", "Email")], max_length=32, verbose_name="channel type"),
@@ -81,6 +98,14 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 (
+                    "created",
+                    django_extensions.db.fields.CreationDateTimeField(auto_now_add=True, verbose_name="created"),
+                ),
+                (
+                    "modified",
+                    django_extensions.db.fields.ModificationDateTimeField(auto_now=True, verbose_name="modified"),
+                ),
+                (
                     "channel_type",
                     models.CharField(choices=[("email", "Email")], max_length=32, verbose_name="channel type"),
                 ),
@@ -88,8 +113,6 @@ class Migration(migrations.Migration):
                 ("extra_config", models.JSONField(blank=True, default=dict, verbose_name="extra config")),
                 ("is_verified", models.BooleanField(default=False, verbose_name="verified")),
                 ("verified_at", models.DateTimeField(blank=True, null=True, verbose_name="verified at")),
-                ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="created at")),
-                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="updated at")),
                 (
                     "user",
                     models.ForeignKey(
@@ -107,7 +130,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="notification",
-            index=models.Index(fields=["recipient", "-created_at"], name="notif_recipient_created_idx"),
+            index=models.Index(fields=["recipient", "-created"], name="notif_recipient_created_idx"),
         ),
         migrations.AddIndex(
             model_name="notificationdelivery",

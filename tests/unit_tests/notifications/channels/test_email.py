@@ -32,7 +32,7 @@ class TestEmailChannelResolveAddress:
         newer = UserChannelBinding.objects.create(
             user=member_user, channel_type="email", address="new@test.com", is_verified=True
         )
-        newer.save()  # bump updated_at
+        newer.save()  # bump modified
         assert EmailChannel().resolve_address(member_user) == "new@test.com"
 
 

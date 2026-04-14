@@ -14,7 +14,7 @@
     {% endif %}
   </div>
   <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
-    <span>{{ notification.created_at|timesince }} {% translate "ago" %}</span>
+    <span>{{ notification.created|timesince }} {% translate "ago" %}</span>
     {% for d in notification.deliveries.all %}
       <span class="rounded-full px-1.5 py-0.5
         {% if d.status == 'sent' %}bg-emerald-500/10 text-emerald-400

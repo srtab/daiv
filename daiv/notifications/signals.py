@@ -98,4 +98,4 @@ def seed_email_binding(sender, instance, created, **kwargs) -> None:
         binding.address = instance.email
         binding.is_verified = True
         binding.verified_at = timezone.now()
-        binding.save(update_fields=["address", "is_verified", "verified_at", "updated_at"])
+        binding.save(update_fields=["address", "is_verified", "verified_at", "modified"])

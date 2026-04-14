@@ -17,7 +17,7 @@ class TestNotification:
         )
         assert n.id is not None
         assert n.read_at is None
-        assert n.created_at is not None
+        assert n.created is not None
         assert n.context == {}
 
 

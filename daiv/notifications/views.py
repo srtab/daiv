@@ -79,7 +79,7 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
         notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
         if notification.read_at is None:
             notification.read_at = timezone.now()
-            notification.save(update_fields=["read_at"])
+            notification.save(update_fields=["read_at", "modified"])
         return self.render_to_response({"notification": notification})
 
 

@@ -4,10 +4,12 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from django_extensions.db.models import TimeStampedModel
+
 from notifications.choices import ChannelType, DeliveryStatus
 
 
-class Notification(models.Model):
+class Notification(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications", verbose_name=_("recipient")
@@ -19,15 +21,14 @@ class Notification(models.Model):
     body = models.TextField(_("body"))
     link_url = models.CharField(_("link URL"), max_length=500, blank=True, default="")
     context = models.JSONField(_("context"), default=dict, blank=True)
-    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     read_at = models.DateTimeField(_("read at"), null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["recipient", "read_at"], name="notif_recipient_read_idx"),
-            models.Index(fields=["recipient", "-created_at"], name="notif_recipient_created_idx"),
+            models.Index(fields=["recipient", "-created"], name="notif_recipient_created_idx"),
         ]
-        ordering = ["-created_at"]
+        ordering = ["-created"]
 
     def __str__(self) -> str:
         return f"{self.event_type} → {self.recipient_id}"
@@ -37,7 +38,7 @@ class Notification(models.Model):
         return self.read_at is not None
 
 
-class NotificationDelivery(models.Model):
+class NotificationDelivery(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     notification = models.ForeignKey(
         Notification, on_delete=models.CASCADE, related_name="deliveries", verbose_name=_("notification")
@@ -62,7 +63,7 @@ class NotificationDelivery(models.Model):
         return f"{self.channel_type}:{self.status}"
 
 
-class UserChannelBinding(models.Model):
+class UserChannelBinding(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_bindings", verbose_name=_("user")
@@ -72,8 +73,6 @@ class UserChannelBinding(models.Model):
     extra_config = models.JSONField(_("extra config"), default=dict, blank=True)
     is_verified = models.BooleanField(_("verified"), default=False)
     verified_at = models.DateTimeField(_("verified at"), null=True, blank=True)
-    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
 
     class Meta:
         constraints = [
