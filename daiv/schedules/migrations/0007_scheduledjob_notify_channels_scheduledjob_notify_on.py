@@ -27,4 +27,11 @@ class Migration(migrations.Migration):
                 verbose_name="notify on",
             ),
         ),
+        migrations.AddConstraint(
+            model_name="scheduledjob",
+            constraint=models.CheckConstraint(
+                condition=models.Q(notify_on="never") | ~models.Q(notify_channels=[]),
+                name="sched_notify_requires_channels",
+            ),
+        ),
     ]

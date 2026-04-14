@@ -26,7 +26,7 @@ mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by 
 
 
 def build_absolute_url(path: str) -> str:
-    """Build an absolute URL from a relative path using the current Site domain."""
+    """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()
     return f"https://{site.domain}{path}"
 

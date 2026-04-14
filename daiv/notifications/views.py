@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -47,7 +48,6 @@ class NotificationListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["current_filter"] = self.request.GET.get("status", "all")
-        ctx["unread_count"] = Notification.objects.filter(recipient=self.request.user, read_at__isnull=True).count()
         return ctx
 
 
@@ -58,17 +58,11 @@ class BellDropdownView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
         ctx["notifications"] = list(qs[:10])
-        ctx["unread_count"] = qs.filter(read_at__isnull=True).count()
         return ctx
 
 
 class BellBadgeView(LoginRequiredMixin, TemplateView):
     template_name = "notifications/_bell.html"
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx["unread_count"] = Notification.objects.filter(recipient=self.request.user, read_at__isnull=True).count()
-        return ctx
 
 
 @method_decorator(require_POST, name="dispatch")
@@ -77,9 +71,7 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
 
     def post(self, request, notification_id):
         notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
-        if notification.read_at is None:
-            notification.read_at = timezone.now()
-            notification.save(update_fields=["read_at", "modified"])
+        notification.mark_as_read()
         return self.render_to_response({"notification": notification})
 
 
@@ -87,4 +79,4 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
 class MarkAllReadView(LoginRequiredMixin, View):
     def post(self, request):
         Notification.objects.filter(recipient=request.user, read_at__isnull=True).update(read_at=timezone.now())
-        return HttpResponse(status=204)
+        return HttpResponseRedirect(reverse("notifications:list"))

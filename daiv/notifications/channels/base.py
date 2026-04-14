@@ -5,18 +5,24 @@ from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from accounts.models import User
+    from notifications.choices import ChannelType
     from notifications.models import Notification, NotificationDelivery
 
 
 class NotificationChannel(ABC):
-    """Base class for notification channels. Subclasses register via @register_channel."""
+    """Base class for notification channels.
 
-    channel_type: ClassVar[str]
+    Subclasses must define ``channel_type`` and ``display_name`` class variables,
+    implement ``resolve_address`` and ``send``, and register themselves with the
+    ``@register_channel`` decorator from ``notifications.channels.registry``.
+    """
+
+    channel_type: ClassVar[ChannelType]
     display_name: ClassVar[str]
 
     @abstractmethod
     def resolve_address(self, user: User) -> str | None:
-        """Return the address to send to, or None if this user has no binding for this channel."""
+        """Return the verified address to send to, or None if this user has no usable binding."""
 
     @abstractmethod
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:

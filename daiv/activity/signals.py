@@ -46,7 +46,15 @@ def emit_activity_finished_if_terminal(activity: Any, previous_status: str | Non
         return
     if previous_status in ActivityStatus.terminal():
         return  # Already emitted on a prior save
-    activity_finished.send(sender=type(activity), activity=activity)
+    results = activity_finished.send_robust(sender=type(activity), activity=activity)
+    for recv, response in results:
+        if isinstance(response, Exception):
+            logger.error(
+                "Receiver %s failed for activity_finished (activity=%s)",
+                getattr(recv, "__name__", recv),
+                activity.pk,
+                exc_info=response,
+            )
 
 
 def _sync_activity_for_task(task_result_id: Any) -> None:

@@ -4,7 +4,6 @@ import logging
 from datetime import timedelta
 from uuid import UUID
 
-from django.db import transaction
 from django.utils import timezone
 
 from django_tasks import task
@@ -34,22 +33,19 @@ def _deliver_notification(delivery_id: UUID) -> None:
 
     delivery.attempts += 1
     delivery.last_attempted_at = timezone.now()
+    delivery.save(update_fields=["attempts", "last_attempted_at", "modified"])
 
     try:
         channel = get_channel(delivery.channel_type)
     except UnknownChannelError as exc:
-        delivery.status = DeliveryStatus.SKIPPED
-        delivery.error_message = str(exc)
-        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
+        delivery.mark_skipped(str(exc))
         return
 
     try:
         channel.send(delivery.notification, delivery)
     except UnrecoverableDeliveryError as exc:
         logger.warning("Unrecoverable failure delivering %s: %s", delivery_id, exc)
-        delivery.status = DeliveryStatus.FAILED
-        delivery.error_message = str(exc)
-        delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
+        delivery.mark_failed(str(exc))
         return
     except Exception as exc:
         logger.exception(
@@ -59,24 +55,22 @@ def _deliver_notification(delivery_id: UUID) -> None:
             delivery.attempts,
             MAX_DELIVERY_ATTEMPTS,
         )
-        delivery.error_message = str(exc)
         if delivery.attempts >= MAX_DELIVERY_ATTEMPTS:
-            delivery.status = DeliveryStatus.FAILED
-            delivery.save(update_fields=["status", "error_message", "attempts", "last_attempted_at", "modified"])
+            delivery.mark_failed(str(exc))
             return
         # Stay PENDING; re-enqueue with backoff
-        delivery.save(update_fields=["error_message", "attempts", "last_attempted_at", "modified"])
+        delivery.error_message = str(exc)
+        delivery.save(update_fields=["error_message", "modified"])
         backoff = RETRY_BACKOFF_SECONDS[min(delivery.attempts - 1, len(RETRY_BACKOFF_SECONDS) - 1)]
         run_after = timezone.now() + timedelta(seconds=backoff)
-        transaction.on_commit(lambda: deliver_notification_task.using(run_after=run_after).enqueue(str(delivery.id)))
+        try:
+            deliver_notification_task.using(run_after=run_after).enqueue(str(delivery.id))
+        except Exception:
+            logger.exception("Failed to re-enqueue delivery %s for retry", delivery_id)
+            delivery.mark_failed(f"Re-enqueue failed after attempt {delivery.attempts}")
         return
 
-    delivery.status = DeliveryStatus.SENT
-    delivery.delivered_at = timezone.now()
-    delivery.error_message = ""
-    delivery.save(
-        update_fields=["status", "delivered_at", "error_message", "attempts", "last_attempted_at", "modified"]
-    )
+    delivery.mark_sent()
 
 
 @task()

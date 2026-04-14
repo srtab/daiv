@@ -143,9 +143,23 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddConstraint(
+            model_name="notificationdelivery",
+            constraint=models.CheckConstraint(
+                condition=~models.Q(status="sent") | models.Q(delivered_at__isnull=False),
+                name="notif_delivery_sent_has_delivered_at",
+            ),
+        ),
+        migrations.AddConstraint(
             model_name="userchannelbinding",
             constraint=models.UniqueConstraint(
                 fields=("user", "channel_type", "address"), name="user_channel_binding_unique"
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="userchannelbinding",
+            constraint=models.CheckConstraint(
+                condition=models.Q(is_verified=False) | models.Q(verified_at__isnull=False),
+                name="user_channel_binding_verified_has_timestamp",
             ),
         ),
     ]

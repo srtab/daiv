@@ -14,13 +14,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from accounts.models import User
+    from notifications.choices import ChannelType
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_address_or_skipped_reason(channel_type: str, recipient: User) -> tuple[str, str | None]:
-    """Return (address, skipped_reason). If skipped_reason is set, address is "" and the delivery
-    should be created with status=skipped."""
+def _resolve_address_or_skipped_reason(channel_type: ChannelType, recipient: User) -> tuple[str, str | None]:
+    """Resolve the delivery address for a channel, or explain why it cannot be resolved.
+
+    Returns (address, None) on success, or ("", reason) when the channel is unknown
+    or the user has no binding."""
     try:
         channel = get_channel(channel_type)
     except UnknownChannelError:
@@ -42,7 +45,7 @@ def create_notification(
     subject: str,
     body: str,
     link_url: str,
-    channels: Sequence[str],
+    channels: Sequence[ChannelType],
     context: dict | None = None,
 ) -> Notification:
     """Create a Notification and one NotificationDelivery per channel. Does not dispatch."""
@@ -74,7 +77,13 @@ def dispatch_notification(notification: Notification) -> None:
 
     pending = notification.deliveries.filter(status=DeliveryStatus.PENDING).values_list("id", flat=True)
     for delivery_id in pending:
-        deliver_notification_task.enqueue(str(delivery_id))
+        try:
+            deliver_notification_task.enqueue(str(delivery_id))
+        except Exception:
+            logger.exception("Failed to enqueue delivery task for delivery_id=%s", delivery_id)
+            NotificationDelivery.objects.filter(id=delivery_id).update(
+                status=DeliveryStatus.FAILED, error_message="Failed to enqueue delivery task"
+            )
 
 
 def notify(
@@ -86,7 +95,7 @@ def notify(
     subject: str,
     body: str,
     link_url: str = "",
-    channels: Sequence[str],
+    channels: Sequence[ChannelType],
     context: dict | None = None,
 ) -> Notification:
     """Public API for triggering a notification. Creates the notification and schedules delivery

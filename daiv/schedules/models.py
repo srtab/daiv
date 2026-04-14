@@ -83,9 +83,13 @@ class ScheduledJob(TimeStampedModel):
         indexes = [models.Index(fields=["is_enabled", "next_run_at"], name="sched_enabled_next_idx")]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(frequency="custom") | ~models.Q(cron_expression=""),
+                condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
                 name="sched_custom_requires_cron",
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(notify_on=NotifyOn.NEVER) | ~models.Q(notify_channels=[]),
+                name="sched_notify_requires_channels",
+            ),
         ]
 
     def __str__(self) -> str:

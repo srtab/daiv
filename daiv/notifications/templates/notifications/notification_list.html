@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load dashboard_tags i18n %}
 
 {% block title %}{% translate "Notifications" %} — DAIV{% endblock %}
 
@@ -35,10 +35,11 @@
     </div>
 
     {% if is_paginated %}
+      {% querystring_without "page" as qs %}
       <div class="mt-6 flex items-center justify-center gap-2 text-sm text-gray-400">
-        {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">←</a>{% endif %}
+        {% if page_obj.has_previous %}<a href="?{{ qs }}page={{ page_obj.previous_page_number }}">←</a>{% endif %}
         <span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
-        {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">→</a>{% endif %}
+        {% if page_obj.has_next %}<a href="?{{ qs }}page={{ page_obj.next_page_number }}">→</a>{% endif %}
       </div>
     {% endif %}
   </main>

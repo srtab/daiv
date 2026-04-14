@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
@@ -10,6 +11,12 @@ from notifications.choices import ChannelType, DeliveryStatus
 
 
 class Notification(TimeStampedModel):
+    """An in-app notification addressed to a single user.
+
+    Each notification may have one or more NotificationDelivery rows,
+    one per channel through which delivery was attempted.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications", verbose_name=_("recipient")
@@ -37,8 +44,19 @@ class Notification(TimeStampedModel):
     def is_read(self) -> bool:
         return self.read_at is not None
 
+    def mark_as_read(self) -> None:
+        """Mark this notification as read, idempotently."""
+        if self.read_at is None:
+            self.read_at = timezone.now()
+            self.save(update_fields=["read_at", "modified"])
+
 
 class NotificationDelivery(TimeStampedModel):
+    """Tracks the delivery of a notification through a specific channel.
+
+    At most one delivery per (notification, channel_type) pair.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     notification = models.ForeignKey(
         Notification, on_delete=models.CASCADE, related_name="deliveries", verbose_name=_("notification")
@@ -55,15 +73,44 @@ class NotificationDelivery(TimeStampedModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["notification", "channel_type"], name="notif_delivery_unique_channel")
+            models.UniqueConstraint(fields=["notification", "channel_type"], name="notif_delivery_unique_channel"),
+            models.CheckConstraint(
+                condition=~models.Q(status=DeliveryStatus.SENT) | models.Q(delivered_at__isnull=False),
+                name="notif_delivery_sent_has_delivered_at",
+            ),
         ]
         indexes = [models.Index(fields=["status", "last_attempted_at"], name="notif_delivery_status_idx")]
 
     def __str__(self) -> str:
         return f"{self.channel_type}:{self.status}"
 
+    def mark_sent(self) -> None:
+        """Record a successful delivery."""
+        self.status = DeliveryStatus.SENT
+        self.delivered_at = timezone.now()
+        self.error_message = ""
+        self.save(update_fields=["status", "delivered_at", "error_message", "modified"])
+
+    def mark_failed(self, error: str) -> None:
+        """Record a permanent or max-attempts failure."""
+        self.status = DeliveryStatus.FAILED
+        self.error_message = error
+        self.save(update_fields=["status", "error_message", "modified"])
+
+    def mark_skipped(self, reason: str) -> None:
+        """Record that delivery was skipped (unknown channel, no binding, etc.)."""
+        self.status = DeliveryStatus.SKIPPED
+        self.error_message = reason
+        self.save(update_fields=["status", "error_message", "modified"])
+
 
 class UserChannelBinding(TimeStampedModel):
+    """Maps a user to a verified delivery address on a notification channel.
+
+    Used during notification creation to resolve the recipient address
+    for each requested channel.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_bindings", verbose_name=_("user")
@@ -76,7 +123,11 @@ class UserChannelBinding(TimeStampedModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user", "channel_type", "address"], name="user_channel_binding_unique")
+            models.UniqueConstraint(fields=["user", "channel_type", "address"], name="user_channel_binding_unique"),
+            models.CheckConstraint(
+                condition=models.Q(is_verified=False) | models.Q(verified_at__isnull=False),
+                name="user_channel_binding_verified_has_timestamp",
+            ),
         ]
 
     def __str__(self) -> str:
