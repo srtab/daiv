@@ -191,3 +191,46 @@ class TestActivityListView:
         # Invalid choice is dropped; full (owner-scoped) list is shown and context key is empty.
         assert activity in response.context["activities"]
         assert response.context["current_status"] == ""
+
+
+@pytest.mark.django_db
+class TestActivityDetailView:
+    PROMPT_THRESHOLD = 500
+
+    def _get_detail(self, logged_in_client, activity):
+        return logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+
+    def test_short_prompt_renders_inline_without_collapsible(self, logged_in_client, user):
+        short_prompt = "Run a quick audit."
+        assert len(short_prompt) <= self.PROMPT_THRESHOLD
+
+        activity = _create_activity(user=user, prompt=short_prompt)
+
+        response = self._get_detail(logged_in_client, activity)
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        # Prompt is still rendered
+        assert "Run a quick audit." in body
+        # None of the collapsible markers are present
+        assert 'x-data="{ expanded: false }"' not in body
+        assert "max-h-64" not in body
+        assert "Show more" not in body
+
+    def test_long_prompt_renders_collapsible_wrapper(self, logged_in_client, user):
+        long_prompt = "Audit this repo for security issues. " * 20  # ~740 chars
+        assert len(long_prompt) > self.PROMPT_THRESHOLD
+
+        activity = _create_activity(user=user, prompt=long_prompt)
+
+        response = self._get_detail(logged_in_client, activity)
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        # Prompt content is still rendered in full (clipping is visual only)
+        assert "Audit this repo for security issues." in body
+        # Collapsible markers must be present
+        assert 'x-data="{ expanded: false }"' in body
+        assert "max-h-64" in body
+        assert "Show more" in body
+        assert "Show less" in body
