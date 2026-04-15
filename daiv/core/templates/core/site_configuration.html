@@ -1,24 +1,13 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load configuration_tags icon_tags %}
 
 {% block title %}Configuration — DAIV{% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-    {% include "accounts/_header.html" with header_max_w="max-w-6xl" %}
-
-    <!-- Content -->
-    <main class="mx-auto max-w-6xl px-6 py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">Configuration</h1>
-                <p class="mt-1.5 text-[15px] font-light text-gray-400">Manage global settings. Per-repository overrides via <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-sm">.daiv.yml</code>.</p>
-            </div>
-            <a href="{% url 'dashboard' %}"
-               class="text-[15px] text-gray-400 transition-colors hover:text-white">
-                &larr; Dashboard
-            </a>
-        </div>
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">Configuration</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">Manage global settings. Per-repository overrides via <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-sm">.daiv.yml</code>.</p>
+</div>
 
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
@@ -84,8 +73,6 @@
                 </div>
             </div>
         </form>
-    </main>
-</div>
 
 <script type="module">
     // Highlight active nav item on scroll
