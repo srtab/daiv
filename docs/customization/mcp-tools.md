@@ -23,7 +23,7 @@ The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives 
 **Configuration:**
 
 ```bash
-MCP_SENTRY_URL=http://mcp-sentry:8000/sse   # Default; set to None to disable
+MCP_SENTRY_URL=http://mcp-sentry:8000/mcp   # Default; set to None to disable
 ```
 
 `SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
@@ -44,7 +44,7 @@ The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) p
 **Configuration:**
 
 ```bash
-MCP_CONTEXT7_URL=http://mcp-context7:8000/sse  # Default; set to None to disable
+MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
 ```
 
 Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.

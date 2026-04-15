@@ -171,6 +171,8 @@ services:
     command:
       - --stdio
       - "npx @sentry/mcp-server@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
     env_file:
@@ -194,6 +196,8 @@ services:
     command:
       - --stdio
       - "npx @upstash/context7-mcp@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
     env_file:
