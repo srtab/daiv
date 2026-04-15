@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.urls import reverse
 from django.utils.text import slugify
 from django.views import View
 from django.views.generic import DetailView
@@ -76,6 +77,10 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         activity: Activity = context["activity"]
         context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
+        context["breadcrumbs"] = [
+            {"label": "Activity", "url": reverse("activity_list")},
+            {"label": f"Run {str(activity.pk)[:8]} — {activity.repo_id}", "url": None},
+        ]
         return context
 
 

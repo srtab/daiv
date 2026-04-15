@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load activity_tags dashboard_tags i18n icon_tags l10n static %}
 
 {% block title %}Agent Activity — DAIV{% endblock %}
@@ -11,23 +11,14 @@
 <script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
 {% endblock %}
 
-{% block content %}
-<div class="min-h-dvh" x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
-    {% include "accounts/_header.html" %}
-
-    <main class="mx-auto max-w-6xl px-6 py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
-                <p class="mt-1.5 text-[15px] font-light text-gray-400">
-                    {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
-                </p>
-            </div>
-            <a href="{% url 'dashboard' %}"
-               class="text-[15px] text-gray-400 transition-colors hover:text-white">
-                &larr; Dashboard
-            </a>
-        </div>
+{% block app_content %}
+<div x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
+    <div class="animate-fade-up">
+        <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
+        </p>
+    </div>
 
         <!-- Filters -->
         <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-4" style="animation-delay: 50ms">
@@ -174,6 +165,5 @@
             </div>
             {% endif %}
         </div>
-    </main>
 </div>
 {% endblock %}
