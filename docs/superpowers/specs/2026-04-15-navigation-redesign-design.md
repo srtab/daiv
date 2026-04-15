@@ -164,8 +164,8 @@ A new `accounts.context_processors.nav` supplies every request with:
 
 ```python
 {
-    "nav_running_jobs": int,   # count of currently-running activities, 0 if none
-    "nav_active_section": str, # resolved section key, e.g. "activity", "schedules"
+    "nav_running_jobs": int,  # count of currently-running activities, 0 if none
+    "nav_active_section": str,  # resolved section key, e.g. "activity", "schedules"
 }
 ```
 

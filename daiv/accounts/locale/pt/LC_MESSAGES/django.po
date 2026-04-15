@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 22:34+0100\n"
+"POT-Creation-Date: 2026-04-15 23:55+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -77,6 +77,42 @@ msgstr "Introduza este código na janela do navegador para concluir a autentica�
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
+msgid "Dashboard"
+msgstr "Painel"
+
+msgid "Activity"
+msgstr "Atividade"
+
+#, python-format
+msgid "%(counter)s running"
+msgid_plural "%(counter)s running"
+msgstr[0] "%(counter)s em execução"
+msgstr[1] "%(counter)s em execução"
+
+msgid "Schedules"
+msgstr "Agendamentos"
+
+msgid "Account"
+msgstr "Conta"
+
+msgid "Notification channels"
+msgstr "Canais de notificação"
+
+msgid "API keys"
+msgstr "Chaves API"
+
+msgid "Users"
+msgstr "Utilizadores"
+
+msgid "Configuration"
+msgstr "Configuração"
+
+msgid "API documentation"
+msgstr "Documentação da API"
+
+msgid "Sign out"
+msgstr "Terminar sessão"
+
 msgid "Welcome to DAIV"
 msgstr "Bem-vindo ao DAIV"
 
@@ -117,6 +153,9 @@ msgstr "Autentique-se em %(url)s usando o seu email (%(email)s)."
 
 msgid "You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address."
 msgstr "Pode autenticar-se com um código único enviado para o seu email, ou usar a sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
+
+msgid "Open navigation"
+msgstr "Abrir navegação"
 
 msgid "Authorization request"
 msgstr "Pedido de autorização"
