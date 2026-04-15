@@ -320,6 +320,11 @@ class UserCreateView(AdminRequiredMixin, CreateView):
             )
         return response
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [{"label": "Users", "url": reverse("user_list")}, {"label": "New user", "url": None}]
+        return context
+
 
 class UserUpdateView(SuccessMessageMixin, AdminRequiredMixin, UpdateView):
     model = User
@@ -332,6 +337,14 @@ class UserUpdateView(SuccessMessageMixin, AdminRequiredMixin, UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs["requesting_user"] = self.request.user
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [
+            {"label": "Users", "url": reverse("user_list")},
+            {"label": self.object.email, "url": None},
+        ]
+        return context
 
 
 class UserDeleteView(SuccessMessageMixin, AdminRequiredMixin, DeleteView):
@@ -352,3 +365,12 @@ class UserDeleteView(SuccessMessageMixin, AdminRequiredMixin, DeleteView):
 
     def get_success_message(self, cleaned_data: dict) -> str:
         return f"User '{self.object.email}' deleted."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [
+            {"label": "Users", "url": reverse("user_list")},
+            {"label": self.object.email, "url": reverse("user_update", args=[self.object.pk])},
+            {"label": "Delete", "url": None},
+        ]
+        return context
