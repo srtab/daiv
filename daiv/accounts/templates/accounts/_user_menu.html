@@ -1,0 +1,35 @@
+{# daiv/accounts/templates/accounts/_user_menu.html #}
+{% load i18n %}
+
+<div data-testid="app-user-menu" x-data="{ open: false }" class="relative" @keydown.escape="open = false">
+  <button type="button"
+          @click="open = !open"
+          :aria-expanded="open.toString()"
+          class="flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] py-1 pl-1 pr-3 text-sm text-gray-300 transition-colors hover:bg-white/[0.04]">
+    <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white">
+      {{ user.name|default:user.email|first|upper }}
+    </span>
+    <span class="hidden text-[13px] text-gray-300 sm:inline">{{ user.email }}</span>
+    <svg class="h-3 w-3 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M3 4.5L6 7.5L9 4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div x-show="open"
+       @click.outside="open = false"
+       x-cloak
+       x-transition
+       class="absolute right-0 top-full z-40 mt-2 w-56 rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl"
+       role="menu">
+    <div class="px-4 py-2.5 text-[13px] text-gray-400">
+      {{ user.email }}
+    </div>
+    <div class="my-1 border-t border-white/[0.06]"></div>
+    <form method="post" action="{% url 'account_logout' %}" class="px-1.5 py-1">
+      {% csrf_token %}
+      <button type="submit" class="w-full rounded-md px-2.5 py-1.5 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.04] hover:text-white">
+        {% translate "Sign out" %}
+      </button>
+    </form>
+  </div>
+</div>
