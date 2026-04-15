@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load i18n static %}
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
@@ -10,24 +10,17 @@
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
 {% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-    {% include "accounts/_header.html" %}
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
 
-    <!-- Content -->
-    <main class="mx-auto max-w-6xl px-6 py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit schedule{% else %}Create schedule{% endif %}</h1>
-                <p class="mt-1.5 text-[15px] font-light text-gray-400">
-                    {% if object %}Update "{{ object.name }}".{% else %}Set up a recurring agent run on a repository.{% endif %}
-                </p>
-            </div>
-            <a href="{% url 'schedule_list' %}"
-               class="text-[15px] text-gray-400 transition-colors hover:text-white">
-                &larr; Schedules
-            </a>
-        </div>
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit schedule{% else %}Create schedule{% endif %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% if object %}Update "{{ object.name }}".{% else %}Set up a recurring agent run on a repository.{% endif %}
+    </p>
+</div>
 
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
@@ -198,6 +191,4 @@
                 {% endif %}
             </div>
         </form>
-    </main>
-</div>
 {% endblock %}

@@ -7,7 +7,7 @@ from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -52,6 +52,14 @@ class ScheduleCreateView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequired
         form.instance.user = self.request.user
         return super().form_valid(form)
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [
+            {"label": "Schedules", "url": reverse("schedule_list")},
+            {"label": "New schedule", "url": None},
+        ]
+        return context
+
 
 class ScheduleUpdateView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, UpdateView):
     model = ScheduledJob
@@ -59,6 +67,14 @@ class ScheduleUpdateView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequired
     template_name = "schedules/schedule_form.html"
     success_url = reverse_lazy("schedule_list")
     success_message = "Schedule '%(name)s' updated."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [
+            {"label": "Schedules", "url": reverse("schedule_list")},
+            {"label": f'"{self.object.name}"', "url": None},
+        ]
+        return context
 
 
 class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
@@ -137,3 +153,12 @@ class ScheduleDeleteView(_ScheduleOwnerMixin, SuccessMessageMixin, LoginRequired
 
     def get_success_message(self, cleaned_data: dict) -> str:
         return f"Schedule '{self.object.name}' deleted."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["breadcrumbs"] = [
+            {"label": "Schedules", "url": reverse("schedule_list")},
+            {"label": f'"{self.object.name}"', "url": reverse("schedule_update", args=[self.object.pk])},
+            {"label": "Delete", "url": None},
+        ]
+        return context
