@@ -46,7 +46,7 @@ dependencies = [
   "langsmith-fetch==0.3.1",
   "markdown==3.10.2",
   "markdownify==1.2.2",
-  "mcp[cli]==1.22.0",
+  "mcp[cli]==1.27.0",
   "nh3==0.3.4",
   "parable",
   "prompt-toolkit==3.0.52",
