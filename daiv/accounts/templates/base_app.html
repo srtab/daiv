@@ -1,0 +1,53 @@
+{# daiv/accounts/templates/base_app.html #}
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block content %}
+<div x-data="{ mobileNavOpen: false }" class="flex min-h-dvh">
+  {# Desktop sidebar (≥sm) #}
+  {% include "accounts/_sidebar.html" %}
+
+  {# Mobile drawer (<sm) #}
+  <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 sm:hidden">
+    <div x-show="mobileNavOpen" x-transition.opacity
+         @click="mobileNavOpen = false"
+         class="absolute inset-0 bg-black/60"></div>
+    <div x-show="mobileNavOpen"
+         x-transition:enter="transition-transform duration-200"
+         x-transition:enter-start="-translate-x-full"
+         x-transition:enter-end="translate-x-0"
+         x-transition:leave="transition-transform duration-150"
+         x-transition:leave-start="translate-x-0"
+         x-transition:leave-end="-translate-x-full"
+         class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-[#030712] shadow-2xl">
+      {% include "accounts/_sidebar.html" with force_mobile=1 %}
+    </div>
+  </div>
+
+  <div class="flex flex-1 flex-col min-w-0">
+    {# Utility strip #}
+    <header class="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5 sm:px-6">
+      <button type="button"
+              @click="mobileNavOpen = !mobileNavOpen"
+              class="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
+              aria-label="{% translate 'Open navigation' %}">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="flex-1"></div>
+      <div class="flex items-center gap-4">
+        {% include "notifications/_bell.html" %}
+        {% include "accounts/_user_menu.html" %}
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-x-hidden px-4 py-8 sm:px-6 sm:py-10">
+      <div class="mx-auto {{ content_max_w|default:'max-w-6xl' }}">
+        {% block breadcrumb %}{% endblock %}
+        {% block app_content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+{% endblock %}
