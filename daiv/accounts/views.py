@@ -15,10 +15,11 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 from activity.models import Activity, ActivityStatus, TriggerType
 from django_filters.views import FilterView
 
+from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
 from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
-from accounts.mixins import AdminRequiredMixin
+from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
 from codebase.models import MergeMetric
 from schedules.models import ScheduledJob
@@ -120,7 +121,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             avg_duration=Avg(duration_expr, filter=successful),
         )
 
-        running_count = owned.filter(status=ActivityStatus.RUNNING).count()
+        # "Running now" is global (not period-filtered); share the request-memoized helper
+        # with the ``nav`` context processor so the sidebar badge and dashboard card resolve
+        # to a single query per render.
+        running_count = running_jobs_count(self.request, user)
 
         total = stats["total"]
         successful_count = stats["successful"]
@@ -299,7 +303,7 @@ class UserListView(AdminRequiredMixin, FilterView):
         return context
 
 
-class UserCreateView(AdminRequiredMixin, CreateView):
+class UserCreateView(BreadcrumbMixin, AdminRequiredMixin, CreateView):
     model = User
     form_class = UserCreateForm
     template_name = "accounts/user_form.html"
@@ -320,13 +324,11 @@ class UserCreateView(AdminRequiredMixin, CreateView):
             )
         return response
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["breadcrumbs"] = [{"label": "Users", "url": reverse("user_list")}, {"label": "New user", "url": None}]
-        return context
+    def get_breadcrumbs(self):
+        return [{"label": "Users", "url": reverse("user_list")}, {"label": "New user", "url": None}]
 
 
-class UserUpdateView(SuccessMessageMixin, AdminRequiredMixin, UpdateView):
+class UserUpdateView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, UpdateView):
     model = User
     form_class = UserUpdateForm
     template_name = "accounts/user_form.html"
@@ -338,16 +340,11 @@ class UserUpdateView(SuccessMessageMixin, AdminRequiredMixin, UpdateView):
         kwargs["requesting_user"] = self.request.user
         return kwargs
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["breadcrumbs"] = [
-            {"label": "Users", "url": reverse("user_list")},
-            {"label": self.object.email, "url": None},
-        ]
-        return context
+    def get_breadcrumbs(self):
+        return [{"label": "Users", "url": reverse("user_list")}, {"label": self.object.email, "url": None}]
 
 
-class UserDeleteView(SuccessMessageMixin, AdminRequiredMixin, DeleteView):
+class UserDeleteView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, DeleteView):
     model = User
     template_name = "accounts/user_confirm_delete.html"
     success_url = reverse_lazy("user_list")
@@ -366,11 +363,9 @@ class UserDeleteView(SuccessMessageMixin, AdminRequiredMixin, DeleteView):
     def get_success_message(self, cleaned_data: dict) -> str:
         return f"User '{self.object.email}' deleted."
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["breadcrumbs"] = [
+    def get_breadcrumbs(self):
+        return [
             {"label": "Users", "url": reverse("user_list")},
             {"label": self.object.email, "url": reverse("user_update", args=[self.object.pk])},
             {"label": "Delete", "url": None},
         ]
-        return context

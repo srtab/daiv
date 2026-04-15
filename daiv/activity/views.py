@@ -15,6 +15,7 @@ from django.views.generic import DetailView
 
 from django_filters.views import FilterView
 
+from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.models import Activity, ActivityStatus, TriggerType
 from schedules.models import ScheduledJob
@@ -65,7 +66,7 @@ class ActivityListView(LoginRequiredMixin, FilterView):
         return context
 
 
-class ActivityDetailView(LoginRequiredMixin, DetailView):
+class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     model = Activity
     template_name = "activity/activity_detail.html"
     context_object_name = "activity"
@@ -77,11 +78,13 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         activity: Activity = context["activity"]
         context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
-        context["breadcrumbs"] = [
-            {"label": "Activity", "url": reverse("activity_list")},
-            {"label": f"Run {str(activity.pk)[:8]} — {activity.repo_id}", "url": None},
-        ]
         return context
+
+    def get_breadcrumbs(self):
+        return [
+            {"label": "Activity", "url": reverse("activity_list")},
+            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id}", "url": None},
+        ]
 
 
 class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):

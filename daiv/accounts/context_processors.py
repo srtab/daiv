@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from django.db import Error as DatabaseError
+from django.utils.functional import SimpleLazyObject
 
 logger = logging.getLogger("daiv.accounts")
 
@@ -36,11 +37,16 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def nav(request) -> dict[str, Any]:
-    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request."""
-    user = getattr(request, "user", None)
-    if user is None or not user.is_authenticated:
-        return {}
+def running_jobs_count(request, user) -> int:
+    """Return the user's running-jobs count, memoized per-request.
+
+    The first caller hits the database; subsequent callers on the same request reuse the
+    value via ``request._daiv_running_jobs``. Falls back to 0 and logs on ``DatabaseError``
+    so a transient DB failure degrades the nav badge rather than breaking page rendering.
+    """
+    cached = getattr(request, "_daiv_running_jobs", None)
+    if cached is not None:
+        return cached
 
     from activity.models import Activity, ActivityStatus  # local import to avoid circulars
 
@@ -49,5 +55,22 @@ def nav(request) -> dict[str, Any]:
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
         running = 0
+    request._daiv_running_jobs = running
+    return running
 
-    return {"nav_running_jobs": running, "nav_active_section": _resolve_active_section(request)}
+
+def nav(request) -> dict[str, Any]:
+    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
+
+    ``nav_running_jobs`` is wrapped in ``SimpleLazyObject`` so the DB query runs only if the
+    template actually references it — non-HTML responses (redirects, HTMX fragments, SSE)
+    skip the query entirely.
+    """
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return {}
+
+    return {
+        "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
+        "nav_active_section": _resolve_active_section(request),
+    }

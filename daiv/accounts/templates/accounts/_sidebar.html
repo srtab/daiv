@@ -1,8 +1,7 @@
-{# daiv/accounts/templates/accounts/_sidebar.html #}
 {% load i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
-       class="hidden w-60 shrink-0 border-r border-white/[0.06] bg-[#030712] sm:flex sm:flex-col"
+       class="hidden w-60 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-[#030712] sm:flex sm:flex-col"
        x-cloak>
   <div class="flex items-center gap-2.5 px-5 pt-5 pb-6">
     <span class="inline-block h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-500"></span>
@@ -58,7 +57,6 @@
     </a>
 
     {% if user.is_admin %}
-    {# Admin group — omitted entirely for non-admins #}
     <div data-testid="nav-admin-group"
          class="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
       {% translate "Admin" %}
