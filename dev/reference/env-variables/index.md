@@ -282,11 +282,11 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 
 MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. Each MCP server runs in its own isolated container.
 
-| Variable                  | Description                                                                | Default                        | Example                     |
-| ------------------------- | -------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
-| `MCP_SERVERS_CONFIG_FILE` | Path to user-defined MCP servers JSON config file                          | *(none)*                       | `/path/to/mcp.json`         |
-| `MCP_SENTRY_URL`          | SSE URL for the Sentry supergateway container (set to `None` to disable)   | `http://mcp-sentry:8000/sse`   | `http://localhost:8001/sse` |
-| `MCP_CONTEXT7_URL`        | SSE URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/sse` | `http://localhost:8002/sse` |
+| Variable                  | Description                                                                            | Default                        | Example                     |
+| ------------------------- | -------------------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
+| `MCP_SERVERS_CONFIG_FILE` | Path to user-defined MCP servers JSON config file                                      | *(none)*                       | `/path/to/mcp.json`         |
+| `MCP_SENTRY_URL`          | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable)   | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
+| `MCP_CONTEXT7_URL`        | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
 
 Info
 
