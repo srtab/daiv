@@ -1,0 +1,15 @@
+{# daiv/accounts/templates/accounts/_breadcrumb.html #}
+{% load i18n %}
+
+{% if crumbs %}
+<nav data-testid="app-breadcrumb" aria-label="Breadcrumb" class="mb-3 flex items-center gap-2 text-[13px] text-gray-500">
+  {% for crumb in crumbs %}
+    {% if crumb.url %}
+      <a href="{{ crumb.url }}" class="text-gray-400 transition-colors hover:text-gray-200">{{ crumb.label }}</a>
+    {% else %}
+      <span class="text-gray-200">{{ crumb.label }}</span>
+    {% endif %}
+    {% if not forloop.last %}<span aria-hidden="true" class="text-gray-600">›</span>{% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
