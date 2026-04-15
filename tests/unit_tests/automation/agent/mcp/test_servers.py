@@ -10,7 +10,7 @@ class TestSentryMCPServer:
 
     @patch("automation.agent.mcp.servers.settings")
     def test_sentry_server_is_enabled_when_url_set(self, mock_settings):
-        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/sse"
+        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/mcp"
         server = SentryMCPServer()
 
         assert server.is_enabled() is True
@@ -32,12 +32,12 @@ class TestSentryMCPServer:
 
     @patch("automation.agent.mcp.servers.settings")
     def test_sentry_get_connection_returns_correct_url(self, mock_settings):
-        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/sse"
+        mock_settings.SENTRY_URL = "http://mcp-sentry:8000/mcp"
         server = SentryMCPServer()
         connection = server.get_connection()
 
-        assert connection["transport"] == "sse"
-        assert connection["url"] == "http://mcp-sentry:8000/sse"
+        assert connection["transport"] == "streamable_http"
+        assert connection["url"] == "http://mcp-sentry:8000/mcp"
 
 
 class TestContext7MCPServer:
@@ -47,7 +47,7 @@ class TestContext7MCPServer:
 
     @patch("automation.agent.mcp.servers.settings")
     def test_context7_server_is_enabled_when_url_set(self, mock_settings):
-        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/sse"
+        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/mcp"
         server = Context7MCPServer()
 
         assert server.is_enabled() is True
@@ -69,9 +69,9 @@ class TestContext7MCPServer:
 
     @patch("automation.agent.mcp.servers.settings")
     def test_context7_get_connection_returns_correct_url(self, mock_settings):
-        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/sse"
+        mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/mcp"
         server = Context7MCPServer()
         connection = server.get_connection()
 
-        assert connection["transport"] == "sse"
-        assert connection["url"] == "http://mcp-context7:8000/sse"
+        assert connection["transport"] == "streamable_http"
+        assert connection["url"] == "http://mcp-context7:8000/mcp"

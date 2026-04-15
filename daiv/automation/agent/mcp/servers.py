@@ -1,4 +1,4 @@
-from langchain_mcp_adapters.sessions import SSEConnection
+from langchain_mcp_adapters.sessions import StreamableHttpConnection
 
 from .base import MCPServer
 from .conf import settings
@@ -14,9 +14,9 @@ class SentryMCPServer(MCPServer):
     def is_enabled(self) -> bool:
         return settings.SENTRY_URL is not None
 
-    def get_connection(self) -> SSEConnection:
+    def get_connection(self) -> StreamableHttpConnection:
         assert settings.SENTRY_URL is not None  # guaranteed by is_enabled()
-        return SSEConnection(transport="sse", url=settings.SENTRY_URL)
+        return StreamableHttpConnection(transport="streamable_http", url=settings.SENTRY_URL)
 
 
 @mcp_server
@@ -27,6 +27,6 @@ class Context7MCPServer(MCPServer):
     def is_enabled(self) -> bool:
         return settings.CONTEXT7_URL is not None
 
-    def get_connection(self) -> SSEConnection:
+    def get_connection(self) -> StreamableHttpConnection:
         assert settings.CONTEXT7_URL is not None  # guaranteed by is_enabled()
-        return SSEConnection(transport="sse", url=settings.CONTEXT7_URL)
+        return StreamableHttpConnection(transport="streamable_http", url=settings.CONTEXT7_URL)
