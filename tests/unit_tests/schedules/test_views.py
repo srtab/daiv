@@ -113,12 +113,14 @@ class TestScheduleToggleView:
 
 @pytest.mark.django_db
 class TestScheduleRunNowView:
-    def test_enqueues_job_and_creates_activity(self, member_client, member_user, schedule, mocker):
+    def test_enqueues_job_and_redirects_to_activity_detail(self, member_client, member_user, schedule, mocker):
         mock_result = mocker.MagicMock()
         mock_result.id = uuid.uuid4()
         mock_task = mocker.patch("schedules.views.run_job_task")
         mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
-        mock_create = mocker.patch("schedules.views.create_activity")
+        mock_activity = mocker.MagicMock()
+        mock_activity.pk = uuid.uuid4()
+        mock_create = mocker.patch("schedules.views.create_activity", return_value=mock_activity)
 
         response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -135,6 +137,7 @@ class TestScheduleRunNowView:
             user=member_user,
         )
         assert response.status_code == 302
+        assert response.url == reverse("activity_detail", args=[mock_activity.pk])
 
         schedule.refresh_from_db()
         assert schedule.run_count == 0
@@ -148,10 +151,13 @@ class TestScheduleRunNowView:
         mock_result.id = uuid.uuid4()
         mock_task = mocker.patch("schedules.views.run_job_task")
         mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
-        mock_create = mocker.patch("schedules.views.create_activity")
+        mock_activity = mocker.MagicMock()
+        mock_activity.pk = uuid.uuid4()
+        mock_create = mocker.patch("schedules.views.create_activity", return_value=mock_activity)
 
         response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
         assert response.status_code == 302
+        assert response.url == reverse("activity_detail", args=[mock_activity.pk])
         mock_create.assert_called_once()
 
     def test_enqueue_failure_returns_error_message(self, member_client, schedule, mocker):
@@ -165,14 +171,16 @@ class TestScheduleRunNowView:
         content = response.content.decode()
         assert "Failed to trigger" in content
 
-    def test_activity_failure_still_succeeds(self, member_client, schedule, mocker):
+    def test_activity_failure_falls_back_to_schedule_list(self, member_client, schedule, mocker):
         mock_result = mocker.MagicMock()
         mock_result.id = uuid.uuid4()
         mock_task = mocker.patch("schedules.views.run_job_task")
         mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
         mocker.patch("schedules.views.create_activity", side_effect=RuntimeError("db error"))
 
-        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "triggered successfully" in content
+        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("schedule_list")
+
+        followed = member_client.get(response.url)
+        assert "triggered successfully" in followed.content.decode()

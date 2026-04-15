@@ -109,8 +109,9 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
             messages.error(request, f"Failed to trigger schedule '{schedule.name}'. Please try again.")
             return redirect("schedule_list")
 
+        activity = None
         try:
-            create_activity(
+            activity = create_activity(
                 trigger_type=TriggerType.SCHEDULE,
                 task_result_id=result.id,
                 repo_id=schedule.repo_id,
@@ -123,6 +124,8 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
             logger.exception("Failed to create activity for run-now schedule pk=%d (%s)", schedule.pk, schedule.name)
 
         messages.success(request, f"Schedule '{schedule.name}' triggered successfully.")
+        if activity is not None:
+            return redirect("activity_detail", pk=activity.pk)
         return redirect("schedule_list")
 
 
