@@ -1,0 +1,91 @@
+{# daiv/accounts/templates/accounts/_sidebar.html #}
+{% load i18n icon_tags nav_tags %}
+
+<aside data-testid="app-sidebar"
+       class="hidden w-60 shrink-0 border-r border-white/[0.06] bg-[#030712] sm:flex sm:flex-col"
+       x-cloak>
+  <div class="flex items-center gap-2.5 px-5 pt-5 pb-6">
+    <span class="inline-block h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-500"></span>
+    <a href="{% url 'dashboard' %}" class="text-[17px] font-bold tracking-tight text-white">DAIV</a>
+  </div>
+
+  <nav class="flex flex-1 flex-col px-3 pb-4">
+    {# Daily work — no group label #}
+    <a href="{% url 'dashboard' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'dashboard' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'dashboard' %}opacity-0{% endif %}"></span>
+      {% icon "squares-2x2" "h-4 w-4" %}
+      <span>{% translate "Dashboard" %}</span>
+    </a>
+
+    <a href="{% url 'activity_list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'activity' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'activity' %}opacity-0{% endif %}"></span>
+      {% icon "bolt" "h-4 w-4" %}
+      <span class="flex-1">{% translate "Activity" %}</span>
+      {% if nav_running_jobs %}
+      <span data-testid="nav-running-badge"
+            class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+        {% blocktranslate count counter=nav_running_jobs %}{{ counter }} running{% plural %}{{ counter }} running{% endblocktranslate %}
+      </span>
+      {% endif %}
+    </a>
+
+    <a href="{% url 'schedule_list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'schedules' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'schedules' %}opacity-0{% endif %}"></span>
+      {% icon "clock" "h-4 w-4" %}
+      <span>{% translate "Schedules" %}</span>
+    </a>
+
+    {# Account group #}
+    <div class="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+      {% translate "Account" %}
+    </div>
+
+    <a href="{% url 'user_channels' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'channels' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'channels' %}opacity-0{% endif %}"></span>
+      {% icon "envelope" "h-4 w-4" %}
+      <span>{% translate "Notification channels" %}</span>
+    </a>
+
+    <a href="{% url 'api_keys' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'api_keys' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'api_keys' %}opacity-0{% endif %}"></span>
+      {% icon "key" "h-4 w-4" %}
+      <span>{% translate "API keys" %}</span>
+    </a>
+
+    {% if user.is_admin %}
+    {# Admin group — omitted entirely for non-admins #}
+    <div data-testid="nav-admin-group"
+         class="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+      {% translate "Admin" %}
+    </div>
+
+    <a href="{% url 'user_list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'users' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'users' %}opacity-0{% endif %}"></span>
+      {% icon "users" "h-4 w-4" %}
+      <span>{% translate "Users" %}</span>
+    </a>
+
+    <a href="{% url 'site_configuration' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'configuration' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'configuration' %}opacity-0{% endif %}"></span>
+      {% icon "cog-6-tooth" "h-4 w-4" %}
+      <span>{% translate "Configuration" %}</span>
+    </a>
+    {% endif %}
+
+    {# Footer — API docs pinned to the bottom #}
+    <div class="mt-auto border-t border-white/[0.05] pt-3">
+      <a href="{% url 'api:openapi-view' %}"
+         class="flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:text-gray-300">
+        {% icon "code-bracket" "h-3.5 w-3.5" %}
+        <span>{% translate "API documentation" %}</span>
+      </a>
+    </div>
+  </nav>
+</aside>
