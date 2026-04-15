@@ -1,12 +1,10 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load i18n %}
 
 {% block title %}{% translate "Notification channels" %} — DAIV{% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-  {% include "accounts/_header.html" %}
-  <main class="mx-auto max-w-3xl px-6 py-12">
+{% block app_content %}
+<div class="mx-auto max-w-3xl">
     <h1 class="text-2xl font-bold tracking-tight">{% translate "Notification channels" %}</h1>
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
       {% translate "Configure how DAIV reaches you. More channels will appear here as they are added." %}
@@ -37,6 +35,5 @@
         </div>
       {% endfor %}
     </div>
-  </main>
 </div>
 {% endblock %}

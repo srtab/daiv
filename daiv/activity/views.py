@@ -8,12 +8,14 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.urls import reverse
 from django.utils.text import slugify
 from django.views import View
 from django.views.generic import DetailView
 
 from django_filters.views import FilterView
 
+from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.models import Activity, ActivityStatus, TriggerType
 from schedules.models import ScheduledJob
@@ -64,7 +66,7 @@ class ActivityListView(LoginRequiredMixin, FilterView):
         return context
 
 
-class ActivityDetailView(LoginRequiredMixin, DetailView):
+class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     model = Activity
     template_name = "activity/activity_detail.html"
     context_object_name = "activity"
@@ -77,6 +79,12 @@ class ActivityDetailView(LoginRequiredMixin, DetailView):
         activity: Activity = context["activity"]
         context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
         return context
+
+    def get_breadcrumbs(self):
+        return [
+            {"label": "Activity", "url": reverse("activity_list")},
+            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id}", "url": None},
+        ]
 
 
 class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):

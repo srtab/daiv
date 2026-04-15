@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load activity_tags dashboard_tags i18n icon_tags l10n markdown_tags static %}
 
 {% block title %}Activity Detail — DAIV{% endblock %}
@@ -9,23 +9,18 @@
 {% endif %}
 {% endblock %}
 
-{% block content %}
-<div class="min-h-dvh" {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
-    {% include "accounts/_header.html" %}
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
 
-    <main class="mx-auto max-w-6xl px-6 py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">Activity Detail</h1>
-                <p class="mt-1.5 text-[15px] font-light text-gray-400">
-                    {{ activity.get_trigger_type_display }} &middot; {{ activity.repo_id }}
-                </p>
-            </div>
-            <a href="{% url 'activity_list' %}"
-               class="text-[15px] text-gray-400 transition-colors hover:text-white">
-                &larr; Activity
-            </a>
-        </div>
+{% block app_content %}
+<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
+    <div class="animate-fade-up">
+        <h1 class="text-2xl font-bold tracking-tight">Activity Detail</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {{ activity.get_trigger_type_display }} &middot; {{ activity.repo_id }}
+        </p>
+    </div>
 
         <!-- Context card -->
         <div class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
@@ -264,7 +259,6 @@
             </div>
             {% endif %}
         </div>
-    </main>
 </div>
 
 {% endblock %}

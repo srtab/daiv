@@ -1,24 +1,13 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load static icon_tags %}
 
 {% block title %}API Keys — DAIV{% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-    {% include "accounts/_header.html" %}
-
-    <!-- Content -->
-    <main class="mx-auto max-w-6xl px-6 py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">API Keys</h1>
-                <p class="mt-1.5 text-[15px] font-light text-gray-400">Create and manage keys for programmatic access.</p>
-            </div>
-            <a href="{% url 'dashboard' %}"
-               class="text-[15px] text-gray-400 transition-colors hover:text-white">
-                &larr; Dashboard
-            </a>
-        </div>
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">API Keys</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">Create and manage keys for programmatic access.</p>
+</div>
 
         {% if new_key %}
         <!-- Newly created key (shown once) -->
@@ -101,6 +90,4 @@
             </div>
             {% endif %}
         </div>
-    </main>
-</div>
 {% endblock %}
