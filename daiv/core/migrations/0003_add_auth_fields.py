@@ -9,6 +9,15 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="siteconfiguration",
+            name="auth_login_enabled",
+            field=models.BooleanField(
+                help_text="Allow users to sign in with their Git platform account (GitHub or GitLab).",
+                null=True,
+                verbose_name="enable OAuth login",
+            ),
+        ),
+        migrations.AddField(
+            model_name="siteconfiguration",
             name="_auth_client_secret_encrypted",
             field=models.TextField(blank=True, editable=False, null=True),
         ),

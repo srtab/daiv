@@ -28,6 +28,7 @@ class FieldGroup:
     match: tuple[str, ...] = ()
     icon: str = ""
     fields: tuple[str, ...] = ()
+    toggle_field: str = ""
 
 
 class ThinkingLevelChoices(models.TextChoices):
@@ -244,6 +245,11 @@ class SiteConfiguration(models.Model):
     )
 
     # -- Authentication --
+    auth_login_enabled = models.BooleanField(
+        _("enable OAuth login"),
+        null=True,
+        help_text=_("Allow users to sign in with their Git platform account (GitHub or GitLab)."),
+    )
     auth_client_id = models.CharField(
         _("OAuth client ID"),
         max_length=255,
@@ -347,11 +353,29 @@ class SiteConfiguration(models.Model):
             match=("anthropic_*", "openai_*", "google_*", "openrouter_*"),
             icon="providers",
         ),
-        FieldGroup(key="web_search", title=_("Web Search"), match=("web_search_*",), icon="web-search"),
-        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=("web_fetch_*",), icon="web-fetch"),
+        FieldGroup(
+            key="web_search",
+            title=_("Web Search"),
+            match=("web_search_*",),
+            icon="web-search",
+            toggle_field="web_search_enabled",
+        ),
+        FieldGroup(
+            key="web_fetch",
+            title=_("Web Fetch"),
+            match=("web_fetch_*",),
+            icon="web-fetch",
+            toggle_field="web_fetch_enabled",
+        ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
-        FieldGroup(key="authentication", title=_("Authentication"), match=("auth_*",), icon="lock-closed"),
+        FieldGroup(
+            key="authentication",
+            title=_("Authentication"),
+            match=("auth_*",),
+            icon="lock-closed",
+            toggle_field="auth_login_enabled",
+        ),
     )
 
     objects: SingletonManager = SingletonManager()
@@ -487,6 +511,7 @@ class SiteConfiguration(models.Model):
                     match=group_def.match,
                     icon=group_def.icon,
                     fields=tuple(group_fields),
+                    toggle_field=group_def.toggle_field,
                 )
             )
         return groups

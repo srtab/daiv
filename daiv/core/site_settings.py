@@ -66,6 +66,7 @@ def _build_field_defaults() -> dict[str, Any]:
         # Jobs
         "jobs_throttle_rate": "20/hour",
         # Authentication
+        "auth_login_enabled": False,
         "auth_client_id": None,
         "auth_gitlab_url": "https://gitlab.com",
         "auth_gitlab_server_url": None,

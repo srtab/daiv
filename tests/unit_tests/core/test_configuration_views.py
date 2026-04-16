@@ -414,6 +414,7 @@ class TestAuthFieldFiltering:
 
     def test_gitlab_shows_all_auth_fields(self, db):
         fields = self._get_form_fields("GITLAB")
+        assert "auth_login_enabled" in fields
         assert "auth_client_id" in fields
         assert "auth_client_secret" in fields
         assert "auth_gitlab_url" in fields
@@ -421,6 +422,7 @@ class TestAuthFieldFiltering:
 
     def test_github_hides_gitlab_specific_fields(self, db):
         fields = self._get_form_fields("GITHUB")
+        assert "auth_login_enabled" in fields
         assert "auth_client_id" in fields
         assert "auth_client_secret" in fields
         assert "auth_gitlab_url" not in fields
@@ -428,7 +430,81 @@ class TestAuthFieldFiltering:
 
     def test_swe_hides_all_auth_fields(self, db):
         fields = self._get_form_fields("SWE")
+        assert "auth_login_enabled" not in fields
         assert "auth_client_id" not in fields
         assert "auth_client_secret" not in fields
         assert "auth_gitlab_url" not in fields
         assert "auth_gitlab_server_url" not in fields
+
+
+class TestAuthCredentialValidation:
+    def _make_form(self, data, *, instance=None, cleared_secrets=None, env_locked_fields=None):
+        from codebase.base import GitPlatform
+        from core.forms import SiteConfigurationForm
+        from core.models import SiteConfiguration
+
+        config = instance or SiteConfiguration.objects.get_instance()
+        with patch("codebase.conf.settings") as mock_codebase:
+            mock_codebase.CLIENT = GitPlatform.GITHUB
+            return SiteConfigurationForm(
+                data=data,
+                instance=config,
+                cleared_secrets=cleared_secrets or set(),
+                env_locked_fields=env_locked_fields or set(),
+            )
+
+    def test_client_id_without_secret_rejected(self, db):
+        form = self._make_form({"auth_client_id": "my-id"})
+        assert not form.is_valid()
+        assert "auth_client_secret" in form.errors
+
+    def test_secret_without_client_id_rejected(self, db):
+        form = self._make_form({"auth_client_secret": "my-secret"})
+        assert not form.is_valid()
+        assert "auth_client_id" in form.errors
+
+    def test_both_present_accepted(self, db):
+        form = self._make_form({"auth_client_id": "my-id", "auth_client_secret": "my-secret"})
+        assert "auth_client_id" not in form.errors
+        assert "auth_client_secret" not in form.errors
+
+    def test_neither_present_accepted(self, db):
+        form = self._make_form({})
+        assert "auth_client_id" not in form.errors
+        assert "auth_client_secret" not in form.errors
+
+    def test_secret_in_db_with_client_id_in_form_accepted(self, db):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.objects.get_instance()
+        config.auth_client_secret = "existing-secret"  # noqa: S105
+        config.save()
+
+        form = self._make_form({"auth_client_id": "my-id"}, instance=config)
+        assert "auth_client_id" not in form.errors
+        assert "auth_client_secret" not in form.errors
+
+    def test_client_id_in_db_with_secret_in_form_accepted(self, db):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.objects.get_instance()
+        config.auth_client_id = "existing-id"
+        config.save()
+
+        form = self._make_form({"auth_client_secret": "my-secret"}, instance=config)
+        assert "auth_client_id" not in form.errors
+        assert "auth_client_secret" not in form.errors
+
+    def test_clearing_secret_while_client_id_set_rejected(self, db):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.objects.get_instance()
+        config.auth_client_id = "existing-id"
+        config.auth_client_secret = "existing-secret"  # noqa: S105
+        config.save()
+
+        form = self._make_form(
+            {"auth_client_id": "existing-id"}, instance=config, cleared_secrets={"auth_client_secret"}
+        )
+        assert not form.is_valid()
+        assert "auth_client_secret" in form.errors

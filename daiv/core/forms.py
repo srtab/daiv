@@ -118,6 +118,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "suggest_context_file_enabled",
             "openrouter_api_base",
             "jobs_throttle_rate",
+            "auth_login_enabled",
             "auth_client_id",
             "auth_gitlab_url",
             "auth_gitlab_server_url",
@@ -255,7 +256,13 @@ class SiteConfigurationForm(forms.ModelForm):
             for name in ("auth_gitlab_url", "auth_gitlab_server_url"):
                 self.fields.pop(name, None)
         elif client != GitPlatform.GITLAB:
-            for name in ("auth_client_id", "auth_client_secret", "auth_gitlab_url", "auth_gitlab_server_url"):
+            for name in (
+                "auth_login_enabled",
+                "auth_client_id",
+                "auth_client_secret",
+                "auth_gitlab_url",
+                "auth_gitlab_server_url",
+            ):
                 self.fields.pop(name, None)
 
     # ------------------------------------------------------------------
@@ -306,9 +313,7 @@ class SiteConfigurationForm(forms.ModelForm):
         """Validate that OAuth client ID and secret are configured as a pair."""
         if "auth_client_id" not in self.fields:
             return
-        has_client_id = bool(cleaned_data.get("auth_client_id")) or (
-            "auth_client_id" not in self.cleared_secrets and bool(self.instance and self.instance.auth_client_id)
-        )
+        has_client_id = bool(cleaned_data.get("auth_client_id")) or bool(self.instance and self.instance.auth_client_id)
         has_secret = self._has_api_key("auth_client_secret", cleaned_data)
         if has_client_id and not has_secret:
             self.add_error("auth_client_secret", _("OAuth requires both a client ID and a client secret."))

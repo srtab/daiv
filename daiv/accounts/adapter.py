@@ -43,6 +43,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         return user
 
     def list_apps(self, request, provider=None, client_id=None):
+        if not site_settings.auth_login_enabled:
+            logger.debug("OAuth login disabled (auth_login_enabled is off)")
+            return []
+
         platform = codebase_settings.CLIENT
         if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
             return []
