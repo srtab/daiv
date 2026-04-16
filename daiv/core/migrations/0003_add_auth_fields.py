@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             name="auth_gitlab_server_url",
             field=models.CharField(
                 blank=True,
-                help_text="Server-to-server URL for token exchange in Docker-internal networks. Leave empty to use the GitLab URL.",
+                help_text="Server-to-server URL for GitLab API calls (token exchange, profile fetch) in Docker-internal networks. Leave empty to use the GitLab URL.",
                 max_length=255,
                 null=True,
                 verbose_name="GitLab server URL",

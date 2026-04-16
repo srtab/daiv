@@ -195,6 +195,7 @@ class SiteConfigurationForm(forms.ModelForm):
 
     def _apply_env_locks(self) -> None:
         """Disable fields locked by environment variables and set effective initial values."""
+        from core.encryption import mask_secret
         from core.site_settings import site_settings
 
         for name in self.env_locked_fields:
@@ -211,6 +212,11 @@ class SiteConfigurationForm(forms.ModelForm):
                 self.initial[name] = bool(effective)
             elif effective is not None:
                 self.initial[name] = effective
+            # Env-locked secrets have NULL in the DB, so get_secret_hint returns
+            # nothing. Generate a hint from the env value so the UI shows the field is set.
+            if name in self.SECRET_FIELDS and effective is not None and not getattr(field_obj, "secret_hint", None):
+                raw = effective.get_secret_value() if hasattr(effective, "get_secret_value") else str(effective)
+                field_obj.secret_hint = mask_secret(raw)  # type: ignore[attr-defined]
 
     def _apply_defaults(self, field_defaults: dict[str, str]) -> None:
         """Set effective defaults as placeholders, empty-choice labels, or checkbox initial values."""
@@ -248,7 +254,7 @@ class SiteConfigurationForm(forms.ModelForm):
         if client == GitPlatform.GITHUB:
             for name in ("auth_gitlab_url", "auth_gitlab_server_url"):
                 self.fields.pop(name, None)
-        elif client not in (GitPlatform.GITHUB, GitPlatform.GITLAB):
+        elif client != GitPlatform.GITLAB:
             for name in ("auth_client_id", "auth_client_secret", "auth_gitlab_url", "auth_gitlab_server_url"):
                 self.fields.pop(name, None)
 
@@ -260,6 +266,7 @@ class SiteConfigurationForm(forms.ModelForm):
         cleaned_data = super().clean()
         self._validate_model_api_keys(cleaned_data)
         self._validate_web_search_api_key(cleaned_data)
+        self._validate_auth_credentials(cleaned_data)
         return cleaned_data
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
@@ -294,6 +301,19 @@ class SiteConfigurationForm(forms.ModelForm):
                 "web_search_engine",
                 _("Tavily requires an API key. Set the web search API key below or via environment variable."),
             )
+
+    def _validate_auth_credentials(self, cleaned_data: dict[str, Any]) -> None:
+        """Validate that OAuth client ID and secret are configured as a pair."""
+        if "auth_client_id" not in self.fields:
+            return
+        has_client_id = bool(cleaned_data.get("auth_client_id")) or (
+            "auth_client_id" not in self.cleared_secrets and bool(self.instance and self.instance.auth_client_id)
+        )
+        has_secret = self._has_api_key("auth_client_secret", cleaned_data)
+        if has_client_id and not has_secret:
+            self.add_error("auth_client_secret", _("OAuth requires both a client ID and a client secret."))
+        elif has_secret and not has_client_id:
+            self.add_error("auth_client_id", _("OAuth requires both a client ID and a client secret."))
 
     def _has_api_key(self, field_name: str, cleaned_data: dict[str, Any]) -> bool:
         """Check if an API key is available via env var, form submission, or existing DB value."""
@@ -343,5 +363,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "openrouter_api_key": _("API key for OpenRouter."),
             "web_search_api_key": _("API key for Tavily web search engine."),
             "sandbox_api_key": _("API key for the sandbox service."),
+            "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
         }
         return labels.get(name, "")

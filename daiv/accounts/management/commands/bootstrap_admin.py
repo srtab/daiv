@@ -4,7 +4,7 @@ from accounts.models import Role, User
 
 
 class Command(BaseCommand):
-    help = "Create the initial admin user on a fresh install."
+    help = "Create the initial admin user when no admin exists yet."
 
     def add_arguments(self, parser):
         parser.add_argument("email", help="Email address for the new admin user.")

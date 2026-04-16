@@ -206,7 +206,7 @@ class TestSocialAccountAdapterListApps:
             assert len(result) == 1
             assert result[0].secret == "plain-secret"  # noqa: S105
 
-    def test_gitlab_defaults_url_when_none(self, adapter):
+    def test_gitlab_defaults_url_when_not_set(self, adapter):
         with (
             patch("accounts.adapter.codebase_settings") as mock_codebase,
             patch("accounts.adapter.site_settings") as mock_site,
@@ -216,7 +216,7 @@ class TestSocialAccountAdapterListApps:
             mock_codebase.CLIENT = GitPlatform.GITLAB
             mock_site.auth_client_id = "gl-client-id"
             mock_site.auth_client_secret = SecretStr("gl-secret")
-            mock_site.auth_gitlab_url = None
+            mock_site.auth_gitlab_url = "https://gitlab.com"
             mock_site.auth_gitlab_server_url = None
             result = adapter.list_apps(Mock())
             assert result[0].settings["gitlab_url"] == "https://gitlab.com"

@@ -264,7 +264,8 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         help_text=_(
-            "Server-to-server URL for token exchange in Docker-internal networks. Leave empty to use the GitLab URL."
+            "Server-to-server URL for GitLab API calls (token exchange, profile fetch) in Docker-internal networks."
+            " Leave empty to use the GitLab URL."
         ),
     )
 

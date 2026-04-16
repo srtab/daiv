@@ -10,8 +10,6 @@ from core.site_settings import site_settings
 
 logger = logging.getLogger(__name__)
 
-_PLATFORM_TO_PROVIDER: dict[GitPlatform, str] = {GitPlatform.GITLAB: "gitlab", GitPlatform.GITHUB: "github"}
-
 
 class AccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request):
@@ -45,29 +43,42 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         return user
 
     def list_apps(self, request, provider=None, client_id=None):
-        expected_provider = _PLATFORM_TO_PROVIDER.get(codebase_settings.CLIENT)
-        if expected_provider is None:
+        platform = codebase_settings.CLIENT
+        if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
             return []
-        if provider and provider != expected_provider:
+        if provider and provider != platform.value:
             return []
 
         client_id_value = site_settings.auth_client_id
         secret = site_settings.auth_client_secret
-        if not client_id_value or secret is None:
+
+        if not client_id_value and not secret:
+            return []
+
+        secret_value = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
+        if not client_id_value or not secret_value:
+            logger.warning(
+                "Partial OAuth config for %s: client_id %s, secret %s. Set both or neither.",
+                platform.value,
+                "set" if client_id_value else "missing",
+                "set" if secret_value else "missing",
+            )
+            return []
+
+        if client_id and client_id != client_id_value:
             return []
 
         app_settings: dict[str, str] = {}
-        if expected_provider == "gitlab":
+        if platform == GitPlatform.GITLAB:
             app_settings = {
-                "gitlab_url": site_settings.auth_gitlab_url or "https://gitlab.com",
+                "gitlab_url": site_settings.auth_gitlab_url,
                 "gitlab_server_url": site_settings.auth_gitlab_server_url or "",
             }
 
-        secret_value = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
         return [
             SocialApp(
-                provider=expected_provider,
-                name=f"{expected_provider.capitalize()} (SiteConfiguration)",
+                provider=platform.value,
+                name=f"{platform.value.capitalize()} (SiteConfiguration)",
                 client_id=client_id_value,
                 secret=secret_value,
                 settings=app_settings,

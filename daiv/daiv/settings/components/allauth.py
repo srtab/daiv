@@ -28,6 +28,6 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
 LOGIN_URL = "/accounts/login/"
 
-# Provider scopes are static; credentials, URLs, and enablement come from
-# SiteConfiguration via accounts.adapter.SocialAccountAdapter.list_apps().
+# Provider scopes are always registered; whether a provider is actually usable
+# (credentials, URLs) is determined at runtime by SocialAccountAdapter.list_apps().
 SOCIALACCOUNT_PROVIDERS = {"github": {"SCOPE": ["user:email"]}, "gitlab": {"SCOPE": ["read_user"]}}
