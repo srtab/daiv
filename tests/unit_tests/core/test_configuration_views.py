@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.urls import reverse
 
 import pytest
@@ -396,3 +398,37 @@ class TestEnvLockedSecretSave:
 
         config.refresh_from_db()
         assert config.anthropic_api_key == "sk-original"
+
+
+class TestAuthFieldFiltering:
+    def _get_form_fields(self, platform):
+        from codebase.base import GitPlatform
+        from core.forms import SiteConfigurationForm
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.objects.get_instance()
+        with patch("codebase.conf.settings") as mock_codebase:
+            mock_codebase.CLIENT = getattr(GitPlatform, platform)
+            form = SiteConfigurationForm(instance=config)
+        return set(form.fields.keys())
+
+    def test_gitlab_shows_all_auth_fields(self, db):
+        fields = self._get_form_fields("GITLAB")
+        assert "auth_client_id" in fields
+        assert "auth_client_secret" in fields
+        assert "auth_gitlab_url" in fields
+        assert "auth_gitlab_server_url" in fields
+
+    def test_github_hides_gitlab_specific_fields(self, db):
+        fields = self._get_form_fields("GITHUB")
+        assert "auth_client_id" in fields
+        assert "auth_client_secret" in fields
+        assert "auth_gitlab_url" not in fields
+        assert "auth_gitlab_server_url" not in fields
+
+    def test_swe_hides_all_auth_fields(self, db):
+        fields = self._get_form_fields("SWE")
+        assert "auth_client_id" not in fields
+        assert "auth_client_secret" not in fields
+        assert "auth_gitlab_url" not in fields
+        assert "auth_gitlab_server_url" not in fields
