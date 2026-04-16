@@ -115,14 +115,15 @@ Variables marked with:
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login is allowed to bootstrap the initial admin account (see [Deployment](../getting-started/deployment.md)). Configure at least one social provider.
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `python manage.py bootstrap_admin <email>` to create one via login-by-code (see [Deployment](../getting-started/deployment.md)).
+
+OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `ALLAUTH_GITHUB_CLIENT_ID` :material-lock: | GitHub OAuth App client ID | *(none)* | `Iv1.abc123` |
-| `ALLAUTH_GITHUB_SECRET` :material-lock: | GitHub OAuth App secret | *(none)* | |
-| `ALLAUTH_GITLAB_CLIENT_ID` :material-lock: | GitLab OAuth Application ID | *(none)* | |
-| `ALLAUTH_GITLAB_SECRET` :material-lock: | GitLab OAuth Application secret | *(none)* | |
+| `DAIV_AUTH_LOGIN_ENABLED` | Enable OAuth login (social provider buttons on login page) | `false` | `true` |
+| `ALLAUTH_CLIENT_ID` :material-lock: | OAuth client ID for the configured Git platform | *(none)* | `Iv1.abc123` |
+| `ALLAUTH_CLIENT_SECRET` :material-lock: | OAuth client secret for the configured Git platform | *(none)* | |
 | `ALLAUTH_GITLAB_URL` | GitLab instance URL (for OAuth redirects to the user's browser) | `https://gitlab.com` | `https://gitlab.example.com` |
 | `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)* | `http://gitlab:8929` |
 | `EMAIL_BACKEND` | Django email backend for login-by-code emails | `django.core.mail.backends.smtp.EmailBackend` | `django.core.mail.backends.console.EmailBackend` |
@@ -139,7 +140,7 @@ DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Us
     **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
 
 !!! note
-    Social providers are only registered when **both** client ID and secret are set. If only one is configured, a warning is logged and the provider button is not shown on the login page.
+    OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).
 
 ### Other
 
