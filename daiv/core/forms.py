@@ -119,6 +119,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "openrouter_api_base",
             "jobs_throttle_rate",
             "auth_login_enabled",
+            "auth_signup_open",
             "auth_client_id",
             "auth_gitlab_url",
             "auth_gitlab_server_url",
@@ -258,6 +259,7 @@ class SiteConfigurationForm(forms.ModelForm):
         elif client != GitPlatform.GITLAB:
             for name in (
                 "auth_login_enabled",
+                "auth_signup_open",
                 "auth_client_id",
                 "auth_client_secret",
                 "auth_gitlab_url",
