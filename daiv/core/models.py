@@ -243,6 +243,31 @@ class SiteConfiguration(models.Model):
         help_text=_("Memory limit in bytes to allocate to sandbox sessions by default. Leave empty for no limit."),
     )
 
+    # -- Authentication --
+    auth_client_id = models.CharField(
+        _("OAuth client ID"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("OAuth application client ID for the configured Git platform."),
+    )
+    auth_gitlab_url = models.CharField(
+        _("GitLab URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Browser-facing URL of your GitLab instance."),
+    )
+    auth_gitlab_server_url = models.CharField(
+        _("GitLab server URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_(
+            "Server-to-server URL for token exchange in Docker-internal networks. Leave empty to use the GitLab URL."
+        ),
+    )
+
     # -- Features --
     suggest_context_file_enabled = models.BooleanField(
         _("suggest context file"),
@@ -275,6 +300,7 @@ class SiteConfiguration(models.Model):
     _openrouter_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
     anthropic_api_key = EncryptedFieldDescriptor("anthropic_api_key")
@@ -283,6 +309,7 @@ class SiteConfiguration(models.Model):
     openrouter_api_key = EncryptedFieldDescriptor("openrouter_api_key")
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
+    auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
 
     MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
         "agent_model_name",
@@ -302,6 +329,7 @@ class SiteConfiguration(models.Model):
         "openrouter_api_key",
         "web_search_api_key",
         "sandbox_api_key",
+        "auth_client_secret",
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
@@ -322,6 +350,7 @@ class SiteConfiguration(models.Model):
         FieldGroup(key="web_fetch", title=_("Web Fetch"), match=("web_fetch_*",), icon="web-fetch"),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+        FieldGroup(key="authentication", title=_("Authentication"), match=("auth_*",), icon="lock-closed"),
     )
 
     objects: SingletonManager = SingletonManager()
