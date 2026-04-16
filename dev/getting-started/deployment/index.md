@@ -44,10 +44,8 @@ ______________________________________________________________________
 - **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 - **`email_host_password`** - SMTP authentication password (if your relay requires authentication)
 - **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
-- **`allauth_github_client_id`** - GitHub OAuth App client ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
-- **`allauth_github_secret`** - GitHub OAuth App secret
-- **`allauth_gitlab_client_id`** - GitLab OAuth Application ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
-- **`allauth_gitlab_secret`** - GitLab OAuth Application secret
+- **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
+- **`allauth_client_secret`** - OAuth client secret for the configured Git platform
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -157,10 +155,8 @@ services:
       - daiv_sandbox_api_key
       - openrouter_api_key
       - email_host_password
-      - allauth_github_client_id
-      - allauth_github_secret
-      - allauth_gitlab_client_id
-      - allauth_gitlab_secret
+      - allauth_client_id
+      - allauth_client_secret
     networks:
       - internal
       - external
@@ -299,13 +295,9 @@ secrets:
     external: true
   sentry_access_token:
     external: true
-  allauth_github_client_id:
+  allauth_client_id:
     external: true
-  allauth_github_secret:
-    external: true
-  allauth_gitlab_client_id:
-    external: true
-  allauth_gitlab_secret:
+  allauth_client_secret:
     external: true
 ```
 
@@ -397,11 +389,9 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # Authentication (at least one social provider recommended)
-    ALLAUTH_GITHUB_CLIENT_ID: github-client-id
-    ALLAUTH_GITHUB_SECRET: github-secret
-    ALLAUTH_GITLAB_CLIENT_ID: gitlab-client-id
-    ALLAUTH_GITLAB_SECRET: gitlab-secret
+    # Authentication (configure via UI at /configuration/ or via env vars)
+    ALLAUTH_CLIENT_ID: oauth-client-id
+    ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
 services:
   db:
@@ -669,4 +659,14 @@ Your DAIV instance is now running and accessible. Continue with:
 
 First Login & User Management
 
-On a fresh install, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. After that, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command:
+
+```
+docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+```
+
+This creates an admin user who can sign in using login-by-code (a one-time code sent by email) — useful when OAuth is not yet configured.
+
+After the initial admin is created, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+
+OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/configuration/` under the **Authentication** section.

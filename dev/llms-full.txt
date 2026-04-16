@@ -53,10 +53,8 @@ ______________________________________________________________________
 - **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 - **`email_host_password`** - SMTP authentication password (if your relay requires authentication)
 - **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
-- **`allauth_github_client_id`** - GitHub OAuth App client ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
-- **`allauth_github_secret`** - GitHub OAuth App secret
-- **`allauth_gitlab_client_id`** - GitLab OAuth Application ID (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
-- **`allauth_gitlab_secret`** - GitLab OAuth Application secret
+- **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
+- **`allauth_client_secret`** - OAuth client secret for the configured Git platform
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
@@ -166,10 +164,8 @@ services:
       - daiv_sandbox_api_key
       - openrouter_api_key
       - email_host_password
-      - allauth_github_client_id
-      - allauth_github_secret
-      - allauth_gitlab_client_id
-      - allauth_gitlab_secret
+      - allauth_client_id
+      - allauth_client_secret
     networks:
       - internal
       - external
@@ -308,13 +304,9 @@ secrets:
     external: true
   sentry_access_token:
     external: true
-  allauth_github_client_id:
+  allauth_client_id:
     external: true
-  allauth_github_secret:
-    external: true
-  allauth_gitlab_client_id:
-    external: true
-  allauth_gitlab_secret:
+  allauth_client_secret:
     external: true
 ```
 
@@ -406,11 +398,9 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # Authentication (at least one social provider recommended)
-    ALLAUTH_GITHUB_CLIENT_ID: github-client-id
-    ALLAUTH_GITHUB_SECRET: github-secret
-    ALLAUTH_GITLAB_CLIENT_ID: gitlab-client-id
-    ALLAUTH_GITLAB_SECRET: gitlab-secret
+    # Authentication (configure via UI at /configuration/ or via env vars)
+    ALLAUTH_CLIENT_ID: oauth-client-id
+    ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
 services:
   db:
@@ -678,7 +668,17 @@ Your DAIV instance is now running and accessible. Continue with:
 
 First Login & User Management
 
-On a fresh install, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. After that, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command:
+
+```
+docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+```
+
+This creates an admin user who can sign in using login-by-code (a one-time code sent by email) — useful when OAuth is not yet configured.
+
+After the initial admin is created, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+
+OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/configuration/` under the **Authentication** section.
 
 # Platform Setup
 
@@ -2915,6 +2915,12 @@ This allows you to keep secrets out of the config file and inject them via envir
 
 To add a custom stdio-based MCP server, wrap it with [supergateway](https://github.com/supercorp-ai/supergateway) in its own container. Each MCP server should run in a separate container for security isolation.
 
+Important
+
+Always run supergateway in **stateful mode** (`--stateful`). In stateless mode (the default), every tool call spawns a fresh child process chain (`npx` → `npm` → `sh` → `node`), which can exhaust the system's thread limit (`kernel.threads-max`) under concurrent load. Stateful mode keeps a single long-lived child process and multiplexes all requests through it.
+
+Use `--sessionTimeout` to automatically clean up idle sessions (in milliseconds). A value of `300000` (5 minutes) works well for typical agent runs.
+
 Example `docker-compose.yml` service:
 
 ```
@@ -2925,8 +2931,13 @@ mcp-my-tool:
   command:
     - --stdio
     - "npx my-mcp-server@latest"
+    - --outputTransport
+    - streamableHttp
     - --healthEndpoint
     - "/healthz"
+    - --stateful
+    - --sessionTimeout
+    - "300000"
   environment:
     MY_TOOL_API_KEY: ${MY_TOOL_API_KEY:-}
   healthcheck:
@@ -2943,8 +2954,8 @@ Then reference it in your config file:
 {
   "mcpServers": {
     "my-tool": {
-      "type": "sse",
-      "url": "http://mcp-my-tool:8000/sse"
+      "type": "http",
+      "url": "http://mcp-my-tool:8000/mcp"
     }
   }
 }
@@ -3081,14 +3092,15 @@ Global policy vs. repository policy
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login is allowed to bootstrap the initial admin account (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)). Configure at least one social provider.
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `python manage.py bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)).
+
+OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
 | Variable                    | Description                                                                                | Default                                       | Example                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------ |
-| `ALLAUTH_GITHUB_CLIENT_ID`  | GitHub OAuth App client ID                                                                 | *(none)*                                      | `Iv1.abc123`                                     |
-| `ALLAUTH_GITHUB_SECRET`     | GitHub OAuth App secret                                                                    | *(none)*                                      |                                                  |
-| `ALLAUTH_GITLAB_CLIENT_ID`  | GitLab OAuth Application ID                                                                | *(none)*                                      |                                                  |
-| `ALLAUTH_GITLAB_SECRET`     | GitLab OAuth Application secret                                                            | *(none)*                                      |                                                  |
+| `DAIV_AUTH_LOGIN_ENABLED`   | Enable OAuth login (social provider buttons on login page)                                 | `false`                                       | `true`                                           |
+| `ALLAUTH_CLIENT_ID`         | OAuth client ID for the configured Git platform                                            | *(none)*                                      | `Iv1.abc123`                                     |
+| `ALLAUTH_CLIENT_SECRET`     | OAuth client secret for the configured Git platform                                        | *(none)*                                      |                                                  |
 | `ALLAUTH_GITLAB_URL`        | GitLab instance URL (for OAuth redirects to the user's browser)                            | `https://gitlab.com`                          | `https://gitlab.example.com`                     |
 | `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)*                                      | `http://gitlab:8929`                             |
 | `EMAIL_BACKEND`             | Django email backend for login-by-code emails                                              | `django.core.mail.backends.smtp.EmailBackend` | `django.core.mail.backends.console.EmailBackend` |
@@ -3107,7 +3119,7 @@ Setting up social providers
 
 Note
 
-Social providers are only registered when **both** client ID and secret are set. If only one is configured, a warning is logged and the provider button is not shown on the login page.
+OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).
 
 ### Other
 
