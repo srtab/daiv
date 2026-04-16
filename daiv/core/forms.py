@@ -118,6 +118,9 @@ class SiteConfigurationForm(forms.ModelForm):
             "suggest_context_file_enabled",
             "openrouter_api_base",
             "jobs_throttle_rate",
+            "auth_client_id",
+            "auth_gitlab_url",
+            "auth_gitlab_server_url",
         ]
 
     def __init__(
@@ -138,6 +141,7 @@ class SiteConfigurationForm(forms.ModelForm):
         # env-locked fields; _apply_defaults must run after and skip them.
         self._apply_env_locks()
         self._apply_defaults(field_defaults or {})
+        self._hide_inapplicable_auth_fields()
 
     # ------------------------------------------------------------------
     # Setup helpers
@@ -234,6 +238,19 @@ class SiteConfigurationForm(forms.ModelForm):
             ):
                 # When DB value is NULL, show the checkbox with the default state
                 self.initial[name] = default_str.lower() in ("true", "1", "yes", "on")
+
+    def _hide_inapplicable_auth_fields(self) -> None:
+        """Remove auth fields that don't apply to the current CODEBASE_CLIENT."""
+        from codebase.base import GitPlatform
+        from codebase.conf import settings as codebase_settings
+
+        client = codebase_settings.CLIENT
+        if client == GitPlatform.GITHUB:
+            for name in ("auth_gitlab_url", "auth_gitlab_server_url"):
+                self.fields.pop(name, None)
+        elif client not in (GitPlatform.GITHUB, GitPlatform.GITLAB):
+            for name in ("auth_client_id", "auth_client_secret", "auth_gitlab_url", "auth_gitlab_server_url"):
+                self.fields.pop(name, None)
 
     # ------------------------------------------------------------------
     # Validation
