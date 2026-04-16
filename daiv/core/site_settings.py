@@ -65,6 +65,11 @@ def _build_field_defaults() -> dict[str, Any]:
         "sandbox_network_enabled": False,
         # Jobs
         "jobs_throttle_rate": "20/hour",
+        # Authentication
+        "auth_login_enabled": False,
+        "auth_client_id": None,
+        "auth_gitlab_url": "https://gitlab.com",
+        "auth_gitlab_server_url": None,
     }
 
 
@@ -90,6 +95,10 @@ class SiteSettings:
         "openai_api_key": "OPENAI_API_KEY",
         "google_api_key": "GOOGLE_API_KEY",
         "openrouter_api_key": "OPENROUTER_API_KEY",
+        "auth_client_id": "ALLAUTH_CLIENT_ID",
+        "auth_client_secret": "ALLAUTH_CLIENT_SECRET",
+        "auth_gitlab_url": "ALLAUTH_GITLAB_URL",
+        "auth_gitlab_server_url": "ALLAUTH_GITLAB_SERVER_URL",
     }
 
     @property

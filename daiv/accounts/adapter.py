@@ -2,6 +2,11 @@ import logging
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from allauth.socialaccount.models import SocialApp
+
+from codebase.base import GitPlatform
+from codebase.conf import settings as codebase_settings
+from core.site_settings import site_settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,53 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                 raise
             logger.info("Bootstrapping: assigned admin role to first user %s (pk=%s)", user.email, user.pk)
         return user
+
+    def list_apps(self, request, provider=None, client_id=None):
+        if not site_settings.auth_login_enabled:
+            logger.debug("OAuth login disabled (auth_login_enabled is off)")
+            return []
+
+        platform = codebase_settings.CLIENT
+        if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+            return []
+        if provider and provider != platform.value:
+            return []
+
+        client_id_value = site_settings.auth_client_id
+        secret = site_settings.auth_client_secret
+
+        if not client_id_value and not secret:
+            return []
+
+        secret_value = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
+        if not client_id_value or not secret_value:
+            logger.warning(
+                "Partial OAuth config for %s: client_id %s, secret %s. Set both or neither.",
+                platform.value,
+                "set" if client_id_value else "missing",
+                "set" if secret_value else "missing",
+            )
+            return []
+
+        if client_id and client_id != client_id_value:
+            return []
+
+        app_settings: dict[str, str] = {}
+        if platform == GitPlatform.GITLAB:
+            app_settings = {
+                "gitlab_url": site_settings.auth_gitlab_url,
+                "gitlab_server_url": site_settings.auth_gitlab_server_url or "",
+            }
+
+        return [
+            SocialApp(
+                provider=platform.value,
+                name=f"{platform.value.capitalize()} (SiteConfiguration)",
+                client_id=client_id_value,
+                secret=secret_value,
+                settings=app_settings,
+            )
+        ]
 
     def is_open_for_signup(self, request, sociallogin):
         """

@@ -34,26 +34,59 @@
     <!-- Configuration panels -->
     <div class="animate-fade-up mt-8 space-y-8" style="animation-delay: 150ms">
         {% for group in field_groups %}
-        <section id="{{ group.key }}" class="scroll-mt-20 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+        {% with toggle_bf=form|get_field:group.toggle_field %}
+        <section id="{{ group.key }}" class="scroll-mt-20 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
+                 {% if toggle_bf %}x-data="{ enabled: {{ toggle_bf.value|default:'false'|lower }} }"{% endif %}>
             <!-- Section header -->
-            <div class="flex items-center gap-2.5 pb-5">
+            <div class="flex items-center gap-2.5 {% if not toggle_bf %}pb-5{% endif %}">
                 <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
                     {% icon group.icon "h-3.5 w-3.5 text-gray-400" %}
                 </div>
                 <h2 class="text-base font-semibold text-white">{{ group.title }}</h2>
+                {% if toggle_bf %}
+                <div class="ml-auto flex items-center gap-2.5">
+                    {% if toggle_bf.field.is_env_locked %}
+                    {% include "core/_env_lock_badge.html" %}
+                    {% endif %}
+                    <label class="relative inline-flex cursor-pointer items-center {% if toggle_bf.field.is_env_locked %}opacity-50 pointer-events-none{% endif %}">
+                        <input type="hidden" name="{{ toggle_bf.name }}" value="">
+                        <input type="checkbox" name="{{ toggle_bf.name }}" value="on"
+                               {% if toggle_bf.value %}checked{% endif %}
+                               {% if toggle_bf.field.is_env_locked %}disabled{% endif %}
+                               x-model="enabled"
+                               class="peer sr-only">
+                        <div class="h-5 w-9 rounded-full border border-white/[0.08] bg-white/[0.04] transition-colors duration-200
+                                    peer-checked:border-white/[0.15] peer-checked:bg-white/[0.15]
+                                    after:absolute after:left-[3px] after:top-[3px] after:h-3.5 after:w-3.5 after:rounded-full
+                                    after:bg-gray-400 after:transition-all after:duration-200
+                                    peer-checked:after:translate-x-[14px] peer-checked:after:bg-white">
+                        </div>
+                    </label>
+                </div>
+                {% endif %}
             </div>
 
             <!-- Fields -->
-            <div class="space-y-5">
+            <div {% if toggle_bf %}x-show="enabled" x-cloak
+                 x-transition:enter="transition-all duration-200 ease-out"
+                 x-transition:enter-start="opacity-0 -translate-y-2"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition-all duration-150 ease-in"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 -translate-y-2"
+                 {% endif %}class="space-y-5 {% if toggle_bf %}pt-5{% endif %}">
                 {% for field_name in group.fields %}
+                    {% if field_name != group.toggle_field %}
                     {% with bf=form|get_field:field_name %}
                     {% if bf %}
                     {% include bf.field.template_name with field=bf %}
                     {% endif %}
                     {% endwith %}
+                    {% endif %}
                 {% endfor %}
             </div>
         </section>
+        {% endwith %}
         {% endfor %}
 
         <!-- Actions -->

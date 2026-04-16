@@ -1,9 +1,11 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import SecretStr
 
 from accounts.adapter import SocialAccountAdapter
 from accounts.models import Role, User
+from codebase.base import GitPlatform
 
 
 @pytest.fixture
@@ -91,3 +93,103 @@ class TestSocialAccountAdapterSaveUser:
         user = self._create_user_via_save(adapter, "new@test.com", "new")
         user.refresh_from_db()
         assert user.role == Role.ADMIN
+
+
+class TestSocialAccountAdapterListApps:
+    @pytest.fixture(autouse=True)
+    def _clear_site_config_cache(self, db):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    @pytest.fixture
+    def login_mocks(self):
+        with (
+            patch("accounts.adapter.codebase_settings") as mock_codebase,
+            patch("accounts.adapter.site_settings") as mock_site,
+        ):
+            mock_site.auth_login_enabled = True
+            yield mock_site, mock_codebase
+
+    def test_returns_empty_when_login_disabled(self, adapter):
+        with patch("accounts.adapter.site_settings") as mock_site:
+            mock_site.auth_login_enabled = False
+            result = adapter.list_apps(Mock())
+            assert result == []
+
+    def test_returns_empty_when_codebase_client_is_swe(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.SWE
+        mock_site.auth_client_id = "some-id"
+        mock_site.auth_client_secret = SecretStr("some-secret")
+        assert adapter.list_apps(Mock()) == []
+
+    def test_returns_empty_when_client_id_is_none(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITLAB
+        mock_site.auth_client_id = None
+        mock_site.auth_client_secret = SecretStr("some-secret")
+        assert adapter.list_apps(Mock()) == []
+
+    def test_returns_empty_when_secret_is_none(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITLAB
+        mock_site.auth_client_id = "some-id"
+        mock_site.auth_client_secret = None
+        assert adapter.list_apps(Mock()) == []
+
+    def test_returns_empty_for_non_matching_provider(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITLAB
+        mock_site.auth_client_id = "some-id"
+        mock_site.auth_client_secret = SecretStr("some-secret")
+        assert adapter.list_apps(Mock(), provider="github") == []
+
+    def test_returns_app_for_matching_gitlab(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITLAB
+        mock_site.auth_client_id = "gl-client-id"
+        mock_site.auth_client_secret = SecretStr("gl-secret")
+        mock_site.auth_gitlab_url = "https://gitlab.example.com"
+        mock_site.auth_gitlab_server_url = "http://gitlab:8080"
+        result = adapter.list_apps(Mock())
+        assert len(result) == 1
+        app = result[0]
+        assert app.provider == "gitlab"
+        assert app.client_id == "gl-client-id"
+        assert app.secret == "gl-secret"  # noqa: S105
+        assert app.settings["gitlab_url"] == "https://gitlab.example.com"
+        assert app.settings["gitlab_server_url"] == "http://gitlab:8080"
+
+    def test_returns_app_for_matching_github(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITHUB
+        mock_site.auth_client_id = "gh-client-id"
+        mock_site.auth_client_secret = SecretStr("gh-secret")
+        result = adapter.list_apps(Mock())
+        assert len(result) == 1
+        app = result[0]
+        assert app.provider == "github"
+        assert app.client_id == "gh-client-id"
+        assert app.secret == "gh-secret"  # noqa: S105
+        assert app.settings == {}
+
+    def test_handles_plain_string_secret(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITHUB
+        mock_site.auth_client_id = "gh-client-id"
+        mock_site.auth_client_secret = "plain-secret"  # noqa: S105
+        result = adapter.list_apps(Mock())
+        assert len(result) == 1
+        assert result[0].secret == "plain-secret"  # noqa: S105
+
+    def test_gitlab_defaults_url_when_not_set(self, adapter, login_mocks):
+        mock_site, mock_codebase = login_mocks
+        mock_codebase.CLIENT = GitPlatform.GITLAB
+        mock_site.auth_client_id = "gl-client-id"
+        mock_site.auth_client_secret = SecretStr("gl-secret")
+        mock_site.auth_gitlab_url = "https://gitlab.com"
+        mock_site.auth_gitlab_server_url = None
+        result = adapter.list_apps(Mock())
+        assert result[0].settings["gitlab_url"] == "https://gitlab.com"
+        assert result[0].settings["gitlab_server_url"] == ""
