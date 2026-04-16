@@ -91,13 +91,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
 
     def is_open_for_signup(self, request, sociallogin):
         """
-        Block social signup for emails not already registered (users must be created by an admin first).
+        Allow social signup on fresh install, when ``auth_signup_open`` is set, or for known emails.
 
-        On a fresh install (no users exist), the first social login is allowed to bootstrap
-        the initial admin account. After that, users must be created by an admin.
-
-        When a user authenticates via GitHub/GitLab, allauth will auto-connect the social
-        account to the existing user via SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT.
+        Known-email signups are safe because allauth auto-connects them to the existing user
+        via ``SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT`` rather than creating a duplicate.
         """
         from accounts.models import User
 
@@ -106,11 +103,14 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if not email:
             logger.warning("Social signup denied: no email provided by %s provider", provider)
             return False
-        # Allow the first user to sign up on a fresh install (bootstrapping).
         if not User.objects.exists():
             logger.info("Bootstrapping: allowing first social signup for %s via %s", email, provider)
             return True
+        if site_settings.auth_signup_open:
+            logger.info("Social signup allowed (open signup) for %s via %s", email, provider)
+            return True
         if User.objects.filter(email__iexact=email).exists():
+            logger.info("Social signup allowed (pre-registered email) for %s via %s", email, provider)
             return True
         logger.info("Social signup denied for unregistered email %s via %s", email, provider)
         return False

@@ -56,6 +56,20 @@ class TestSocialAccountAdapterSignup:
         sociallogin = _make_sociallogin("first@test.com")
         assert adapter.is_open_for_signup(Mock(), sociallogin) is True
 
+    def test_allows_unknown_email_when_signup_open(self, adapter, user_in_db):
+        from accounts.adapter import site_settings
+
+        sociallogin = _make_sociallogin("newcomer@test.com")
+        with patch.object(site_settings, "auth_signup_open", True):
+            assert adapter.is_open_for_signup(Mock(), sociallogin) is True
+
+    def test_denies_empty_email_even_when_signup_open(self, adapter, user_in_db):
+        from accounts.adapter import site_settings
+
+        sociallogin = _make_sociallogin("")
+        with patch.object(site_settings, "auth_signup_open", True):
+            assert adapter.is_open_for_signup(Mock(), sociallogin) is False
+
 
 @pytest.mark.django_db
 class TestSocialAccountAdapterSaveUser:

@@ -250,6 +250,14 @@ class SiteConfiguration(models.Model):
         null=True,
         help_text=_("Allow users to sign in with their Git platform account (GitHub or GitLab)."),
     )
+    auth_signup_open = models.BooleanField(
+        _("open social signup"),
+        null=True,
+        help_text=_(
+            "Allow anyone who authenticates via the configured Git platform to create an account."
+            " When disabled, only users pre-created by an admin can sign in."
+        ),
+    )
     auth_client_id = models.CharField(
         _("OAuth client ID"),
         max_length=255,
