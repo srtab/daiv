@@ -8,6 +8,7 @@ from activity.models import Activity, ActivityStatus, TriggerType
 from django_tasks_db.models import DBTaskResult
 
 from accounts.models import User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -234,3 +235,75 @@ class TestActivityDetailView:
         assert "max-h-64" in body
         assert "Show more" in body
         assert "Show less" in body
+
+
+@pytest.mark.django_db
+class TestActivityVisibilityForSubscribers:
+    def _schedule(self, owner, **overrides):
+        data = {
+            "user": owner,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
+        }
+        data.update(overrides)
+        return ScheduledJob.objects.create(**data)
+
+    def _activity(self, schedule, **overrides):
+        data = {
+            "trigger_type": TriggerType.SCHEDULE,
+            "repo_id": schedule.repo_id,
+            "status": ActivityStatus.SUCCESSFUL,
+            "scheduled_job": schedule,
+            "user": schedule.user,
+        }
+        data.update(overrides)
+        return Activity.objects.create(**data)
+
+    def test_subscriber_can_view_linked_activity_detail(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(member_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.status_code == 200
+
+    def test_non_subscriber_cannot_view_linked_activity_detail(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.status_code == 404
+
+    def test_subscriber_sees_activity_in_list(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(member_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_list"))
+        assert response.status_code == 200
+        assert str(activity.pk) in response.content.decode()
+
+    def test_list_does_not_duplicate_rows_for_admins_matching_twice(self, admin_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(admin_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get(reverse("activity_list"))
+        # Count rows by the detail-url anchor (one per distinct row).
+        detail_url = reverse("activity_detail", args=[activity.pk])
+        assert response.content.decode().count(detail_url) == 1
