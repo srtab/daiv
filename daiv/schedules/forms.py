@@ -1,5 +1,6 @@
 from django import forms
 
+from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
 
 
@@ -8,7 +9,28 @@ class ScheduledJobCreateForm(forms.ModelForm):
 
     class Meta:
         model = ScheduledJob
-        fields = ["name", "prompt", "repo_id", "ref", "frequency", "cron_expression", "time", "use_max", "notify_on"]
+        fields = [
+            "name",
+            "prompt",
+            "repo_id",
+            "ref",
+            "frequency",
+            "cron_expression",
+            "time",
+            "use_max",
+            "notify_on",
+            "subscribers",
+        ]
+        widgets = {"subscribers": forms.SelectMultiple(attrs={"class": "hidden"})}
+
+    def __init__(self, *args, owner=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "subscribers" in self.fields:
+            qs = User.objects.filter(is_active=True)
+            if owner is not None:
+                qs = qs.exclude(pk=owner.pk)
+            self.fields["subscribers"].queryset = qs
+            self.fields["subscribers"].required = False
 
     def _clean_conditional_fields(self, cleaned_data: dict) -> dict:
         """Clear fields that are irrelevant for the selected frequency."""
@@ -28,6 +50,7 @@ class ScheduledJobCreateForm(forms.ModelForm):
         instance.compute_next_run()
         if commit:
             instance.save()
+            self.save_m2m()
         return instance
 
 
