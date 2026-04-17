@@ -52,6 +52,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             repo_id=payload.repo_id,
             ref=payload.ref or "",
             prompt=payload.prompt,
+            use_max=payload.use_max,
             user=request.auth,
         )
     except Exception:
