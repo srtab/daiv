@@ -31,19 +31,7 @@ use JSON           ();
 my %QUEUE_REPO_MAP = (
     'support-webapp' => 'group/webapp',
     'support-api'    => 'group/api',
-    # add more queues here as they come online
 );
-
-my $ticket = $self->TicketObj;
-my $queue  = $ticket->QueueObj->Name;
-my $repo   = $QUEUE_REPO_MAP{$queue};
-
-unless ($repo) {
-    $RT::Logger->warning(
-        "daiv-triage: queue '$queue' in Applies-To but missing from QUEUE_REPO_MAP; skipping"
-    );
-    return 1;
-}
 
 my $daiv_url = RT->Config->Get('DAIV_URL');
 my $daiv_key = RT->Config->Get('DAIV_API_KEY');
@@ -55,11 +43,29 @@ unless ($daiv_url && $daiv_key) {
     return 1;
 }
 
-my $id      = $ticket->id;
-my $subject = $ticket->Subject // '';
-my $url     = RT->Config->Get('WebURL') . "Ticket/Display.html?id=$id";
+# The Scrip MUST NOT abort the ticket-create transaction, so everything that
+# touches the ticket/queue objects or talks to DAIV runs inside this eval.
+# `alarm` enforces a hard wall-clock ceiling that covers DNS stalls and
+# slow-drip servers — LWP's own `timeout` is per-read, not end-to-end.
+eval {
+    local $SIG{ALRM} = sub { die "daiv-triage timeout\n" };
+    alarm(10);
 
-my $prompt = <<"PROMPT";
+    my $ticket = $self->TicketObj;
+    my $queue  = $ticket->QueueObj->Name;
+    my $repo   = $QUEUE_REPO_MAP{$queue};
+
+    if (!$repo) {
+        $RT::Logger->warning(
+            "daiv-triage: queue '$queue' in Applies-To but missing from QUEUE_REPO_MAP; skipping"
+        );
+    }
+    else {
+        my $id      = $ticket->id;
+        my $subject = $ticket->Subject // '';
+        my $url     = RT->Config->Get('WebURL') . "Ticket/Display.html?id=$id";
+
+        my $prompt = <<"PROMPT";
 A new Request Tracker ticket was just created.
 
 - Ticket ID: $id
@@ -82,48 +88,56 @@ End with a one-line **Recommendation** (e.g. "assign to backend",
 "needs more info from requester").
 PROMPT
 
-# The Scrip MUST NOT abort the ticket-create transaction. `eval` traps any
-# die from LWP, JSON encode/decode, or malformed responses; `alarm` enforces
-# a hard wall-clock ceiling that covers DNS stalls and slow-drip servers
-# (LWP's own `timeout` is per-read, not end-to-end).
-eval {
-    local $SIG{ALRM} = sub { die "daiv-triage timeout\n" };
-    alarm(10);
+        my $payload = JSON::encode_json({
+            repo_id => $repo,
+            prompt  => $prompt,
+            use_max => JSON::true,
+        });
 
-    my $payload = JSON::encode_json({
-        repo_id => $repo,
-        prompt  => $prompt,
-        use_max => JSON::true,
-    });
+        my $ua  = LWP::UserAgent->new(timeout => 5);
+        my $req = HTTP::Request->new(POST => "$daiv_url/api/jobs");
+        $req->header('Authorization' => "Bearer $daiv_key");
+        $req->header('Content-Type'  => 'application/json');
+        $req->content($payload);
 
-    my $ua  = LWP::UserAgent->new(timeout => 5);
-    my $req = HTTP::Request->new(POST => "$daiv_url/api/jobs");
-    $req->header('Authorization' => "Bearer $daiv_key");
-    $req->header('Content-Type'  => 'application/json');
-    $req->content($payload);
+        my $res = $ua->request($req);
 
-    my $res = $ua->request($req);
-    if ($res->is_success) {
-        my $body   = JSON::decode_json($res->decoded_content);
-        my $job_id = $body->{job_id} // '?';
-        $RT::Logger->info(
-            "daiv-triage: submitted job $job_id for ticket $id (queue=$queue repo=$repo)"
-        );
+        if ($res->is_success) {
+            # A malformed 2xx body must not masquerade as a submit failure —
+            # the job was accepted. Guard decode_json separately and log a
+            # warning instead of letting the outer eval call it an exception.
+            my $raw    = $res->decoded_content // '';
+            my $parsed = eval { JSON::decode_json($raw) };
+            my $job_id = (ref($parsed) eq 'HASH' && $parsed->{job_id}) || '?';
+            $RT::Logger->info(
+                "daiv-triage: submitted job $job_id for ticket $id (queue=$queue repo=$repo)"
+            );
+        }
+        elsif ($res->code == 429) {
+            # 429 is routine throttling, not an operational error — keep it
+            # at warning so alerting wired to ERROR doesn't page on capacity.
+            $RT::Logger->warning(
+                "daiv-triage: rate-limited for ticket $id: " . $res->status_line
+            );
+        }
+        else {
+            $RT::Logger->error(
+                "daiv-triage: failed to submit job for ticket $id: "
+                . $res->status_line . ' ' . ($res->decoded_content // '')
+            );
+        }
     }
-    else {
-        $RT::Logger->error(
-            "daiv-triage: failed to submit job for ticket $id: "
-            . $res->status_line . ' ' . ($res->decoded_content // '')
-        );
-    }
 
+    # Cancel the alarm on the success path. The `or do` branch below also
+    # calls alarm(0) so a die during HTTP/JSON work can't leak a pending
+    # SIGALRM into a later Scrip.
     alarm(0);
     1;
 } or do {
     alarm(0);
     my $err = $@ || 'unknown error';
     chomp $err;
-    $RT::Logger->error("daiv-triage: exception submitting job for ticket $id: $err");
+    $RT::Logger->error("daiv-triage: exception in triage scrip: $err");
 };
 
 return 1;

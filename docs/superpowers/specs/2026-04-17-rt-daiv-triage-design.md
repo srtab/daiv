@@ -64,84 +64,17 @@ The only RT-side artifact is the Scrip. The only DAIV-side artifact is a documen
 - `HTTP::Request`
 - `JSON` (or `JSON::PP`)
 
-**Custom action code (sketch):**
+**Custom action code:** the canonical body lives at `docs/integrations/rt/rt-daiv-triage.scrip.pl`. Its skeleton:
 
-```perl
-my %QUEUE_REPO_MAP = (
-    'support-webapp' => 'group/webapp',
-    'support-api'    => 'group/api',
-    # add more as queues come online
-);
+1. Read `DAIV_URL` / `DAIV_API_KEY` from `RT->Config->Get(...)`. If either is missing, log `error` and `return 1`.
+2. Enter `eval { local $SIG{ALRM} = sub { die "daiv-triage timeout\n" }; alarm(10); ... };` — everything that touches `$self->TicketObj` or makes HTTP / JSON calls runs inside this block. Both the success tail and the `or do { ... }` failure tail call `alarm(0)` so a SIGALRM can't leak into a later Scrip.
+3. Inside the eval: look up the queue → repo via `%QUEUE_REPO_MAP`. If absent, log `warning` and let the eval fall through (no HTTP call, but still runs the `alarm(0)` cleanup).
+4. Build the prompt from `Ticket ID / URL / Queue / Subject / repo`.
+5. `POST $DAIV_URL/api/jobs` via `LWP::UserAgent->new(timeout => 5)`. On `is_success`, guard `JSON::decode_json` in its own inner `eval` so a malformed 2xx body doesn't masquerade as a submit failure — the job *was* accepted. On HTTP 429 log at `warning` (routine throttling, not an operational error). On any other non-2xx, log `error`.
+6. If the outer `eval` catches a die (HTTP client crashed, DNS hung past the 10 s ceiling, RT object died), log `error` with the captured `$@`.
+7. Final unconditional `return 1;` — RT sees success regardless.
 
-my $ticket = $self->TicketObj;
-my $queue  = $ticket->QueueObj->Name;
-my $repo   = $QUEUE_REPO_MAP{$queue};
-
-unless ($repo) {
-    $RT::Logger->warning(
-        "daiv-triage: queue '$queue' in Applies-To but missing from QUEUE_REPO_MAP; skipping"
-    );
-    return 1;
-}
-
-my $id      = $ticket->id;
-my $subject = $ticket->Subject // '';
-my $url     = RT->Config->Get('WebURL') . "Ticket/Display.html?id=$id";
-
-my $prompt = <<"PROMPT";
-A new Request Tracker ticket was just created.
-
-- Ticket ID: $id
-- URL: $url
-- Queue: $queue
-- Subject: $subject
-
-Use the RT MCP to load the full ticket (requestor, first correspondence,
-attachments, CustomFields), then:
-
-1. Classify: bug / config / how-to / unclear.
-2. If code-related → perform RCA against repo `$repo`: likely file + function,
-   root cause hypothesis, fix sketch.
-3. If not code-related → stop after triage and state what information is
-   missing from the requester.
-
-When finished, post your report as an **internal comment** (not
-correspondence) on RT ticket $id using the RT MCP. Use markdown.
-End with a one-line **Recommendation** (e.g. "assign to backend",
-"needs more info from requester").
-PROMPT
-
-my $daiv_url = RT->Config->Get('DAIV_URL');
-my $daiv_key = RT->Config->Get('DAIV_API_KEY');
-
-my $payload = JSON::encode_json({
-    repo_id => $repo,
-    prompt  => $prompt,
-    use_max => JSON::true,
-});
-
-my $ua  = LWP::UserAgent->new(timeout => 5);
-my $req = HTTP::Request->new(POST => "$daiv_url/api/jobs");
-$req->header('Authorization' => "Bearer $daiv_key");
-$req->header('Content-Type'  => 'application/json');
-$req->content($payload);
-
-my $res = $ua->request($req);
-if ($res->is_success) {
-    my $body   = JSON::decode_json($res->decoded_content);
-    my $job_id = $body->{job_id} // '?';
-    $RT::Logger->info("daiv-triage: submitted job $job_id for ticket $id (repo=$repo)");
-} else {
-    $RT::Logger->error(
-        "daiv-triage: failed to submit job for ticket $id: "
-        . $res->status_line . ' ' . ($res->decoded_content // '')
-    );
-}
-
-return 1;
-```
-
-**Return value** — the Scrip always returns `1`. It must never abort the transaction: a DAIV outage or network timeout is logged, but ticket creation still succeeds.
+**Return value** — the Scrip always returns `1`. It must never abort the transaction: DAIV outages, DNS stalls, malformed responses, and ticket/queue object dies are all trapped and logged. Ticket creation still succeeds.
 
 ### Configuration in `RT_SiteConfig.pm`
 
@@ -172,8 +105,11 @@ Anything else the agent needs (body, requestor, attachments, CustomFields, relat
 |---|---|
 | Queue not in `%QUEUE_REPO_MAP` (but Scrip ran because queue is in "Applies To") | Scrip logs at `warning` level — this is a misconfiguration — and returns `1`. No ticket change. |
 | `DAIV_URL` / `DAIV_API_KEY` unset in `RT_SiteConfig` | Scrip logs at `error`, returns `1`. No ticket change. |
-| DAIV `/api/jobs` returns non-2xx | Scrip logs response status + body at `error`, returns `1`. |
-| DAIV unreachable within 5s | `LWP` timeout → Scrip logs at `error`, returns `1`. |
+| DAIV `/api/jobs` returns non-2xx other than 429 | Scrip logs response status + body at `error`, returns `1`. |
+| DAIV returns HTTP 429 (rate limit) | Scrip logs at `warning` with the status line, returns `1`. Alerting wired to `error` does not page on routine throttling. |
+| DAIV unreachable (LWP socket timeout at 5s, or 10s wall-clock alarm fires) | Logged at `error` with the prefix `exception in triage scrip: daiv-triage timeout`. Returns `1`. |
+| DAIV returns a 2xx with an empty or malformed body | Inner `eval` around `JSON::decode_json` contains the die; Scrip logs `info` with `job_id=?` instead of a false "submit failure". |
+| RT ticket / queue object access dies (e.g. pathological queue, ACL edge) | Outer `eval` traps the die and logs at `error` via the `exception in triage scrip:` prefix. Ticket creation still succeeds. |
 | DAIV job submitted but agent fails or never posts | Invisible on the ticket. Detectable via DAIV's activity UI by searching for the logged `job_id`. Acceptable for v1. |
 | RT MCP call from the agent fails during comment post | Report shows up in the DAIV activity log but not on the ticket. Same remediation path. |
 
@@ -193,7 +129,7 @@ docs/integrations/rt/
 
 ### Testing
 
-The Scrip is ~50 lines of Perl that runs inside RT. Testing approach:
+The Scrip is ~130 lines of Perl (the HTTP call itself is a handful of lines; most of the body is the `eval`/`alarm` safety wrapper and the prompt heredoc) that runs inside RT. Testing approach:
 
 1. **Manual smoke test in a staging RT** — create a ticket in an allow-listed queue, confirm:
    - `rt.log` shows `submitted job <uuid>`

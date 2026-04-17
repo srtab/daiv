@@ -91,9 +91,10 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 | `DAIV_URL or DAIV_API_KEY not set` in `rt.log` | `RT_SiteConfig.pm` not reloaded | `apache2ctl graceful` |
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
 | `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm` |
-| `failed to submit job … 429` | Jobs API rate limit exceeded (default 20/hour per user) | Raise `DAIV_JOBS_THROTTLE_RATE` on the DAIV host, or use a separate API-key user per queue |
-| `exception submitting job … daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |
-| `exception submitting job … <other>` | Unexpected die from LWP or JSON decode (e.g. malformed response body) | Inspect the DAIV access log for the same time window; verify `$DAIV_URL` points at a DAIV deployment and not a proxy returning HTML |
+| `rate-limited for ticket … 429` (warning) | Jobs API rate limit exceeded (default 20/hour per user) | Raise `DAIV_JOBS_THROTTLE_RATE` on the DAIV host, or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
+| `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV activity log and access log; the status line + body are captured |
+| `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |
+| `exception in triage scrip: <other>` | Unexpected die from LWP, the RT ticket object, or elsewhere | Inspect `rt.log` around the timestamp; the captured `$@` will point at the source |
 | Job completes in DAIV but no comment on the ticket | RT MCP auth user lacks comment rights on the queue, or MCP call errored | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in Activity |
 
 ## Cost considerations
