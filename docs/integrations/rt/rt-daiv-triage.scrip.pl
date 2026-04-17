@@ -82,31 +82,48 @@ End with a one-line **Recommendation** (e.g. "assign to backend",
 "needs more info from requester").
 PROMPT
 
-my $payload = JSON::encode_json({
-    repo_id => $repo,
-    prompt  => $prompt,
-    use_max => JSON::true,
-});
+# The Scrip MUST NOT abort the ticket-create transaction. `eval` traps any
+# die from LWP, JSON encode/decode, or malformed responses; `alarm` enforces
+# a hard wall-clock ceiling that covers DNS stalls and slow-drip servers
+# (LWP's own `timeout` is per-read, not end-to-end).
+eval {
+    local $SIG{ALRM} = sub { die "daiv-triage timeout\n" };
+    alarm(10);
 
-my $ua  = LWP::UserAgent->new(timeout => 5);
-my $req = HTTP::Request->new(POST => "$daiv_url/api/jobs");
-$req->header('Authorization' => "Bearer $daiv_key");
-$req->header('Content-Type'  => 'application/json');
-$req->content($payload);
+    my $payload = JSON::encode_json({
+        repo_id => $repo,
+        prompt  => $prompt,
+        use_max => JSON::true,
+    });
 
-my $res = $ua->request($req);
-if ($res->is_success) {
-    my $body   = JSON::decode_json($res->decoded_content);
-    my $job_id = $body->{job_id} // '?';
-    $RT::Logger->info(
-        "daiv-triage: submitted job $job_id for ticket $id (queue=$queue repo=$repo)"
-    );
-}
-else {
-    $RT::Logger->error(
-        "daiv-triage: failed to submit job for ticket $id: "
-        . $res->status_line . ' ' . ($res->decoded_content // '')
-    );
-}
+    my $ua  = LWP::UserAgent->new(timeout => 5);
+    my $req = HTTP::Request->new(POST => "$daiv_url/api/jobs");
+    $req->header('Authorization' => "Bearer $daiv_key");
+    $req->header('Content-Type'  => 'application/json');
+    $req->content($payload);
+
+    my $res = $ua->request($req);
+    if ($res->is_success) {
+        my $body   = JSON::decode_json($res->decoded_content);
+        my $job_id = $body->{job_id} // '?';
+        $RT::Logger->info(
+            "daiv-triage: submitted job $job_id for ticket $id (queue=$queue repo=$repo)"
+        );
+    }
+    else {
+        $RT::Logger->error(
+            "daiv-triage: failed to submit job for ticket $id: "
+            . $res->status_line . ' ' . ($res->decoded_content // '')
+        );
+    }
+
+    alarm(0);
+    1;
+} or do {
+    alarm(0);
+    my $err = $@ || 'unknown error';
+    chomp $err;
+    $RT::Logger->error("daiv-triage: exception submitting job for ticket $id: $err");
+};
 
 return 1;

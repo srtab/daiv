@@ -22,7 +22,7 @@ DAIV agent runs asynchronously
    - Posts the report as an internal comment on the ticket via RT MCP
 ```
 
-The Scrip is fire-and-forget: it submits the job with a 5-second HTTP timeout and always returns success, so a DAIV outage never blocks ticket creation.
+The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout and a 10-second hard wall-clock ceiling (via `alarm`), and any `die` from the HTTP client or JSON parser is trapped in `eval`. A DAIV outage — including DNS failure or a malformed response — never blocks or aborts the ticket-create transaction.
 
 ## Prerequisites
 
@@ -92,11 +92,13 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
 | `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm` |
 | `failed to submit job … 429` | Jobs API rate limit exceeded (default 20/hour per user) | Raise `DAIV_JOBS_THROTTLE_RATE` on the DAIV host, or use a separate API-key user per queue |
+| `exception submitting job … daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |
+| `exception submitting job … <other>` | Unexpected die from LWP or JSON decode (e.g. malformed response body) | Inspect the DAIV access log for the same time window; verify `$DAIV_URL` points at a DAIV deployment and not a proxy returning HTML |
 | Job completes in DAIV but no comment on the ticket | RT MCP auth user lacks comment rights on the queue, or MCP call errored | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in Activity |
 
 ## Cost considerations
 
-The Scrip submits with `use_max: true` — the more capable model with high thinking. This produces better triage but is more expensive. For high-volume queues, consider:
+The Scrip submits with `use_max: true` — the more capable model with thinking set to high. This produces better triage but is more expensive. For high-volume queues, consider:
 
 - Dropping `use_max` to `false` in the Scrip body for a cheaper first pass.
 - Adding a queue-level rate limit via a separate DAIV API-key user with a lower `DAIV_JOBS_THROTTLE_RATE`.
