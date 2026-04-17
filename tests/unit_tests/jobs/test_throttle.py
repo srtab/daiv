@@ -53,3 +53,35 @@ def test_per_user_buckets(admin_user, member_user, settings_with_rate):
     assert check_jobs_throttle(admin_user) is True
     assert check_jobs_throttle(member_user) is True
     assert check_jobs_throttle(admin_user) is False
+
+
+@pytest.mark.django_db
+def test_bucket_rollover_allows_new_window(member_user, settings_with_rate, monkeypatch):
+    settings_with_rate("1/minute")
+
+    fake_time = {"now": 1_000_000}
+    monkeypatch.setattr("jobs.throttle.time.time", lambda: fake_time["now"])
+
+    assert check_jobs_throttle(member_user) is True
+    assert check_jobs_throttle(member_user) is False
+
+    # Cross the 60-second bucket boundary: the user's budget resets.
+    fake_time["now"] += 60
+    assert check_jobs_throttle(member_user) is True
+
+
+@pytest.mark.django_db
+def test_invalid_rate_logs_warning(member_user, settings_with_rate, caplog):
+    settings_with_rate("not-a-rate")
+    with caplog.at_level("WARNING", logger="daiv.jobs"):
+        assert check_jobs_throttle(member_user) is True
+    assert any("Invalid jobs_throttle_rate" in r.message for r in caplog.records)
+
+
+@pytest.mark.django_db
+def test_empty_rate_is_silent(member_user, settings_with_rate, caplog):
+    settings_with_rate("")
+    with caplog.at_level("WARNING", logger="daiv.jobs"):
+        assert check_jobs_throttle(member_user) is True
+    # Empty is a valid "throttling disabled" configuration; only malformed strings warn.
+    assert not any("Invalid jobs_throttle_rate" in r.message for r in caplog.records)

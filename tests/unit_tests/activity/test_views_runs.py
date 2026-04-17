@@ -108,3 +108,20 @@ def test_post_throttled_rerenders_with_error(member_client, monkeypatch):
     resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
     assert resp.status_code == 200
     assert "Rate limit" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_get_retry_invalid_uuid_returns_404(member_client):
+    resp = member_client.get(reverse("runs:agent_run_new") + "?from=not-a-uuid")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_post_submit_failure_rerenders_with_error(member_client, monkeypatch):
+    def _boom(**kwargs):
+        raise RuntimeError("broker is down")
+
+    monkeypatch.setattr("activity.views.submit_ui_run", _boom)
+    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
+    assert resp.status_code == 200
+    assert "Failed to submit" in resp.content.decode()

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -24,6 +26,8 @@ from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import submit_ui_run
 from schedules.models import ScheduledJob
+
+logger = logging.getLogger("daiv.activity")
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -232,7 +236,11 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not source_id:
             self._source_cached = None
             return None
-        source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
+        try:
+            source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
+        except (ValueError, ValidationError) as err:
+            # Malformed UUID on ``?from=`` is user error, not server error.
+            raise Http404("Invalid activity id.") from err
         if source is None or not source.is_retryable:
             raise Http404("Activity is not retryable.")
         self._source_cached = source
@@ -253,7 +261,15 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not check_jobs_throttle(self.request.user):
             form.add_error(None, _("Rate limit exceeded; try again later."))
             return self.form_invalid(form)
-        activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
+        try:
+            activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
+        except Exception:
+            # Either enqueue failed (no job ran) or the Activity row couldn't be written
+            # after enqueue (job is running orphaned). Either way we preserve the form
+            # contents and let the user retry; operators see the traceback in logs.
+            logger.exception("Failed to submit UI run for user %s", self.request.user.pk)
+            form.add_error(None, _("Failed to submit the run. Please try again in a moment."))
+            return self.form_invalid(form)
         return redirect("activity_detail", pk=activity.pk)
 
     def get_breadcrumbs(self):
