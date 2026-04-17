@@ -24,6 +24,10 @@ DAIV is an open-source async software engineering agent that integrates natively
 - [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution
 - [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): Secure sandboxed code execution
 
+## Integrations
+
+- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md): Request Tracker triage on ticket create via RT Scrip
+
 ## Customization
 
 - [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md): Per-repository configuration

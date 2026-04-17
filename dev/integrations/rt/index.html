@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/agent-architecture/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/integrations/rt/">
       
       
-        <link rel="prev" href="../env-variables/">
+        <link rel="prev" href="../../features/sandbox/">
       
       
-        <link rel="next" href="../monitoring/">
+        <link rel="next" href="../../customization/repository-config/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Agent Architecture - DAIV</title>
+        <title>Request Tracker Triage - DAIV</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent-architecture" class="md-skip">
+        <a href="#request-tracker-triage" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agent Architecture
+              Request Tracker Triage
             
           </span>
         </div>
@@ -772,18 +772,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -804,7 +806,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -819,10 +821,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../integrations/rt/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker Triage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -838,6 +867,142 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-rt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure RT
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure RT">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-add-the-daiv-endpoint-and-key-to-rt_siteconfigpm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Add the DAIV endpoint and key to RT_SiteConfig.pm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-the-scrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install the Scrip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-attach-the-scrip-to-queues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Attach the Scrip to queues
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verify-the-pilot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify the pilot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cost-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost considerations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -992,20 +1157,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
@@ -1026,7 +1189,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1044,7 +1207,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../env-variables/" class="md-nav__link">
+      <a href="../../reference/env-variables/" class="md-nav__link">
         
   
   
@@ -1069,37 +1232,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Agent Architecture
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
   
@@ -1115,220 +1251,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Overview
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        End-to-end flow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="End-to-end flow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managers
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tools
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dynamic system prompt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model configuration
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1341,7 +1263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../monitoring/" class="md-nav__link">
+      <a href="../../reference/monitoring/" class="md-nav__link">
         
   
   
@@ -1423,10 +1345,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        How it works
       
     </span>
   </a>
@@ -1434,22 +1356,55 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End-to-end flow
+        Prerequisites
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="End-to-end flow">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-rt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure RT
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure RT">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
+  <a href="#1-add-the-daiv-endpoint-and-key-to-rt_siteconfigpm" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Managers
+        1. Add the DAIV endpoint and key to RT_SiteConfig.pm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-the-scrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install the Scrip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-attach-the-scrip-to-queues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Attach the Scrip to queues
       
     </span>
   </a>
@@ -1462,132 +1417,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
+  <a href="#verify-the-pilot" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tools
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
+        Verify the pilot
       
     </span>
   </a>
@@ -1595,10 +1428,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
+  <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dynamic system prompt
+        Troubleshooting
       
     </span>
   </a>
@@ -1606,10 +1439,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
+  <a href="#cost-considerations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Model configuration
+        Cost considerations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
       
     </span>
   </a>
@@ -1659,10 +1503,10 @@
     
     
       <li class="md-path__item">
-        <a href="../env-variables/" class="md-path__link">
+        <a href="./" class="md-path__link">
           
   <span class="md-ellipsis">
-    Reference
+    Integrations
   </span>
 
         </a>
@@ -1681,7 +1525,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/reference/agent-architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/integrations/rt/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1689,313 +1533,181 @@
   
 
 
-<h1 id="agent-architecture">Agent Architecture</h1>
-<p>DAIV uses a single AI agent built on <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework from <a href="https://python.langchain.com/">LangChain</a> with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a>. This page covers the technical architecture for those who want to understand how DAIV works under the hood.</p>
-<h2 id="overview">Overview</h2>
-<p>DAIV's architecture consists of:</p>
+<h1 id="request-tracker-triage">Request Tracker Triage</h1>
+<p>Trigger DAIV automatically whenever a new ticket lands in Request Tracker. The DAIV agent reads the ticket, performs triage (bug / config / how-to / unclear) and — when the ticket is code-related — a root-cause analysis against the queue's repository. The report is posted back to the ticket as an <strong>internal comment</strong> (staff-only, not emailed to the requester).</p>
+<p>The whole integration is a single RT Scrip. No bridge service, no webhook receiver, no polling.</p>
+<h2 id="how-it-works">How it works</h2>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-0-10">10</a></span>
+<span class="normal"><a href="#__codelineno-0-11">11</a></span>
+<span class="normal"><a href="#__codelineno-0-12">12</a></span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>RT ticket Create
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>      │
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a>      ▼
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>RT Scrip (Perl, &quot;On Create&quot;, applies to allow-listed queues)
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a>   1. Resolve queue → repo_id
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>   2. Build prompt (ticket id, url, queue, subject)
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a>   3. POST $DAIV_URL/api/jobs
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>      │
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a>      ▼
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a>DAIV agent runs asynchronously
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a>   - Reads the full ticket via its RT MCP tool
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a>   - Does triage; if code-related, performs RCA against the repo
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a>   - Posts the report as an internal comment on the ticket via RT MCP
+</code></pre></div></td></tr></table></div>
+<p>The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout and a 10-second hard wall-clock ceiling (via <code>alarm</code>), and any <code>die</code> from the HTTP client or JSON parser is trapped in <code>eval</code>. A DAIV outage — including DNS failure or a malformed response — never blocks or aborts the ticket-create transaction.</p>
+<h2 id="prerequisites">Prerequisites</h2>
 <ul>
-<li><strong>One main agent</strong> — handles all tasks (issue addressing, code review, slash commands)</li>
-<li><strong>Two subagents</strong> — general-purpose (full tools) and explore (read-only, fast)</li>
-<li><strong>Middleware stack</strong> — modular capabilities injected based on configuration</li>
-<li><strong>MCP servers</strong> — external tool integrations (Sentry, Context7)</li>
+<li>A DAIV deployment reachable from the RT host, with the <a href="../../features/jobs-api/">Jobs API</a> enabled.</li>
+<li>The RT MCP server wired into the DAIV agent (see <a href="../../customization/mcp-tools/">MCP Tools</a>). The RT MCP must authenticate as a user with rights to <strong>comment</strong> on the target queues. A dedicated <code>daiv-bot</code> RT user is recommended so comments are clearly attributed.</li>
+<li>A DAIV API key for a dedicated service user:</li>
 </ul>
-<pre class="mermaid"><code>graph TB
-    WH[Webhook Event] --&gt; CB[Callback Handler]
-    CB --&gt; TQ[Task Queue]
-    JOB[Jobs API] --&gt; TQ
-    TQ --&gt; MGR[Manager / Task]
-    MGR --&gt; AGENT[DAIV Agent]
-
-    AGENT --&gt; MW[Middleware Stack]
-    MW --&gt; FS[Filesystem Tools]
-    MW --&gt; GIT[Git Tools]
-    MW --&gt; GP[Git Platform Tools]
-    MW --&gt; SB[Sandbox]
-    MW --&gt; WS[Web Search / Fetch]
-    MW --&gt; SK[Skills]
-    MW --&gt; SA[Subagents]
-    MW --&gt; MCP[MCP Tools]
-
-    SA --&gt; GPAgent[General-Purpose]
-    SA --&gt; EXAgent[Explore]
-
-    AGENT --&gt; PUB[Git Change Publisher]
-    PUB --&gt; COMMIT[Commit &amp; Push]
-    PUB --&gt; MR[Create / Update MR]</code></pre>
-<h2 id="end-to-end-flow">End-to-end flow</h2>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>create_api_key<span class="w"> </span>rt-triage<span class="w"> </span>--name<span class="w"> </span>rt-scrip
+</code></pre></div></td></tr></table></div>
+<p>Store the emitted <code>prefix.secret</code> string; it cannot be retrieved later.</p>
+<h2 id="configure-rt">Configure RT</h2>
+<h3 id="1-add-the-daiv-endpoint-and-key-to-rt_siteconfigpm">1. Add the DAIV endpoint and key to <code>RT_SiteConfig.pm</code></h3>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Perl</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="n">Set</span><span class="p">(</span><span class="nv">$DAIV_URL</span><span class="p">,</span><span class="w">     </span><span class="s">&#39;https://daiv.example.com&#39;</span><span class="p">);</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="n">Set</span><span class="p">(</span><span class="nv">$DAIV_API_KEY</span><span class="p">,</span><span class="w"> </span><span class="s">&#39;prefix.secret&#39;</span><span class="p">);</span>
+</code></pre></div></td></tr></table></div>
+<p>Reload RT after editing: <code>apache2ctl graceful</code> (or whichever reload command your RT host uses).</p>
+<h3 id="2-install-the-scrip">2. Install the Scrip</h3>
 <ol>
-<li><strong>Trigger</strong> — a webhook event from GitLab/GitHub, or a <a href="../../features/jobs-api/">Jobs API</a> request</li>
-<li><strong>Dispatch</strong> — the callback handler (webhooks) or API view (jobs) enqueues a background task</li>
-<li><strong>Context setup</strong> — the task sets up the runtime context (repository, branch, scope) and creates the agent</li>
-<li><strong>Agent execution</strong> — LangGraph runs the agent loop: call LLM → execute tools → repeat</li>
-<li><strong>Output</strong> — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)</li>
+<li>Open <strong>Admin → Scrips → Create</strong> in the RT web UI.</li>
+<li>Fill the form:</li>
 </ol>
-<h3 id="managers">Managers</h3>
-<p>Two managers orchestrate the agent:</p>
 <table>
 <thead>
 <tr>
-<th>Manager</th>
-<th>Trigger</th>
-<th>Purpose</th>
+<th>Field</th>
+<th>Value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>IssueAddressorManager</code></td>
-<td>Issue with <code>daiv</code> label</td>
-<td>Plans and implements issue solutions</td>
+<td>Description</td>
+<td><code>DAIV triage on create</code></td>
 </tr>
 <tr>
-<td><code>CommentsAddressorManager</code></td>
-<td><code>@daiv</code> mention on MR</td>
-<td>Responds to code review comments</td>
+<td>Condition</td>
+<td><code>On Create</code></td>
+</tr>
+<tr>
+<td>Action</td>
+<td><code>User Defined</code></td>
+</tr>
+<tr>
+<td>Template</td>
+<td><code>Blank</code></td>
+</tr>
+<tr>
+<td>Stage</td>
+<td><code>TransactionCreate</code></td>
+</tr>
+<tr>
+<td>Applies To</td>
+<td><em>(leave empty for now — configured in step 3)</em></td>
 </tr>
 </tbody>
 </table>
-<p>Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.</p>
-<h2 id="tools">Tools</h2>
-<p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
-<h3 id="filesystem">Filesystem</h3>
+<ol>
+<li>
+<p>Paste the body of <a href="rt-daiv-triage.scrip.pl"><code>rt-daiv-triage.scrip.pl</code></a> into the <strong>Custom action preparation code</strong> field. Leave <strong>Custom condition</strong> and <strong>Custom action cleanup code</strong> empty. Save.</p>
+</li>
+<li>
+<p>Edit the <code>%QUEUE_REPO_MAP</code> hash at the top of the pasted code so each queue you care about maps to the correct DAIV <code>repo_id</code> (e.g. <code>group/project</code>).</p>
+</li>
+</ol>
+<h3 id="3-attach-the-scrip-to-queues">3. Attach the Scrip to queues</h3>
+<p>From the Scrip's <strong>Applies To</strong> tab in the RT admin UI, select the queues you want triaged. <strong>The "Applies To" list and the keys of <code>%QUEUE_REPO_MAP</code> must stay in lockstep</strong> — any queue where the Scrip runs but no repo is mapped will log a warning and skip (no ticket change, no job).</p>
+<p>Start with a single pilot queue. Expand only after the pilot looks healthy.</p>
+<h2 id="verify-the-pilot">Verify the pilot</h2>
+<ol>
+<li>File a test ticket in the pilot queue.</li>
+<li><code>tail -f /var/log/request-tracker4/rt.log</code> (or your RT log path) — look for:</li>
+</ol>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>daiv-triage: submitted job &lt;uuid&gt; for ticket &lt;id&gt; (queue=... repo=...)
+</code></pre></div></td></tr></table></div>
+<ol>
+<li>Open the DAIV <strong>Activity</strong> page and confirm a new <code>API_JOB</code> run exists for the target repo.</li>
+<li>Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the Activity detail page — the agent may have errored mid-run or failed to post via the RT MCP.</li>
+</ol>
+<h2 id="troubleshooting">Troubleshooting</h2>
 <table>
 <thead>
 <tr>
-<th>Tool</th>
-<th>Description</th>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>glob</code></td>
-<td>Find files by pattern matching</td>
+<td>No log line at all after ticket create</td>
+<td>Scrip not attached to the queue, or condition/stage is wrong</td>
+<td>Re-check the Scrip's <strong>Applies To</strong> list and confirm Condition=<code>On Create</code>, Stage=<code>TransactionCreate</code></td>
 </tr>
 <tr>
-<td><code>grep</code></td>
-<td>Search file contents with regex</td>
+<td><code>DAIV_URL or DAIV_API_KEY not set</code> in <code>rt.log</code></td>
+<td><code>RT_SiteConfig.pm</code> not reloaded</td>
+<td><code>apache2ctl graceful</code></td>
 </tr>
 <tr>
-<td><code>read_file</code></td>
-<td>Read file contents</td>
+<td><code>queue '&lt;name&gt;' in Applies-To but missing from QUEUE_REPO_MAP</code></td>
+<td>"Applies To" and the inline map drifted apart</td>
+<td>Add the queue to <code>%QUEUE_REPO_MAP</code> with its repo, or remove it from "Applies To"</td>
 </tr>
 <tr>
-<td><code>edit_file</code></td>
-<td>Modify existing files</td>
+<td><code>failed to submit job … 401</code></td>
+<td>Wrong or expired DAIV API key</td>
+<td>Rotate via <code>python manage.py create_api_key</code> and update <code>RT_SiteConfig.pm</code></td>
 </tr>
 <tr>
-<td><code>write_file</code></td>
-<td>Create new files</td>
+<td><code>rate-limited for ticket … 429</code> (warning)</td>
+<td>Jobs API rate limit exceeded (default 20/hour per user)</td>
+<td>Raise <code>DAIV_JOBS_THROTTLE_RATE</code> on the DAIV host, or use a separate API-key user per queue. Logged at <code>warning</code> — safe to alert on <code>error</code> only</td>
 </tr>
 <tr>
-<td><code>ls</code></td>
-<td>List directory contents</td>
+<td><code>failed to submit job … &lt;non-2xx, non-429&gt;</code></td>
+<td>DAIV returned 4xx/5xx other than rate-limit</td>
+<td>Check the DAIV activity log and access log; the status line + body are captured</td>
+</tr>
+<tr>
+<td><code>exception in triage scrip: daiv-triage timeout</code></td>
+<td>The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake</td>
+<td>Check DNS/network from the RT host to <code>$DAIV_URL</code>; confirm cert chain if using HTTPS</td>
+</tr>
+<tr>
+<td><code>exception in triage scrip: &lt;other&gt;</code></td>
+<td>Unexpected die from LWP, the RT ticket object, or elsewhere</td>
+<td>Inspect <code>rt.log</code> around the timestamp; the captured <code>$@</code> will point at the source</td>
+</tr>
+<tr>
+<td>Job completes in DAIV but no comment on the ticket</td>
+<td>RT MCP auth user lacks comment rights on the queue, or MCP call errored</td>
+<td>Grant the MCP's RT user the <code>CommentOnTicket</code> right on the queue; inspect the run's tool calls in Activity</td>
 </tr>
 </tbody>
 </table>
-<h3 id="git-platform">Git platform</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>gitlab</code> / <code>github</code></td>
-<td>Inspect issues, merge requests, pipeline status, and job logs</td>
-</tr>
-</tbody>
-</table>
-<h3 id="sandbox">Sandbox</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>bash</code></td>
-<td>Execute commands in a persistent, isolated Docker container</td>
-</tr>
-</tbody>
-</table>
-<p>Commands are evaluated against a <a href="../../features/sandbox/">command policy</a> before execution. See <a href="../../features/sandbox/">Sandbox</a> for details.</p>
-<h3 id="web">Web</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>web_search</code></td>
-<td>Search the web (DuckDuckGo or Tavily)</td>
-</tr>
-<tr>
-<td><code>web_fetch</code></td>
-<td>Fetch a URL, convert to markdown, and answer a prompt about its content</td>
-</tr>
-</tbody>
-</table>
-<h3 id="skills">Skills</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>skill</code></td>
-<td>Execute a <a href="../../customization/agent-skills/">skill</a> (slash command)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="mcp">MCP</h3>
-<p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
-<h2 id="middlewares">Middlewares</h2>
-<p>Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.</p>
-<h3 id="always-enabled">Always enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>FilesystemMiddleware</code></td>
-<td>File operations (glob, grep, read, edit, write)</td>
-</tr>
-<tr>
-<td><code>GitMiddleware</code></td>
-<td>Branch management, auto-commit, MR creation</td>
-</tr>
-<tr>
-<td><code>GitPlatformMiddleware</code></td>
-<td>Git platform CLI tool (issues, MRs, pipelines)</td>
-</tr>
-<tr>
-<td><code>SkillsMiddleware</code></td>
-<td>Skill loading and slash command execution</td>
-</tr>
-<tr>
-<td><code>SubAgentMiddleware</code></td>
-<td>Delegates tasks to subagents</td>
-</tr>
-<tr>
-<td><code>MemoryMiddleware</code></td>
-<td>Loads <code>AGENTS.md</code> and repository context</td>
-</tr>
-<tr>
-<td><code>TodoListMiddleware</code></td>
-<td>Task tracking within conversations</td>
-</tr>
-<tr>
-<td><code>SummarizationMiddleware</code></td>
-<td>Compresses conversation history when it grows too long</td>
-</tr>
-<tr>
-<td><code>AnthropicPromptCachingMiddleware</code></td>
-<td>Prompt caching for Anthropic models</td>
-</tr>
-<tr>
-<td><code>ToolCallLoggingMiddleware</code></td>
-<td>Logs all tool calls</td>
-</tr>
-<tr>
-<td><code>PatchToolCallsMiddleware</code></td>
-<td>Fixes malformed tool calls from the LLM</td>
-</tr>
-</tbody>
-</table>
-<h3 id="conditionally-enabled">Conditionally enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Condition</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SandboxMiddleware</code></td>
-<td>Sandbox is configured (<code>DAIV_SANDBOX_BASE_IMAGE</code> is set)</td>
-</tr>
-<tr>
-<td><code>WebSearchMiddleware</code></td>
-<td><code>DAIV_WEB_SEARCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>WebFetchMiddleware</code></td>
-<td><code>DAIV_WEB_FETCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>ModelFallbackMiddleware</code></td>
-<td>A fallback model is configured</td>
-</tr>
-<tr>
-<td><code>HumanInTheLoopMiddleware</code></td>
-<td>Plan approval is required (non-auto mode)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="subagents">Subagents</h2>
-<p>The main agent can delegate work to two subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
-<table>
-<thead>
-<tr>
-<th>Subagent</th>
-<th>Model</th>
-<th>Fallback</th>
-<th>Tools</th>
-<th>Use case</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>General-purpose</td>
-<td>Same as main agent</td>
-<td>Same as main agent</td>
-<td>Full tool access</td>
-<td>Complex searches, multi-step research</td>
-</tr>
-<tr>
-<td>Explore</td>
-<td>Claude Haiku 4.5 (fast)</td>
-<td>GPT-5.4-mini</td>
-<td>Read-only filesystem</td>
-<td>Quick file lookups, code structure questions</td>
-</tr>
-</tbody>
-</table>
-<p>All subagents (including <a href="../../features/subagents/#custom-subagents">custom subagents</a>) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (<code>DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME</code>).</p>
-<h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
-<p>The agent's system prompt is assembled at runtime and includes:</p>
+<h2 id="cost-considerations">Cost considerations</h2>
+<p>The Scrip submits with <code>use_max: true</code> — the more capable model with thinking set to high. This produces better triage but is more expensive. For high-volume queues, consider:</p>
 <ul>
-<li>Current date</li>
-<li>Bot username</li>
-<li>Repository URL and git platform</li>
-<li>Current branch and default branch</li>
-<li>Available tools and their descriptions</li>
-<li>Loaded skill metadata</li>
-<li><code>AGENTS.md</code> content (if present in the repository)</li>
+<li>Dropping <code>use_max</code> to <code>false</code> in the Scrip body for a cheaper first pass.</li>
+<li>Adding a queue-level rate limit via a separate DAIV API-key user with a lower <code>DAIV_JOBS_THROTTLE_RATE</code>.</li>
 </ul>
-<p>This ensures the agent always has up-to-date context about the repository it's working in.</p>
-<h2 id="model-configuration">Model configuration</h2>
-<p>Models are resolved at three levels (highest priority first):</p>
-<ol>
-<li><strong>Issue labels</strong> — <code>daiv-max</code> switches to a stronger model with higher thinking</li>
-<li><strong>Repository config</strong> — <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a></li>
-<li><strong>Environment variables</strong> — global defaults (<code>DAIV_AGENT_*</code>)</li>
-</ol>
-<p>See <a href="../env-variables/#daiv-agent">Environment Variables</a> for all agent model settings.</p>
+<h2 id="files">Files</h2>
+<ul>
+<li><a href="rt-daiv-triage.scrip.pl"><code>rt-daiv-triage.scrip.pl</code></a> — pasteable Scrip body.</li>
+</ul>
 
 
 
