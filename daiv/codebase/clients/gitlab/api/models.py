@@ -80,6 +80,10 @@ class Issue(BaseModel):
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
 
+    def has_max_label(self) -> bool:
+        """Check if the issue carries the ``daiv-max`` label (case-insensitive)."""
+        return any(label.title.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+
 
 class MergeRequest(BaseModel):
     """
@@ -108,6 +112,10 @@ class MergeRequest(BaseModel):
         """
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.title.lower() in daiv_labels for label in self.labels)
+
+    def has_max_label(self) -> bool:
+        """Check if the merge request carries the ``daiv-max`` label (case-insensitive)."""
+        return any(label.title.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
 
 
 class NoteableType(StrEnum):
