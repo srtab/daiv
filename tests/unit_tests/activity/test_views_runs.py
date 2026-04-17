@@ -1,6 +1,8 @@
 import uuid
 from unittest import mock
 
+from django.core.exceptions import PermissionDenied, SuspiciousOperation
+from django.http import Http404
 from django.urls import reverse
 
 import pytest
@@ -117,11 +119,30 @@ def test_get_retry_invalid_uuid_returns_404(member_client):
 
 
 @pytest.mark.django_db
-def test_post_submit_failure_rerenders_with_error(member_client, monkeypatch):
+def test_post_submit_failure_rerenders_with_error(member_client, monkeypatch, caplog):
     def _boom(**kwargs):
         raise RuntimeError("broker is down")
 
     monkeypatch.setattr("activity.views.submit_ui_run", _boom)
-    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
+    with caplog.at_level("ERROR", logger="daiv.activity"):
+        resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
     assert resp.status_code == 200
     assert "Failed to submit" in resp.content.decode()
+
+    # Operators need the traceback AND enough context (repo_id, ref) to triage the
+    # failure without the user's prompt text; assert both are preserved on the log record.
+    [record] = [r for r in caplog.records if r.name == "daiv.activity" and r.levelname == "ERROR"]
+    assert record.exc_info is not None
+    assert record.repo_id == "acme/repo"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("exc", [Http404, PermissionDenied, SuspiciousOperation])
+def test_post_django_control_flow_exceptions_propagate(member_client, monkeypatch, exc):
+    def _boom(**kwargs):
+        raise exc("boom")
+
+    monkeypatch.setattr("activity.views.submit_ui_run", _boom)
+    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
+    # Django middleware renders these as 404/403/400 — not swallowed as "submit failed".
+    assert resp.status_code in {400, 403, 404}

@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -263,11 +263,22 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             return self.form_invalid(form)
         try:
             activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
+        except Http404, PermissionDenied, SuspiciousOperation:
+            # Let Django's middleware render these as 4xx responses instead of
+            # masking them as a generic "submit failed" 200.
+            raise
         except Exception:
             # Either enqueue failed (no job ran) or the Activity row couldn't be written
             # after enqueue (job is running orphaned). Either way we preserve the form
             # contents and let the user retry; operators see the traceback in logs.
-            logger.exception("Failed to submit UI run for user %s", self.request.user.pk)
+            logger.exception(
+                "Failed to submit UI run",
+                extra={
+                    "user_pk": self.request.user.pk,
+                    "repo_id": form.cleaned_data.get("repo_id"),
+                    "ref": form.cleaned_data.get("ref") or None,
+                },
+            )
             form.add_error(None, _("Failed to submit the run. Please try again in a moment."))
             return self.form_invalid(form)
         return redirect("activity_detail", pk=activity.pk)
