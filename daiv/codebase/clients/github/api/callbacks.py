@@ -102,6 +102,7 @@ class IssueCallback(GitHubCallback):
                 task_result_id=result.id,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
+                use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
             )
@@ -168,6 +169,7 @@ class IssueCommentCallback(GitHubCallback):
                     repo_id=self.repository.full_name,
                     issue_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
                 )
@@ -195,6 +197,7 @@ class IssueCommentCallback(GitHubCallback):
                     repo_id=self.repository.full_name,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
                 )
