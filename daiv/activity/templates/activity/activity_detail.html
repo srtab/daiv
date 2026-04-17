@@ -86,10 +86,23 @@
                 {% if activity.scheduled_job %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Schedule:</span>
+                    {% if is_schedule_owner_or_admin %}
                     <a href="{% url 'schedule_update' activity.scheduled_job.pk %}"
                        class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
                         {{ activity.scheduled_job.name }}
                     </a>
+                    {% else %}
+                    <span class="text-gray-300">{{ activity.scheduled_job.name }}</span>
+                    {% endif %}
+                    {% if is_subscriber %}
+                    <form method="post" action="{% url 'schedule_unsubscribe' activity.scheduled_job.pk %}" class="inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="ml-2 rounded-md bg-white/[0.04] px-2 py-0.5 text-xs text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                            Unsubscribe
+                        </button>
+                    </form>
+                    {% endif %}
                 </div>
                 {% endif %}
 
