@@ -2,14 +2,43 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from genai_prices import Usage, calc_price
-from langchain_core.callbacks.usage import UsageMetadataCallbackHandler  # noqa: F401 (re-export)
+from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
+from langchain_core.tracers.context import register_configure_hook
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger("daiv.usage")
+
+# Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new
+# ContextVar and hook registration on every call, leaking into the module-level hook list.
+_usage_metadata_var: ContextVar[UsageMetadataCallbackHandler | None] = ContextVar(
+    "daiv_usage_metadata_callback", default=None
+)
+register_configure_hook(_usage_metadata_var, inheritable=True)
+
+
+@contextmanager
+def track_usage_metadata() -> Iterator[UsageMetadataCallbackHandler]:
+    """Activate a ``UsageMetadataCallbackHandler`` for the enclosed block.
+
+    The handler is auto-propagated to every nested ``Runnable`` invocation (including
+    subagents) via the registered ``ContextVar`` hook, so callers don't need to thread
+    callbacks through ``RunnableConfig``.
+    """
+    handler = UsageMetadataCallbackHandler()
+    token = _usage_metadata_var.set(handler)
+    try:
+        yield handler
+    finally:
+        _usage_metadata_var.reset(token)
 
 
 @dataclass
@@ -52,6 +81,7 @@ def _calc_model_cost(model_name: str, usage_metadata: dict[str, Any]) -> Decimal
 def build_usage_summary(handler_data: dict[str, dict[str, Any]]) -> UsageSummary:
     """Build a UsageSummary from ``UsageMetadataCallbackHandler.usage_metadata``."""
     if not handler_data:
+        logger.warning("Usage metadata is empty; callback hook may not have fired on any LLM call")
         return UsageSummary()
 
     total_input = 0

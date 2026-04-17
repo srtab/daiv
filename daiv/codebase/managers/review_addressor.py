@@ -12,13 +12,8 @@ from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.usage_tracking import build_usage_summary
-from automation.agent.utils import (
-    attach_usage_tracker,
-    build_langsmith_config,
-    extract_text_content,
-    get_daiv_agent_kwargs,
-)
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
+from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -255,21 +250,21 @@ class CommentsAddressorManager(BaseManager):
                     "merge_request_id": self.merge_request.merge_request_id,
                 },
             )
-            usage_handler = attach_usage_tracker(agent_config)
             try:
-                result = await daiv_agent.ainvoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                name=mention_comment.notes[0].author.username,
-                                id=mention_comment.notes[0].id,
-                                content=mention_comment.notes[0].body,
-                            )
-                        ]
-                    },
-                    config=agent_config,
-                    context=self.ctx,
-                )
+                with track_usage_metadata() as usage_handler:
+                    result = await daiv_agent.ainvoke(
+                        {
+                            "messages": [
+                                HumanMessage(
+                                    name=mention_comment.notes[0].author.username,
+                                    id=mention_comment.notes[0].id,
+                                    content=mention_comment.notes[0].body,
+                                )
+                            ]
+                        },
+                        config=agent_config,
+                        context=self.ctx,
+                    )
             except Exception:
                 draft_published = await self._recover_draft(
                     daiv_agent,

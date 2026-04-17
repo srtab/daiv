@@ -122,3 +122,14 @@ class TestBuildUsageSummary:
         summary = build_usage_summary(handler_data)
         model_usage = summary.by_model["claude-sonnet-4-6"]
         assert model_usage["output_token_details"]["reasoning"] == 200
+
+
+class TestEmptyMetadataWarning:
+    def test_empty_handler_data_logs_warning(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="daiv.usage"):
+            summary = build_usage_summary({})
+
+        assert summary.input_tokens == 0
+        assert any("callback hook may not have fired" in rec.message for rec in caplog.records)
