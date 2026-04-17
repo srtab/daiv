@@ -90,7 +90,7 @@ def test_get_retry_other_users_activity_returns_404(member_client):
 def test_post_valid_submits_and_redirects(member_client):
     task_id = uuid.uuid4()
     fake_task = _make_task_result(task_id)
-    with mock.patch("activity.forms.run_job_task") as m_task:
+    with mock.patch("activity.services.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
         resp = member_client.post(
             reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo", "ref": "", "use_max": "on"}

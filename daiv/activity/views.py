@@ -22,6 +22,7 @@ from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
+from activity.services import submit_ui_run
 from schedules.models import ScheduledJob
 
 if TYPE_CHECKING:
@@ -220,13 +221,21 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     template_name = "activity/agent_run_form.html"
     form_class = AgentRunCreateForm
 
+    _SOURCE_UNSET = object()
+
     def _get_source_activity(self) -> Activity | None:
+        # Memoize per-request: ``get_initial`` and ``get_context_data`` both call this on retry GETs.
+        cached = getattr(self, "_source_cached", self._SOURCE_UNSET)
+        if cached is not self._SOURCE_UNSET:
+            return cached
         source_id = self.request.GET.get("from")
         if not source_id:
+            self._source_cached = None
             return None
         source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
         if source is None or not source.is_retryable:
             raise Http404("Activity is not retryable.")
+        self._source_cached = source
         return source
 
     def get_initial(self) -> dict:
@@ -244,7 +253,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not check_jobs_throttle(self.request.user):
             form.add_error(None, _("Rate limit exceeded; try again later."))
             return self.form_invalid(form)
-        activity = form.submit(user=self.request.user)
+        activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
         return redirect("activity_detail", pk=activity.pk)
 
     def get_breadcrumbs(self):

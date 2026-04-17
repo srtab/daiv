@@ -68,18 +68,11 @@ from activity.models import Activity, ActivityStatus, TriggerType
 @pytest.mark.django_db
 class TestIsRetryable:
     def _make(self, status: str, trigger: str) -> Activity:
-        return Activity(
-            status=status,
-            trigger_type=trigger,
-            repo_id="acme/repo",
-        )
+        return Activity(status=status, trigger_type=trigger, repo_id="acme/repo")
 
-    @pytest.mark.parametrize("trigger", [
-        TriggerType.API_JOB,
-        TriggerType.MCP_JOB,
-        TriggerType.SCHEDULE,
-        TriggerType.UI_JOB,
-    ])
+    @pytest.mark.parametrize(
+        "trigger", [TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.SCHEDULE, TriggerType.UI_JOB]
+    )
     @pytest.mark.parametrize("status", [ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED])
     def test_terminal_non_webhook_is_retryable(self, status, trigger):
         assert self._make(status, trigger).is_retryable is True
@@ -129,10 +122,10 @@ use_max = models.BooleanField(_("use max model"), default=False)
 ```python
 @property
 def is_retryable(self) -> bool:
-    return (
-        self.status in ActivityStatus.terminal()
-        and self.trigger_type not in {TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK}
-    )
+    return self.status in ActivityStatus.terminal() and self.trigger_type not in {
+        TriggerType.ISSUE_WEBHOOK,
+        TriggerType.MR_WEBHOOK,
+    }
 ```
 
 - [ ] **Step 1.4: Create the migration**
@@ -184,21 +177,14 @@ from activity.services import acreate_activity, create_activity
 @pytest.mark.django_db
 def test_create_activity_persists_use_max_true(task_result_id):
     activity = create_activity(
-        trigger_type=TriggerType.UI_JOB,
-        task_result_id=task_result_id,
-        repo_id="acme/repo",
-        use_max=True,
+        trigger_type=TriggerType.UI_JOB, task_result_id=task_result_id, repo_id="acme/repo", use_max=True
     )
     assert Activity.objects.get(pk=activity.pk).use_max is True
 
 
 @pytest.mark.django_db
 def test_create_activity_defaults_use_max_false(task_result_id):
-    activity = create_activity(
-        trigger_type=TriggerType.UI_JOB,
-        task_result_id=task_result_id,
-        repo_id="acme/repo",
-    )
+    activity = create_activity(trigger_type=TriggerType.UI_JOB, task_result_id=task_result_id, repo_id="acme/repo")
     assert activity.use_max is False
 
 
@@ -206,10 +192,7 @@ def test_create_activity_defaults_use_max_false(task_result_id):
 @pytest.mark.django_db
 async def test_acreate_activity_persists_use_max(task_result_id):
     activity = await acreate_activity(
-        trigger_type=TriggerType.UI_JOB,
-        task_result_id=task_result_id,
-        repo_id="acme/repo",
-        use_max=True,
+        trigger_type=TriggerType.UI_JOB, task_result_id=task_result_id, repo_id="acme/repo", use_max=True
     )
     assert activity.use_max is True
 ```
@@ -219,6 +202,7 @@ async def test_acreate_activity_persists_use_max(task_result_id):
 ```python
 import uuid
 from django_tasks_db.models import DBTaskResult
+
 
 @pytest.fixture
 def task_result_id(db):
@@ -246,7 +230,7 @@ def create_activity(
     repo_id: str,
     ref: str = "",
     prompt: str = "",
-    use_max: bool = False,              # NEW
+    use_max: bool = False,  # NEW
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -260,7 +244,7 @@ def create_activity(
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
-        use_max=use_max,                # NEW
+        use_max=use_max,  # NEW
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
@@ -305,7 +289,7 @@ await acreate_activity(
     repo_id=payload.repo_id,
     ref=payload.ref or "",
     prompt=payload.prompt,
-    use_max=payload.use_max,    # NEW
+    use_max=payload.use_max,  # NEW
     user=request.auth,
 )
 ```
@@ -321,8 +305,7 @@ async def test_submit_job_persists_use_max(admin_client):  # from tests/unit_tes
     with mock.patch("jobs.api.views.run_job_task.aenqueue") as m:
         m.return_value.id = uuid.uuid4()
         resp = await admin_client.post(
-            "/api/jobs",
-            json={"repo_id": "acme/repo", "prompt": "do the thing", "use_max": True},
+            "/api/jobs", json={"repo_id": "acme/repo", "prompt": "do the thing", "use_max": True}
         )
     assert resp.status_code == 202
     activity = await Activity.objects.aget(task_result_id=m.return_value.id)
@@ -362,7 +345,7 @@ await acreate_activity(
     repo_id=repo_id,
     ref=ref or "",
     prompt=prompt,
-    use_max=use_max,      # NEW
+    use_max=use_max,  # NEW
     user=mcp_user,
 )
 ```
@@ -423,7 +406,7 @@ create_activity(
     repo_id=schedule.repo_id,
     ref=ref or "",
     prompt=schedule.prompt,
-    use_max=schedule.use_max,   # NEW
+    use_max=schedule.use_max,  # NEW
     scheduled_job=schedule,
     user=schedule.user,
 )
@@ -483,8 +466,12 @@ def test_issue_has_max_label_false_when_absent():
 
 def test_merge_request_has_max_label_true():
     mr = MergeRequest(
-        id=1, iid=1, title="t", state="opened",
-        source_branch="feature", target_branch="main",
+        id=1,
+        iid=1,
+        title="t",
+        state="opened",
+        source_branch="feature",
+        target_branch="main",
         labels=[_label("daiv-max")],
     )
     assert mr.has_max_label() is True
@@ -530,7 +517,7 @@ await acreate_activity(
     task_result_id=result.id,
     repo_id=self.project.path_with_namespace,
     issue_iid=self.object_attributes.iid,
-    use_max=self.object_attributes.has_max_label(),   # NEW
+    use_max=self.object_attributes.has_max_label(),  # NEW
     user=daiv_user,
     external_username=self.user.username,
 )
@@ -545,7 +532,7 @@ await acreate_activity(
     repo_id=self.project.path_with_namespace,
     issue_iid=self.issue.iid,
     mention_comment_id=self.object_attributes.discussion_id,
-    use_max=self.issue.has_max_label(),               # NEW
+    use_max=self.issue.has_max_label(),  # NEW
     user=daiv_user,
     external_username=self.user.username,
 )
@@ -560,7 +547,7 @@ await acreate_activity(
     repo_id=self.project.path_with_namespace,
     merge_request_iid=self.merge_request.iid,
     mention_comment_id=self.object_attributes.discussion_id,
-    use_max=self.merge_request.has_max_label(),       # NEW
+    use_max=self.merge_request.has_max_label(),  # NEW
     user=daiv_user,
     external_username=self.user.username,
 )
@@ -685,6 +672,7 @@ def _clear_cache():
 def settings_with_rate(monkeypatch):
     def _set(rate: str):
         monkeypatch.setattr("core.site_settings.site_settings.jobs_throttle_rate", rate, raising=False)
+
     return _set
 
 
@@ -720,7 +708,7 @@ def test_invalid_rate_is_permissive(member_user, settings_with_rate):
 def test_per_user_buckets(admin_user, member_user, settings_with_rate):
     settings_with_rate("1/minute")
     assert check_jobs_throttle(admin_user) is True
-    assert check_jobs_throttle(member_user) is True   # separate bucket
+    assert check_jobs_throttle(member_user) is True  # separate bucket
     assert check_jobs_throttle(admin_user) is False
 ```
 
@@ -744,6 +732,7 @@ Create `daiv/jobs/throttle.py`:
 Shares the ``jobs_throttle_rate`` budget used by the API endpoint so that a
 single user cannot exceed the configured hourly limit across API+UI combined.
 """
+
 from __future__ import annotations
 
 import re
@@ -829,6 +818,7 @@ git commit -m "feat(jobs): Add shared check_jobs_throttle helper for UI submissi
 Kept as a plain ``Form`` so both ``forms.Form`` and ``forms.ModelForm`` can
 consume it as a mixin.
 """
+
 from __future__ import annotations
 
 from django import forms
@@ -836,19 +826,10 @@ from django.utils.translation import gettext_lazy as _
 
 
 class AgentRunFieldsMixin(forms.Form):
-    prompt = forms.CharField(
-        label=_("Prompt"),
-        widget=forms.Textarea(attrs={"rows": 6}),
-        required=True,
-    )
-    repo_id = forms.CharField(
-        label=_("Repository"),
-        required=True,
-    )
+    prompt = forms.CharField(label=_("Prompt"), widget=forms.Textarea(attrs={"rows": 6}), required=True)
+    repo_id = forms.CharField(label=_("Repository"), required=True)
     ref = forms.CharField(
-        label=_("Branch / ref"),
-        required=False,
-        help_text=_("Leave empty to use the repository default branch."),
+        label=_("Branch / ref"), required=False, help_text=_("Leave empty to use the repository default branch.")
     )
     use_max = forms.BooleanField(
         label=_("Use max model"),
@@ -937,10 +918,7 @@ from activity.forms import AgentRunFieldsMixin
 class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
     class Meta:
         model = ScheduledJob
-        fields = [
-            "name", "prompt", "repo_id", "ref", "use_max",
-            "frequency", "cron_expression", "time", "notify_on",
-        ]
+        fields = ["name", "prompt", "repo_id", "ref", "use_max", "frequency", "cron_expression", "time", "notify_on"]
 
     # existing _clean_conditional_fields, clean, save methods unchanged
 ```
@@ -1003,24 +981,14 @@ from activity.models import Activity, TriggerType
 def test_submit_enqueues_and_creates_activity(member_user):
     user = member_user
     fake_task = mock.Mock(id=uuid.uuid4())
-    form = AgentRunCreateForm(data={
-        "prompt": "do the thing",
-        "repo_id": "acme/repo",
-        "ref": "main",
-        "use_max": True,
-    })
+    form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "acme/repo", "ref": "main", "use_max": True})
     assert form.is_valid(), form.errors
 
     with mock.patch("activity.forms.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
         activity = form.submit(user=user)
 
-    m_task.aenqueue.assert_awaited_once_with(
-        repo_id="acme/repo",
-        prompt="do the thing",
-        ref="main",
-        use_max=True,
-    )
+    m_task.aenqueue.assert_awaited_once_with(repo_id="acme/repo", prompt="do the thing", ref="main", use_max=True)
 
     reloaded = Activity.objects.get(pk=activity.pk)
     assert reloaded.trigger_type == TriggerType.UI_JOB
@@ -1035,9 +1003,7 @@ def test_submit_enqueues_and_creates_activity(member_user):
 @pytest.mark.django_db
 def test_submit_passes_none_for_empty_ref(member_user):
     user = member_user
-    form = AgentRunCreateForm(data={
-        "prompt": "x", "repo_id": "acme/repo", "ref": "",
-    })
+    form = AgentRunCreateForm(data={"prompt": "x", "repo_id": "acme/repo", "ref": ""})
     assert form.is_valid(), form.errors
 
     with mock.patch("activity.forms.run_job_task") as m_task:
@@ -1077,10 +1043,7 @@ class AgentRunCreateForm(AgentRunFieldsMixin, forms.Form):
 
         async def _submit() -> Activity:
             task = await run_job_task.aenqueue(
-                repo_id=data["repo_id"],
-                prompt=data["prompt"],
-                ref=ref,
-                use_max=data["use_max"],
+                repo_id=data["repo_id"], prompt=data["prompt"], ref=ref, use_max=data["use_max"]
             )
             return await acreate_activity(
                 trigger_type=TriggerType.UI_JOB,
@@ -1175,22 +1138,21 @@ def test_get_retry_prefills_fields(member_client, member_user):
         user=member_user,
         status=ActivityStatus.SUCCESSFUL,
         trigger_type=TriggerType.API_JOB,
-        repo_id="a/b", ref="develop", prompt="P", use_max=True,
+        repo_id="a/b",
+        ref="develop",
+        prompt="P",
+        use_max=True,
     )
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 200
-    assert resp.context["form"].initial == {
-        "prompt": "P", "repo_id": "a/b", "ref": "develop", "use_max": True,
-    }
+    assert resp.context["form"].initial == {"prompt": "P", "repo_id": "a/b", "ref": "develop", "use_max": True}
     assert resp.context["source_activity"].pk == source.pk
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("status", [ActivityStatus.READY, ActivityStatus.RUNNING])
 def test_get_retry_non_terminal_returns_404(member_client, member_user, status):
-    source = Activity.objects.create(
-        user=member_user, status=status, trigger_type=TriggerType.API_JOB, repo_id="a/b",
-    )
+    source = Activity.objects.create(user=member_user, status=status, trigger_type=TriggerType.API_JOB, repo_id="a/b")
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 404
 
@@ -1199,7 +1161,7 @@ def test_get_retry_non_terminal_returns_404(member_client, member_user, status):
 @pytest.mark.parametrize("trigger", [TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK])
 def test_get_retry_webhook_returns_404(member_client, member_user, trigger):
     source = Activity.objects.create(
-        user=member_user, status=ActivityStatus.SUCCESSFUL, trigger_type=trigger, repo_id="a/b",
+        user=member_user, status=ActivityStatus.SUCCESSFUL, trigger_type=trigger, repo_id="a/b"
     )
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 404
@@ -1209,7 +1171,7 @@ def test_get_retry_webhook_returns_404(member_client, member_user, trigger):
 def test_get_retry_other_users_activity_returns_404(member_client):
     owner = _make_user("owner2")
     source = Activity.objects.create(
-        user=owner, status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.API_JOB, repo_id="a/b",
+        user=owner, status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.API_JOB, repo_id="a/b"
     )
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 404
@@ -1220,9 +1182,9 @@ def test_post_valid_submits_and_redirects(member_client):
     fake_task = mock.Mock(id=uuid.uuid4())
     with mock.patch("activity.forms.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
-        resp = member_client.post(reverse("runs:agent_run_new"), data={
-            "prompt": "go", "repo_id": "acme/repo", "ref": "", "use_max": "on",
-        })
+        resp = member_client.post(
+            reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo", "ref": "", "use_max": "on"}
+        )
     assert resp.status_code == 302
     created = Activity.objects.get(task_result_id=fake_task.id)
     assert resp["Location"] == reverse("activity_detail", args=[created.pk])
@@ -1233,9 +1195,7 @@ def test_post_valid_submits_and_redirects(member_client):
 @pytest.mark.django_db
 def test_post_throttled_rerenders_with_error(member_client, monkeypatch):
     monkeypatch.setattr("activity.views.check_jobs_throttle", lambda u: False)
-    resp = member_client.post(reverse("runs:agent_run_new"), data={
-        "prompt": "go", "repo_id": "acme/repo",
-    })
+    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
     assert resp.status_code == 200
     assert "Rate limit" in resp.content.decode()
 ```
@@ -1280,12 +1240,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         source = self._get_source_activity()
         if source is None:
             return {}
-        return {
-            "prompt": source.prompt,
-            "repo_id": source.repo_id,
-            "ref": source.ref,
-            "use_max": source.use_max,
-        }
+        return {"prompt": source.prompt, "repo_id": source.repo_id, "ref": source.ref, "use_max": source.use_max}
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1301,13 +1256,11 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
 
     def _redirect_to_activity(self, pk):
         from django.shortcuts import redirect
+
         return redirect("activity_detail", pk=pk)
 
     def get_breadcrumbs(self):
-        return [
-            {"label": "Activity", "url": reverse("activity_list")},
-            {"label": "Start a run", "url": None},
-        ]
+        return [{"label": "Activity", "url": reverse("activity_list")}, {"label": "Start a run", "url": None}]
 ```
 
 - [ ] **Step 12.4: Create `daiv/activity/urls_runs.py`**
@@ -1319,9 +1272,7 @@ from activity.views import AgentRunCreateView
 
 app_name = "runs"
 
-urlpatterns = [
-    path("new/", AgentRunCreateView.as_view(), name="agent_run_new"),
-]
+urlpatterns = [path("new/", AgentRunCreateView.as_view(), name="agent_run_new")]
 ```
 
 - [ ] **Step 12.5: Mount `/runs/` in the root URLconf**
@@ -1329,7 +1280,7 @@ urlpatterns = [
 Find the project's root URLconf (`grep -n "include.*activity" daiv/daiv/urls.py`). Alongside the existing activity `include`, add:
 
 ```python
-path("runs/", include("activity.urls_runs", namespace="runs")),
+(path("runs/", include("activity.urls_runs", namespace="runs")),)
 ```
 
 - [ ] **Step 12.6: Create the page template**

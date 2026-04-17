@@ -35,10 +35,10 @@ A user cannot re-execute a past agent run with the same parameters. Today, every
   ```python
   @property
   def is_retryable(self) -> bool:
-      return (
-          self.status in ActivityStatus.terminal()
-          and self.trigger_type not in {TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK}
-      )
+      return self.status in ActivityStatus.terminal() and self.trigger_type not in {
+          TriggerType.ISSUE_WEBHOOK,
+          TriggerType.MR_WEBHOOK,
+      }
   ```
 
 Stored enum values (`api_job`, `mcp_job`, `schedule`) are not renamed — avoiding a data migration with no functional gain.
@@ -81,10 +81,8 @@ The mixin owns shared field declarations, widgets, validators, and `help_text`. 
 class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
     class Meta:
         model = ScheduledJob
-        fields = [
-            "name", "prompt", "repo_id", "ref", "use_max",
-            "frequency", "cron_expression", "time", "notify_on",
-        ]
+        fields = ["name", "prompt", "repo_id", "ref", "use_max", "frequency", "cron_expression", "time", "notify_on"]
+
     # existing clean() / save() unchanged
 ```
 
@@ -130,7 +128,7 @@ def submit(self, user) -> Activity:
 **URL wiring:** top-level `/runs/` prefix. Add to the root URLconf:
 
 ```python
-path("runs/", include("activity.urls_runs", namespace="runs")),
+(path("runs/", include("activity.urls_runs", namespace="runs")),)
 ```
 
 `activity/urls_runs.py` registers `path("new/", AgentRunCreateView.as_view(), name="agent_run_new")` (full URL name: `runs:agent_run_new`).

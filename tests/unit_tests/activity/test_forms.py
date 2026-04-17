@@ -2,8 +2,8 @@ import uuid
 from unittest import mock
 
 import pytest
-from activity.forms import AgentRunCreateForm
 from activity.models import Activity, TriggerType
+from activity.services import submit_ui_run
 from django_tasks_db.models import DBTaskResult, get_date_max
 
 
@@ -22,15 +22,13 @@ def _make_task_result(task_id: uuid.UUID) -> mock.Mock:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_submit_enqueues_and_creates_activity(member_user):
+def test_submit_ui_run_enqueues_and_creates_activity(member_user):
     task_id = uuid.uuid4()
     fake_task = _make_task_result(task_id)
-    form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "acme/repo", "ref": "main", "use_max": True})
-    assert form.is_valid(), form.errors
 
-    with mock.patch("activity.forms.run_job_task") as m_task:
+    with mock.patch("activity.services.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
-        activity = form.submit(user=member_user)
+        activity = submit_ui_run(user=member_user, prompt="do the thing", repo_id="acme/repo", ref="main", use_max=True)
 
     m_task.aenqueue.assert_awaited_once_with(repo_id="acme/repo", prompt="do the thing", ref="main", use_max=True)
 
@@ -45,15 +43,12 @@ def test_submit_enqueues_and_creates_activity(member_user):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_submit_passes_none_for_empty_ref(member_user):
+def test_submit_ui_run_passes_none_for_empty_ref(member_user):
     task_id = uuid.uuid4()
     fake_task = _make_task_result(task_id)
-    form = AgentRunCreateForm(data={"prompt": "x", "repo_id": "acme/repo", "ref": ""})
-    assert form.is_valid(), form.errors
 
-    with mock.patch("activity.forms.run_job_task") as m_task:
+    with mock.patch("activity.services.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
-        form.submit(user=member_user)
+        submit_ui_run(user=member_user, prompt="x", repo_id="acme/repo", ref="")
 
-    kwargs = m_task.aenqueue.await_args.kwargs
-    assert kwargs["ref"] is None
+    assert m_task.aenqueue.await_args.kwargs["ref"] is None
