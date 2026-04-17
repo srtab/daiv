@@ -76,6 +76,27 @@ From the **Scheduled Jobs** list you can:
 
 The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner. Clicking the run count opens the [Activity](../features/activity-tracking.md) page filtered to that schedule's runs.
 
+## Subscribers
+
+Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:
+
+- Receive the same notification as the owner whenever the schedule's `Notify on` condition matches (e.g., "On success only" or "Always").
+- Gain **read-only** access to the activities produced by the schedule — they can click through from the notification and view the activity detail, output, and code changes.
+- Do **not** see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.
+
+### Adding subscribers
+
+On the schedule form, use the **Subscribers** search to find a user by username, email, or name. Click a result to add them as a chip. Remove a chip with the × button. Save the schedule to persist the subscriber list.
+
+Only the owner (or an admin) can change a schedule's subscribers.
+
+### Self-unsubscribe
+
+When a subscriber opens an activity produced by a schedule they are CC'd on, the activity detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
+
+!!! note "Notification preferences"
+    All subscribers inherit the schedule's `Notify on` setting. There is no per-subscriber override today. If the owner changes the setting, every subscriber's notification behavior changes with it.
+
 ## Relationship with the Jobs API
 
 Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to execute agent work. The difference is how the job is triggered:
