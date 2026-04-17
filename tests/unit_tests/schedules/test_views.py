@@ -261,3 +261,71 @@ class TestScheduleUpdateViewSubscribers:
         assert response.status_code in (302, 200), response.content.decode()[:400]
         schedule.refresh_from_db()
         assert list(schedule.subscribers.all()) == [alice]
+
+
+@pytest.mark.django_db
+class TestScheduleUnsubscribeView:
+    def _subscriber(self, username="sub1"):
+        return User.objects.create_user(username=username, email=f"{username}@t.com", password="x")  # noqa: S106
+
+    def test_subscriber_can_unsubscribe(self, schedule):
+        sub = self._subscriber()
+        schedule.subscribers.add(sub)
+
+        client = Client()
+        client.force_login(sub)
+        response = client.post(reverse("schedule_unsubscribe", args=[schedule.pk]))
+        assert response.status_code == 302
+        schedule.refresh_from_db()
+        assert sub not in schedule.subscribers.all()
+
+    def test_non_subscriber_gets_404(self, schedule):
+        other = self._subscriber("other")
+        client = Client()
+        client.force_login(other)
+        response = client.post(reverse("schedule_unsubscribe", args=[schedule.pk]))
+        assert response.status_code == 404
+
+    def test_owner_gets_404(self, member_client, schedule):
+        response = member_client.post(reverse("schedule_unsubscribe", args=[schedule.pk]))
+        assert response.status_code == 404
+
+    def test_rejects_get(self, schedule):
+        sub = self._subscriber()
+        schedule.subscribers.add(sub)
+        client = Client()
+        client.force_login(sub)
+        response = client.get(reverse("schedule_unsubscribe", args=[schedule.pk]))
+        assert response.status_code == 405
+
+    def test_next_redirect_honored_when_safe(self, schedule):
+        sub = self._subscriber()
+        schedule.subscribers.add(sub)
+        client = Client()
+        client.force_login(sub)
+        response = client.post(
+            reverse("schedule_unsubscribe", args=[schedule.pk]), data={"next": "/dashboard/activity/"}
+        )
+        assert response.status_code == 302
+        assert response.url == "/dashboard/activity/"
+
+    def test_unsafe_next_falls_back_to_activity_list(self, schedule):
+        sub = self._subscriber()
+        schedule.subscribers.add(sub)
+        client = Client()
+        client.force_login(sub)
+        response = client.post(
+            reverse("schedule_unsubscribe", args=[schedule.pk]), data={"next": "https://evil.example.com/phish"}
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("activity_list")
+
+    def test_unauthenticated_redirects_to_login(self, schedule):
+        client = Client()
+        response = client.post(reverse("schedule_unsubscribe", args=[schedule.pk]))
+        assert response.status_code == 302
+        assert "/login" in response.url or "/accounts/" in response.url
+
+    def test_nonexistent_schedule_returns_404(self, member_client):
+        response = member_client.post(reverse("schedule_unsubscribe", args=[99999]))
+        assert response.status_code == 404

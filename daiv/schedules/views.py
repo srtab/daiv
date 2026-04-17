@@ -5,10 +5,11 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -164,6 +165,23 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
         if activity is not None:
             return redirect("activity_detail", pk=activity.pk)
         return redirect("schedule_list")
+
+
+class ScheduleUnsubscribeView(LoginRequiredMixin, View):
+    """Let a subscriber remove themselves from a schedule."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        schedule = get_object_or_404(ScheduledJob, pk=pk)
+        if not schedule.subscribers.filter(pk=request.user.pk).exists():
+            raise Http404
+        schedule.subscribers.remove(request.user)
+        messages.success(request, f"You are no longer subscribed to '{schedule.name}'.")
+        next_url = request.POST.get("next", "")
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+            return redirect(next_url)
+        return redirect("activity_list")
 
 
 class ScheduleDeleteView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, DeleteView):
