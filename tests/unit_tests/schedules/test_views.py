@@ -184,3 +184,66 @@ class TestScheduleRunNowView:
 
         followed = member_client.get(response.url)
         assert "triggered successfully" in followed.content.decode()
+
+
+@pytest.mark.django_db
+class TestScheduleCreateViewSubscribers:
+    def test_owner_passed_to_form_on_create(self, member_client, member_user):
+        alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
+        payload = {
+            "name": "Daily",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "",
+            "frequency": "daily",
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
+            "subscribers": [str(alice.pk)],
+        }
+        response = member_client.post(reverse("schedule_create"), data=payload)
+        assert response.status_code in (302, 200), response.content.decode()[:400]
+        schedule = ScheduledJob.objects.get(name="Daily")
+        assert list(schedule.subscribers.all()) == [alice]
+        assert schedule.user == member_user
+
+    def test_owner_rejected_as_own_subscriber_on_create(self, member_client, member_user):
+        payload = {
+            "name": "Daily",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "",
+            "frequency": "daily",
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
+            "subscribers": [str(member_user.pk)],
+        }
+        response = member_client.post(reverse("schedule_create"), data=payload)
+        assert response.status_code == 200
+        assert not ScheduledJob.objects.filter(name="Daily").exists()
+
+
+@pytest.mark.django_db
+class TestScheduleUpdateViewSubscribers:
+    def test_owner_passed_to_form_on_update(self, member_client, schedule):
+        alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
+        payload = {
+            "name": schedule.name,
+            "prompt": schedule.prompt,
+            "repo_id": schedule.repo_id,
+            "ref": schedule.ref,
+            "frequency": schedule.frequency,
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
+            "is_enabled": "true",
+            "subscribers": [str(alice.pk)],
+        }
+        response = member_client.post(reverse("schedule_update", args=[schedule.pk]), data=payload)
+        assert response.status_code in (302, 200), response.content.decode()[:400]
+        schedule.refresh_from_db()
+        assert list(schedule.subscribers.all()) == [alice]
