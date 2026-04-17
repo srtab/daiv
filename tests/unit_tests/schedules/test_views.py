@@ -228,6 +228,20 @@ class TestScheduleCreateViewSubscribers:
 
 @pytest.mark.django_db
 class TestScheduleUpdateViewSubscribers:
+    def test_update_form_prefills_selected_subscribers(self, member_client, schedule):
+        alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
+        schedule.subscribers.add(alice)
+        response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+        html = response.content.decode()
+        assert "alice" in html
+
+    def test_create_form_renders_picker_markers(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        html = response.content.decode()
+        assert 'id="id_subscribers"' in html
+        assert "subscriberPicker" in html
+        assert "Subscribers" in html
+
     def test_owner_passed_to_form_on_update(self, member_client, schedule):
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
         payload = {

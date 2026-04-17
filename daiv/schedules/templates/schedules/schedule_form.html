@@ -8,6 +8,7 @@
         integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
         crossorigin="anonymous"></script>
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 {% endblock %}
 
 {% block breadcrumb %}
@@ -160,6 +161,8 @@
                 <p class="mt-1.5 text-sm text-red-400">{{ form.notify_on.errors.0 }}</p>
                 {% endif %}
             </div>
+
+            {% include "schedules/_subscriber_picker.html" %}
 
             {% if object %}
             <!-- Enabled (edit only) -->

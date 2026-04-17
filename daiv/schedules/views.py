@@ -1,3 +1,4 @@
+import json
 import logging
 
 from django.contrib import messages
@@ -29,6 +30,14 @@ class _ScheduleOwnerMixin:
         return ScheduledJob.objects.by_owner(self.request.user)
 
 
+def _subscriber_initial_json(schedule) -> str:
+    """Serialize a schedule's current subscribers for the Alpine picker."""
+    if schedule is None:
+        return "[]"
+    rows = [{"id": u.pk, "username": u.username, "name": u.name, "email": u.email} for u in schedule.subscribers.all()]
+    return json.dumps(rows)
+
+
 class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     model = ScheduledJob
     template_name = "schedules/schedule_list.html"
@@ -55,6 +64,11 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         kwargs["owner"] = self.request.user
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["subscriber_initial_json"] = "[]"
+        return context
+
     def form_valid(self, form):
         form.instance.user = self.request.user
         return super().form_valid(form)
@@ -71,6 +85,11 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.object.user
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
+        return context
 
     def get_breadcrumbs(self):
         return [
