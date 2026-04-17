@@ -7,13 +7,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.results import AgentResult, build_agent_result
-from automation.agent.usage_tracking import build_usage_summary
-from automation.agent.utils import (
-    attach_usage_tracker,
-    build_langsmith_config,
-    extract_text_content,
-    get_daiv_agent_kwargs,
-)
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
+from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -50,9 +45,9 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None, use_ma
                 extra_metadata={"ref": ref},
                 configurable={"thread_id": str(uuid.uuid4())},
             )
-            usage_handler = attach_usage_tracker(config)
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
-            result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
+            with track_usage_metadata() as usage_handler:
+                result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:
         logger.exception("Job failed for repo_id=%s, ref=%s, use_max=%s", repo_id, ref, use_max)
         raise
