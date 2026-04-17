@@ -79,6 +79,8 @@ plugins:
         - features/slash-commands.md: Slash commands and custom skills
         - features/subagents.md: Specialized subagents for exploration and execution
         - features/sandbox.md: Secure sandboxed code execution
+        Integrations:
+        - integrations/rt/index.md: Request Tracker triage on ticket create via RT Scrip
         Customization:
         - customization/repository-config.md: Per-repository configuration
         - customization/agent-skills.md: Creating custom agent skills
@@ -133,6 +135,8 @@ nav:
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
+  - Integrations:
+    - Request Tracker Triage: integrations/rt/index.md
   - Customization:
     - Repository Config: customization/repository-config.md
     - Agent Skills: customization/agent-skills.md
