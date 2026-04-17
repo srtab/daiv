@@ -72,20 +72,34 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
     if not channels:
         return
 
-    try:
-        notify(
-            recipient=schedule.user,
-            event_type="schedule.finished",
-            source_type="activity.Activity",
-            source_id=str(activity.pk),
-            subject=_render_subject(schedule, activity),
-            body=_render_body(schedule, activity),
-            link_url=reverse("activity_detail", args=[activity.pk]),
-            channels=channels,
-            context={"status": activity.status, "schedule_name": schedule.name},
-        )
-    except Exception:
-        logger.exception("Failed to create notification for activity %s", activity.pk)
+    recipients: dict[int, object] = {schedule.user_id: schedule.user}
+    for sub in schedule.subscribers.all():
+        recipients.setdefault(sub.pk, sub)
+
+    subject = _render_subject(schedule, activity)
+    body = _render_body(schedule, activity)
+    link_url = reverse("activity_detail", args=[activity.pk])
+    context = {"status": activity.status, "schedule_name": schedule.name}
+
+    for recipient in recipients.values():
+        try:
+            notify(
+                recipient=recipient,
+                event_type="schedule.finished",
+                source_type="activity.Activity",
+                source_id=str(activity.pk),
+                subject=subject,
+                body=body,
+                link_url=link_url,
+                channels=channels,
+                context=context,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create notification for activity %s, recipient pk=%s",
+                activity.pk,
+                getattr(recipient, "pk", None),
+            )
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid="notifications.sync_email_binding")
