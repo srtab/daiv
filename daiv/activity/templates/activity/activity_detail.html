@@ -163,11 +163,16 @@
 
         <!-- Prompt -->
         {% if activity.prompt %}
+        {# Raw markdown embedded as JSON for the copy-to-clipboard button below. #}
+        {{ activity.prompt|json_script:"activity-prompt-raw" }}
         {% if activity.prompt|length > 500 %}
         <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
              style="animation-delay: 150ms"
              x-data="{ expanded: false }">
-            <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
+            <div class="flex items-center justify-between gap-3">
+                <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
+                {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy markdown" %}
+            </div>
             <div class="relative mt-3">
                 <div class="prose-dark overflow-hidden rounded-xl bg-black/30 p-4"
                      :class="{ 'max-h-64': !expanded }">
@@ -185,7 +190,10 @@
         </div>
         {% else %}
         <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 150ms">
-            <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
+            <div class="flex items-center justify-between gap-3">
+                <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
+                {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy markdown" %}
+            </div>
             <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
                 {{ activity.prompt|render_markdown }}
             </div>
@@ -196,15 +204,19 @@
         <!-- Result section -->
         <div class="animate-fade-up mt-6" style="animation-delay: 200ms">
             {% if activity.status == "SUCCESSFUL" %}
+            {% if activity.response_text %}{{ activity.response_text|json_script:"activity-result-raw" }}{% endif %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between gap-3">
                     <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
                     {% if activity.response_text %}
-                    <a href="{% url 'activity_download_md' activity.pk %}"
-                       class="btn-secondary gap-2 rounded-lg px-3 py-1.5 text-sm">
-                        {% icon "arrow-down-tray" "h-4 w-4" %}
-                        Markdown
-                    </a>
+                    <div class="flex items-center gap-2">
+                        {% include "activity/_copy_markdown_button.html" with source_id="activity-result-raw" label="Copy" %}
+                        <a href="{% url 'activity_download_md' activity.pk %}"
+                           class="btn-secondary gap-2 rounded-lg px-3 py-1.5 text-sm">
+                            {% icon "arrow-down-tray" "h-4 w-4" %}
+                            Markdown
+                        </a>
+                    </div>
                     {% endif %}
                 </div>
                 {% if activity.response_text %}
