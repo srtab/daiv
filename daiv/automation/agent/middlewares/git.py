@@ -32,6 +32,12 @@ GIT_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 - Current branch: {{current_branch}}
 - Default branch: {{default_branch}}
 - Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
+
+**Committing and pushing is automatic.** The harness commits and pushes any file changes you make when your turn ends. You do not need to — and must not try to — run `git add`, `git commit`, `git push`, `git reset`, `git rebase`, `git config`, or any other index- or history-mutating git command. These are hard-blocked by sandbox policy; attempting them or their synonyms (`git stage`, `git update-index`, `git read-tree -m`, `git commit-tree`, …) will fail and waste turns.
+
+- If a task tells you to "commit and push," interpret it as "make the edits" — the harness ships them.
+- If a task asks you to "rebase" or "resolve merge conflicts with the target branch," tell the user this harness does not support rebase-style workflows and stop. Do not try to emulate rebase with `git show`/`git checkout -- <paths>`; it cannot complete without a staging primitive.
+- Read-only git commands (`git log`, `git diff`, `git status`, `git show`, `git branch`, `git ls-files`, …) are allowed and useful for understanding branch state.
 {{#issue_iid}}
 
 You're currently working on issue #{{issue_iid}}.
