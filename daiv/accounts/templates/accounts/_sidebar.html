@@ -17,6 +17,13 @@
       <span>{% translate "Dashboard" %}</span>
     </a>
 
+    <a href="{% url 'runs:agent_run_new' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'runs' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'runs' %}opacity-0{% endif %}"></span>
+      {% icon "bolt" "h-4 w-4" %}
+      <span>{% translate "Start a run" %}</span>
+    </a>
+
     <a href="{% url 'activity_list' %}"
        class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'activity' %}">
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'activity' %}opacity-0{% endif %}"></span>
