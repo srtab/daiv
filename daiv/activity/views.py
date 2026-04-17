@@ -8,15 +8,19 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.text import slugify
+from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import DetailView
+from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
+from jobs.throttle import check_jobs_throttle
 
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
+from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from schedules.models import ScheduledJob
 
@@ -203,3 +207,45 @@ class ActivityStreamView(View):
                     tracking.discard(activity.id)
 
         yield 'data: {"done": true}\n\n'
+
+
+class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
+    """Serve the "Start a run" page and submit new UI-initiated agent runs.
+
+    ``GET /runs/new/`` renders a blank form. ``GET /runs/new/?from=<pk>``
+    pre-fills the form from a retryable source Activity. ``POST`` enqueues
+    ``run_job_task`` and creates a UI_JOB Activity, redirecting to the detail page.
+    """
+
+    template_name = "activity/agent_run_form.html"
+    form_class = AgentRunCreateForm
+
+    def _get_source_activity(self) -> Activity | None:
+        source_id = self.request.GET.get("from")
+        if not source_id:
+            return None
+        source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
+        if source is None or not source.is_retryable:
+            raise Http404("Activity is not retryable.")
+        return source
+
+    def get_initial(self) -> dict:
+        source = self._get_source_activity()
+        if source is None:
+            return {}
+        return {"prompt": source.prompt, "repo_id": source.repo_id, "ref": source.ref, "use_max": source.use_max}
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["source_activity"] = self._get_source_activity()
+        return ctx
+
+    def form_valid(self, form):
+        if not check_jobs_throttle(self.request.user):
+            form.add_error(None, _("Rate limit exceeded; try again later."))
+            return self.form_invalid(form)
+        activity = form.submit(user=self.request.user)
+        return redirect("activity_detail", pk=activity.pk)
+
+    def get_breadcrumbs(self):
+        return [{"label": "Activity", "url": reverse("activity_list")}, {"label": "Start a run", "url": None}]
