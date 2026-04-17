@@ -3671,8 +3671,8 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 
 ### How it works
 
-1. A `UsageMetadataCallbackHandler` (from LangChain) is attached to the `RunnableConfig` before each agent invocation.
-1. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations and tool-internal model calls.
+1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `UsageMetadataCallbackHandler` to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
+1. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the `task` tool.
 1. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
 1. The usage summary is stored in the `AgentResult` and denormalized onto the `Activity` record for long-term retention.
 
@@ -3699,7 +3699,6 @@ Token detail buckets (when available from the provider):
 
 ### Known limitations
 
-- **Subagent calls** are not tracked — the `SubAgentMiddleware` creates a separate execution context that does not inherit the parent's callbacks.
 - **Summarization middleware calls** may not be tracked if the middleware overrides the config.
 - If a model is **not in the genai-prices database**, token usage is still recorded but cost is stored as `null`. A warning is logged.
 - Cost estimates are **approximations** based on published list prices. Actual billing may differ based on your provider agreement.
