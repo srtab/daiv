@@ -86,10 +86,7 @@ for recipient in recipients.values():
             context={"status": activity.status, "schedule_name": schedule.name},
         )
     except Exception:
-        logger.exception(
-            "Failed to create notification for activity %s, recipient pk=%s",
-            activity.pk, recipient.pk,
-        )
+        logger.exception("Failed to create notification for activity %s, recipient pk=%s", activity.pk, recipient.pk)
 ```
 
 Notes:
@@ -107,9 +104,7 @@ def by_owner(self, user: User) -> models.QuerySet[Activity]:
     if user.is_admin:
         return self.all()
     return self.filter(
-        models.Q(user=user)
-        | models.Q(external_username=user.username)
-        | models.Q(scheduled_job__subscribers=user)
+        models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
     ).distinct()
 ```
 
@@ -132,9 +127,16 @@ Add `subscribers` to both `ScheduledJobCreateForm` and `ScheduledJobUpdateForm`:
 ```python
 class Meta:
     fields = [
-        "name", "prompt", "repo_id", "ref",
-        "frequency", "cron_expression", "time",
-        "use_max", "notify_on", "subscribers",
+        "name",
+        "prompt",
+        "repo_id",
+        "ref",
+        "frequency",
+        "cron_expression",
+        "time",
+        "use_max",
+        "notify_on",
+        "subscribers",
     ]
 ```
 
@@ -208,10 +210,7 @@ class ScheduleUnsubscribeView(LoginRequiredMixin, View):
         if not schedule.subscribers.filter(pk=request.user.pk).exists():
             raise Http404  # not a subscriber → pretend it doesn't exist
         schedule.subscribers.remove(request.user)
-        messages.success(
-            request,
-            f"You are no longer subscribed to '{schedule.name}'.",
-        )
+        messages.success(request, f"You are no longer subscribed to '{schedule.name}'.")
         next_url = request.POST.get("next")
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
             return redirect(next_url)

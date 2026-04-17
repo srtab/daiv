@@ -63,14 +63,7 @@ Append to `tests/unit_tests/schedules/test_models.py`:
 ```python
 class TestScheduledJobSubscribers:
     def _make(self, user, **overrides):
-        defaults = {
-            "user": user,
-            "name": "s",
-            "prompt": "p",
-            "repo_id": "x/y",
-            "frequency": "daily",
-            "time": "12:00",
-        }
+        defaults = {"user": user, "name": "s", "prompt": "p", "repo_id": "x/y", "frequency": "daily", "time": "12:00"}
         defaults.update(overrides)
         job = ScheduledJob.objects.create(**defaults)
         return job
@@ -103,8 +96,7 @@ Keep the `@pytest.mark.django_db` already applied at the module level by the exi
 
 ```python
 @pytest.mark.django_db
-class TestScheduledJobSubscribers:
-    ...
+class TestScheduledJobSubscribers: ...
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -179,8 +171,12 @@ from schedules.models import Frequency, ScheduledJob
 class TestActivityVisibilityForSubscribers:
     def _schedule(self, owner, **overrides):
         data = {
-            "user": owner, "name": "s", "prompt": "p", "repo_id": "x/y",
-            "frequency": Frequency.DAILY, "time": "12:00",
+            "user": owner,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
         }
         data.update(overrides)
         return ScheduledJob.objects.create(**data)
@@ -257,21 +253,19 @@ Expected: `test_subscriber_can_view_linked_activity_detail` and `test_subscriber
 Edit `daiv/activity/models.py`. Replace the body of `ActivityManager.by_owner` (lines 40-48):
 
 ```python
-    def by_owner(self, user: User) -> models.QuerySet[Activity]:
-        """Return activities visible to the given user.
+def by_owner(self, user: User) -> models.QuerySet[Activity]:
+    """Return activities visible to the given user.
 
-        Admins see all. Regular users see activities where they are:
-        - the owner (``user`` FK), or
-        - matched by ``external_username``, or
-        - a subscriber of the linked ``scheduled_job``.
-        """
-        if user.is_admin:
-            return self.all()
-        return self.filter(
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
-            | models.Q(scheduled_job__subscribers=user)
-        ).distinct()
+    Admins see all. Regular users see activities where they are:
+    - the owner (``user`` FK), or
+    - matched by ``external_username``, or
+    - a subscriber of the linked ``scheduled_job``.
+    """
+    if user.is_admin:
+        return self.all()
+    return self.filter(
+        models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
+    ).distinct()
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -314,7 +308,9 @@ Append to `tests/unit_tests/notifications/test_signals.py` after the existing `T
 class TestFanoutToSubscribers:
     def _make_user(self, username):
         u = User.objects.create_user(
-            username=username, email=f"{username}@test.com", password="x",  # noqa: S106
+            username=username,
+            email=f"{username}@test.com",
+            password="x",  # noqa: S106
         )
         # sync_email_binding signal creates the binding automatically
         return u
@@ -443,7 +439,8 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
         except Exception:
             logger.exception(
                 "Failed to create notification for activity %s, recipient pk=%s",
-                activity.pk, getattr(recipient, "pk", None),
+                activity.pk,
+                getattr(recipient, "pk", None),
             )
 ```
 
@@ -535,7 +532,11 @@ class TestUserSearchEndpoint:
 
     def test_response_shape(self, member_client):
         User.objects.create_user(
-            username="alice", email="a@t.com", password="x", name="Alice Doe", role=Role.MEMBER,  # noqa: S106
+            username="alice",
+            email="a@t.com",
+            password="x",
+            name="Alice Doe",
+            role=Role.MEMBER,  # noqa: S106
         )
         response = member_client.get(f"{self.URL}?q=ali")
         body = response.json()[0]
@@ -593,9 +594,7 @@ MAX_RESULTS = 20
 
 
 @router.get("/users/search", response=list[UserSearchResult], auth=django_auth)
-def search_users(
-    request: HttpRequest, q: str = "", exclude: str = "",
-) -> list[UserSearchResult]:
+def search_users(request: HttpRequest, q: str = "", exclude: str = "") -> list[UserSearchResult]:
     """Search active users by username, email, or name for autocomplete.
 
     Excludes the requesting user and any ids passed in the ``exclude`` CSV param.
@@ -610,14 +609,13 @@ def search_users(
             exclude_ids.add(int(part))
 
     qs = (
-        User.objects.filter(is_active=True)
+        User.objects
+        .filter(is_active=True)
         .filter(Q(username__icontains=q) | Q(email__icontains=q) | Q(name__icontains=q))
         .exclude(pk__in=exclude_ids)
         .order_by("username")[:MAX_RESULTS]
     )
-    return [
-        UserSearchResult(id=u.pk, username=u.username, name=u.name, email=u.email) for u in qs
-    ]
+    return [UserSearchResult(id=u.pk, username=u.username, name=u.name, email=u.email) for u in qs]
 ```
 
 - [ ] **Step 5: Register the router on the API**
@@ -680,14 +678,14 @@ from schedules.models import ScheduledJob
 class TestScheduledJobCreateFormSubscribers:
     def _sub_user(self, username="alice"):
         return User.objects.create_user(
-            username=username, email=f"{username}@t.com", password="x",  # noqa: S106
+            username=username,
+            email=f"{username}@t.com",
+            password="x",  # noqa: S106
         )
 
     def test_form_accepts_subscribers(self, member_user):
         alice = self._sub_user("alice")
-        form = ScheduledJobCreateForm(
-            data=_valid_data(subscribers=[alice.pk]), owner=member_user,
-        )
+        form = ScheduledJobCreateForm(data=_valid_data(subscribers=[alice.pk]), owner=member_user)
         assert form.is_valid(), form.errors
         job = form.save(commit=False)
         job.user = member_user
@@ -709,9 +707,7 @@ class TestScheduledJobCreateFormSubscribers:
         assert inactive.pk not in qs_pks
 
     def test_submitting_owner_pk_in_subscribers_is_rejected(self, member_user):
-        form = ScheduledJobCreateForm(
-            data=_valid_data(subscribers=[member_user.pk]), owner=member_user,
-        )
+        form = ScheduledJobCreateForm(data=_valid_data(subscribers=[member_user.pk]), owner=member_user)
         # Owner is excluded from the queryset, so ModelMultipleChoiceField rejects.
         assert not form.is_valid()
         assert "subscribers" in form.errors
@@ -748,14 +744,21 @@ class ScheduledJobCreateForm(forms.ModelForm):
     class Meta:
         model = ScheduledJob
         fields = [
-            "name", "prompt", "repo_id", "ref",
-            "frequency", "cron_expression", "time",
-            "use_max", "notify_on", "subscribers",
+            "name",
+            "prompt",
+            "repo_id",
+            "ref",
+            "frequency",
+            "cron_expression",
+            "time",
+            "use_max",
+            "notify_on",
+            "subscribers",
         ]
         widgets = {
             # Rendered by the custom Alpine picker partial; a multiple select is
             # the simplest underlying widget for ModelMultipleChoiceField.
-            "subscribers": forms.SelectMultiple(attrs={"class": "hidden"}),
+            "subscribers": forms.SelectMultiple(attrs={"class": "hidden"})
         }
 
     def __init__(self, *args, owner=None, **kwargs):
@@ -831,9 +834,15 @@ class TestScheduleCreateViewSubscribers:
     def test_owner_passed_to_form_on_create(self, member_client, member_user):
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
         payload = {
-            "name": "Daily", "prompt": "p", "repo_id": "x/y", "ref": "",
-            "frequency": "daily", "cron_expression": "", "time": "09:00",
-            "use_max": "false", "notify_on": "never",
+            "name": "Daily",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "",
+            "frequency": "daily",
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
             "subscribers": [str(alice.pk)],
         }
         response = member_client.post(reverse("schedule_create"), data=payload)
@@ -844,9 +853,15 @@ class TestScheduleCreateViewSubscribers:
 
     def test_owner_rejected_as_own_subscriber_on_create(self, member_client, member_user):
         payload = {
-            "name": "Daily", "prompt": "p", "repo_id": "x/y", "ref": "",
-            "frequency": "daily", "cron_expression": "", "time": "09:00",
-            "use_max": "false", "notify_on": "never",
+            "name": "Daily",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "",
+            "frequency": "daily",
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
             "subscribers": [str(member_user.pk)],
         }
         response = member_client.post(reverse("schedule_create"), data=payload)
@@ -860,10 +875,17 @@ class TestScheduleUpdateViewSubscribers:
     def test_owner_passed_to_form_on_update(self, member_client, member_user, schedule):
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
         payload = {
-            "name": schedule.name, "prompt": schedule.prompt, "repo_id": schedule.repo_id, "ref": schedule.ref,
-            "frequency": schedule.frequency, "cron_expression": "",
-            "time": "09:00", "use_max": "false", "notify_on": "never",
-            "is_enabled": "true", "subscribers": [str(alice.pk)],
+            "name": schedule.name,
+            "prompt": schedule.prompt,
+            "repo_id": schedule.repo_id,
+            "ref": schedule.ref,
+            "frequency": schedule.frequency,
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
+            "is_enabled": "true",
+            "subscribers": [str(alice.pk)],
         }
         response = member_client.post(reverse("schedule_update", args=[schedule.pk]), data=payload)
         assert response.status_code in (302, 200), response.content.decode()[:400]
@@ -1143,13 +1165,11 @@ import json
 
 # ...
 
+
 def _subscriber_initial_json(schedule) -> str:
     if schedule is None:
         return "[]"
-    rows = [
-        {"id": u.pk, "username": u.username, "name": u.name, "email": u.email}
-        for u in schedule.subscribers.all()
-    ]
+    rows = [{"id": u.pk, "username": u.username, "name": u.name, "email": u.email} for u in schedule.subscribers.all()]
     return json.dumps(rows)
 ```
 
@@ -1158,6 +1178,7 @@ Add `get_context_data` to both views:
 ```python
 class ScheduleCreateView(...):
     ...
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
@@ -1166,6 +1187,7 @@ class ScheduleCreateView(...):
 
 class ScheduleUpdateView(...):
     ...
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
@@ -1261,8 +1283,7 @@ class TestScheduleUnsubscribeView:
         client = Client()
         client.force_login(sub)
         response = client.post(
-            reverse("schedule_unsubscribe", args=[schedule.pk]),
-            data={"next": "/dashboard/activity/"},
+            reverse("schedule_unsubscribe", args=[schedule.pk]), data={"next": "/dashboard/activity/"}
         )
         assert response.status_code == 302
         assert response.url == "/dashboard/activity/"
@@ -1273,8 +1294,7 @@ class TestScheduleUnsubscribeView:
         client = Client()
         client.force_login(sub)
         response = client.post(
-            reverse("schedule_unsubscribe", args=[schedule.pk]),
-            data={"next": "https://evil.example.com/phish"},
+            reverse("schedule_unsubscribe", args=[schedule.pk]), data={"next": "https://evil.example.com/phish"}
         )
         assert response.status_code == 302
         assert response.url == reverse("activity_list")
@@ -1390,13 +1410,15 @@ class TestActivityDetailSubscriberContext:
         owner = User.objects.create_user(username="own", email="own@t.com", password="x")  # noqa: S106
         sub = User.objects.create_user(username="sub", email="sub@t.com", password="x")  # noqa: S106
         schedule = ScheduledJob.objects.create(
-            user=owner, name="s", prompt="p", repo_id="x/y",
-            frequency=Frequency.DAILY, time="12:00",
+            user=owner, name="s", prompt="p", repo_id="x/y", frequency=Frequency.DAILY, time="12:00"
         )
         schedule.subscribers.add(sub)
         activity = Activity.objects.create(
-            trigger_type=TriggerType.SCHEDULE, repo_id="x/y",
-            status=ActivityStatus.SUCCESSFUL, scheduled_job=schedule, user=owner,
+            trigger_type=TriggerType.SCHEDULE,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+            user=owner,
         )
         return owner, sub, schedule, activity
 
@@ -1467,21 +1489,19 @@ Expected: failures — `is_subscriber` not in context; button markup absent.
 Edit `daiv/activity/views.py`. Replace `ActivityDetailView.get_context_data` (lines 77-81):
 
 ```python
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        activity: Activity = context["activity"]
-        context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    activity: Activity = context["activity"]
+    context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
 
-        user = self.request.user
-        schedule = activity.scheduled_job
-        is_owner_or_admin = user.is_admin or (schedule is not None and schedule.user_id == user.pk)
-        context["is_schedule_owner_or_admin"] = is_owner_or_admin
-        context["is_subscriber"] = bool(
-            schedule is not None
-            and schedule.user_id != user.pk
-            and schedule.subscribers.filter(pk=user.pk).exists()
-        )
-        return context
+    user = self.request.user
+    schedule = activity.scheduled_job
+    is_owner_or_admin = user.is_admin or (schedule is not None and schedule.user_id == user.pk)
+    context["is_schedule_owner_or_admin"] = is_owner_or_admin
+    context["is_subscriber"] = bool(
+        schedule is not None and schedule.user_id != user.pk and schedule.subscribers.filter(pk=user.pk).exists()
+    )
+    return context
 ```
 
 - [ ] **Step 4: Update the template**
