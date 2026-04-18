@@ -3,10 +3,22 @@
 <aside data-testid="app-sidebar"
        class="hidden w-60 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-[#030712] sm:flex sm:flex-col"
        x-cloak>
-  <div class="flex items-center gap-2.5 px-5 pt-5 pb-6">
+  <div class="flex items-center gap-2.5 px-5 pt-5 pb-5">
     <span class="inline-block h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-500"></span>
     <a href="{% url 'dashboard' %}" class="text-[17px] font-bold tracking-tight text-white">DAIV</a>
   </div>
+
+  {# Primary action — promoted out of the nav list #}
+  <a href="{% url 'runs:agent_run_new' %}"
+     data-testid="nav-start-run-cta"
+     class="group relative mx-3 mb-5 flex items-center gap-2.5 overflow-hidden rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 px-3 py-2.5 text-sm font-semibold tracking-tight text-white shadow-lg shadow-violet-500/20 ring-1 ring-inset ring-white/15 transition-all duration-200 hover:shadow-violet-500/40 hover:ring-white/25 {% if nav_active_section == 'runs' %}ring-2 ring-white/30 shadow-violet-500/40{% endif %}">
+    <span aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent"></span>
+    <span class="relative flex h-6 w-6 items-center justify-center rounded-md bg-white/15 ring-1 ring-inset ring-white/20">
+      {% icon "bolt" "h-3.5 w-3.5" %}
+    </span>
+    <span class="relative flex-1">{% translate "Start a run" %}</span>
+    <span aria-hidden="true" class="relative text-white/70 transition-transform duration-200 group-hover:translate-x-0.5">&rarr;</span>
+  </a>
 
   <nav class="flex flex-1 flex-col px-3 pb-4">
     {# Daily work — no group label #}
@@ -15,13 +27,6 @@
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'dashboard' %}opacity-0{% endif %}"></span>
       {% icon "squares-2x2" "h-4 w-4" %}
       <span>{% translate "Dashboard" %}</span>
-    </a>
-
-    <a href="{% url 'runs:agent_run_new' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'runs' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'runs' %}opacity-0{% endif %}"></span>
-      {% icon "bolt" "h-4 w-4" %}
-      <span>{% translate "Start a run" %}</span>
     </a>
 
     <a href="{% url 'activity_list' %}"
