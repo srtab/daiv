@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "croniter==6.2.2",
-  "ddgs==9.13.1",
+  "ddgs==9.14.0",
   "deepagents==0.5.1",
   "django==6.0.4",
   "django-allauth[socialaccount]==65.16.0",
@@ -42,7 +42,7 @@ dependencies = [
   "langchain-mcp-adapters==0.2.2",
   "langgraph==1.1.6",
   "langgraph-checkpoint-redis==0.4.1",
-  "langsmith[pytest]==0.7.31",
+  "langsmith[pytest]==0.7.32",
   "langsmith-fetch==0.3.1",
   "markdown==3.10.2",
   "markdownify==1.2.2",
@@ -51,7 +51,7 @@ dependencies = [
   "parable",
   "prompt-toolkit==3.0.52",
   "psycopg[pool]==3.3.3",
-  "pydantic==2.13.1",
+  "pydantic==2.13.2",
   "pydantic-settings==2.13.1",
   "pygithub==2.9.1",
   "python-decouple==3.8.0",

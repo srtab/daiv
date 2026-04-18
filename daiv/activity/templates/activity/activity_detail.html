@@ -44,6 +44,14 @@
                     Duration: {{ activity.duration|duration }}
                 </span>
                 {% endif %}
+
+                {% if activity.is_retryable %}
+                <a href="{% url 'runs:agent_run_new' %}?from={{ activity.pk }}"
+                   class="btn-secondary ml-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                    {% icon "arrow-path" "h-4 w-4" %}
+                    Retry
+                </a>
+                {% endif %}
             </div>
 
             <!-- Metadata -->

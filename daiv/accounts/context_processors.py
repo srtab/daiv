@@ -10,6 +10,7 @@ logger = logging.getLogger("daiv.accounts")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
+    "runs": {"agent_run_new"},
     "activity": {"activity_list", "activity_detail", "activity_stream", "activity_download_md"},
     "schedules": {
         "schedule_list",

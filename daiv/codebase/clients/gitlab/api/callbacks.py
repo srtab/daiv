@@ -120,6 +120,7 @@ class IssueCallback(BaseCallback):
                 task_result_id=result.id,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
+                use_max=self.object_attributes.has_max_label(),
                 user=daiv_user,
                 external_username=self.user.username,
             )
@@ -196,6 +197,7 @@ class NoteCallback(BaseCallback):
                     repo_id=self.project.path_with_namespace,
                     issue_iid=self.issue.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
                 )
@@ -225,6 +227,7 @@ class NoteCallback(BaseCallback):
                     repo_id=self.project.path_with_namespace,
                     merge_request_iid=self.merge_request.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
+                    use_max=self.merge_request.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
                 )

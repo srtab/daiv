@@ -60,6 +60,10 @@ class Issue(BaseModel):
         daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
         return any(label.name.lower() in daiv_labels for label in self.labels)
 
+    def has_max_label(self) -> bool:
+        """Check if the issue/PR carries the ``daiv-max`` label (case-insensitive)."""
+        return any(label.name.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+
     def is_pull_request(self) -> bool:
         """
         Check if the issue is a pull request.
@@ -135,3 +139,7 @@ class PullRequest(BaseModel):
     base: Ref
     labels: list[Label] = Field(default_factory=list)
     user: User | None = None
+
+    def has_max_label(self) -> bool:
+        """Check if the pull request carries the ``daiv-max`` label (case-insensitive)."""
+        return any(label.name.lower() == BOT_MAX_LABEL.lower() for label in self.labels)

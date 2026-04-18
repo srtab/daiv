@@ -90,7 +90,7 @@ class TestActivityDownloadMarkdownView:
         assert "ref: feature-branch" in body
         assert "issue: '#42'" in body
         assert "merge_request: '!10'" in body
-        assert "trigger: Scheduled Job" in body
+        assert "trigger: Scheduled Run" in body
 
     def test_download_filename_format(self, logged_in_client):
         activity = _create_activity(result_summary="Content")

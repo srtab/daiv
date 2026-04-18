@@ -28,6 +28,7 @@ urlpatterns = [
     path("dashboard/", include("accounts.urls.dashboard")),
     path("dashboard/configuration/", include("core.urls.configuration")),
     path("dashboard/activity/", include("activity.urls")),
+    path("dashboard/runs/", include("activity.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/schedules/", include("schedules.urls")),
     path("api/", api.urls),
