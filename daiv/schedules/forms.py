@@ -1,9 +1,11 @@
 from django import forms
 
+from activity.forms import AgentRunFieldsMixin
+
 from schedules.models import Frequency, ScheduledJob
 
 
-class ScheduledJobCreateForm(forms.ModelForm):
+class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
     """Form for creating a new schedule. Excludes ``is_enabled`` since new schedules are always enabled."""
 
     class Meta:

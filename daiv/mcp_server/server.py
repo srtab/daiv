@@ -111,6 +111,7 @@ async def submit_job(
             repo_id=repo_id,
             ref=ref or "",
             prompt=prompt,
+            use_max=use_max,
             user=mcp_user,
         )
     except Exception:

@@ -56,6 +56,7 @@ def dispatch_scheduled_jobs_cron_task():
                         repo_id=schedule.repo_id,
                         ref=ref or "",
                         prompt=schedule.prompt,
+                        use_max=schedule.use_max,
                         scheduled_job=schedule,
                         user=schedule.user,
                     )

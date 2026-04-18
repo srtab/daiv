@@ -29,9 +29,10 @@ class ActivityStatus(models.TextChoices):
 
 
 class TriggerType(models.TextChoices):
-    API_JOB = "api_job", _("API Job")
-    MCP_JOB = "mcp_job", _("MCP Job")
-    SCHEDULE = "schedule", _("Scheduled Job")
+    API_JOB = "api_job", _("API Run")
+    MCP_JOB = "mcp_job", _("MCP Run")
+    SCHEDULE = "schedule", _("Scheduled Run")
+    UI_JOB = "ui_job", _("UI Run")
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
 
@@ -92,6 +93,7 @@ class Activity(models.Model):
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
+    use_max = models.BooleanField(_("use max model"), default=False)
 
     # Issue / MR context
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
@@ -147,6 +149,13 @@ class Activity(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    @property
+    def is_retryable(self) -> bool:
+        return self.status in ActivityStatus.terminal() and self.trigger_type not in {
+            TriggerType.ISSUE_WEBHOOK,
+            TriggerType.MR_WEBHOOK,
+        }
 
     @property
     def duration(self) -> float | None:

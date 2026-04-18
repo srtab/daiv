@@ -125,6 +125,7 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 repo_id=schedule.repo_id,
                 ref=ref or "",
                 prompt=schedule.prompt,
+                use_max=schedule.use_max,
                 scheduled_job=schedule,
                 user=request.user,
             )

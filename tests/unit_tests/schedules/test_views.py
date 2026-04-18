@@ -133,6 +133,7 @@ class TestScheduleRunNowView:
             repo_id=schedule.repo_id,
             ref="",
             prompt=schedule.prompt,
+            use_max=schedule.use_max,
             scheduled_job=schedule,
             user=member_user,
         )

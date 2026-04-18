@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from activity.models import Activity
+from asgiref.sync import async_to_sync
+from jobs.tasks import run_job_task
+
+from activity.models import Activity, TriggerType
 
 if TYPE_CHECKING:
     import uuid
@@ -18,6 +21,7 @@ def create_activity(
     repo_id: str,
     ref: str = "",
     prompt: str = "",
+    use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -32,6 +36,7 @@ def create_activity(
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
+        use_max=use_max,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
@@ -48,6 +53,7 @@ async def acreate_activity(
     repo_id: str,
     ref: str = "",
     prompt: str = "",
+    use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -62,6 +68,7 @@ async def acreate_activity(
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
+        use_max=use_max,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
@@ -69,3 +76,25 @@ async def acreate_activity(
         user=user,
         external_username=external_username,
     )
+
+
+def submit_ui_run(*, user: User, prompt: str, repo_id: str, ref: str = "", use_max: bool = False) -> Activity:
+    """Enqueue ``run_job_task`` and record a UI_JOB Activity in a single async boundary crossing.
+
+    ``ref=""`` means "default branch": the task receives ``None`` (its sentinel for default)
+    while the Activity row stores the original empty string for display round-tripping.
+    """
+
+    async def _submit() -> Activity:
+        task = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref or None, use_max=use_max)
+        return await acreate_activity(
+            trigger_type=TriggerType.UI_JOB,
+            task_result_id=task.id,
+            repo_id=repo_id,
+            ref=ref,
+            prompt=prompt,
+            use_max=use_max,
+            user=user,
+        )
+
+    return async_to_sync(_submit)()

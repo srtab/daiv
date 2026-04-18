@@ -116,6 +116,27 @@ async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_use_max_to_activity(authenticated_client: TestAsyncClient):
+    """Verify the submit endpoint threads ``use_max`` into ``acreate_activity``."""
+    mock_result = AsyncMock()
+    mock_result.id = str(uuid.uuid4())
+    mock_activity = AsyncMock(id=uuid.uuid4())
+
+    with (
+        patch("jobs.api.views.run_job_task") as mock_task,
+        patch("jobs.api.views.acreate_activity", new_callable=AsyncMock, return_value=mock_activity) as mock_create,
+    ):
+        mock_task.aenqueue = AsyncMock(return_value=mock_result)
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post(
+            "/jobs", json={"repo_id": "group/project", "prompt": "Fix the bug", "use_max": True}
+        )
+
+    assert response.status_code == 202
+    assert mock_create.await_args.kwargs["use_max"] is True
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_enqueue_failure(authenticated_client: TestAsyncClient):
     with patch("jobs.api.views.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
