@@ -105,14 +105,6 @@ def test_post_valid_submits_and_redirects(member_client):
 
 
 @pytest.mark.django_db
-def test_post_throttled_rerenders_with_error(member_client, monkeypatch):
-    monkeypatch.setattr("activity.views.check_jobs_throttle", lambda u: False)
-    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
-    assert resp.status_code == 200
-    assert "Rate limit" in resp.content.decode()
-
-
-@pytest.mark.django_db
 def test_get_retry_invalid_uuid_returns_404(member_client):
     resp = member_client.get(reverse("runs:agent_run_new") + "?from=not-a-uuid")
     assert resp.status_code == 404

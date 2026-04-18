@@ -18,7 +18,6 @@ from django.views import View
 from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
-from jobs.throttle import check_jobs_throttle
 
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
@@ -258,9 +257,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         return ctx
 
     def form_valid(self, form):
-        if not check_jobs_throttle(self.request.user):
-            form.add_error(None, _("Rate limit exceeded; try again later."))
-            return self.form_invalid(form)
         try:
             activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
         except Http404, PermissionDenied, SuspiciousOperation:
