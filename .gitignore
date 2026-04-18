@@ -167,6 +167,7 @@ state-snapshots.txt
 .cursor
 .claude/
 .superpowers/
+docs/superpowers/
 
 request.json
 
