@@ -689,6 +689,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Subscribers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding subscribers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-unsubscribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-unsubscribe
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#relationship-with-the-jobs-api" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1350,6 +1389,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Subscribers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adding-subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding subscribers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-unsubscribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-unsubscribe
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#relationship-with-the-jobs-api" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1552,6 +1630,22 @@
 <li><strong>Delete</strong> a schedule permanently — any currently running job will complete, but no new runs will be dispatched</li>
 </ul>
 <p>The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner. Clicking the run count opens the <a href="../activity-tracking/">Activity</a> page filtered to that schedule's runs.</p>
+<h2 id="subscribers">Subscribers</h2>
+<p>Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:</p>
+<ul>
+<li>Receive the same notification as the owner whenever the schedule's <code>Notify on</code> condition matches (e.g., "On success only" or "Always").</li>
+<li>Gain <strong>read-only</strong> access to the activities produced by the schedule — they can click through from the notification and view the activity detail, output, and code changes.</li>
+<li>Do <strong>not</strong> see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.</li>
+</ul>
+<h3 id="adding-subscribers">Adding subscribers</h3>
+<p>On the schedule form, use the <strong>Subscribers</strong> search to find a user by username, email, or name. Click a result to add them as a chip. Remove a chip with the × button. Save the schedule to persist the subscriber list.</p>
+<p>Only the owner (or an admin) can change a schedule's subscribers.</p>
+<h3 id="self-unsubscribe">Self-unsubscribe</h3>
+<p>When a subscriber opens an activity produced by a schedule they are CC'd on, the activity detail page shows an <strong>Unsubscribe</strong> button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.</p>
+<div class="admonition note">
+<p class="admonition-title">Notification preferences</p>
+<p>All subscribers inherit the schedule's <code>Notify on</code> setting. There is no per-subscriber override today. If the owner changes the setting, every subscriber's notification behavior changes with it.</p>
+</div>
 <h2 id="relationship-with-the-jobs-api">Relationship with the Jobs API</h2>
 <p>Scheduled Jobs and the <a href="../jobs-api/">Jobs API</a> use the same underlying task to execute agent work. The difference is how the job is triggered:</p>
 <table>
@@ -1611,7 +1705,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 17, 2026 16:18:06 UTC">April 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 19, 2026 23:03:53 UTC">April 19, 2026</span>
   </span>
 
     
@@ -1621,7 +1715,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 17, 2026 16:18:06 UTC">April 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 19, 2026 23:03:53 UTC">April 19, 2026</span>
   </span>
 
     
