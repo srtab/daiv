@@ -65,10 +65,11 @@
                     {% endif %}
                 </div>
 
-                {% if user.is_admin and activity.user and activity.user != user %}
+                {% if activity.user %}
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Owner:</span>
-                    <span class="text-gray-300">{{ activity.user }}</span>
+                    {% include "accounts/_avatar.html" with user=activity.user %}
+                    <span class="text-gray-300">{{ activity.user.name|default:activity.user.email }}</span>
                 </div>
                 {% endif %}
 

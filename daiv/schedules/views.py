@@ -46,10 +46,7 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = ScheduledJob.objects.by_owner(self.request.user)
-        if self.request.user.is_admin:
-            qs = qs.select_related("user")
-        return qs
+        return ScheduledJob.objects.by_owner(self.request.user).select_related("user").prefetch_related("subscribers")
 
 
 class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView):

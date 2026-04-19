@@ -49,7 +49,8 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
-        instance.compute_next_run()
+        if instance.is_enabled:
+            instance.compute_next_run()
         if commit:
             instance.save()
             self.save_m2m()
