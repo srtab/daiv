@@ -1,5 +1,6 @@
 <div x-combobox x-model="selected" {% if combobox_name %}name="{{ combobox_name }}"{% endif %} nullable>
     <div class="relative">
+        <button type="button" x-combobox:button class="hidden" aria-hidden="true" tabindex="-1"></button>
         <input type="text" x-combobox:input
                :display-value="v => v || ''"
                @input="search($event.target.value)"
