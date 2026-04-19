@@ -86,6 +86,13 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         activity: Activity = context["activity"]
         context["is_in_flight"] = activity.status not in ActivityStatus.terminal()
+
+        user = self.request.user
+        schedule = activity.scheduled_job
+        context["is_schedule_owner_or_admin"] = user.is_admin or (schedule is not None and schedule.user_id == user.pk)
+        context["is_subscriber"] = bool(
+            schedule is not None and schedule.user_id != user.pk and schedule.subscribers.filter(pk=user.pk).exists()
+        )
         return context
 
     def get_breadcrumbs(self):

@@ -41,12 +41,16 @@ class ActivityManager(models.Manager["Activity"]):
     def by_owner(self, user: User) -> models.QuerySet[Activity]:
         """Return activities visible to the given user.
 
-        Admin users see all activities; regular users see activities linked
-        by user FK or matching their external_username.
+        Admins see all. Regular users see activities where they are:
+        - the owner (``user`` FK), or
+        - matched by ``external_username``, or
+        - a subscriber of the linked ``scheduled_job``.
         """
         if user.is_admin:
             return self.all()
-        return self.filter(models.Q(user=user) | models.Q(external_username=user.username))
+        return self.filter(
+            models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
+        ).distinct()
 
 
 class Activity(models.Model):

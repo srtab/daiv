@@ -123,6 +123,89 @@ class TestOnActivityFinished:
 
 
 @pytest.mark.django_db
+class TestFanoutToSubscribers:
+    def _make_user(self, username):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@test.com",
+            password="x",  # noqa: S106
+        )
+
+    def test_owner_plus_two_subscribers_each_get_one_notification(self, member_user, schedule):
+        sub1 = self._make_user("sub1")
+        sub2 = self._make_user("sub2")
+        schedule.subscribers.add(sub1, sub2)
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert Notification.objects.filter(recipient=sub1).count() == 1
+        assert Notification.objects.filter(recipient=sub2).count() == 1
+
+    def test_owner_accidentally_in_subscribers_still_one_notification(self, member_user, schedule):
+        schedule.subscribers.add(member_user)
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+
+    def test_notify_on_never_skips_all_subscribers(self, member_user, schedule):
+        schedule.notify_on = NotifyOn.NEVER
+        schedule.save()
+        sub = self._make_user("sub1")
+        schedule.subscribers.add(sub)
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_one_recipient_failure_does_not_block_others(self, member_user, schedule, mocker):
+        from notifications.services import notify as real_notify
+
+        sub1 = self._make_user("sub1")
+        sub2 = self._make_user("sub2")
+        schedule.subscribers.add(sub1, sub2)
+
+        def flaky_notify(*, recipient, **kwargs):
+            if recipient.pk == sub1.pk:
+                raise RuntimeError("boom")
+            return real_notify(recipient=recipient, **kwargs)
+
+        mocker.patch("notifications.signals.notify", side_effect=flaky_notify)
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert Notification.objects.filter(recipient=sub1).count() == 0
+        assert Notification.objects.filter(recipient=sub2).count() == 1
+
+
+@pytest.mark.django_db
 class TestUserBindingSeeder:
     def test_creates_email_binding_on_user_create(self):
         user = User.objects.create_user(

@@ -10,11 +10,9 @@
             <span class="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-300">{{ schedule.get_frequency_display }}</span>
         </div>
         <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
-            <span>{{ schedule.repo_id }}</span>
-            {% if user.is_admin and schedule.user != user %}
+            {% include "accounts/_avatar.html" with user=schedule.user group=schedule.subscribers.all label="Owner" %}
             <span>&middot;</span>
-            <span>Owner: {{ schedule.user }}</span>
-            {% endif %}
+            <span>{{ schedule.repo_id }}</span>
             {% if schedule.next_run_at %}
             <span>&middot;</span>
             <span>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</span>

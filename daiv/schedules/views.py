@@ -1,13 +1,15 @@
+import json
 import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -29,6 +31,14 @@ class _ScheduleOwnerMixin:
         return ScheduledJob.objects.by_owner(self.request.user)
 
 
+def _subscriber_initial_json(schedule) -> str:
+    """Serialize a schedule's current subscribers for the Alpine picker."""
+    if schedule is None:
+        return "[]"
+    rows = [{"id": u.pk, "username": u.username, "name": u.name, "email": u.email} for u in schedule.subscribers.all()]
+    return json.dumps(rows)
+
+
 class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     model = ScheduledJob
     template_name = "schedules/schedule_list.html"
@@ -36,10 +46,7 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = ScheduledJob.objects.by_owner(self.request.user)
-        if self.request.user.is_admin:
-            qs = qs.select_related("user")
-        return qs
+        return ScheduledJob.objects.by_owner(self.request.user).select_related("user").prefetch_related("subscribers")
 
 
 class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView):
@@ -49,6 +56,16 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     success_url = reverse_lazy("schedule_list")
     success_message = "Schedule '%(name)s' created."
     breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "New schedule", "url": None}]
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["owner"] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["subscriber_initial_json"] = "[]"
+        return context
 
     def form_valid(self, form):
         form.instance.user = self.request.user
@@ -61,6 +78,16 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     template_name = "schedules/schedule_form.html"
     success_url = reverse_lazy("schedule_list")
     success_message = "Schedule '%(name)s' updated."
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["owner"] = self.object.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
+        return context
 
     def get_breadcrumbs(self):
         return [
@@ -136,6 +163,23 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
         if activity is not None:
             return redirect("activity_detail", pk=activity.pk)
         return redirect("schedule_list")
+
+
+class ScheduleUnsubscribeView(LoginRequiredMixin, View):
+    """Let a subscriber remove themselves from a schedule."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        schedule = get_object_or_404(ScheduledJob, pk=pk)
+        if not schedule.subscribers.filter(pk=request.user.pk).exists():
+            raise Http404
+        schedule.subscribers.remove(request.user)
+        messages.success(request, f"You are no longer subscribed to '{schedule.name}'.")
+        next_url = request.POST.get("next", "")
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+            return redirect(next_url)
+        return redirect("activity_list")
 
 
 class ScheduleDeleteView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, DeleteView):

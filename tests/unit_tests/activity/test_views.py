@@ -8,6 +8,7 @@ from activity.models import Activity, ActivityStatus, TriggerType
 from django_tasks_db.models import DBTaskResult
 
 from accounts.models import User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -234,3 +235,143 @@ class TestActivityDetailView:
         assert "max-h-64" in body
         assert "Show more" in body
         assert "Show less" in body
+
+
+@pytest.mark.django_db
+class TestActivityVisibilityForSubscribers:
+    def _schedule(self, owner, **overrides):
+        data = {
+            "user": owner,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
+        }
+        data.update(overrides)
+        return ScheduledJob.objects.create(**data)
+
+    def _activity(self, schedule, **overrides):
+        data = {
+            "trigger_type": TriggerType.SCHEDULE,
+            "repo_id": schedule.repo_id,
+            "status": ActivityStatus.SUCCESSFUL,
+            "scheduled_job": schedule,
+            "user": schedule.user,
+        }
+        data.update(overrides)
+        return Activity.objects.create(**data)
+
+    def test_subscriber_can_view_linked_activity_detail(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(member_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.status_code == 200
+
+    def test_non_subscriber_cannot_view_linked_activity_detail(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.status_code == 404
+
+    def test_subscriber_sees_activity_in_list(self, member_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(member_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(member_user)
+        response = client.get(reverse("activity_list"))
+        assert response.status_code == 200
+        assert str(activity.pk) in response.content.decode()
+
+    def test_list_does_not_duplicate_rows_for_admins_matching_twice(self, admin_user):
+        owner = User.objects.create_user(username="owner", email="owner@t.com", password="x")  # noqa: S106
+        schedule = self._schedule(owner)
+        schedule.subscribers.add(admin_user)
+        activity = self._activity(schedule)
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get(reverse("activity_list"))
+        # Count rows by the detail-url anchor (one per distinct row).
+        detail_url = reverse("activity_detail", args=[activity.pk])
+        assert response.content.decode().count(detail_url) == 1
+
+
+@pytest.mark.django_db
+class TestActivityDetailSubscriberContext:
+    def _fixture(self):
+        owner = User.objects.create_user(username="own", email="own@t.com", password="x")  # noqa: S106
+        sub = User.objects.create_user(username="sub", email="sub@t.com", password="x")  # noqa: S106
+        schedule = ScheduledJob.objects.create(
+            user=owner, name="s", prompt="p", repo_id="x/y", frequency=Frequency.DAILY, time="12:00"
+        )
+        schedule.subscribers.add(sub)
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+            user=owner,
+        )
+        return owner, sub, schedule, activity
+
+    def test_is_subscriber_true_for_subscriber(self):
+        _, sub, _, activity = self._fixture()
+        client = Client()
+        client.force_login(sub)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.context["is_subscriber"] is True
+
+    def test_is_subscriber_false_for_owner(self):
+        owner, _, _, activity = self._fixture()
+        client = Client()
+        client.force_login(owner)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        assert response.context["is_subscriber"] is False
+
+    def test_unsubscribe_button_visible_to_subscriber(self):
+        _, sub, schedule, activity = self._fixture()
+        client = Client()
+        client.force_login(sub)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        html = response.content.decode()
+        assert reverse("schedule_unsubscribe", args=[schedule.pk]) in html
+        assert "Unsubscribe" in html
+
+    def test_unsubscribe_button_hidden_for_owner(self):
+        owner, _, _, activity = self._fixture()
+        client = Client()
+        client.force_login(owner)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        html = response.content.decode()
+        assert "schedule_unsubscribe" not in html
+        assert "Unsubscribe" not in html
+
+    def test_schedule_name_is_plain_text_for_subscriber(self):
+        _, sub, schedule, activity = self._fixture()
+        client = Client()
+        client.force_login(sub)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        html = response.content.decode()
+        assert reverse("schedule_update", args=[schedule.pk]) not in html
+        assert schedule.name in html
+
+    def test_schedule_name_is_link_for_owner(self):
+        owner, _, schedule, activity = self._fixture()
+        client = Client()
+        client.force_login(owner)
+        response = client.get(reverse("activity_detail", args=[activity.pk]))
+        html = response.content.decode()
+        assert reverse("schedule_update", args=[schedule.pk]) in html

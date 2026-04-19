@@ -6,6 +6,7 @@ from schedules.views import (
     ScheduleListView,
     ScheduleRunNowView,
     ScheduleToggleView,
+    ScheduleUnsubscribeView,
     ScheduleUpdateView,
 )
 
@@ -16,4 +17,5 @@ urlpatterns = [
     path("<int:pk>/delete/", ScheduleDeleteView.as_view(), name="schedule_delete"),
     path("<int:pk>/toggle/", ScheduleToggleView.as_view(), name="schedule_toggle"),
     path("<int:pk>/run/", ScheduleRunNowView.as_view(), name="schedule_run_now"),
+    path("<int:pk>/unsubscribe/", ScheduleUnsubscribeView.as_view(), name="schedule_unsubscribe"),
 ]

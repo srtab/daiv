@@ -74,6 +74,13 @@ class ScheduledJob(TimeStampedModel):
     last_run_task_id = models.UUIDField(_("last run task ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    subscribers = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="subscribed_schedules",
+        verbose_name=_("subscribers"),
+        help_text=_("Other users CC'd on this schedule's finish notifications."),
+    )
 
     class Meta:
         verbose_name = _("Scheduled Job")
