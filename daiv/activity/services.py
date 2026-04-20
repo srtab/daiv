@@ -14,6 +14,14 @@ if TYPE_CHECKING:
     from schedules.models import ScheduledJob
 
 
+def _resolve_notify_on(notify_on: str | None, scheduled_job: ScheduledJob | None) -> str | None:
+    if notify_on is not None:
+        return notify_on
+    if scheduled_job is not None:
+        return scheduled_job.notify_on
+    return None
+
+
 def create_activity(
     *,
     trigger_type: str,
@@ -28,6 +36,7 @@ def create_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
+    notify_on: str | None = None,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult."""
     return Activity.objects.create(
@@ -43,6 +52,7 @@ def create_activity(
         scheduled_job=scheduled_job,
         user=user,
         external_username=external_username,
+        notify_on=_resolve_notify_on(notify_on, scheduled_job),
     )
 
 
@@ -60,6 +70,7 @@ async def acreate_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
+    notify_on: str | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -75,10 +86,13 @@ async def acreate_activity(
         scheduled_job=scheduled_job,
         user=user,
         external_username=external_username,
+        notify_on=_resolve_notify_on(notify_on, scheduled_job),
     )
 
 
-def submit_ui_run(*, user: User, prompt: str, repo_id: str, ref: str = "", use_max: bool = False) -> Activity:
+def submit_ui_run(
+    *, user: User, prompt: str, repo_id: str, ref: str = "", use_max: bool = False, notify_on: str | None = None
+) -> Activity:
     """Enqueue ``run_job_task`` and record a UI_JOB Activity in a single async boundary crossing.
 
     ``ref=""`` means "default branch": the task receives ``None`` (its sentinel for default)
@@ -95,6 +109,7 @@ def submit_ui_run(*, user: User, prompt: str, repo_id: str, ref: str = "", use_m
             prompt=prompt,
             use_max=use_max,
             user=user,
+            notify_on=notify_on,
         )
 
     return async_to_sync(_submit)()
