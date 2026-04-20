@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from activity.models import ActivityStatus
+from activity.models import ActivityStatus, TriggerType
 from activity.signals import activity_finished
 
 from notifications.channels.registry import all_channels
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from activity.models import Activity
 
 logger = logging.getLogger("daiv.notifications")
+
+EXCLUDED_TRIGGERS = {TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK}
 
 
 def _status_matches(notify_on: str, status: str) -> bool:
@@ -37,51 +39,87 @@ def _status_matches(notify_on: str, status: str) -> bool:
     return False
 
 
-def _render_subject(schedule, activity) -> str:
-    if activity.status == ActivityStatus.SUCCESSFUL:
-        return _("Scheduled job '%(name)s' succeeded") % {"name": schedule.name}
-    return _("Scheduled job '%(name)s' failed") % {"name": schedule.name}
+def _effective_notify_on(activity: Activity) -> str:
+    if activity.notify_on:
+        return activity.notify_on
+    if activity.user is not None:
+        return activity.user.notify_on_jobs
+    return NotifyOn.NEVER
 
 
-def _render_body(schedule, activity) -> str:
-    if activity.status == ActivityStatus.SUCCESSFUL:
-        return _("Your scheduled job '%(name)s' finished successfully.") % {"name": schedule.name}
-    return _("Your scheduled job '%(name)s' failed.") % {"name": schedule.name}
+def _resolve_recipients(activity: Activity) -> dict[int, object]:
+    if activity.scheduled_job_id is not None:
+        schedule = activity.scheduled_job
+        recipients: dict[int, object] = {schedule.user_id: schedule.user}
+        for sub in schedule.subscribers.all():
+            recipients.setdefault(sub.pk, sub)
+        return recipients
+    if activity.user is not None:
+        return {activity.user.pk: activity.user}
+    return {}
+
+
+def _render_payload(activity: Activity) -> tuple[str, str, dict]:
+    is_schedule = activity.scheduled_job_id is not None
+    ok = activity.status == ActivityStatus.SUCCESSFUL
+
+    if is_schedule:
+        name = activity.scheduled_job.name
+        trigger_label = _("Scheduled job")
+        if ok:
+            subject = _("Scheduled job '%(name)s' succeeded") % {"name": name}
+            body = _("Your scheduled job '%(name)s' finished successfully.") % {"name": name}
+        else:
+            subject = _("Scheduled job '%(name)s' failed") % {"name": name}
+            body = _("Your scheduled job '%(name)s' failed.") % {"name": name}
+    else:
+        name = activity.repo_id
+        trigger_label = _("Agent run")
+        if ok:
+            subject = _("Agent run on %(repo)s succeeded") % {"repo": name}
+            body = _("Your agent run on '%(repo)s' finished successfully.") % {"repo": name}
+        else:
+            subject = _("Agent run on %(repo)s failed") % {"repo": name}
+            body = _("Your agent run on '%(repo)s' failed.") % {"repo": name}
+
+    context = {
+        "status": activity.status,
+        "status_label": activity.get_status_display(),
+        "is_successful": ok,
+        "trigger_label": str(trigger_label),
+        "trigger_name": name,
+        "repo_id": activity.repo_id,
+        "duration_seconds": activity.duration,
+    }
+    return subject, body, context
 
 
 @receiver(activity_finished, dispatch_uid="notifications.on_activity_finished")
 def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
-    schedule = activity.scheduled_job
-    if schedule is None or schedule.notify_on == NotifyOn.NEVER:
+    if activity.trigger_type in EXCLUDED_TRIGGERS:
         return
-    if not _status_matches(schedule.notify_on, activity.status):
+
+    effective = _effective_notify_on(activity)
+    if not _status_matches(effective, activity.status):
+        return
+
+    recipients = _resolve_recipients(activity)
+    if not recipients:
         return
 
     channels = [cls.channel_type for cls in all_channels()]
     if not channels:
         return
 
-    recipients: dict[int, object] = {schedule.user_id: schedule.user}
-    for sub in schedule.subscribers.all():
-        recipients.setdefault(sub.pk, sub)
-
-    subject = _render_subject(schedule, activity)
-    body = _render_body(schedule, activity)
+    subject, body, context = _render_payload(activity)
     link_url = reverse("activity_detail", args=[activity.pk])
-    context = {
-        "status": activity.status,
-        "status_label": activity.get_status_display(),
-        "is_successful": activity.status == ActivityStatus.SUCCESSFUL,
-        "schedule_name": schedule.name,
-        "repo_id": activity.repo_id,
-        "duration_seconds": activity.duration,
-    }
+    event_type = "schedule.finished" if activity.scheduled_job_id is not None else "job.finished"
 
     for recipient in recipients.values():
         try:
             notify(
                 recipient=recipient,
-                event_type="schedule.finished",
+                event_type=event_type,
                 source_type="activity.Activity",
                 source_id=str(activity.pk),
                 subject=subject,
