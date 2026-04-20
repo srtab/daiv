@@ -196,45 +196,223 @@ class TestActivityListView:
 
 @pytest.mark.django_db
 class TestActivityDetailView:
-    PROMPT_THRESHOLD = 500
-
-    def _get_detail(self, logged_in_client, activity):
+    def _get(self, logged_in_client, activity):
         return logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
 
-    def test_short_prompt_renders_inline_without_collapsible(self, logged_in_client, user):
-        short_prompt = "Run a quick audit."
-        assert len(short_prompt) <= self.PROMPT_THRESHOLD
+    # ---- Header and status strip ----
 
-        activity = _create_activity(user=user, prompt=short_prompt)
+    def test_h1_uses_first_line_of_prompt(self, logged_in_client, user):
+        activity = _create_activity(user=user, prompt="Refactor checkout\nMore context")
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "<h1" in body
+        assert "Refactor checkout" in body
+        # The literal placeholder from the old design must not return.
+        assert "Activity Detail" not in body
 
-        response = self._get_detail(logged_in_client, activity)
+    def test_issue_webhook_without_prompt_titles_with_iid(self, logged_in_client, user):
+        activity = _create_activity(user=user, trigger_type=TriggerType.ISSUE_WEBHOOK, prompt="", issue_iid=412)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Issue #412" in body
 
-        assert response.status_code == 200
-        body = response.content.decode()
-        # Prompt is still rendered
-        assert "Run a quick audit." in body
-        # None of the collapsible markers are present
-        assert 'x-data="{ expanded: false }"' not in body
-        assert "max-h-64" not in body
-        assert "Show more" not in body
+    def test_status_strip_shows_retry_when_retryable(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert reverse("runs:agent_run_new") + f"?from={activity.pk}" in body
+        assert "Retry" in body
 
-    def test_long_prompt_renders_collapsible_wrapper(self, logged_in_client, user):
-        long_prompt = "Audit this repo for security issues. " * 20  # ~740 chars
-        assert len(long_prompt) > self.PROMPT_THRESHOLD
+    def test_status_strip_hides_retry_for_webhook_activity(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.ISSUE_WEBHOOK)
+        body = self._get(logged_in_client, activity).content.decode()
+        # is_retryable is False for webhook triggers, so no retry link anchor is emitted.
+        assert f"?from={activity.pk}" not in body
 
-        activity = _create_activity(user=user, prompt=long_prompt)
+    def test_status_strip_flags_pruned_when_task_result_missing(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, task_result=None)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "pruned" in body.lower()
 
-        response = self._get_detail(logged_in_client, activity)
+    # ---- Hero: Successful ----
 
-        assert response.status_code == 200
-        body = response.content.decode()
-        # Prompt content is still rendered in full (clipping is visual only)
-        assert "Audit this repo for security issues." in body
-        # Collapsible markers must be present
-        assert 'x-data="{ expanded: false }"' in body
-        assert "max-h-64" in body
-        assert "Show more" in body
-        assert "Show less" in body
+    def test_successful_hero_renders_response_text(self, logged_in_client, user):
+        tr = _create_task_result(return_value={"response": "# Done\nHere is the report.", "code_changes": False})
+        activity = _create_activity(user=user, task_result=tr, status=ActivityStatus.SUCCESSFUL)
+        body = self._get(logged_in_client, activity).content.decode()
+        # Markdown is rendered, so the heading becomes an <h1>/<h2> tag — check the text only.
+        assert "Here is the report." in body
+        # Copy + Markdown buttons are present and enabled (no aria-disabled).
+        assert "Copy" in body
+        assert reverse("activity_download_md", kwargs={"pk": activity.pk}) in body
+
+    def test_successful_hero_shows_open_mr_button_when_url_set(self, logged_in_client, user):
+        tr = _create_task_result(return_value={"response": "Result body", "code_changes": True})
+        activity = _create_activity(
+            user=user,
+            task_result=tr,
+            status=ActivityStatus.SUCCESSFUL,
+            merge_request_iid=1289,
+            merge_request_web_url="https://gitlab.example.com/acme/web/-/merge_requests/1289",
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "https://gitlab.example.com/acme/web/-/merge_requests/1289" in body
+        assert "!1289" in body
+
+    # ---- Hero: Pruned ----
+
+    def test_pruned_success_shows_notice_and_summary(self, logged_in_client, user):
+        activity = _create_activity(
+            user=user,
+            status=ActivityStatus.SUCCESSFUL,
+            task_result=None,
+            result_summary="Appended release notes to CHANGELOG.md.",
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "pruned" in body.lower()
+        assert "Appended release notes to CHANGELOG.md." in body
+        # Markdown download endpoint is not linked for pruned successes (no raw source).
+        assert reverse("activity_download_md", kwargs={"pk": activity.pk}) not in body
+
+    def test_pruned_success_without_summary_shows_only_notice(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, task_result=None, result_summary="")
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "pruned" in body.lower()
+
+    # ---- Hero: Failed ----
+
+    def test_failed_hero_renders_exception_class_and_traceback(self, logged_in_client, user):
+        tr = _create_task_result(status="FAILED")
+        tr.exception_class_path = "automation.agent.errors.AgentExecutionError"
+        tr.traceback = "Traceback (most recent call last):\n  File ..."
+        tr.save(update_fields=["exception_class_path", "traceback"])
+        activity = _create_activity(user=user, task_result=tr, status=ActivityStatus.FAILED)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "automation.agent.errors.AgentExecutionError" in body
+        assert "Traceback (most recent call last):" in body
+        # No Markdown download link for failed runs.
+        assert reverse("activity_download_md", kwargs={"pk": activity.pk}) not in body
+
+    def test_failed_hero_falls_back_to_error_message_when_pruned(self, logged_in_client, user):
+        activity = _create_activity(
+            user=user,
+            status=ActivityStatus.FAILED,
+            task_result=None,
+            error_message="automation.agent.errors.AgentExecutionError\nDependency resolution failed",
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Dependency resolution failed" in body
+
+    # ---- Hero: Running / Pending ----
+
+    def test_running_hero_shows_spinner_and_refresh_note(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.RUNNING)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Agent is working" in body
+        assert "refreshes automatically" in body
+        # The spinner element must carry role=status for a11y.
+        assert 'role="status"' in body
+
+    def test_pending_hero_uses_running_template(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.READY)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Agent is working" in body
+
+    # ---- Prompt disclosure ----
+
+    def test_prompt_disclosure_is_details_element(self, logged_in_client, user):
+        activity = _create_activity(user=user, prompt="Do the thing.")
+        body = self._get(logged_in_client, activity).content.decode()
+        # The new collapse mechanism is <details>, not Alpine x-data.
+        assert "<details" in body
+        assert "Do the thing." in body
+
+    def test_prompt_disclosure_open_by_default_when_running(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.RUNNING, prompt="Still running prompt")
+        body = self._get(logged_in_client, activity).content.decode()
+        # `<details open>` marks the attribute regardless of whitespace.
+        assert "<details open" in body or "<details  open" in body or "<details\nopen" in body
+
+    def test_prompt_disclosure_collapsed_by_default_on_success(self, logged_in_client, user):
+        tr = _create_task_result(return_value={"response": "Result", "code_changes": False})
+        activity = _create_activity(user=user, task_result=tr, status=ActivityStatus.SUCCESSFUL, prompt="Prompt")
+        body = self._get(logged_in_client, activity).content.decode()
+        # The details element is present but NOT initially open.
+        assert "<details" in body
+        assert "<details open" not in body
+
+    def test_prompt_disclosure_omitted_when_prompt_empty(self, logged_in_client, user):
+        activity = _create_activity(user=user, prompt="")
+        body = self._get(logged_in_client, activity).content.decode()
+        # Disclosure label is only rendered when we have a prompt to reveal.
+        assert "Copy prompt" not in body
+
+    # ---- Rail: Timing ----
+
+    def test_rail_timing_shows_created_started_finished_when_terminal(self, logged_in_client, user):
+        from django.utils import timezone
+
+        now = timezone.now()
+        activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, started_at=now, finished_at=now)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Created" in body
+        assert "Started" in body
+        assert "Finished" in body
+
+    def test_rail_timing_labels_failed_step_when_activity_failed(self, logged_in_client, user):
+        from django.utils import timezone
+
+        now = timezone.now()
+        activity = _create_activity(user=user, status=ActivityStatus.FAILED, started_at=now, finished_at=now)
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Failed" in body  # the timeline's terminal step switches label
+        # "Finished" must not be rendered for failed runs (otherwise the label is wrong).
+        assert ">Finished<" not in body
+
+    # ---- Rail: Context ----
+
+    def test_rail_context_renders_mr_link_when_url_present(self, logged_in_client, user):
+        activity = _create_activity(
+            user=user,
+            merge_request_iid=1289,
+            merge_request_web_url="https://gitlab.example.com/acme/web/-/merge_requests/1289",
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "!1289" in body
+        assert "https://gitlab.example.com/acme/web/-/merge_requests/1289" in body
+
+    def test_rail_context_shows_model_row_only_when_use_max(self, logged_in_client, user):
+        default_model = _create_activity(user=user, use_max=False)
+        max_model = _create_activity(user=user, use_max=True)
+
+        body_default = self._get(logged_in_client, default_model).content.decode()
+        body_max = self._get(logged_in_client, max_model).content.decode()
+
+        # The label must only appear for the max-model run.
+        assert "Model" not in body_default or "Max" not in body_default
+        assert "Model" in body_max
+        assert "Max" in body_max
+
+    def test_rail_context_hides_owner_for_non_admin(self, logged_in_client, user):
+        activity = _create_activity(user=user)
+        body = self._get(logged_in_client, activity).content.decode()
+        # Non-admin viewing own activity never sees the Owner row.
+        assert "Owner" not in body
+
+    # ---- Rail: Usage ----
+
+    def test_rail_usage_renders_token_and_cost_stats(self, logged_in_client, user):
+        from decimal import Decimal
+
+        activity = _create_activity(
+            user=user, input_tokens=38200, output_tokens=3900, total_tokens=42100, cost_usd=Decimal("0.18")
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "42.1k" in body  # format_tokens output
+        assert "$0.18" in body  # format_cost output
+
+    def test_rail_usage_shows_placeholders_when_no_data(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.RUNNING)
+        body = self._get(logged_in_client, activity).content.decode()
+        # Em-dash placeholder is the unambiguous "no data yet" signal.
+        assert "—" in body
 
 
 @pytest.mark.django_db
