@@ -37,7 +37,8 @@ class TestOnActivityFinished:
 
         assert Notification.objects.filter(recipient=member_user, event_type="schedule.finished").count() == 1
 
-    def test_skips_when_no_schedule(self, member_user):
+    def test_api_job_successful_skipped_when_user_default_on_failure(self, member_user):
+        # Default User.notify_on_jobs = on_failure; a SUCCESSFUL api_job should NOT notify.
         activity = Activity.objects.create(
             trigger_type=TriggerType.API_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
         )
@@ -127,7 +128,8 @@ class TestOnActivityFinished:
         assert n.context["status"] == ActivityStatus.SUCCESSFUL
         assert n.context["is_successful"] is True
         assert n.context["status_label"] == ActivityStatus.SUCCESSFUL.label
-        assert n.context["schedule_name"] == schedule.name
+        assert n.context["trigger_name"] == schedule.name
+        assert n.context["trigger_label"]
         assert n.context["repo_id"] == "acme/app"
         assert "duration_seconds" in n.context
 
@@ -243,6 +245,95 @@ class TestFanoutToSubscribers:
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
+
+
+@pytest.mark.django_db
+class TestJobActivityNotifications:
+    def test_ui_job_failed_notifies_when_user_default_on_failure(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ON_FAILURE
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.FAILED
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 1
+
+    def test_ui_job_successful_skipped_when_user_default_on_failure(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ON_FAILURE
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_per_run_override_never_silences_would_notify(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            notify_on=NotifyOn.NEVER,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_per_run_override_always_beats_user_default_never(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.NEVER
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            notify_on=NotifyOn.ALWAYS,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+
+    @pytest.mark.parametrize("trigger", [TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK])
+    def test_webhook_triggers_never_notify(self, member_user, trigger):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=trigger, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_user_none_does_not_notify_or_crash(self):
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            user=None,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            notify_on=NotifyOn.ALWAYS,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        # No user → no recipient → no notification, no crash.
+        assert Notification.objects.count() == 0
+
+    def test_job_rendered_subject_and_event_type(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, user=member_user, repo_id="acme/app", status=ActivityStatus.FAILED
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        n = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert "acme/app" in n.subject
+        assert "failed" in n.subject.lower()
+        assert n.context["trigger_label"]
+        assert n.context["trigger_name"] == "acme/app"
 
 
 @pytest.mark.django_db

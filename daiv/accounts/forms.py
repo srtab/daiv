@@ -29,7 +29,7 @@ class UserCreateForm(forms.ModelForm):
 class UserUpdateForm(forms.ModelForm):
     class Meta:
         model = User
-        fields = ["name", "email", "role", "is_active", "notify_on_jobs"]
+        fields = ["name", "email", "role", "is_active"]
 
     def __init__(self, *args, requesting_user: User, **kwargs):
         super().__init__(*args, **kwargs)

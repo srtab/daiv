@@ -42,6 +42,8 @@ def _status_matches(notify_on: str, status: str) -> bool:
 def _effective_notify_on(activity: Activity) -> str:
     if activity.notify_on:
         return activity.notify_on
+    if activity.scheduled_job_id is not None:
+        return activity.scheduled_job.notify_on
     if activity.user is not None:
         return activity.user.notify_on_jobs
     return NotifyOn.NEVER
