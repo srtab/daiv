@@ -55,6 +55,19 @@ class TestEmailChannelSend:
 
         assert len(mail.outbox) == 1
         message = mail.outbox[0]
-        assert message.subject == "Job finished"
+        assert message.subject.endswith("Job finished")
+        assert message.subject.startswith("[")
         assert message.to == ["a@test.com"]
         assert "Your job has finished." in message.body
+
+    def test_subject_is_prefixed_with_site_name(self, member_user):
+        from django.contrib.sites.models import Site
+
+        Site.objects.filter(pk=1).update(name="DAIV")
+        n = Notification.objects.create(
+            recipient=member_user, event_type="schedule.finished", subject="Run succeeded", body="b", link_url="/"
+        )
+        d = NotificationDelivery.objects.create(notification=n, channel_type="email", address="a@test.com")
+        EmailChannel().send(n, d)
+
+        assert mail.outbox[0].subject == "[DAIV] Run succeeded"

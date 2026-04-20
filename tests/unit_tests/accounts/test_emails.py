@@ -25,7 +25,8 @@ class TestSendWelcomeEmail:
         assert result is True
         assert len(mail.outbox) == 1
         assert mail.outbox[0].to == ["test@example.com"]
-        assert "DAIV" in mail.outbox[0].subject
+        assert mail.outbox[0].subject.startswith("[")
+        assert "You've been invited" in mail.outbox[0].subject
 
     def test_returns_false_on_send_failure(self, user):
         with patch("accounts.emails.send_mail", side_effect=OSError("SMTP connection refused")):
