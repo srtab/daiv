@@ -5,6 +5,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
+from notifications.choices import NotifyOn
 
 from accounts.managers import APIKeyManager
 
@@ -18,6 +19,13 @@ class User(AbstractUser):
     email = models.EmailField(_("email address"), unique=True)
     name = models.CharField(_("name"), max_length=128, blank=True)
     role = models.CharField(_("role"), max_length=10, choices=Role.choices, default=Role.MEMBER)
+    notify_on_jobs = models.CharField(
+        _("notify on jobs"),
+        max_length=16,
+        choices=NotifyOn.choices,
+        default=NotifyOn.ON_FAILURE,
+        help_text=_("When to receive notifications for agent runs you start (UI/API/MCP)."),
+    )
 
     @property
     def is_admin(self) -> bool:
