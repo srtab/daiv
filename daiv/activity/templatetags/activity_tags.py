@@ -2,9 +2,32 @@ from decimal import Decimal
 
 from django import template
 
+from activity.models import TriggerType
+
 register = template.Library()
 
 _CENT = Decimal("0.01")
+_TITLE_MAX_LEN = 100
+
+
+@register.simple_tag
+def activity_title(activity) -> str:
+    """Derive a human-meaningful title for an Activity.
+
+    Precedence: first non-empty line of prompt → webhook iid → trigger+repo.
+    """
+    prompt = (activity.prompt or "").strip()
+    if prompt:
+        first_line = next((line for line in prompt.splitlines() if line.strip()), "").strip()
+        if len(first_line) > _TITLE_MAX_LEN:
+            return first_line[:_TITLE_MAX_LEN] + "…"
+        return first_line
+
+    if activity.trigger_type == TriggerType.ISSUE_WEBHOOK:
+        return f"Issue #{activity.issue_iid}" if activity.issue_iid else "Issue"
+    if activity.trigger_type == TriggerType.MR_WEBHOOK:
+        return f"MR/PR !{activity.merge_request_iid}" if activity.merge_request_iid else "MR/PR"
+    return f"{activity.get_trigger_type_display()} on {activity.repo_id}"
 
 
 @register.filter
