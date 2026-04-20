@@ -54,6 +54,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             prompt=payload.prompt,
             use_max=payload.use_max,
             user=request.auth,
+            notify_on=payload.notify_on,
         )
     except Exception:
         logger.exception("Failed to create activity for job %s", result.id)
