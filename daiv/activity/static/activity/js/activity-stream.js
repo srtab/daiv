@@ -1,14 +1,14 @@
 /**
  * Alpine.js components for real-time activity status updates via SSE.
  *
- * activityStream (list page) — tracks multiple activities:
+ * activityStream (list page) — tracks multiple activities in place:
  *   dotClass(id, fallback)    → "status-dot-{variant}" CSS class
  *   statusClass(id, fallback) → "status-badge-{variant}" CSS class
  *   statusLabel(id, fallback) → human-readable label
  *
- * activityDetail (detail page) — tracks one activity, reloads on completion:
- *   statusClass() → "status-badge-{variant}" CSS class
- *   statusLabel() → human-readable label
+ * activityDetail (detail page) — subscribes to one activity and reloads the
+ * page on any state change so server-rendered fields (started_at, finished_at,
+ * elapsed counter, duration, timeline dots) reflect the new state.
  */
 document.addEventListener("alpine:init", () => {
     function statusVariantFor(status) {
@@ -53,34 +53,22 @@ document.addEventListener("alpine:init", () => {
         },
     }));
 
+    // The SSE endpoint always emits the current state on first poll (it doesn't
+    // know what the page rendered with), so reload only when the status has
+    // actually drifted from what the template saw — otherwise a RUNNING page
+    // would reload every poll interval.
     Alpine.data("activityDetail", (streamUrl, activityId, initialStatus) => ({
-        currentStatus: initialStatus || null,
         init() {
             const url = streamUrl + "?ids=" + activityId;
             const source = new EventSource(url);
             source.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                if (data.done) {
-                    source.close();
-                    window.location.reload();
-                    return;
-                }
-                this.currentStatus = data.status;
-                if (data.status === "SUCCESSFUL" || data.status === "FAILED") {
+                if (data.done || (data.status && data.status !== initialStatus)) {
                     source.close();
                     window.location.reload();
                 }
             };
             source.onerror = () => source.close();
-        },
-        statusClass() {
-            return "status-badge-" + statusVariantFor(this.currentStatus);
-        },
-        dotClass() {
-            return "status-dot-" + statusVariantFor(this.currentStatus);
-        },
-        statusLabel() {
-            return statusLabelFor(this.currentStatus);
         },
     }));
 });
