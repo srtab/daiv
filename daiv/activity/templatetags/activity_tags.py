@@ -12,10 +12,7 @@ _TITLE_MAX_LEN = 100
 
 @register.simple_tag
 def activity_title(activity) -> str:
-    """Derive a human-meaningful title for an Activity.
-
-    Precedence: first non-empty line of prompt → webhook iid → trigger+repo.
-    """
+    """Derive a human-meaningful title for an Activity."""
     prompt = (activity.prompt or "").strip()
     if prompt:
         first_line = next((line for line in prompt.splitlines() if line.strip()), "").strip()
@@ -72,12 +69,7 @@ def format_tokens(value):
 
 @register.filter
 def approx_prompt_tokens(prompt) -> int:
-    """Rough token count using the 4-chars-per-token heuristic.
-
-    Used for the collapsed prompt-disclosure hint. Avoids adding a tokenizer
-    dependency for a display-only label — the template renders the value
-    with an explicit `≈` prefix to mark it as an approximation.
-    """
+    """Rough token count via the 4-chars-per-token heuristic; avoids a tokenizer dep for display-only hints."""
     if not prompt:
         return 0
-    return len(prompt) // 4
+    return len(str(prompt)) // 4

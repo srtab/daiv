@@ -48,6 +48,10 @@ class TestActivityTitle:
         activity = self._activity(prompt="   ", trigger_type=TriggerType.SCHEDULE, repo_id="acme/api")
         assert activity_title(activity) == "Scheduled Run on acme/api"
 
+    def test_whitespace_only_prompt_with_webhook_falls_back_to_iid_label(self):
+        activity = self._activity(prompt="   \n\n", trigger_type=TriggerType.ISSUE_WEBHOOK, issue_iid=None)
+        assert activity_title(activity) == "Issue"
+
     def test_prompt_wins_over_issue_iid(self):
         activity = self._activity(prompt="My specific request", trigger_type=TriggerType.ISSUE_WEBHOOK, issue_iid=99)
         assert activity_title(activity) == "My specific request"

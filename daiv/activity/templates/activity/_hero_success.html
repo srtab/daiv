@@ -1,6 +1,7 @@
-{% load activity_tags icon_tags l10n markdown_tags %}
+{% load icon_tags l10n markdown_tags %}
+{% with response_text=activity.response_text %}
 <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-    {% if activity.response_text %}{{ activity.response_text|json_script:"activity-result-raw" }}{% endif %}
+    {% if response_text %}{{ response_text|json_script:"activity-result-raw" }}{% endif %}
     <div class="flex items-center justify-between gap-3">
         <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
         <div class="flex items-center gap-2">
@@ -11,7 +12,7 @@
                 Open !{{ activity.merge_request_iid|unlocalize }}
             </a>
             {% endif %}
-            {% if activity.response_text %}
+            {% if response_text %}
             {% include "activity/_copy_markdown_button.html" with source_id="activity-result-raw" label="Copy" %}
             <a href="{% url 'activity_download_md' activity.pk %}"
                class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
@@ -21,11 +22,12 @@
             {% endif %}
         </div>
     </div>
-    {% if activity.response_text %}
+    {% if response_text %}
     <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
-        {{ activity.response_text|render_markdown }}
+        {{ response_text|render_markdown }}
     </div>
     {% else %}
     <p class="mt-3 text-sm text-gray-400">No result data available.</p>
     {% endif %}
 </div>
+{% endwith %}

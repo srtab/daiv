@@ -197,16 +197,15 @@ class TestActivityListView:
 @pytest.mark.django_db
 class TestActivityDetailView:
     def _get(self, logged_in_client, activity):
-        return logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
-
-    # ---- Header and status strip ----
+        response = logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+        assert response.status_code == 200
+        return response
 
     def test_h1_uses_first_line_of_prompt(self, logged_in_client, user):
         activity = _create_activity(user=user, prompt="Refactor checkout\nMore context")
         body = self._get(logged_in_client, activity).content.decode()
         assert "<h1" in body
         assert "Refactor checkout" in body
-        # The literal placeholder from the old design must not return.
         assert "Activity Detail" not in body
 
     def test_issue_webhook_without_prompt_titles_with_iid(self, logged_in_client, user):
@@ -223,7 +222,6 @@ class TestActivityDetailView:
     def test_status_strip_hides_retry_for_webhook_activity(self, logged_in_client, user):
         activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.ISSUE_WEBHOOK)
         body = self._get(logged_in_client, activity).content.decode()
-        # is_retryable is False for webhook triggers, so no retry link anchor is emitted.
         assert f"?from={activity.pk}" not in body
 
     def test_status_strip_flags_pruned_when_task_result_missing(self, logged_in_client, user):
@@ -231,15 +229,11 @@ class TestActivityDetailView:
         body = self._get(logged_in_client, activity).content.decode()
         assert "pruned" in body.lower()
 
-    # ---- Hero: Successful ----
-
     def test_successful_hero_renders_response_text(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "# Done\nHere is the report.", "code_changes": False})
         activity = _create_activity(user=user, task_result=tr, status=ActivityStatus.SUCCESSFUL)
         body = self._get(logged_in_client, activity).content.decode()
-        # Markdown is rendered, so the heading becomes an <h1>/<h2> tag — check the text only.
         assert "Here is the report." in body
-        # Copy + Markdown buttons are present and enabled (no aria-disabled).
         assert "Copy" in body
         assert reverse("activity_download_md", kwargs={"pk": activity.pk}) in body
 
@@ -256,8 +250,6 @@ class TestActivityDetailView:
         assert "https://gitlab.example.com/acme/web/-/merge_requests/1289" in body
         assert "!1289" in body
 
-    # ---- Hero: Pruned ----
-
     def test_pruned_success_shows_notice_and_summary(self, logged_in_client, user):
         activity = _create_activity(
             user=user,
@@ -268,15 +260,12 @@ class TestActivityDetailView:
         body = self._get(logged_in_client, activity).content.decode()
         assert "pruned" in body.lower()
         assert "Appended release notes to CHANGELOG.md." in body
-        # Markdown download endpoint is not linked for pruned successes (no raw source).
         assert reverse("activity_download_md", kwargs={"pk": activity.pk}) not in body
 
     def test_pruned_success_without_summary_shows_only_notice(self, logged_in_client, user):
         activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL, task_result=None, result_summary="")
         body = self._get(logged_in_client, activity).content.decode()
         assert "pruned" in body.lower()
-
-    # ---- Hero: Failed ----
 
     def test_failed_hero_renders_exception_class_and_traceback(self, logged_in_client, user):
         tr = _create_task_result(status="FAILED")
@@ -287,7 +276,6 @@ class TestActivityDetailView:
         body = self._get(logged_in_client, activity).content.decode()
         assert "automation.agent.errors.AgentExecutionError" in body
         assert "Traceback (most recent call last):" in body
-        # No Markdown download link for failed runs.
         assert reverse("activity_download_md", kwargs={"pk": activity.pk}) not in body
 
     def test_failed_hero_falls_back_to_error_message_when_pruned(self, logged_in_client, user):
@@ -300,14 +288,11 @@ class TestActivityDetailView:
         body = self._get(logged_in_client, activity).content.decode()
         assert "Dependency resolution failed" in body
 
-    # ---- Hero: Running / Pending ----
-
     def test_running_hero_shows_spinner_and_refresh_note(self, logged_in_client, user):
         activity = _create_activity(user=user, status=ActivityStatus.RUNNING)
         body = self._get(logged_in_client, activity).content.decode()
         assert "Agent is working" in body
         assert "refreshes automatically" in body
-        # The spinner element must carry role=status for a11y.
         assert 'role="status"' in body
 
     def test_pending_hero_uses_running_template(self, logged_in_client, user):
@@ -315,36 +300,28 @@ class TestActivityDetailView:
         body = self._get(logged_in_client, activity).content.decode()
         assert "Agent is working" in body
 
-    # ---- Prompt disclosure ----
-
     def test_prompt_disclosure_is_details_element(self, logged_in_client, user):
         activity = _create_activity(user=user, prompt="Do the thing.")
         body = self._get(logged_in_client, activity).content.decode()
-        # The new collapse mechanism is <details>, not Alpine x-data.
         assert "<details" in body
         assert "Do the thing." in body
 
     def test_prompt_disclosure_open_by_default_when_running(self, logged_in_client, user):
         activity = _create_activity(user=user, status=ActivityStatus.RUNNING, prompt="Still running prompt")
         body = self._get(logged_in_client, activity).content.decode()
-        # `<details open>` marks the attribute regardless of whitespace.
         assert "<details open" in body or "<details  open" in body or "<details\nopen" in body
 
     def test_prompt_disclosure_collapsed_by_default_on_success(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "Result", "code_changes": False})
         activity = _create_activity(user=user, task_result=tr, status=ActivityStatus.SUCCESSFUL, prompt="Prompt")
         body = self._get(logged_in_client, activity).content.decode()
-        # The details element is present but NOT initially open.
         assert "<details" in body
         assert "<details open" not in body
 
     def test_prompt_disclosure_omitted_when_prompt_empty(self, logged_in_client, user):
         activity = _create_activity(user=user, prompt="")
         body = self._get(logged_in_client, activity).content.decode()
-        # Disclosure label is only rendered when we have a prompt to reveal.
         assert "Copy prompt" not in body
-
-    # ---- Rail: Timing ----
 
     def test_rail_timing_shows_created_started_finished_when_terminal(self, logged_in_client, user):
         from django.utils import timezone
@@ -362,11 +339,8 @@ class TestActivityDetailView:
         now = timezone.now()
         activity = _create_activity(user=user, status=ActivityStatus.FAILED, started_at=now, finished_at=now)
         body = self._get(logged_in_client, activity).content.decode()
-        assert "Failed" in body  # the timeline's terminal step switches label
-        # "Finished" must not be rendered for failed runs (otherwise the label is wrong).
+        assert "Failed" in body
         assert ">Finished<" not in body
-
-    # ---- Rail: Context ----
 
     def test_rail_context_renders_mr_link_when_url_present(self, logged_in_client, user):
         activity = _create_activity(
@@ -384,19 +358,15 @@ class TestActivityDetailView:
 
         body_default = self._get(logged_in_client, default_model).content.decode()
         body_max = self._get(logged_in_client, max_model).content.decode()
-
-        # The label must only appear for the max-model run.
-        assert "Model" not in body_default or "Max" not in body_default
-        assert "Model" in body_max
-        assert "Max" in body_max
+        assert ">Model<" not in body_default
+        assert ">Max<" not in body_default
+        assert ">Model<" in body_max
+        assert ">Max<" in body_max
 
     def test_rail_context_hides_owner_for_non_admin(self, logged_in_client, user):
         activity = _create_activity(user=user)
         body = self._get(logged_in_client, activity).content.decode()
-        # Non-admin viewing own activity never sees the Owner row.
-        assert "Owner" not in body
-
-    # ---- Rail: Usage ----
+        assert ">Owner<" not in body
 
     def test_rail_usage_renders_token_and_cost_stats(self, logged_in_client, user):
         from decimal import Decimal
@@ -405,14 +375,41 @@ class TestActivityDetailView:
             user=user, input_tokens=38200, output_tokens=3900, total_tokens=42100, cost_usd=Decimal("0.18")
         )
         body = self._get(logged_in_client, activity).content.decode()
-        assert "42.1k" in body  # format_tokens output
-        assert "$0.18" in body  # format_cost output
+        assert "42.1k" in body
+        assert "$0.18" in body
 
     def test_rail_usage_shows_placeholders_when_no_data(self, logged_in_client, user):
         activity = _create_activity(user=user, status=ActivityStatus.RUNNING)
         body = self._get(logged_in_client, activity).content.decode()
-        # Em-dash placeholder is the unambiguous "no data yet" signal.
         assert "—" in body
+
+    def test_failed_hero_shows_no_details_when_nothing_available(self, logged_in_client, user):
+        activity = _create_activity(user=user, status=ActivityStatus.FAILED, task_result=None, error_message="")
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "No error details available." in body
+
+    def test_rail_usage_per_model_breakdown_shown_when_multiple_models(self, logged_in_client, user):
+        activity = _create_activity(
+            user=user,
+            total_tokens=100,
+            usage_by_model={
+                "claude-sonnet": {"input_tokens": 60, "output_tokens": 30, "cost_usd": "0.10"},
+                "claude-haiku": {"input_tokens": 6, "output_tokens": 4, "cost_usd": "0.01"},
+            },
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Per-model breakdown" in body
+        assert "claude-sonnet" in body
+        assert "claude-haiku" in body
+
+    def test_rail_usage_per_model_breakdown_hidden_for_single_model(self, logged_in_client, user):
+        activity = _create_activity(
+            user=user,
+            total_tokens=100,
+            usage_by_model={"claude-sonnet": {"input_tokens": 60, "output_tokens": 30, "cost_usd": "0.10"}},
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert "Per-model breakdown" not in body
 
 
 @pytest.mark.django_db

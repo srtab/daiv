@@ -21,7 +21,6 @@
 
     <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
         <div class="min-w-0">
-            {# Hero: pick one partial based on the five display states. #}
             {% if activity.status == "SUCCESSFUL" %}
                 {% if activity.task_result %}
                     {% include "activity/_hero_success.html" %}
@@ -34,7 +33,6 @@
                 {% include "activity/_hero_running.html" %}
             {% endif %}
 
-            {# Prompt disclosure. Open-by-default when there's no result to anchor on. #}
             {% if activity.status == "RUNNING" or activity.status == "READY" %}
                 {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
             {% elif activity.status == "SUCCESSFUL" and not activity.task_result and not activity.result_summary %}

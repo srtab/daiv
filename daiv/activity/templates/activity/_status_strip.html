@@ -1,10 +1,10 @@
-{% load activity_tags i18n icon_tags %}
+{% load activity_tags icon_tags %}
 <div class="animate-fade-up mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
      style="animation-delay: 80ms">
 
     {% if is_in_flight %}
-    <span :class="statusClass()" class="status-badge status-badge-running inline-flex items-center gap-1.5" x-text="statusLabel()">
-        <span class="status-dot status-dot-running"></span>
+    <span :class="statusClass()" class="status-badge status-badge-{% if activity.status == 'RUNNING' %}running{% else %}pending{% endif %} inline-flex items-center gap-1.5" x-text="statusLabel()">
+        <span class="status-dot status-dot-{% if activity.status == 'RUNNING' %}running{% else %}pending{% endif %}"></span>
         {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
     </span>
     {% else %}

@@ -16,10 +16,16 @@
         <p class="mt-3 font-mono text-sm text-blue-300"
            x-data="{
                elapsed: 0,
+               tickId: null,
                fmt(s) { const m = Math.floor(s/60); const r = s%60; return m ? `${m}m ${r}s` : `${r}s`; },
                init() {
-                   this.elapsed = Math.max(0, Math.floor((Date.now() - new Date('{{ activity.started_at|date:"c" }}').getTime()) / 1000));
-                   setInterval(() => this.elapsed++, 1000);
+                   const startedMs = new Date('{{ activity.started_at|date:"c" }}').getTime();
+                   if (!Number.isFinite(startedMs)) return;
+                   this.elapsed = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+                   this.tickId = setInterval(() => this.elapsed++, 1000);
+               },
+               destroy() {
+                   if (this.tickId) clearInterval(this.tickId);
                }
            }"
            x-text="'⏱ ' + fmt(elapsed) + ' elapsed'">⏱ elapsed</p>
