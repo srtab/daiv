@@ -2,9 +2,11 @@ import uuid
 from unittest import mock
 
 import pytest
+from activity.forms import AgentRunCreateForm
 from activity.models import Activity, TriggerType
 from activity.services import submit_ui_run
 from django_tasks_db.models import DBTaskResult, get_date_max
+from notifications.choices import NotifyOn
 
 
 def _make_task_result(task_id: uuid.UUID) -> mock.Mock:
@@ -52,3 +54,17 @@ def test_submit_ui_run_passes_none_for_empty_ref(member_user):
         submit_ui_run(user=member_user, prompt="x", repo_id="acme/repo", ref="")
 
     assert m_task.aenqueue.await_args.kwargs["ref"] is None
+
+
+def test_agent_run_form_accepts_notify_on():
+    form = AgentRunCreateForm(
+        data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False, "notify_on": NotifyOn.NEVER}
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["notify_on"] == NotifyOn.NEVER
+
+
+def test_agent_run_form_notify_on_optional():
+    form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False})
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data.get("notify_on") in (None, "")

@@ -9,6 +9,8 @@ from __future__ import annotations
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from notifications.choices import NotifyOn
+
 
 class AgentRunFieldsMixin(forms.Form):
     prompt = forms.CharField(label=_("Prompt"), required=True)
@@ -24,6 +26,12 @@ class AgentRunFieldsMixin(forms.Form):
         required=False,
         initial=False,
         help_text=_("More capable model with thinking set to high."),
+    )
+    notify_on = forms.ChoiceField(
+        label=_("Notify me"),
+        choices=NotifyOn.choices,
+        required=False,
+        help_text=_("Leave empty to use your default preference."),
     )
 
 

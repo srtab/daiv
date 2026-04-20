@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def _resolve_notify_on(notify_on: str | None, scheduled_job: ScheduledJob | None) -> str | None:
-    if notify_on is not None:
+    if notify_on:
         return notify_on
     if scheduled_job is not None:
         return scheduled_job.notify_on
