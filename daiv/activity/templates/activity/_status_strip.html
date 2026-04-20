@@ -2,7 +2,7 @@
 <div class="animate-fade-up mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
      style="animation-delay: 80ms">
 
-    {% include "activity/_status_pill.html" with variant=activity.status|status_variant label=activity.get_status_display live=is_in_flight %}
+    {% include "activity/_status_pill.html" with variant=activity.status|status_variant label=activity.get_status_display %}
 
     {% include "activity/_trigger_badge.html" with trigger_type=activity.trigger_type trigger_type_display=activity.get_trigger_type_display %}
 
