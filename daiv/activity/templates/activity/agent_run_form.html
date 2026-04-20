@@ -46,18 +46,21 @@
 
     {% include "activity/_agent_run_fields.html" with form=form %}
 
-    <div class="mt-6 border-t border-white/[0.06] pt-6">
-        <label for="id_notify_on" class="block text-[15px] font-medium text-gray-400">{{ form.notify_on.label }}</label>
-        <select name="notify_on" id="id_notify_on" class="mt-2">
-            <option value="" {% if not form.notify_on.value %}selected{% endif %}>{% translate "Use my default" %}</option>
+    <div class="mt-6 border-t border-white/[0.06] pt-6"
+         x-data="{ notifyOn: '{{ form.notify_on.value|default:'never' }}' }">
+        <label class="block text-[15px] font-medium text-gray-400">{{ form.notify_on.label }}</label>
+        <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
             {% for value, label in form.notify_on.field.choices %}
-            <option value="{{ value }}" {% if form.notify_on.value == value %}selected{% endif %}>{{ label }}</option>
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="notifyOn === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="{{ form.notify_on.html_name }}" value="{{ value }}" x-model="notifyOn" class="sr-only">
+                {{ label }}
+            </label>
             {% endfor %}
-        </select>
+        </div>
         {% if form.notify_on.errors %}
         <p class="mt-1.5 text-sm text-red-400">{{ form.notify_on.errors.0 }}</p>
         {% endif %}
-        <p class="mt-1.5 text-sm text-gray-400">{{ form.notify_on.help_text }}</p>
     </div>
 
     <div class="mt-8 flex items-center gap-3">

@@ -55,9 +55,19 @@ def test_submit_ui_run_passes_none_for_empty_ref(member_user):
     assert m_task.aenqueue.await_args.kwargs["ref"] is None
 
 
-def test_agent_run_form_empty_notify_on_normalizes_to_none():
-    """An unset notify_on must clean to ``None`` (not ``""``) so the service layer
-    treats it as "defer to user preference"."""
+def test_agent_run_form_requires_notify_on():
+    """notify_on is required on the UI form — the view pre-fills it from the user's
+    preference, so an empty submission is a client-side bug, not "defer"."""
     form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False})
+    assert not form.is_valid()
+    assert "notify_on" in form.errors
+
+
+def test_agent_run_form_accepts_valid_notify_on():
+    from notifications.choices import NotifyOn
+
+    form = AgentRunCreateForm(
+        data={"prompt": "p", "repo_id": "x/y", "ref": "", "use_max": False, "notify_on": NotifyOn.ON_FAILURE}
+    )
     assert form.is_valid(), form.errors
-    assert form.cleaned_data["notify_on"] is None
+    assert form.cleaned_data["notify_on"] == NotifyOn.ON_FAILURE

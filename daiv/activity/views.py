@@ -253,10 +253,16 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         return source
 
     def get_initial(self) -> dict:
+        initial: dict = {"notify_on": self.request.user.notify_on_jobs}
         source = self._get_source_activity()
-        if source is None:
-            return {}
-        return {"prompt": source.prompt, "repo_id": source.repo_id, "ref": source.ref, "use_max": source.use_max}
+        if source is not None:
+            initial.update({
+                "prompt": source.prompt,
+                "repo_id": source.repo_id,
+                "ref": source.ref,
+                "use_max": source.use_max,
+            })
+        return initial
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

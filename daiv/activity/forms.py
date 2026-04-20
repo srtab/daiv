@@ -27,13 +27,7 @@ class AgentRunFieldsMixin(forms.Form):
         initial=False,
         help_text=_("More capable model with thinking set to high."),
     )
-    notify_on = forms.TypedChoiceField(
-        label=_("Notify me"),
-        choices=[("", _("Use default"))] + list(NotifyOn.choices),
-        required=False,
-        empty_value=None,
-        help_text=_("Leave empty to use your default preference."),
-    )
+    notify_on = forms.ChoiceField(label=_("Notify me"), choices=NotifyOn.choices, required=True)
 
 
 class AgentRunCreateForm(AgentRunFieldsMixin, forms.Form):
