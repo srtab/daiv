@@ -109,6 +109,46 @@ class TestOnActivityFinished:
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.count() == 0
 
+    def test_body_excludes_result_summary_and_context_carries_metadata(self, member_user, schedule):
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="acme/app",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+            result_summary="# Heading\n\nSome **markdown** that must not leak into email body.",
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        n = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert "markdown" not in n.body
+        assert "Heading" not in n.body
+        assert schedule.name in n.body
+        assert n.context["status"] == ActivityStatus.SUCCESSFUL
+        assert n.context["is_successful"] is True
+        assert n.context["status_label"] == ActivityStatus.SUCCESSFUL.label
+        assert n.context["schedule_name"] == schedule.name
+        assert n.context["repo_id"] == "acme/app"
+        assert "duration_seconds" in n.context
+
+    def test_body_excludes_error_message_on_failure(self, member_user, schedule):
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="acme/app",
+            status=ActivityStatus.FAILED,
+            scheduled_job=schedule,
+            error_message="Traceback (most recent call last): secret stacktrace",
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        n = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert "Traceback" not in n.body
+        assert "stacktrace" not in n.body
+        assert schedule.name in n.body
+        assert n.context["is_successful"] is False
+        assert n.context["status_label"] == ActivityStatus.FAILED.label
+
     def test_exception_in_notify_is_swallowed(self, member_user, schedule):
         activity = Activity.objects.create(
             trigger_type=TriggerType.SCHEDULE,

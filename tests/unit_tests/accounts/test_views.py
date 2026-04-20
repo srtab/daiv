@@ -214,7 +214,7 @@ class TestUserCreateView:
         admin_client.post(reverse("user_create"), {"name": "Emailed", "email": "emailed@test.com", "role": Role.MEMBER})
         assert len(mail.outbox) == 1
         assert mail.outbox[0].to == ["emailed@test.com"]
-        assert "DAIV" in mail.outbox[0].subject
+        assert "example.com" in mail.outbox[0].subject
 
     def test_created_user_has_unusable_password(self, admin_client):
         admin_client.post(reverse("user_create"), {"name": "NoPwd", "email": "nopwd@test.com", "role": Role.MEMBER})

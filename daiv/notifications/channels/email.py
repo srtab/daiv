@@ -38,7 +38,7 @@ class EmailChannel(NotificationChannel):
         return binding.address if binding else None
 
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
-        from core.utils import build_absolute_url
+        from core.utils import build_absolute_url, prefixed_email_subject
 
         link_absolute_url = build_absolute_url(notification.link_url) if notification.link_url else ""
         context = {"notification": notification, "link_absolute_url": link_absolute_url}
@@ -50,7 +50,7 @@ class EmailChannel(NotificationChannel):
 
         try:
             send_mail(
-                subject=notification.subject,
+                subject=prefixed_email_subject(notification.subject),
                 message=text_body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[delivery.address],
