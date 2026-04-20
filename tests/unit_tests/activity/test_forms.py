@@ -6,7 +6,6 @@ from activity.forms import AgentRunCreateForm
 from activity.models import Activity, TriggerType
 from activity.services import submit_ui_run
 from django_tasks_db.models import DBTaskResult, get_date_max
-from notifications.choices import NotifyOn
 
 
 def _make_task_result(task_id: uuid.UUID) -> mock.Mock:
@@ -56,15 +55,9 @@ def test_submit_ui_run_passes_none_for_empty_ref(member_user):
     assert m_task.aenqueue.await_args.kwargs["ref"] is None
 
 
-def test_agent_run_form_accepts_notify_on():
-    form = AgentRunCreateForm(
-        data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False, "notify_on": NotifyOn.NEVER}
-    )
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["notify_on"] == NotifyOn.NEVER
-
-
-def test_agent_run_form_notify_on_optional():
+def test_agent_run_form_empty_notify_on_normalizes_to_none():
+    """An unset notify_on must clean to ``None`` (not ``""``) so the service layer
+    treats it as "defer to user preference"."""
     form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False})
     assert form.is_valid(), form.errors
-    assert form.cleaned_data.get("notify_on") in (None, "")
+    assert form.cleaned_data["notify_on"] is None

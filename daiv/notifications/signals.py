@@ -27,7 +27,7 @@ logger = logging.getLogger("daiv.notifications")
 EXCLUDED_TRIGGERS = {TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK}
 
 
-def _status_matches(notify_on: NotifyOn | str, status: str) -> bool:
+def _status_matches(notify_on: NotifyOn, status: str) -> bool:
     if notify_on == NotifyOn.NEVER:
         return False
     if notify_on == NotifyOn.ALWAYS:
@@ -36,21 +36,12 @@ def _status_matches(notify_on: NotifyOn | str, status: str) -> bool:
         return status == ActivityStatus.SUCCESSFUL
     if notify_on == NotifyOn.ON_FAILURE:
         return status == ActivityStatus.FAILED
+    logger.warning("Unknown notify_on value %r; treating as NEVER", notify_on)
     return False
 
 
-def _effective_notify_on(activity: Activity) -> NotifyOn | str:
-    if activity.notify_on:
-        return activity.notify_on
-    if activity.scheduled_job_id is not None:
-        return activity.scheduled_job.notify_on
-    if activity.user is not None:
-        return activity.user.notify_on_jobs
-    return NotifyOn.NEVER
-
-
 def _resolve_recipients(activity: Activity) -> dict[int, object]:
-    if activity.scheduled_job_id is not None:
+    if activity.scheduled_job_id is not None and activity.scheduled_job is not None:
         schedule = activity.scheduled_job
         recipients: dict[int, object] = {schedule.user_id: schedule.user}
         for sub in schedule.subscribers.all():
@@ -62,7 +53,7 @@ def _resolve_recipients(activity: Activity) -> dict[int, object]:
 
 
 def _render_payload(activity: Activity) -> tuple[str, str, dict]:
-    is_schedule = activity.scheduled_job_id is not None
+    is_schedule = activity.scheduled_job_id is not None and activity.scheduled_job is not None
     ok = activity.status == ActivityStatus.SUCCESSFUL
 
     if is_schedule:
@@ -98,16 +89,23 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
     if activity.trigger_type in EXCLUDED_TRIGGERS:
         return
 
-    effective = _effective_notify_on(activity)
+    effective = activity.effective_notify_on
+    if effective == NotifyOn.NEVER and activity.user_id is None and activity.scheduled_job_id is None:
+        logger.warning(
+            "No notify_on resolution path for activity %s (no user, no scheduled_job, no override)", activity.pk
+        )
+
     if not _status_matches(effective, activity.status):
         return
 
     recipients = _resolve_recipients(activity)
     if not recipients:
+        logger.warning("Activity %s resolved notify_on=%s but no recipient could be determined", activity.pk, effective)
         return
 
     channels = [cls.channel_type for cls in all_channels()]
     if not channels:
+        logger.error("No notification channels registered; dropping notification for activity %s", activity.pk)
         return
 
     subject, body, context = _render_payload(activity)

@@ -16,14 +16,6 @@ if TYPE_CHECKING:
     from schedules.models import ScheduledJob
 
 
-def _resolve_notify_on(notify_on: NotifyOn | str | None, scheduled_job: ScheduledJob | None) -> NotifyOn | str | None:
-    if notify_on:
-        return notify_on
-    if scheduled_job is not None:
-        return scheduled_job.notify_on
-    return None
-
-
 def create_activity(
     *,
     trigger_type: str,
@@ -38,9 +30,12 @@ def create_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: NotifyOn | str | None = None,
+    notify_on: NotifyOn | None = None,
 ) -> Activity:
-    """Create an Activity record linked to a DBTaskResult."""
+    """Create an Activity record linked to a DBTaskResult.
+
+    ``notify_on=None`` defers to ``Activity.effective_notify_on`` at send time.
+    """
     return Activity.objects.create(
         trigger_type=trigger_type,
         task_result_id=task_result_id,
@@ -54,7 +49,7 @@ def create_activity(
         scheduled_job=scheduled_job,
         user=user,
         external_username=external_username,
-        notify_on=_resolve_notify_on(notify_on, scheduled_job),
+        notify_on=notify_on,
     )
 
 
@@ -72,7 +67,7 @@ async def acreate_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: NotifyOn | str | None = None,
+    notify_on: NotifyOn | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -88,12 +83,12 @@ async def acreate_activity(
         scheduled_job=scheduled_job,
         user=user,
         external_username=external_username,
-        notify_on=_resolve_notify_on(notify_on, scheduled_job),
+        notify_on=notify_on,
     )
 
 
 def submit_ui_run(
-    *, user: User, prompt: str, repo_id: str, ref: str = "", use_max: bool = False, notify_on: str | None = None
+    *, user: User, prompt: str, repo_id: str, ref: str = "", use_max: bool = False, notify_on: NotifyOn | None = None
 ) -> Activity:
     """Enqueue ``run_job_task`` and record a UI_JOB Activity in a single async boundary crossing.
 

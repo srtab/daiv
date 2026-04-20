@@ -107,8 +107,8 @@ class Activity(models.Model):
         null=True,
         blank=True,
         help_text=_(
-            "Per-run override. When null, falls back to the initiating user's notify_on_jobs"
-            " (or, for schedule runs, copied from ScheduledJob.notify_on at creation time)."
+            "Per-run override. When null, the notifier falls back to ScheduledJob.notify_on"
+            " (for schedule runs) or to the initiating user's notify_on_jobs preference."
         ),
     )
 
@@ -166,6 +166,20 @@ class Activity(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    @property
+    def effective_notify_on(self) -> NotifyOn:
+        """Resolve the notification preference that applies to this run.
+
+        Precedence: per-run override > schedule preference > user default > NEVER.
+        """
+        if self.notify_on:
+            return NotifyOn(self.notify_on)
+        if self.scheduled_job_id is not None and self.scheduled_job is not None:
+            return NotifyOn(self.scheduled_job.notify_on)
+        if self.user_id is not None and self.user is not None:
+            return NotifyOn(self.user.notify_on_jobs)
+        return NotifyOn.NEVER
 
     @property
     def is_retryable(self) -> bool:

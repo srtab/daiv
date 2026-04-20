@@ -150,6 +150,35 @@ class TestOnActivityFinished:
         assert n.context["is_successful"] is False
         assert n.context["status_label"] == ActivityStatus.FAILED.label
 
+    def test_schedule_override_never_silences_schedule_always(self, member_user, schedule):
+        """Per-run notify_on=NEVER must override schedule.notify_on=ALWAYS."""
+        assert schedule.notify_on == NotifyOn.ALWAYS  # fixture baseline
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+            notify_on=NotifyOn.NEVER,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.count() == 0
+
+    def test_schedule_override_always_beats_schedule_never(self, member_user, schedule):
+        """Per-run notify_on=ALWAYS must override schedule.notify_on=NEVER."""
+        schedule.notify_on = NotifyOn.NEVER
+        schedule.save()
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+            notify_on=NotifyOn.ALWAYS,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+        assert Notification.objects.filter(recipient=member_user, event_type="schedule.finished").count() == 1
+
     def test_exception_in_notify_is_swallowed(self, member_user, schedule):
         activity = Activity.objects.create(
             trigger_type=TriggerType.SCHEDULE,
@@ -316,7 +345,6 @@ class TestJobActivityNotifications:
             notify_on=NotifyOn.ALWAYS,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        # No user → no recipient → no notification, no crash.
         assert Notification.objects.count() == 0
 
     def test_job_rendered_subject_and_event_type(self, member_user):

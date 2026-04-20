@@ -85,9 +85,7 @@ async def submit_job(
         NotifyOn | None,
         Field(
             description=(
-                "When to receive notifications for this job."
-                " One of 'never', 'always', 'on_success', 'on_failure'."
-                " When omitted, falls back to the user's default preference."
+                "When to receive notifications for this job. When omitted, falls back to the user's default preference."
             )
         ),
     ] = None,
