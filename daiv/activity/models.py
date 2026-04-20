@@ -9,6 +9,8 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from notifications.choices import NotifyOn
+
 from automation.agent.results import parse_agent_result
 
 logger = logging.getLogger("daiv.activity")
@@ -98,6 +100,17 @@ class Activity(models.Model):
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
     use_max = models.BooleanField(_("use max model"), default=False)
+    notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
+        _("notify on"),
+        max_length=16,
+        choices=NotifyOn.choices,
+        null=True,
+        blank=True,
+        help_text=_(
+            "Per-run override. When null, falls back to the initiating user's notify_on_jobs"
+            " (or, for schedule runs, copied from ScheduledJob.notify_on at creation time)."
+        ),
+    )
 
     # Issue / MR context
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
