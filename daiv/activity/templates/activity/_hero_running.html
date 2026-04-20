@@ -1,0 +1,28 @@
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+    <div class="flex items-center justify-between gap-3">
+        <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
+        <div class="flex items-center gap-2 opacity-40">
+            <span class="btn-secondary rounded-lg px-3 py-1.5 text-sm" aria-disabled="true">Copy</span>
+            <span class="btn-secondary rounded-lg px-3 py-1.5 text-sm" aria-disabled="true">Markdown</span>
+        </div>
+    </div>
+    <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
+         role="status" aria-live="polite">
+        <div class="h-9 w-9 animate-spin rounded-full border-[3px] border-blue-400/20 border-t-blue-400"></div>
+        <span class="sr-only">Agent is still running</span>
+        <p class="mt-3 text-[15px] font-medium text-gray-200">Agent is working</p>
+        <p class="mt-1 text-sm text-gray-400">This page refreshes automatically when the run finishes.</p>
+        {% if activity.started_at %}
+        <p class="mt-3 font-mono text-sm text-blue-300"
+           x-data="{
+               elapsed: 0,
+               fmt(s) { const m = Math.floor(s/60); const r = s%60; return m ? `${m}m ${r}s` : `${r}s`; },
+               init() {
+                   this.elapsed = Math.max(0, Math.floor((Date.now() - new Date('{{ activity.started_at|date:"c" }}').getTime()) / 1000));
+                   setInterval(() => this.elapsed++, 1000);
+               }
+           }"
+           x-text="'⏱ ' + fmt(elapsed) + ' elapsed'">⏱ elapsed</p>
+        {% endif %}
+    </div>
+</div>
