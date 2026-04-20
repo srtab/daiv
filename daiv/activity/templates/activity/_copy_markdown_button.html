@@ -29,11 +29,11 @@ Context:
         }"
         @click="copy()"
         :aria-label="copied ? 'Copied to clipboard' : (failed ? 'Copy failed' : $el.dataset.label)"
-        class="btn-secondary gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors"
+        class="btn-secondary gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors"
         :class="copied ? '!border-emerald-800/50 !bg-emerald-900/20 !text-emerald-300'
                        : (failed ? '!border-red-800/50 !bg-red-950/30 !text-red-300' : '')">
-    <span x-show="!copied && !failed">{% icon "clipboard-document" "h-4 w-4" %}</span>
-    <span x-show="copied" x-cloak>{% icon "check" "h-4 w-4" %}</span>
-    <span x-show="failed" x-cloak>{% icon "exclamation-triangle" "h-4 w-4" %}</span>
+    <span class="inline-flex" x-show="!copied && !failed">{% icon "clipboard-document" "h-4 w-4" %}</span>
+    <span class="inline-flex" x-show="copied" x-cloak>{% icon "check" "h-4 w-4" %}</span>
+    <span class="inline-flex" x-show="failed" x-cloak>{% icon "exclamation-triangle" "h-4 w-4" %}</span>
     <span x-text="copied ? 'Copied' : (failed ? 'Copy failed' : $el.parentElement.dataset.label)">{{ label }}</span>
 </button>

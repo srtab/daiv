@@ -73,3 +73,12 @@ def approx_prompt_tokens(prompt) -> int:
     if not prompt:
         return 0
     return len(str(prompt)) // 4
+
+
+_STATUS_VARIANTS = {"SUCCESSFUL": "success", "FAILED": "failed", "RUNNING": "running"}
+
+
+@register.filter
+def status_variant(status) -> str:
+    """Map ActivityStatus to the CSS/Alpine variant suffix used by status-badge / status-dot."""
+    return _STATUS_VARIANTS.get(status, "pending")

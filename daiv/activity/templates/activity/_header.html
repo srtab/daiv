@@ -1,11 +1,15 @@
 {% load activity_tags humanize %}
 <div class="animate-fade-up">
     <h1 class="text-2xl font-bold tracking-tight text-white">{% activity_title activity %}</h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {{ activity.get_trigger_type_display }}
-        {% if activity.user or activity.external_username %}
-            &middot; started by <span class="text-gray-300">{{ activity.user|default:activity.external_username }}</span>
+    <div class="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-light text-gray-400">
+        <span>{{ activity.get_trigger_type_display }}</span>
+        {% if activity.user %}
+            <span>&middot;</span>
+            {% include "accounts/_avatar.html" with user=activity.user label="Started by" %}
+        {% elif activity.external_username %}
+            <span>&middot;</span>
+            <span class="text-gray-300">{{ activity.external_username }}</span>
         {% endif %}
-        &middot; {{ activity.created_at|naturaltime }}
-    </p>
+        <span>&middot; {{ activity.created_at|naturaltime }}</span>
+    </div>
 </div>

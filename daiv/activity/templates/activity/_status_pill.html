@@ -1,0 +1,10 @@
+{% comment %}
+Status pill. Required: variant, label.
+Live modes: pk+status (list rows) or live=True (detail). Otherwise static.
+{% endcomment %}
+<span class="status-badge status-badge-{{ variant }} inline-flex items-center gap-1.5"
+      {% if pk %}:class="statusClass('{{ pk }}', '{{ status }}')"{% elif live %}:class="statusClass()"{% endif %}>
+    <span class="status-dot status-dot-{{ variant }}"
+          {% if pk %}:class="dotClass('{{ pk }}', '{{ status }}')"{% elif live %}:class="dotClass()"{% endif %}></span>
+    <span {% if pk %}x-text="statusLabel('{{ pk }}', '{{ label|escapejs }}')"{% elif live %}x-text="statusLabel()"{% endif %}>{{ label }}</span>
+</span>

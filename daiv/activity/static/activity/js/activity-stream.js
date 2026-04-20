@@ -48,12 +48,13 @@ document.addEventListener("alpine:init", () => {
             return "status-dot-" + statusVariantFor(this.updates[id]?.status || fallback);
         },
         statusLabel(id, fallback) {
-            return statusLabelFor(this.updates[id]?.status || fallback);
+            const update = this.updates[id];
+            return update ? statusLabelFor(update.status) : fallback;
         },
     }));
 
-    Alpine.data("activityDetail", (streamUrl, activityId) => ({
-        currentStatus: null,
+    Alpine.data("activityDetail", (streamUrl, activityId, initialStatus) => ({
+        currentStatus: initialStatus || null,
         init() {
             const url = streamUrl + "?ids=" + activityId;
             const source = new EventSource(url);
@@ -74,6 +75,9 @@ document.addEventListener("alpine:init", () => {
         },
         statusClass() {
             return "status-badge-" + statusVariantFor(this.currentStatus);
+        },
+        dotClass() {
+            return "status-dot-" + statusVariantFor(this.currentStatus);
         },
         statusLabel() {
             return statusLabelFor(this.currentStatus);

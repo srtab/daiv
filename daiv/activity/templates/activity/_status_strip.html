@@ -2,39 +2,29 @@
 <div class="animate-fade-up mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
      style="animation-delay: 80ms">
 
-    {% if is_in_flight %}
-    <span :class="statusClass()" class="status-badge status-badge-{% if activity.status == 'RUNNING' %}running{% else %}pending{% endif %} inline-flex items-center gap-1.5" x-text="statusLabel()">
-        <span class="status-dot status-dot-{% if activity.status == 'RUNNING' %}running{% else %}pending{% endif %}"></span>
-        {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
-    </span>
-    {% else %}
-    <span class="status-badge status-badge-{% if activity.status == 'SUCCESSFUL' %}success{% elif activity.status == 'FAILED' %}failed{% else %}pending{% endif %} inline-flex items-center gap-1.5">
-        <span class="status-dot status-dot-{% if activity.status == 'SUCCESSFUL' %}success{% elif activity.status == 'FAILED' %}failed{% else %}pending{% endif %}"></span>
-        {% if activity.status == "SUCCESSFUL" %}Successful{% elif activity.status == "FAILED" %}Failed{% else %}Pending{% endif %}
-    </span>
-    {% endif %}
+    {% include "activity/_status_pill.html" with variant=activity.status|status_variant label=activity.get_status_display live=is_in_flight %}
 
     {% include "activity/_trigger_badge.html" with trigger_type=activity.trigger_type trigger_type_display=activity.get_trigger_type_display %}
 
-    {% if activity.code_changes %}
-    <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">Code changes</span>
-    {% endif %}
-
     {% if activity.duration %}
-    <span class="text-sm text-gray-400">&middot; {{ activity.duration|duration }}</span>
+    <span class="text-sm text-gray-500">&middot;</span>
+    <span class="text-sm text-gray-400">{{ activity.duration|duration }}</span>
     {% endif %}
 
     {% if activity.cost_usd %}
-    <span class="text-sm text-gray-400">&middot; {{ activity.cost_usd|format_cost }}</span>
+    <span class="text-sm text-gray-500">&middot;</span>
+    <span class="text-sm text-gray-400">{{ activity.cost_usd|format_cost }}</span>
     {% endif %}
 
     {% if activity.total_tokens %}
-    <span class="text-sm text-gray-400">&middot; {{ activity.total_tokens|format_tokens }} tokens</span>
+    <span class="text-sm text-gray-500">&middot;</span>
+    <span class="text-sm text-gray-400">{{ activity.total_tokens|format_tokens }} tokens</span>
     {% endif %}
 
     {% if activity.status == "SUCCESSFUL" or activity.status == "FAILED" %}
         {% if not activity.task_result %}
-        <span class="text-sm text-gray-500">&middot; pruned</span>
+        <span class="text-sm text-gray-500">&middot;</span>
+        <span class="text-sm text-gray-500">pruned</span>
         {% endif %}
     {% endif %}
 

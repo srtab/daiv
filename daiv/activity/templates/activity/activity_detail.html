@@ -14,7 +14,7 @@
 {% endblock %}
 
 {% block app_content %}
-<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
+<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}', '{{ activity.status }}')"{% endif %}>
 
     {% include "activity/_header.html" %}
     {% include "activity/_status_strip.html" %}
