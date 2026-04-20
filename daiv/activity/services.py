@@ -10,11 +10,13 @@ from activity.models import Activity, TriggerType
 if TYPE_CHECKING:
     import uuid
 
+    from notifications.choices import NotifyOn
+
     from accounts.models import User
     from schedules.models import ScheduledJob
 
 
-def _resolve_notify_on(notify_on: str | None, scheduled_job: ScheduledJob | None) -> str | None:
+def _resolve_notify_on(notify_on: NotifyOn | str | None, scheduled_job: ScheduledJob | None) -> NotifyOn | str | None:
     if notify_on:
         return notify_on
     if scheduled_job is not None:
@@ -36,7 +38,7 @@ def create_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: str | None = None,
+    notify_on: NotifyOn | str | None = None,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult."""
     return Activity.objects.create(
@@ -70,7 +72,7 @@ async def acreate_activity(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: str | None = None,
+    notify_on: NotifyOn | str | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(

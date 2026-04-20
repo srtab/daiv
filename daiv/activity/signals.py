@@ -70,7 +70,7 @@ def _sync_activity_for_task(task_result_id: Any) -> None:
     try:
         activity = (
             Activity.objects
-            .select_related("task_result", "scheduled_job")
+            .select_related("task_result", "scheduled_job", "scheduled_job__user", "user")
             .filter(task_result_id=task_result_id)
             .first()
         )

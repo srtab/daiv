@@ -38,7 +38,6 @@ class TestOnActivityFinished:
         assert Notification.objects.filter(recipient=member_user, event_type="schedule.finished").count() == 1
 
     def test_api_job_successful_skipped_when_user_default_on_failure(self, member_user):
-        # Default User.notify_on_jobs = on_failure; a SUCCESSFUL api_job should NOT notify.
         activity = Activity.objects.create(
             trigger_type=TriggerType.API_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
         )
@@ -333,7 +332,7 @@ class TestJobActivityNotifications:
         assert "acme/app" in n.subject
         assert "failed" in n.subject.lower()
         assert n.context["trigger_label"]
-        assert n.context["trigger_name"] == "acme/app"
+        assert n.context["repo_id"] == "acme/app"
 
 
 @pytest.mark.django_db

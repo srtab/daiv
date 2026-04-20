@@ -25,7 +25,7 @@
         <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">{{ ctx.trigger_name }}</td>
     </tr>
     {% endif %}
-    {% if ctx.repo_id and ctx.repo_id != ctx.trigger_name %}
+    {% if ctx.repo_id %}
     <tr>
         <td style="padding: 10px 0; font-size: 13px; color: #9ca3af; border-bottom: 1px solid #f3f4f6;">{% translate "Repository" %}</td>
         <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">{{ ctx.repo_id }}</td>

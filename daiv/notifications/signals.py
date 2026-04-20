@@ -27,7 +27,7 @@ logger = logging.getLogger("daiv.notifications")
 EXCLUDED_TRIGGERS = {TriggerType.ISSUE_WEBHOOK, TriggerType.MR_WEBHOOK}
 
 
-def _status_matches(notify_on: str, status: str) -> bool:
+def _status_matches(notify_on: NotifyOn | str, status: str) -> bool:
     if notify_on == NotifyOn.NEVER:
         return False
     if notify_on == NotifyOn.ALWAYS:
@@ -39,7 +39,7 @@ def _status_matches(notify_on: str, status: str) -> bool:
     return False
 
 
-def _effective_notify_on(activity: Activity) -> str:
+def _effective_notify_on(activity: Activity) -> NotifyOn | str:
     if activity.notify_on:
         return activity.notify_on
     if activity.scheduled_job_id is not None:
@@ -67,7 +67,6 @@ def _render_payload(activity: Activity) -> tuple[str, str, dict]:
 
     if is_schedule:
         name = activity.scheduled_job.name
-        trigger_label = _("Scheduled job")
         if ok:
             subject = _("Scheduled job '%(name)s' succeeded") % {"name": name}
             body = _("Your scheduled job '%(name)s' finished successfully.") % {"name": name}
@@ -75,21 +74,19 @@ def _render_payload(activity: Activity) -> tuple[str, str, dict]:
             subject = _("Scheduled job '%(name)s' failed") % {"name": name}
             body = _("Your scheduled job '%(name)s' failed.") % {"name": name}
     else:
-        name = activity.repo_id
-        trigger_label = _("Agent run")
         if ok:
-            subject = _("Agent run on %(repo)s succeeded") % {"repo": name}
-            body = _("Your agent run on '%(repo)s' finished successfully.") % {"repo": name}
+            subject = _("Agent run on %(repo)s succeeded") % {"repo": activity.repo_id}
+            body = _("Your agent run on '%(repo)s' finished successfully.") % {"repo": activity.repo_id}
         else:
-            subject = _("Agent run on %(repo)s failed") % {"repo": name}
-            body = _("Your agent run on '%(repo)s' failed.") % {"repo": name}
+            subject = _("Agent run on %(repo)s failed") % {"repo": activity.repo_id}
+            body = _("Your agent run on '%(repo)s' failed.") % {"repo": activity.repo_id}
 
     context = {
         "status": activity.status,
         "status_label": activity.get_status_display(),
         "is_successful": ok,
-        "trigger_label": str(trigger_label),
-        "trigger_name": name,
+        "trigger_label": activity.get_trigger_type_display(),
+        "trigger_name": activity.scheduled_job.name if is_schedule else "",
         "repo_id": activity.repo_id,
         "duration_seconds": activity.duration,
     }
