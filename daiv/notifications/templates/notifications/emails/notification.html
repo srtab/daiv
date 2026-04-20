@@ -19,13 +19,13 @@
         </td>
     </tr>
     {% endif %}
-    {% if ctx.schedule_name %}
+    {% if ctx.trigger_name %}
     <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #9ca3af; border-bottom: 1px solid #f3f4f6;">{% translate "Schedule" %}</td>
-        <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">{{ ctx.schedule_name }}</td>
+        <td style="padding: 10px 0; font-size: 13px; color: #9ca3af; border-bottom: 1px solid #f3f4f6;">{{ ctx.trigger_label|default:_("Trigger") }}</td>
+        <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">{{ ctx.trigger_name }}</td>
     </tr>
     {% endif %}
-    {% if ctx.repo_id %}
+    {% if ctx.repo_id and ctx.repo_id != ctx.trigger_name %}
     <tr>
         <td style="padding: 10px 0; font-size: 13px; color: #9ca3af; border-bottom: 1px solid #f3f4f6;">{% translate "Repository" %}</td>
         <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">{{ ctx.repo_id }}</td>
