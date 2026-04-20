@@ -1,7 +1,7 @@
 {% extends "base_app.html" %}
-{% load activity_tags dashboard_tags i18n icon_tags l10n markdown_tags static %}
+{% load activity_tags static %}
 
-{% block title %}Activity Detail — DAIV{% endblock %}
+{% block title %}{% activity_title activity %} — DAIV{% endblock %}
 
 {% block alpine_plugins %}
 {% if is_in_flight %}
@@ -14,285 +14,39 @@
 {% endblock %}
 
 {% block app_content %}
-<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}')"{% endif %}>
-    <div class="animate-fade-up">
-        <h1 class="text-2xl font-bold tracking-tight">Activity Detail</h1>
-        <p class="mt-1.5 text-[15px] font-light text-gray-400">
-            {{ activity.get_trigger_type_display }} &middot; {{ activity.repo_id }}
-        </p>
-    </div>
+<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}', '{{ activity.status }}')"{% endif %}>
 
-        <!-- Context card -->
-        <div class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
-            <div class="flex flex-wrap items-center gap-3">
-                {% include "activity/_trigger_badge.html" with trigger_type=activity.trigger_type trigger_type_display=activity.get_trigger_type_display %}
+    {% include "activity/_header.html" %}
+    {% include "activity/_status_strip.html" %}
 
-                {% if is_in_flight %}
-                <span :class="statusClass()" class="status-badge" x-text="statusLabel()">
-                    {% if activity.status == "RUNNING" %}Running{% else %}Pending{% endif %}
-                </span>
-                {% else %}
-                {% include "activity/_status_badge.html" with status=activity.status %}
-                {% endif %}
-
-                {% if activity.code_changes %}
-                <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">Code changes</span>
-                {% endif %}
-
-                {% if activity.duration %}
-                <span class="text-sm text-gray-400">
-                    Duration: {{ activity.duration|duration }}
-                </span>
-                {% endif %}
-
-                {% if activity.is_retryable %}
-                <a href="{% url 'runs:agent_run_new' %}?from={{ activity.pk }}"
-                   class="btn-secondary ml-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
-                    {% icon "arrow-path" "h-4 w-4" %}
-                    Retry
-                </a>
-                {% endif %}
-            </div>
-
-            <!-- Metadata -->
-            <div class="mt-4 space-y-2 text-sm text-gray-400">
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Repository:</span>
-                    <span class="text-gray-300">{{ activity.repo_id }}</span>
-                    {% if activity.ref %}
-                    <span class="text-gray-400">&middot;</span>
-                    <span class="text-gray-300">{{ activity.ref }}</span>
-                    {% endif %}
-                </div>
-
-                {% if activity.user %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Owner:</span>
-                    {% include "accounts/_avatar.html" with user=activity.user %}
-                    <span class="text-gray-300">{{ activity.user.name|default:activity.user.email }}</span>
-                </div>
-                {% endif %}
-
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Created:</span>
-                    <span class="text-gray-300">{{ activity.created_at|date:"M j, Y H:i:s" }}</span>
-                </div>
-
-                {% if activity.started_at %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Started:</span>
-                    <span class="text-gray-300">{{ activity.started_at|date:"M j, Y H:i:s" }}</span>
-                </div>
-                {% endif %}
-
-                {% if activity.finished_at %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Finished:</span>
-                    <span class="text-gray-300">{{ activity.finished_at|date:"M j, Y H:i:s" }}</span>
-                </div>
-                {% endif %}
-
-                {% if activity.scheduled_job %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Schedule:</span>
-                    {% if is_schedule_owner_or_admin %}
-                    <a href="{% url 'schedule_update' activity.scheduled_job.pk %}"
-                       class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
-                        {{ activity.scheduled_job.name }}
-                    </a>
-                    {% else %}
-                    <span class="text-gray-300">{{ activity.scheduled_job.name }}</span>
-                    {% endif %}
-                    {% if is_subscriber %}
-                    <form method="post" action="{% url 'schedule_unsubscribe' activity.scheduled_job.pk %}" class="inline">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        <button type="submit" class="ml-2 rounded-md bg-white/[0.04] px-2 py-0.5 text-xs text-gray-400 hover:bg-white/[0.08] hover:text-white">
-                            Unsubscribe
-                        </button>
-                    </form>
-                    {% endif %}
-                </div>
-                {% endif %}
-
-                {% if activity.issue_iid %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">Issue:</span>
-                    <span class="text-gray-300">#{{ activity.issue_iid|unlocalize }}</span>
-                </div>
-                {% endif %}
-
-                {% if activity.merge_request_iid %}
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400">MR/PR:</span>
-                    {% if activity.merge_request_web_url %}
-                    <a href="{{ activity.merge_request_web_url }}" target="_blank" rel="noopener"
-                       class="text-gray-300 underline decoration-gray-600 hover:text-white hover:decoration-gray-400">
-                        !{{ activity.merge_request_iid|unlocalize }}
-                    </a>
-                    {% else %}
-                    <span class="text-gray-300">!{{ activity.merge_request_iid|unlocalize }}</span>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
-
-            {% if activity.total_tokens %}
-            <!-- Usage / Cost -->
-            <div class="mt-4 border-t border-white/[0.06] pt-4">
-                <h3 class="text-sm font-medium text-gray-400">Token Usage</h3>
-                <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                    <div>
-                        <span class="text-gray-500">Input:</span>
-                        <span class="text-gray-300">{{ activity.input_tokens|format_tokens }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500">Output:</span>
-                        <span class="text-gray-300">{{ activity.output_tokens|format_tokens }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500">Total:</span>
-                        <span class="text-gray-300">{{ activity.total_tokens|format_tokens }}</span>
-                    </div>
-                    {% if activity.cost_usd %}
-                    <div>
-                        <span class="text-gray-500">Est. Cost:</span>
-                        <span class="text-gray-300">{{ activity.cost_usd|format_cost }}</span>
-                    </div>
-                    {% endif %}
-                </div>
-
-                {% if activity.usage_by_model and activity.usage_by_model.keys|length > 1 %}
-                <details class="mt-3">
-                    <summary class="cursor-pointer text-sm text-gray-500 hover:text-gray-400">Per-model breakdown</summary>
-                    <div class="mt-2 space-y-1 text-sm">
-                        {% for model_name, model_usage in activity.usage_by_model.items %}
-                        <div class="flex flex-wrap gap-x-4 text-gray-400">
-                            <span class="font-mono text-gray-300">{{ model_name }}</span>
-                            <span>{{ model_usage.input_tokens|format_tokens }} in</span>
-                            <span>{{ model_usage.output_tokens|format_tokens }} out</span>
-                            {% if model_usage.cost_usd %}
-                            <span>{{ model_usage.cost_usd|format_cost }}</span>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                </details>
-                {% endif %}
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Prompt -->
-        {% if activity.prompt %}
-        {# Raw markdown embedded as JSON for the copy-to-clipboard button below. #}
-        {{ activity.prompt|json_script:"activity-prompt-raw" }}
-        {% if activity.prompt|length > 500 %}
-        <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
-             style="animation-delay: 150ms"
-             x-data="{ expanded: false }">
-            <div class="flex items-center justify-between gap-3">
-                <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
-                {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy markdown" %}
-            </div>
-            <div class="relative mt-3">
-                <div class="prose-dark overflow-hidden rounded-xl bg-black/30 p-4"
-                     :class="{ 'max-h-64': !expanded }">
-                    {{ activity.prompt|render_markdown }}
-                </div>
-                <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-black/60 to-transparent"
-                     x-show="!expanded"></div>
-            </div>
-            <button type="button"
-                    @click="expanded = !expanded"
-                    class="mt-3 text-sm text-gray-400 transition-colors hover:text-white"
-                    x-text="expanded ? 'Show less' : 'Show more'">
-                Show more
-            </button>
-        </div>
-        {% else %}
-        <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 150ms">
-            <div class="flex items-center justify-between gap-3">
-                <h2 class="text-[15px] font-semibold text-gray-300">Prompt</h2>
-                {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy markdown" %}
-            </div>
-            <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
-                {{ activity.prompt|render_markdown }}
-            </div>
-        </div>
-        {% endif %}
-        {% endif %}
-
-        <!-- Result section -->
-        <div class="animate-fade-up mt-6" style="animation-delay: 200ms">
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
+        <div class="min-w-0">
             {% if activity.status == "SUCCESSFUL" %}
-            {% if activity.response_text %}{{ activity.response_text|json_script:"activity-result-raw" }}{% endif %}
-            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <div class="flex items-center justify-between gap-3">
-                    <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
-                    {% if activity.response_text %}
-                    <div class="flex items-center gap-2">
-                        {% include "activity/_copy_markdown_button.html" with source_id="activity-result-raw" label="Copy" %}
-                        <a href="{% url 'activity_download_md' activity.pk %}"
-                           class="btn-secondary gap-2 rounded-lg px-3 py-1.5 text-sm">
-                            {% icon "arrow-down-tray" "h-4 w-4" %}
-                            Markdown
-                        </a>
-                    </div>
-                    {% endif %}
-                </div>
-                {% if activity.response_text %}
-                <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
-                    {{ activity.response_text|render_markdown }}
-                </div>
+                {% if activity.task_result %}
+                    {% include "activity/_hero_success.html" %}
                 {% else %}
-                <p class="mt-3 text-sm text-gray-400">No result data available.</p>
+                    {% include "activity/_hero_pruned.html" %}
                 {% endif %}
-            </div>
-
             {% elif activity.status == "FAILED" %}
-            <div class="rounded-2xl border border-red-900/30 bg-red-950/20 p-6">
-                <h2 class="text-[15px] font-semibold text-red-300">Error</h2>
-                {% if activity.task_result and activity.task_result.exception_class_path %}
-                <p class="mt-3 text-[15px] font-medium text-red-300">{{ activity.task_result.exception_class_path }}</p>
-                    {% if activity.task_result.traceback %}
-                    <div class="mt-4 rounded-xl bg-black/30 p-4">
-                        <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.task_result.traceback }}</pre>
-                    </div>
-                    {% endif %}
-                {% elif activity.error_message %}
-                <div class="mt-3 rounded-xl bg-black/30 p-4">
-                    <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.error_message }}</pre>
-                </div>
-                {% else %}
-                <p class="mt-3 text-sm text-red-400/60">No error details available.</p>
-                {% endif %}
-            </div>
+                {% include "activity/_hero_failed.html" %}
+            {% else %}
+                {% include "activity/_hero_running.html" %}
+            {% endif %}
 
-            {% elif activity.status == "RUNNING" or activity.status == "READY" %}
-            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                {% if activity.status == "RUNNING" %}
-                <span class="status-badge status-badge-running">Running</span>
-                {% else %}
-                <span class="status-badge status-badge-pending">Pending</span>
-                {% endif %}
-                <p class="mt-4 text-[15px] text-gray-400">This activity is still in progress. The page will update automatically when it completes.</p>
-            </div>
-
-            {% elif not activity.task_result %}
-            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <span class="status-badge status-badge-pending">Result pruned</span>
-                <p class="mt-4 text-[15px] text-gray-400">
-                    The task result for this activity is no longer available. Completed results are removed after the retention period.
-                </p>
-                {% if activity.result_summary %}
-                <div class="prose-dark mt-4 rounded-xl bg-black/30 p-4">
-                    {{ activity.result_summary|render_markdown }}
-                </div>
-                {% endif %}
-            </div>
+            {% if activity.status == "RUNNING" or activity.status == "READY" %}
+                {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
+            {% elif activity.status == "SUCCESSFUL" and not activity.task_result and not activity.result_summary %}
+                {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
+            {% else %}
+                {% include "activity/_prompt_disclosure.html" %}
             {% endif %}
         </div>
-</div>
 
+        <aside class="flex flex-col gap-4">
+            {% include "activity/_rail_timing.html" %}
+            {% include "activity/_rail_context.html" %}
+            {% include "activity/_rail_usage.html" %}
+        </aside>
+    </div>
+</div>
 {% endblock %}

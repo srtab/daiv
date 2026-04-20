@@ -1,0 +1,84 @@
+{% load l10n %}
+<section class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+    <h5 class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Context</h5>
+    <dl class="mt-3 space-y-1.5 text-sm">
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Repository</dt>
+            <dd class="text-right text-gray-300">{{ activity.repo_id }}</dd>
+        </div>
+
+        {% if activity.ref %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Branch</dt>
+            <dd class="text-right text-gray-300">{{ activity.ref }}</dd>
+        </div>
+        {% endif %}
+
+        {% if activity.merge_request_iid %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">MR</dt>
+            <dd class="text-right">
+                {% if activity.merge_request_web_url %}
+                <a href="{{ activity.merge_request_web_url }}" target="_blank" rel="noopener"
+                   class="text-blue-300 underline decoration-blue-500/40 hover:decoration-blue-400">
+                    !{{ activity.merge_request_iid|unlocalize }}
+                </a>
+                {% else %}
+                <span class="text-gray-300">!{{ activity.merge_request_iid|unlocalize }}</span>
+                {% endif %}
+            </dd>
+        </div>
+        {% endif %}
+
+        {% if activity.issue_iid %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Issue</dt>
+            <dd class="text-right text-gray-300">#{{ activity.issue_iid|unlocalize }}</dd>
+        </div>
+        {% endif %}
+
+        {% if activity.scheduled_job %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Schedule</dt>
+            <dd class="text-right">
+                {% if is_schedule_owner_or_admin %}
+                <a href="{% url 'schedule_update' activity.scheduled_job.pk %}"
+                   class="text-blue-300 underline decoration-blue-500/40 hover:decoration-blue-400">
+                    {{ activity.scheduled_job.name }}
+                </a>
+                {% else %}
+                <span class="text-gray-300">{{ activity.scheduled_job.name }}</span>
+                {% endif %}
+            </dd>
+        </div>
+        {% if is_subscriber %}
+        <div class="flex justify-end">
+            <form method="post" action="{% url 'schedule_unsubscribe' activity.scheduled_job.pk %}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" class="rounded-md bg-white/[0.04] px-2 py-0.5 text-xs text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                    Unsubscribe
+                </button>
+            </form>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% if user.is_admin and activity.user and activity.user != user %}
+        <div class="flex items-center justify-between gap-2">
+            <dt class="text-gray-500">Owner</dt>
+            <dd class="flex items-center justify-end gap-2 text-gray-300">
+                {% include "accounts/_avatar.html" with user=activity.user label="Owner" %}
+                <span>{{ activity.user }}</span>
+            </dd>
+        </div>
+        {% endif %}
+
+        {% if activity.use_max %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Model</dt>
+            <dd class="text-right text-gray-300">Max</dd>
+        </div>
+        {% endif %}
+    </dl>
+</section>
