@@ -68,3 +68,16 @@ def format_tokens(value):
     if value >= 1_000:
         return f"{value / 1_000:.1f}k"
     return str(value)
+
+
+@register.filter
+def approx_prompt_tokens(prompt) -> int:
+    """Rough token count using the 4-chars-per-token heuristic.
+
+    Used for the collapsed prompt-disclosure hint. Avoids adding a tokenizer
+    dependency for a display-only label — the template renders the value
+    with an explicit `≈` prefix to mark it as an approximation.
+    """
+    if not prompt:
+        return 0
+    return len(prompt) // 4

@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from activity.models import Activity, TriggerType
-from activity.templatetags.activity_tags import activity_title, format_cost, format_tokens
+from activity.templatetags.activity_tags import activity_title, approx_prompt_tokens, format_cost, format_tokens
 
 
 class TestActivityTitle:
@@ -86,3 +86,24 @@ class TestFormatTokens:
     @pytest.mark.parametrize("value", [999, 0, 1])
     def test_below_thousand(self, value):
         assert format_tokens(value) == str(value)
+
+
+class TestApproxPromptTokens:
+    def test_empty_string_returns_zero(self):
+        assert approx_prompt_tokens("") == 0
+
+    def test_none_returns_zero(self):
+        assert approx_prompt_tokens(None) == 0
+
+    def test_four_chars_per_token_heuristic(self):
+        # Eight characters → two "tokens" under the len//4 heuristic.
+        assert approx_prompt_tokens("abcdefgh") == 2
+
+    def test_short_string_floors_to_zero(self):
+        # Three characters → 0 tokens; the caller is expected to hide the hint
+        # when the value is falsy, so 0 is the right floor.
+        assert approx_prompt_tokens("abc") == 0
+
+    def test_longer_prompt(self):
+        prompt = "x" * 1000
+        assert approx_prompt_tokens(prompt) == 250
