@@ -13,7 +13,7 @@ class CoreSettings(BaseSettings):
         ),
     )
 
-    EXTERNAL_URL: HttpUrl = Field(default=HttpUrl("https://app:8000"), description="URL of the DAIV webapp")
+    EXTERNAL_URL: HttpUrl = Field(default=HttpUrl("https://127.0.0.1:8000"), description="URL of the DAIV webapp")
 
     SANDBOX_URL: HttpUrl = Field(default=HttpUrl("http://sandbox:8000"), description="URL of the sandbox service")
     SANDBOX_COMMAND_POLICY_DISALLOW: tuple[str, ...] = Field(

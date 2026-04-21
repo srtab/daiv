@@ -10,6 +10,7 @@ from notifications.models import UserChannelBinding
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("rocketchat_channel_enabled")
 class TestRocketChatConnect:
     URL = "/dashboard/notifications/channels/rocketchat/"
 

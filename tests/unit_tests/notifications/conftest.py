@@ -6,6 +6,22 @@ from notifications.models import Notification, NotificationDelivery, UserChannel
 
 
 @pytest.fixture
+def rocketchat_channel_enabled(db):
+    # DB rows roll back with ``django_db``, but the ``SiteConfiguration`` cache is
+    # process-local, so we evict it on teardown to avoid leaking ``enabled=True``
+    # into later tests that expect the default (disabled) state.
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.objects.get_instance()
+    config.rocketchat_enabled = True
+    config.save()
+    try:
+        yield config
+    finally:
+        SiteConfiguration._invalidate_cache()
+
+
+@pytest.fixture
 def email_binding(member_user):
     """Ensure the member_user has a verified email channel binding."""
     binding, _ = UserChannelBinding.objects.get_or_create(

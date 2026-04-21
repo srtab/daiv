@@ -22,6 +22,10 @@ class NotificationChannel(ABC):
     channel_type: ClassVar[ChannelType]
     display_name: ClassVar[str]
 
+    @classmethod
+    def is_enabled(cls) -> bool:
+        return True
+
     def resolve_address(self, user: User) -> str | None:
         """Return the verified address to send to, or None if this user has no usable binding."""
         from notifications.models import UserChannelBinding

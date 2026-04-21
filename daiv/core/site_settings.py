@@ -72,6 +72,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "auth_gitlab_url": "https://gitlab.com",
         "auth_gitlab_server_url": None,
         # Rocket Chat
+        "rocketchat_enabled": False,
         "rocketchat_url": None,
         "rocketchat_user_id": None,
     }

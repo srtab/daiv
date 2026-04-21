@@ -309,6 +309,9 @@ class SiteConfiguration(models.Model):
     )
 
     # -- Rocket Chat --
+    rocketchat_enabled = models.BooleanField(
+        _("enable Rocket Chat"), null=True, help_text=_("Offer Rocket Chat as a notification channel for users.")
+    )
     rocketchat_url = models.CharField(
         _("Rocket Chat URL"),
         max_length=255,
@@ -396,7 +399,13 @@ class SiteConfiguration(models.Model):
         ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
-        FieldGroup(key="rocketchat", title=_("Rocket Chat"), match=("rocketchat_*",), icon="rocketchat"),
+        FieldGroup(
+            key="rocketchat",
+            title=_("Rocket Chat"),
+            match=("rocketchat_*",),
+            icon="rocketchat",
+            toggle_field="rocketchat_enabled",
+        ),
         FieldGroup(
             key="authentication",
             title=_("Authentication"),

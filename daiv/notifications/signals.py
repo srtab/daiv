@@ -14,7 +14,7 @@ from django.utils.translation import gettext as _
 from activity.models import ActivityStatus, TriggerType
 from activity.signals import activity_finished
 
-from notifications.channels.registry import all_channels
+from notifications.channels.registry import enabled_channels
 from notifications.choices import ChannelType, NotifyOn
 from notifications.models import UserChannelBinding
 from notifications.services import notify
@@ -97,7 +97,7 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
     # The Notification row doubles as the in-app bell entry and is always written for
     # terminal activities with a recipient. ``notify_on`` only gates external delivery
     # channels (email, etc.) — empty channels list means bell-only, no external dispatch.
-    channels = [cls.channel_type for cls in all_channels()] if _status_matches(effective, activity.status) else []
+    channels = [cls.channel_type for cls in enabled_channels()] if _status_matches(effective, activity.status) else []
 
     subject, body, context = _render_payload(activity)
     link_url = reverse("activity_detail", args=[activity.pk])

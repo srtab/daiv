@@ -20,6 +20,7 @@ class TestUserChannelsView:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("rocketchat_channel_enabled")
 class TestUserChannelsRocketChatRow:
     URL = "/accounts/channels/"
 
@@ -42,3 +43,16 @@ class TestUserChannelsRocketChatRow:
         content = response.content.decode()
         assert "Disconnect" in content
         assert "alice" in content
+
+
+@pytest.mark.django_db
+class TestUserChannelsRocketChatDisabled:
+    URL = "/accounts/channels/"
+
+    def test_row_hidden_when_rocketchat_disabled(self, member_client):
+        response = member_client.get(self.URL)
+        assert "Rocket Chat" not in response.content.decode()
+
+    def test_connect_endpoint_returns_404_when_disabled(self, member_client):
+        response = member_client.post("/dashboard/notifications/channels/rocketchat/", {"username": "alice"})
+        assert response.status_code == 404

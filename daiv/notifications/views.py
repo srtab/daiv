@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -12,8 +12,8 @@ from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
-from notifications.channels.registry import all_channels
-from notifications.channels.rocketchat import verify_username
+from notifications.channels.registry import enabled_channels
+from notifications.channels.rocketchat import RocketChatChannel, verify_username
 from notifications.choices import ChannelType
 from notifications.models import Notification, UserChannelBinding
 
@@ -29,7 +29,7 @@ class UserChannelsView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         bindings_by_type = {b.channel_type: b for b in UserChannelBinding.objects.filter(user=self.request.user)}
         rows = []
-        for cls in all_channels():
+        for cls in enabled_channels():
             connect = _CHANNEL_CONNECT_URLS.get(cls.channel_type)
             row = {
                 "channel_type": cls.channel_type,
@@ -98,6 +98,8 @@ class MarkAllReadView(LoginRequiredMixin, View):
 @method_decorator(require_POST, name="dispatch")
 class UpdateRocketChatBindingView(LoginRequiredMixin, View):
     def post(self, request):
+        if not RocketChatChannel.is_enabled():
+            raise Http404
         username = (request.POST.get("username") or "").strip().lstrip("@")
         redirect_url = reverse("user_channels")
         if not username:

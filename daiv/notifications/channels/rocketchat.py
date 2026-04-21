@@ -164,7 +164,14 @@ class RocketChatChannel(NotificationChannel):
     channel_type = ChannelType.ROCKETCHAT
     display_name = _("Rocket Chat")
 
+    @classmethod
+    def is_enabled(cls) -> bool:
+        return bool(site_settings.rocketchat_enabled)
+
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
+        if not self.is_enabled():
+            raise UnrecoverableDeliveryError("Rocket Chat is disabled")
+
         client = _RCClient.from_site_settings()
         if client is None:
             raise UnrecoverableDeliveryError("Rocket Chat not configured")

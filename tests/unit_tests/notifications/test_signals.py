@@ -423,6 +423,7 @@ class TestUserBindingSeeder:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("rocketchat_channel_enabled")
 class TestRocketChatFanOut:
     """Verify RocketChatChannel is picked up by ``on_activity_finished`` when
     the user has a verified Rocket Chat binding."""
