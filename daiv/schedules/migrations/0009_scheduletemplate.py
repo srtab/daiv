@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                     "modified",
                     django_extensions.db.fields.ModificationDateTimeField(auto_now=True, verbose_name="modified"),
                 ),
-                ("name", models.CharField(max_length=200, verbose_name="name")),
+                ("name", models.CharField(max_length=200, unique=True, verbose_name="name")),
                 ("description", models.TextField(blank=True, default="", verbose_name="description")),
                 ("prompt", models.TextField(help_text="What the agent should do.", verbose_name="prompt")),
                 (

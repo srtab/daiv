@@ -130,3 +130,82 @@ class TestScheduleCreatePrefill:
         )
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert "Start from template" not in response.content.decode()
+
+    def test_custom_frequency_template_prefills_cron(self, member_client, admin_user):
+        tpl = ScheduleTemplate.objects.create(
+            name="Every six hours",
+            prompt="Rollup.",
+            repo_id="a/b",
+            frequency=Frequency.CUSTOM,
+            cron_expression="0 */6 * * *",
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+        response = member_client.get(reverse("schedule_create") + f"?template={tpl.pk}")
+        body = response.content.decode()
+        assert "0 */6 * * *" in body
+
+    def test_post_does_not_apply_template_prefill(self, member_client, template):
+        response = member_client.post(
+            reverse("schedule_create") + f"?template={template.pk}",
+            data={
+                "name": "User-chosen name",
+                "prompt": "User-chosen prompt",
+                "repo_id": "user/repo",
+                "ref": "",
+                "frequency": Frequency.DAILY,
+                "cron_expression": "",
+                "time": "10:00",
+                "notify_on": NotifyOn.NEVER,
+            },
+        )
+        assert response.status_code == 302
+        job = ScheduledJob.objects.get(name="User-chosen name")
+        assert job.prompt == "User-chosen prompt"
+        assert job.repo_id == "user/repo"
+
+    def test_malicious_template_param_does_not_leak_into_picker(self, member_client, template):
+        response = member_client.get(reverse("schedule_create") + "?template=';alert(1)//")
+        body = response.content.decode()
+        assert "alert(1)" not in body
+
+
+@pytest.mark.django_db
+class TestScheduleTemplateFormConditionalClean:
+    def test_non_custom_frequency_clears_cron_expression(self, admin_client):
+        response = admin_client.post(
+            reverse("schedule_template_create"),
+            data={
+                "name": "Switched",
+                "description": "",
+                "prompt": "p",
+                "repo_id": "",
+                "ref": "",
+                "frequency": Frequency.DAILY,
+                "cron_expression": "0 */6 * * *",
+                "time": "09:00",
+                "notify_on": NotifyOn.NEVER,
+            },
+        )
+        assert response.status_code == 302
+        tpl = ScheduleTemplate.objects.get(name="Switched")
+        assert tpl.cron_expression == ""
+
+    def test_hourly_frequency_clears_time(self, admin_client):
+        response = admin_client.post(
+            reverse("schedule_template_create"),
+            data={
+                "name": "Hourly tpl",
+                "description": "",
+                "prompt": "p",
+                "repo_id": "",
+                "ref": "",
+                "frequency": Frequency.HOURLY,
+                "cron_expression": "",
+                "time": "09:00",
+                "notify_on": NotifyOn.NEVER,
+            },
+        )
+        assert response.status_code == 302
+        tpl = ScheduleTemplate.objects.get(name="Hourly tpl")
+        assert tpl.time is None

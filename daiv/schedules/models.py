@@ -156,9 +156,25 @@ class ScheduledJob(TimeStampedModel):
 
 
 class ScheduleTemplate(TimeStampedModel):
-    """An admin-curated blueprint users can start a scheduled job from."""
+    """An admin-curated blueprint users can start a scheduled job from.
 
-    name = models.CharField(_("name"), max_length=200)
+    Templates are decoupled from schedules: values are copied at create time,
+    so editing or deleting a template never affects existing schedules.
+    """
+
+    SCHEDULE_FIELDS = (
+        "name",
+        "prompt",
+        "repo_id",
+        "ref",
+        "frequency",
+        "cron_expression",
+        "time",
+        "use_max",
+        "notify_on",
+    )
+
+    name = models.CharField(_("name"), max_length=200, unique=True)
     description = models.TextField(_("description"), blank=True, default="")
     prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
     repo_id = models.CharField(
@@ -211,3 +227,6 @@ class ScheduleTemplate(TimeStampedModel):
                 })
         if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
             raise ValidationError({"time": _("Time is required for this frequency.")})
+
+    def to_schedule_kwargs(self) -> dict:
+        return {f: getattr(self, f) for f in self.SCHEDULE_FIELDS}

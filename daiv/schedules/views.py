@@ -57,18 +57,6 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     success_message = "Schedule '%(name)s' created."
     breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "New schedule", "url": None}]
 
-    TEMPLATE_FIELDS = (
-        "name",
-        "prompt",
-        "repo_id",
-        "ref",
-        "frequency",
-        "cron_expression",
-        "time",
-        "use_max",
-        "notify_on",
-    )
-
     def _get_template(self) -> ScheduleTemplate | None:
         pk = self.request.GET.get("template")
         if not pk:
@@ -88,15 +76,15 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         initial = super().get_initial()
         tpl = self._get_template()
         if tpl is not None:
-            for field in self.TEMPLATE_FIELDS:
-                initial[field] = getattr(tpl, field)
+            initial.update(tpl.to_schedule_kwargs())
         return initial
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
         context["schedule_templates"] = list(ScheduleTemplate.objects.all().values("id", "name", "description"))
-        context["selected_template_id"] = self.request.GET.get("template", "")
+        tpl = self._get_template()
+        context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         return context
 
     def form_valid(self, form):
