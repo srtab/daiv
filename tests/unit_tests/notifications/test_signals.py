@@ -100,7 +100,6 @@ class TestOnActivityFinished:
         )
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.count() == 1
-        # Gate passes → the Notification carries one delivery per registered channel (email today).
         assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
 
     def test_on_success_writes_bell_on_failure_without_email(self, member_user, schedule):
