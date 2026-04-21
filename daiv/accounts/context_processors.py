@@ -20,6 +20,12 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "schedule_toggle",
         "schedule_run_now",
     },
+    "schedule_templates": {
+        "schedule_template_list",
+        "schedule_template_create",
+        "schedule_template_update",
+        "schedule_template_delete",
+    },
     "channels": {"user_channels"},
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
     "users": {"user_list", "user_create", "user_update", "user_delete"},

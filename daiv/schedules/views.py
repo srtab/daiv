@@ -17,9 +17,9 @@ from activity.models import TriggerType
 from activity.services import create_activity
 from jobs.tasks import run_job_task
 
-from accounts.mixins import BreadcrumbMixin
-from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm
-from schedules.models import ScheduledJob
+from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
+from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
+from schedules.models import ScheduledJob, ScheduleTemplate
 
 logger = logging.getLogger("daiv.schedules")
 
@@ -195,5 +195,63 @@ class ScheduleDeleteView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         return [
             {"label": "Schedules", "url": reverse("schedule_list")},
             {"label": f'"{self.object.name}"', "url": reverse("schedule_update", args=[self.object.pk])},
+            {"label": "Delete", "url": None},
+        ]
+
+
+class ScheduleTemplateListView(BreadcrumbMixin, AdminRequiredMixin, ListView):
+    model = ScheduleTemplate
+    template_name = "schedules/template_list.html"
+    context_object_name = "templates"
+    paginate_by = 25
+    breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "Templates", "url": None}]
+
+
+class ScheduleTemplateCreateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, CreateView):
+    model = ScheduleTemplate
+    form_class = ScheduleTemplateForm
+    template_name = "schedules/template_form.html"
+    success_url = reverse_lazy("schedule_template_list")
+    success_message = "Template '%(name)s' created."
+    breadcrumbs = [
+        {"label": "Schedules", "url": reverse_lazy("schedule_list")},
+        {"label": "Templates", "url": reverse_lazy("schedule_template_list")},
+        {"label": "New template", "url": None},
+    ]
+
+    def form_valid(self, form):
+        form.instance.created_by = self.request.user
+        return super().form_valid(form)
+
+
+class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, UpdateView):
+    model = ScheduleTemplate
+    form_class = ScheduleTemplateForm
+    template_name = "schedules/template_form.html"
+    success_url = reverse_lazy("schedule_template_list")
+    success_message = "Template '%(name)s' updated."
+
+    def get_breadcrumbs(self):
+        return [
+            {"label": "Schedules", "url": reverse("schedule_list")},
+            {"label": "Templates", "url": reverse("schedule_template_list")},
+            {"label": f'"{self.object.name}"', "url": None},
+        ]
+
+
+class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, DeleteView):
+    model = ScheduleTemplate
+    template_name = "schedules/template_confirm_delete.html"
+    success_url = reverse_lazy("schedule_template_list")
+    success_message = "Template deleted."
+
+    def get_success_message(self, cleaned_data: dict) -> str:
+        return f"Template '{self.object.name}' deleted."
+
+    def get_breadcrumbs(self):
+        return [
+            {"label": "Schedules", "url": reverse("schedule_list")},
+            {"label": "Templates", "url": reverse("schedule_template_list")},
+            {"label": f'"{self.object.name}"', "url": reverse("schedule_template_update", args=[self.object.pk])},
             {"label": "Delete", "url": None},
         ]
