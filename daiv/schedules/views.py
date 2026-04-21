@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -21,6 +22,9 @@ from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 logger = logging.getLogger("daiv.schedules")
 
 
@@ -37,6 +41,28 @@ def _subscriber_initial_json(schedule) -> str:
         return "[]"
     rows = [{"id": u.pk, "username": u.username, "name": u.name, "email": u.email} for u in schedule.subscribers.all()]
     return json.dumps(rows)
+
+
+def _template_picker_payload(templates: Iterable[ScheduleTemplate]) -> list[dict]:
+    """Serialize templates into the JSON shape the gallery drawer consumes.
+
+    Deliberately excludes ``prompt`` — the gallery shows the description only;
+    the prompt flows through the server-side ``?template=<id>`` prefill path.
+    """
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "repo_id": t.repo_id,
+            "ref": t.ref,
+            "frequency_display": t.get_frequency_display(),
+            "frequency_summary": t.frequency_summary,
+            "notify_on_display": t.get_notify_on_display(),
+            "use_max": t.use_max,
+        }
+        for t in templates
+    ]
 
 
 class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):

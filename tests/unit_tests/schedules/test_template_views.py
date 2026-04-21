@@ -6,6 +6,7 @@ import pytest
 from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
+from schedules.views import _template_picker_payload
 
 
 @pytest.fixture
@@ -209,3 +210,58 @@ class TestScheduleTemplateFormConditionalClean:
         assert response.status_code == 302
         tpl = ScheduleTemplate.objects.get(name="Hourly tpl")
         assert tpl.time is None
+
+
+@pytest.mark.django_db
+class TestTemplatePickerPayload:
+    """`_template_picker_payload` returns the exact dict shape the gallery consumes."""
+
+    def _make_tpl(self, **kwargs):
+        defaults = {
+            "name": "Nightly scan",
+            "description": "Audit the codebase.",
+            "prompt": "Scan for issues.",
+            "repo_id": "owner/repo",
+            "ref": "main",
+            "frequency": Frequency.DAILY,
+            "time": time(2, 0),
+            "notify_on": NotifyOn.ALWAYS,
+            "use_max": True,
+        }
+        defaults.update(kwargs)
+        return ScheduleTemplate.objects.create(**defaults)
+
+    def test_payload_keys(self):
+        tpl = self._make_tpl()
+        [row] = _template_picker_payload([tpl])
+        assert set(row.keys()) == {
+            "id",
+            "name",
+            "description",
+            "repo_id",
+            "ref",
+            "frequency_display",
+            "frequency_summary",
+            "notify_on_display",
+            "use_max",
+        }
+
+    def test_payload_has_no_prompt(self):
+        tpl = self._make_tpl()
+        [row] = _template_picker_payload([tpl])
+        assert "prompt" not in row
+
+    def test_payload_values(self):
+        tpl = self._make_tpl(name="Weekly audit", repo_id="", ref="", use_max=False)
+        [row] = _template_picker_payload([tpl])
+        assert row["id"] == tpl.id
+        assert row["name"] == "Weekly audit"
+        assert row["repo_id"] == ""
+        assert row["ref"] == ""
+        assert row["use_max"] is False
+        assert row["frequency_display"] == "Daily"
+        assert row["frequency_summary"] == "Daily at 02:00"
+        assert row["notify_on_display"] == "Always"
+
+    def test_empty_queryset(self):
+        assert _template_picker_payload([]) == []
