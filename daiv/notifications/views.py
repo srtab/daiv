@@ -7,14 +7,14 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.utils.translation import gettext as _
 from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
 from notifications.channels.registry import enabled_channels
-from notifications.channels.rocketchat import RocketChatChannel, verify_username
+from notifications.channels.rocketchat import RocketChatChannel
 from notifications.choices import ChannelType
+from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
 
 _CHANNEL_CONNECT_URLS = {
@@ -100,21 +100,18 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
     def post(self, request):
         if not RocketChatChannel.is_enabled():
             raise Http404
-        username = (request.POST.get("username") or "").strip().lstrip("@")
         redirect_url = reverse("user_channels")
-        if not username:
-            messages.error(request, _("Username is required."))
-            return HttpResponseRedirect(redirect_url)
-
-        rc_user_id, error = verify_username(username)
-        if error is not None or rc_user_id is None:
-            messages.error(request, error or _("Rocket Chat user not found."))
+        form = RocketChatBindingForm(request.POST)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                for msg in errors:
+                    messages.error(request, msg)
             return HttpResponseRedirect(redirect_url)
 
         UserChannelBinding.objects.update_or_create(
             user=request.user,
             channel_type=ChannelType.ROCKETCHAT,
-            defaults={"address": username, "is_verified": True, "verified_at": timezone.now()},
+            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
         )
         return HttpResponseRedirect(redirect_url)
 
