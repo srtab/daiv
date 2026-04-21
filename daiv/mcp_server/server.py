@@ -11,6 +11,7 @@ from jobs.tasks import run_job_task
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import Field
 
 from automation.agent.results import parse_agent_result
@@ -80,6 +81,14 @@ async def submit_job(
     use_max: Annotated[
         bool, Field(description="Use the max model configuration (more capable model with thinking set to high).")
     ] = False,
+    notify_on: Annotated[
+        NotifyOn | None,
+        Field(
+            description=(
+                "When to receive notifications for this job. When omitted, falls back to the user's default preference."
+            )
+        ),
+    ] = None,
     wait: Annotated[
         bool,
         Field(
@@ -113,6 +122,7 @@ async def submit_job(
             prompt=prompt,
             use_max=use_max,
             user=mcp_user,
+            notify_on=notify_on,
         )
     except Exception:
         logger.exception("Failed to create activity for MCP job %s", job_id)

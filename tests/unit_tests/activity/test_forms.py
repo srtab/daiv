@@ -2,6 +2,7 @@ import uuid
 from unittest import mock
 
 import pytest
+from activity.forms import AgentRunCreateForm
 from activity.models import Activity, TriggerType
 from activity.services import submit_ui_run
 from django_tasks_db.models import DBTaskResult, get_date_max
@@ -52,3 +53,21 @@ def test_submit_ui_run_passes_none_for_empty_ref(member_user):
         submit_ui_run(user=member_user, prompt="x", repo_id="acme/repo", ref="")
 
     assert m_task.aenqueue.await_args.kwargs["ref"] is None
+
+
+def test_agent_run_form_requires_notify_on():
+    """notify_on is required on the UI form — the view pre-fills it from the user's
+    preference, so an empty submission is a client-side bug, not "defer"."""
+    form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False})
+    assert not form.is_valid()
+    assert "notify_on" in form.errors
+
+
+def test_agent_run_form_accepts_valid_notify_on():
+    from notifications.choices import NotifyOn
+
+    form = AgentRunCreateForm(
+        data={"prompt": "p", "repo_id": "x/y", "ref": "", "use_max": False, "notify_on": NotifyOn.ON_FAILURE}
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["notify_on"] == NotifyOn.ON_FAILURE

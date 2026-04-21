@@ -2,6 +2,7 @@
 {% load activity_tags static %}
 
 {% block title %}{% activity_title activity %} — DAIV{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block alpine_plugins %}
 {% if is_in_flight %}

@@ -2,6 +2,7 @@
 {% load i18n static %}
 
 {% block title %}{% if source_activity %}Retry run{% else %}Start a run{% endif %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
@@ -44,6 +45,8 @@
     {% csrf_token %}
 
     {% include "activity/_agent_run_fields.html" with form=form %}
+
+    {% include "notifications/_notify_on_radio.html" with form=form %}
 
     <div class="mt-8 flex items-center gap-3">
         <button type="submit" class="btn-primary">

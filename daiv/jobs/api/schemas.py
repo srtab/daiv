@@ -2,6 +2,7 @@ from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from typing import Literal
 
 from ninja import Field, Schema
+from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
 
 
 class JobSubmitRequest(Schema):
@@ -9,6 +10,7 @@ class JobSubmitRequest(Schema):
     ref: str | None = None
     prompt: str = Field(min_length=1)
     use_max: bool = False
+    notify_on: NotifyOn | None = None
 
 
 class JobSubmitResponse(Schema):

@@ -56,7 +56,13 @@ def test_get_retry_prefills_fields(member_client, member_user):
     )
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 200
-    assert resp.context["form"].initial == {"prompt": "P", "repo_id": "a/b", "ref": "develop", "use_max": True}
+    assert resp.context["form"].initial == {
+        "notify_on": member_user.notify_on_jobs,
+        "prompt": "P",
+        "repo_id": "a/b",
+        "ref": "develop",
+        "use_max": True,
+    }
     assert resp.context["source_activity"].pk == source.pk
 
 
@@ -95,7 +101,8 @@ def test_post_valid_submits_and_redirects(member_client):
     with mock.patch("activity.services.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
         resp = member_client.post(
-            reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo", "ref": "", "use_max": "on"}
+            reverse("runs:agent_run_new"),
+            data={"prompt": "go", "repo_id": "acme/repo", "ref": "", "use_max": "on", "notify_on": "never"},
         )
     assert resp.status_code == 302
     created = Activity.objects.get(task_result_id=task_id)
@@ -117,7 +124,9 @@ def test_post_submit_failure_rerenders_with_error(member_client, monkeypatch, ca
 
     monkeypatch.setattr("activity.views.submit_ui_run", _boom)
     with caplog.at_level("ERROR", logger="daiv.activity"):
-        resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
+        resp = member_client.post(
+            reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo", "notify_on": "never"}
+        )
     assert resp.status_code == 200
     assert "Failed to submit" in resp.content.decode()
 
@@ -135,6 +144,8 @@ def test_post_django_control_flow_exceptions_propagate(member_client, monkeypatc
         raise exc("boom")
 
     monkeypatch.setattr("activity.views.submit_ui_run", _boom)
-    resp = member_client.post(reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo"})
+    resp = member_client.post(
+        reverse("runs:agent_run_new"), data={"prompt": "go", "repo_id": "acme/repo", "notify_on": "never"}
+    )
     # Django middleware renders these as 404/403/400 — not swallowed as "submit failed".
     assert resp.status_code in {400, 403, 404}

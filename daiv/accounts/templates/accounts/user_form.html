@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block title %}{% if object %}Edit User{% else %}Create User{% endif %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}

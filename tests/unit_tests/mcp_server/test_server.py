@@ -59,6 +59,40 @@ async def test_submit_job_forwards_use_max_to_activity():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_notify_on_to_activity():
+    """MCP submit tool threads ``notify_on`` into ``acreate_activity``."""
+    from notifications.choices import NotifyOn
+
+    mock_result = MagicMock()
+    mock_result.id = str(uuid.uuid4())
+
+    with (
+        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
+    ):
+        mock_task.aenqueue = AsyncMock(return_value=mock_result)
+        await submit_job(repo_id="group/project", prompt="p", notify_on=NotifyOn.ALWAYS)
+
+    assert mock_create.await_args.kwargs["notify_on"] == NotifyOn.ALWAYS
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_notify_on_defaults_to_none():
+    """Omitting ``notify_on`` forwards ``None`` to the activity."""
+    mock_result = MagicMock()
+    mock_result.id = str(uuid.uuid4())
+
+    with (
+        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
+    ):
+        mock_task.aenqueue = AsyncMock(return_value=mock_result)
+        await submit_job(repo_id="group/project", prompt="p")
+
+    assert mock_create.await_args.kwargs["notify_on"] is None
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_failure():
     with patch("mcp_server.server.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))

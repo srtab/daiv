@@ -9,6 +9,8 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from notifications.choices import NotifyOn
+
 from automation.agent.results import parse_agent_result
 
 logger = logging.getLogger("daiv.activity")
@@ -98,6 +100,17 @@ class Activity(models.Model):
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
     use_max = models.BooleanField(_("use max model"), default=False)
+    notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
+        _("notify on"),
+        max_length=16,
+        choices=NotifyOn.choices,
+        null=True,
+        blank=True,
+        help_text=_(
+            "Per-run override. When null, the notifier falls back to ScheduledJob.notify_on"
+            " (for schedule runs) or to the initiating user's notify_on_jobs preference."
+        ),
+    )
 
     # Issue / MR context
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
@@ -153,6 +166,20 @@ class Activity(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    @property
+    def effective_notify_on(self) -> NotifyOn:
+        """Resolve the notification preference that applies to this run.
+
+        Precedence: per-run override > schedule preference > user default > NEVER.
+        """
+        if self.notify_on:
+            return NotifyOn(self.notify_on)
+        if self.scheduled_job_id is not None and self.scheduled_job is not None:
+            return NotifyOn(self.scheduled_job.notify_on)
+        if self.user_id is not None and self.user is not None:
+            return NotifyOn(self.user.notify_on_jobs)
+        return NotifyOn.NEVER
 
     @property
     def is_retryable(self) -> bool:
