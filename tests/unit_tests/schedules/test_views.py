@@ -356,3 +356,45 @@ class TestScheduleListViewTemplateContext:
         response = member_client.get(reverse("schedule_list"))
         assert response.status_code == 200
         assert response.context["schedule_templates"] == []
+
+
+@pytest.mark.django_db
+class TestScheduleListViewGalleryWiring:
+    """The schedule list page renders the gallery trigger and empty-state CTA."""
+
+    @pytest.fixture
+    def tpl(self, admin_user):
+        return ScheduleTemplate.objects.create(
+            name="Nightly scan",
+            description="Runs nightly.",
+            prompt="Scan.",
+            frequency=Frequency.DAILY,
+            time=time(2, 0),
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+
+    def test_header_button_and_gallery_present_when_templates_exist(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "From template" in body
+        assert "schedule-templates-data" in body
+
+    def test_header_button_absent_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "From template" not in body
+        assert "schedule-templates-data" not in body
+
+    def test_empty_state_shows_template_cta_when_templates_exist(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        # Empty state text stays; the new CTA appears alongside the Create button.
+        assert "No scheduled jobs yet" in body
+        assert "Start from template" in body
+
+    def test_empty_state_without_templates_keeps_only_create_button(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "No scheduled jobs yet" in body
+        assert "Start from template" not in body
