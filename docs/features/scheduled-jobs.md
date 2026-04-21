@@ -117,6 +117,14 @@ Admins can curate reusable **schedule templates** so teammates start from a know
 
 Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, repository, ref, frequency, time or cron, max mode, notification preference) plus an optional description that helps users pick the right one.
 
-When at least one template exists, the schedule create form shows a **Start from template** picker at the top. Selecting a template reloads the form with that template's values prefilled — every field remains editable before saving. If you have unsaved changes in the form, switching templates prompts for confirmation first so you don't lose work.
+When at least one template exists, templates are discoverable in three places:
+
+- The **Scheduled Jobs** list page gains a **From template** button next to *Create schedule*.
+- The schedule **empty state** gains a **Start from template** call-to-action alongside *Create blank schedule*.
+- The schedule **create form** opens with a **Browse templates** row at the top.
+
+All three open the same right-side gallery drawer. Each card shows the template name, frequency, repository target, and description; expanding a card reveals the full description, branch/ref, frequency detail, and notification preference. Clicking **Use this template** loads the schedule create form with every field pre-filled — you can still edit any of them before saving.
+
+If you have unsaved changes in the create form, applying a template from the gallery prompts for confirmation first so you do not lose work.
 
 Deleting a template never affects existing schedules: template values are copied into the schedule at creation time, and there is no link back.
