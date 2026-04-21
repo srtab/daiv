@@ -74,6 +74,11 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
     def get_queryset(self):
         return ScheduledJob.objects.by_owner(self.request.user).select_related("user").prefetch_related("subscribers")
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["schedule_templates"] = _template_picker_payload(ScheduleTemplate.objects.all())
+        return context
+
 
 class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView):
     model = ScheduledJob

@@ -6,9 +6,10 @@ from django.urls import reverse
 
 import pytest
 from activity.models import TriggerType
+from notifications.choices import NotifyOn
 
 from accounts.models import User
-from schedules.models import ScheduledJob
+from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture
@@ -330,3 +331,28 @@ class TestScheduleUnsubscribeView:
     def test_nonexistent_schedule_returns_404(self, member_client):
         response = member_client.post(reverse("schedule_unsubscribe", args=[99999]))
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestScheduleListViewTemplateContext:
+    """The schedule list view exposes the same template payload for the gallery."""
+
+    def test_includes_templates_when_present(self, member_client, admin_user):
+        ScheduleTemplate.objects.create(
+            name="Nightly scan",
+            description="Runs nightly.",
+            prompt="Scan.",
+            frequency=Frequency.HOURLY,
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+        response = member_client.get(reverse("schedule_list"))
+        assert response.status_code == 200
+        [row] = response.context["schedule_templates"]
+        assert row["name"] == "Nightly scan"
+        assert row["frequency_summary"] == "Every hour"
+
+    def test_empty_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        assert response.status_code == 200
+        assert response.context["schedule_templates"] == []
