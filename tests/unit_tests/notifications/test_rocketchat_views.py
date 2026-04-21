@@ -15,7 +15,8 @@ class TestRocketChatConnect:
 
     def test_requires_login(self, client):
         response = client.post(self.URL, {"username": "alice"})
-        assert response.status_code in (302, 401)
+        assert response.status_code == 302
+        assert "/accounts/login" in response["Location"] or "/login" in response["Location"]
 
     def test_creates_verified_binding_on_success(self, member_client, member_user):
         with patch("notifications.views.verify_username", return_value=("u1", None)):

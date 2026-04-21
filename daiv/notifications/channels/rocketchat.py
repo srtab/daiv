@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from django.utils.translation import gettext_lazy as _
@@ -37,11 +37,15 @@ _RC_TIMEOUT_SECONDS = 5.0
 
 @dataclass(frozen=True)
 class _RCClient:
-    """Bundled Rocket Chat credentials + convenience HTTP calls."""
+    """Bundled Rocket Chat credentials + convenience HTTP calls.
+
+    ``token`` is excluded from the default repr to avoid leaking the bot secret
+    via log lines, exception tracebacks, or test output.
+    """
 
     url: str
     user_id: str
-    token: str
+    token: str = field(repr=False)
 
     @classmethod
     def from_site_settings(cls) -> _RCClient | None:
@@ -88,37 +92,64 @@ def _rc_post(client: _RCClient, method: str, payload: dict) -> dict:
     """
     response = client.post(method, payload)
     if 400 <= response.status_code < 500:
-        raise RocketChatPermanentError(_extract_rc_error(response))
+        error = _extract_rc_error(response)
+        logger.warning("Rocket Chat %s returned HTTP %s: %s", method, response.status_code, error)
+        raise RocketChatPermanentError(error)
     response.raise_for_status()
     body = response.json()
     if body.get("success") is True:
         return body
-    if body.get("errorType") in _PERMANENT_ERROR_TYPES:
-        raise RocketChatPermanentError(str(body.get("error") or body.get("errorType")))
-    raise RuntimeError(f"Rocket Chat call to {method} failed: {body!r}")
+    error_type = body.get("errorType")
+    if error_type in _PERMANENT_ERROR_TYPES:
+        error = str(body.get("error") or error_type)
+        logger.warning("Rocket Chat %s permanent error %r: %s", method, error_type, error)
+        raise RocketChatPermanentError(error)
+    logger.warning(
+        "Rocket Chat %s unexpected response (retryable): status=%s errorType=%r",
+        method,
+        response.status_code,
+        error_type,
+    )
+    raise RuntimeError(f"Rocket Chat call to {method} failed with unknown errorType={error_type!r}")
+
+
+# Generic user-facing strings — raw transport errors can leak internal hostnames,
+# so we log the detail server-side and show a neutral message.
+_MSG_NOT_CONFIGURED = _("Rocket Chat is not configured.")
+_MSG_UNAVAILABLE = _("Rocket Chat is temporarily unavailable. Please try again.")
+_MSG_INVALID_RESPONSE = _("Rocket Chat returned an invalid response.")
+_MSG_USER_NOT_FOUND = _("Rocket Chat user not found.")
 
 
 def verify_username(username: str) -> tuple[str | None, str | None]:
     """Look up a Rocket Chat user by username.
 
-    Returns ``(rc_user_id, None)`` on success or ``(None, error_message)`` on failure.
+    Returns ``(rc_user_id, None)`` on success or ``(None, user_facing_message)`` on
+    failure. The message is safe to flash directly to the end user; detailed errors
+    are logged server-side.
     """
     client = _RCClient.from_site_settings()
     if client is None:
-        return None, "Rocket Chat is not configured."
+        return None, str(_MSG_NOT_CONFIGURED)
     try:
         response = client.get("users.info", {"username": username})
     except httpx.RequestError as exc:
-        return None, str(exc)
+        logger.warning("Rocket Chat users.info transport error for %r: %s", username, exc)
+        return None, str(_MSG_UNAVAILABLE)
     if response.status_code >= 400:
-        return None, _extract_rc_error(response)
+        logger.warning(
+            "Rocket Chat users.info HTTP %s for %r: %s", response.status_code, username, _extract_rc_error(response)
+        )
+        return None, str(_MSG_USER_NOT_FOUND if response.status_code < 500 else _MSG_UNAVAILABLE)
     try:
         body = response.json()
     except ValueError:
-        return None, "Invalid response from Rocket Chat."
+        logger.warning("Rocket Chat users.info returned non-JSON body for %r", username)
+        return None, str(_MSG_INVALID_RESPONSE)
     if body.get("success") is True and body.get("user", {}).get("_id"):
         return body["user"]["_id"], None
-    return None, _extract_rc_error(response, default="User not found.")
+    logger.info("Rocket Chat users.info did not resolve %r: %s", username, _extract_rc_error(response))
+    return None, str(_MSG_USER_NOT_FOUND)
 
 
 def _compose_text(notification: Notification) -> str:
@@ -142,4 +173,5 @@ class RocketChatChannel(NotificationChannel):
         try:
             _rc_post(client, "chat.postMessage", {"channel": f"@{delivery.address}", "text": text})
         except RocketChatPermanentError as exc:
+            logger.error("Rocket Chat delivery %s permanently failed: %s", delivery.id, exc)
             raise UnrecoverableDeliveryError(str(exc)) from exc

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -10,6 +11,8 @@ from notifications.channels.registry import get_channel
 from notifications.channels.rocketchat import (
     RocketChatChannel,
     RocketChatPermanentError,
+    _compose_text,
+    _extract_rc_error,
     _rc_post,
     _RCClient,
     verify_username,
@@ -97,6 +100,20 @@ class TestRcPost:
             _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@alice", "text": "hi"})
         assert not isinstance(exc.value, RocketChatPermanentError)
 
+    def test_unknown_errortype_in_2xx_is_retryable_not_permanent(self, httpx_mock):
+        """RC errorTypes not in _PERMANENT_ERROR_TYPES must bubble as retryable so
+        the delivery task retries rather than giving up on potentially-transient failures."""
+        httpx_mock.add_response(
+            method="POST",
+            url=self.ENDPOINT,
+            json={"success": False, "error": "Too many requests.", "errorType": "error-too-many-requests"},
+            status_code=200,
+        )
+        with pytest.raises(RuntimeError) as exc:
+            _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@alice", "text": "hi"})
+        assert not isinstance(exc.value, RocketChatPermanentError)
+        assert "error-too-many-requests" in str(exc.value)
+
 
 class TestVerifyUsername:
     def test_success_returns_rc_user_id(self, httpx_mock):
@@ -136,6 +153,45 @@ class TestVerifyUsername:
             rc_id, err = verify_username("alice")
         assert rc_id is None
         assert err == "Rocket Chat is not configured."
+
+    def test_transport_error_returns_generic_unavailable(self, httpx_mock):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.internal:3000"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_exception(httpx.ConnectError("connection refused to rc.internal:3000"))
+            rc_id, err = verify_username("alice")
+        assert rc_id is None
+        # Must NOT leak the raw exception or internal URL
+        assert err == "Rocket Chat is temporarily unavailable. Please try again."
+        assert "rc.internal" not in (err or "")
+
+    def test_non_json_response_returns_generic_invalid(self, httpx_mock):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="GET",
+                url="https://rc.example.com/api/v1/users.info?username=alice",
+                status_code=200,
+                content=b"<html>oops</html>",
+            )
+            rc_id, err = verify_username("alice")
+        assert rc_id is None
+        assert err == "Rocket Chat returned an invalid response."
+
+    def test_server_error_returns_generic_unavailable(self, httpx_mock):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="GET", url="https://rc.example.com/api/v1/users.info?username=alice", status_code=503
+            )
+            rc_id, err = verify_username("alice")
+        assert rc_id is None
+        assert err == "Rocket Chat is temporarily unavailable. Please try again."
 
 
 @pytest.mark.django_db
@@ -212,3 +268,81 @@ class TestSend:
             )
             with pytest.raises(httpx.HTTPStatusError):
                 RocketChatChannel().send(n, d)
+
+
+class TestComposeText:
+    def _notif(self, subject, body, link_url=""):
+        return SimpleNamespace(subject=subject, body=body, link_url=link_url)
+
+    def test_without_link_url(self):
+        result = _compose_text(self._notif("Subject", "Body"))
+        assert result == "Subject\n\nBody"
+
+    def test_with_link_url_appends_absolute_url(self):
+        with patch("notifications.channels.rocketchat.build_absolute_url", return_value="https://daiv.test/x/"):
+            result = _compose_text(self._notif("Subject", "Body", "/x/"))
+        assert result == "Subject\n\nBody\n\nhttps://daiv.test/x/"
+
+
+class TestExtractRcError:
+    def test_prefers_body_error(self):
+        response = httpx.Response(status_code=400, json={"error": "nope", "errorType": "error-x"})
+        assert _extract_rc_error(response) == "nope"
+
+    def test_falls_back_to_error_type(self):
+        response = httpx.Response(status_code=400, json={"errorType": "error-x"})
+        assert _extract_rc_error(response) == "error-x"
+
+    def test_falls_back_to_default(self):
+        response = httpx.Response(status_code=500, json={})
+        assert _extract_rc_error(response, default="custom default") == "custom default"
+
+    def test_falls_back_to_http_code_when_no_default(self):
+        response = httpx.Response(status_code=500, json={})
+        assert _extract_rc_error(response) == "HTTP 500"
+
+    def test_non_json_body_uses_default(self):
+        response = httpx.Response(status_code=500, content=b"<html>oops</html>")
+        assert _extract_rc_error(response) == "HTTP 500"
+
+
+class TestRCClientFromSiteSettings:
+    def _patch(self, url, user_id, token):
+        patcher = patch("notifications.channels.rocketchat.site_settings")
+        s = patcher.start()
+        s.rocketchat_url = url
+        s.rocketchat_user_id = user_id
+        if token is None:
+            s.rocketchat_auth_token = None
+        else:
+            s.rocketchat_auth_token.get_secret_value.return_value = token
+        return patcher
+
+    @pytest.mark.parametrize(
+        "url,user_id,token", [(None, "u", "t"), ("https://rc", None, "t"), ("https://rc", "u", None), ("", "u", "t")]
+    )
+    def test_returns_none_when_any_credential_missing(self, url, user_id, token):
+        patcher = self._patch(url, user_id, token)
+        try:
+            assert _RCClient.from_site_settings() is None
+        finally:
+            patcher.stop()
+
+    def test_returns_client_when_all_present(self):
+        patcher = self._patch("https://rc.example.com", "botid", "bottoken")
+        try:
+            client = _RCClient.from_site_settings()
+        finally:
+            patcher.stop()
+        assert client is not None
+        assert client.url == "https://rc.example.com"
+        assert client.user_id == "botid"
+        assert client.token == "bottoken"  # noqa: S105 — test constant
+
+
+class TestRCClientSecrecy:
+    def test_repr_omits_token(self):
+        client = _RCClient(url="https://rc.example.com", user_id="botid", token="super-secret-token")  # noqa: S106
+        text = repr(client)
+        assert "super-secret-token" not in text
+        assert "https://rc.example.com" in text  # url still visible for debugging

@@ -420,3 +420,46 @@ class TestUserBindingSeeder:
             password="x",  # noqa: S106
         )
         assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 0
+
+
+@pytest.mark.django_db
+class TestRocketChatFanOut:
+    """Verify RocketChatChannel is picked up by ``on_activity_finished`` when
+    the user has a verified Rocket Chat binding."""
+
+    def test_creates_rocketchat_delivery_when_binding_exists(self, member_user, schedule):
+        from django.utils import timezone
+
+        UserChannelBinding.objects.create(
+            user=member_user,
+            channel_type=ChannelType.ROCKETCHAT,
+            address="alice",
+            is_verified=True,
+            verified_at=timezone.now(),
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.ROCKETCHAT).count() == 1
+        delivery = NotificationDelivery.objects.get(channel_type=ChannelType.ROCKETCHAT)
+        assert delivery.address == "alice"
+
+    def test_rocketchat_delivery_skipped_when_no_binding(self, member_user, schedule):
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        rc_deliveries = NotificationDelivery.objects.filter(channel_type=ChannelType.ROCKETCHAT)
+        assert rc_deliveries.count() == 1
+        assert rc_deliveries.get().status == "skipped"

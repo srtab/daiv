@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.utils.translation import gettext as _
 from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
@@ -100,12 +101,12 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
         username = (request.POST.get("username") or "").strip().lstrip("@")
         redirect_url = reverse("user_channels")
         if not username:
-            messages.error(request, "Username is required.")
+            messages.error(request, _("Username is required."))
             return HttpResponseRedirect(redirect_url)
 
         rc_user_id, error = verify_username(username)
         if error is not None or rc_user_id is None:
-            messages.error(request, error or "User not found.")
+            messages.error(request, error or _("Rocket Chat user not found."))
             return HttpResponseRedirect(redirect_url)
 
         UserChannelBinding.objects.update_or_create(
