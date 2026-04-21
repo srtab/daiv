@@ -108,7 +108,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
-        context["schedule_templates"] = list(ScheduleTemplate.objects.all().values("id", "name", "description"))
+        context["schedule_templates"] = _template_picker_payload(ScheduleTemplate.objects.all())
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         return context

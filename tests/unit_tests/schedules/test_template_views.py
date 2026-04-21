@@ -265,3 +265,37 @@ class TestTemplatePickerPayload:
 
     def test_empty_queryset(self):
         assert _template_picker_payload([]) == []
+
+
+@pytest.mark.django_db
+class TestScheduleCreateViewTemplateContext:
+    """`ScheduleCreateView` exposes the full picker payload, not just name+id+description."""
+
+    @pytest.fixture
+    def tpl(self, admin_user):
+        return ScheduleTemplate.objects.create(
+            name="Weekly audit",
+            description="Weekly dependency audit.",
+            prompt="Do the thing.",
+            repo_id="owner/repo",
+            ref="main",
+            frequency=Frequency.WEEKLY,
+            time=time(9, 0),
+            notify_on=NotifyOn.ON_SUCCESS,
+            use_max=True,
+            created_by=admin_user,
+        )
+
+    def test_context_uses_full_payload_shape(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_create"))
+        assert response.status_code == 200
+        [row] = response.context["schedule_templates"]
+        assert row["id"] == tpl.id
+        assert row["frequency_summary"] == "Weekly at 09:00"
+        assert row["use_max"] is True
+        assert "prompt" not in row
+
+    def test_context_empty_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        assert response.status_code == 200
+        assert response.context["schedule_templates"] == []
