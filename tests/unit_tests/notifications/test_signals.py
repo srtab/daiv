@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
@@ -420,3 +422,31 @@ class TestUserBindingSeeder:
             password="x",  # noqa: S106
         )
         assert UserChannelBinding.objects.filter(user=user, channel_type=ChannelType.EMAIL).count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("rocketchat_channel_enabled")
+class TestRocketChatFanOut:
+    """Verify RocketChatChannel is picked up by ``on_activity_finished`` when
+    the user has a verified Rocket Chat binding."""
+
+    def test_creates_rocketchat_delivery_when_binding_exists(self, member_user, schedule):
+        UserChannelBinding.objects.create(
+            user=member_user,
+            channel_type=ChannelType.ROCKETCHAT,
+            address="alice",
+            is_verified=True,
+            verified_at=timezone.now(),
+        )
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            user=member_user,
+            repo_id="x/y",
+            status=ActivityStatus.SUCCESSFUL,
+            scheduled_job=schedule,
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.ROCKETCHAT).count() == 1
+        delivery = NotificationDelivery.objects.get(channel_type=ChannelType.ROCKETCHAT)
+        assert delivery.address == "alice"

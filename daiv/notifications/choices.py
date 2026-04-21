@@ -11,6 +11,7 @@ class NotifyOn(models.TextChoices):
 
 class ChannelType(models.TextChoices):
     EMAIL = "email", _("Email")
+    ROCKETCHAT = "rocketchat", _("Rocket Chat")
 
 
 class DeliveryStatus(models.TextChoices):

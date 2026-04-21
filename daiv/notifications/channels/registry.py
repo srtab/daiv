@@ -30,6 +30,10 @@ def all_channels() -> list[type[NotificationChannel]]:
     return list(_registry.values())
 
 
+def enabled_channels() -> list[type[NotificationChannel]]:
+    return [cls for cls in _registry.values() if cls.is_enabled()]
+
+
 def is_registered(channel_type: str) -> bool:
     """Return True if the given channel_type is registered."""
     return channel_type in _registry

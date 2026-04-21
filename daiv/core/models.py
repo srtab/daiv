@@ -308,6 +308,25 @@ class SiteConfiguration(models.Model):
         help_text=_("Base URL for the OpenRouter API."),
     )
 
+    # -- Rocket Chat --
+    rocketchat_enabled = models.BooleanField(
+        _("enable Rocket Chat"), null=True, help_text=_("Offer Rocket Chat as a notification channel for users.")
+    )
+    rocketchat_url = models.CharField(
+        _("Rocket Chat URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Base URL of your Rocket Chat instance (e.g. https://rc.example.com)."),
+    )
+    rocketchat_user_id = models.CharField(
+        _("Rocket Chat bot user ID"),
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text=_("The bot user's _id, sent as the X-User-Id header."),
+    )
+
     # -- API Keys / Secrets (encrypted at rest) --
     _anthropic_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _openai_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
@@ -316,6 +335,7 @@ class SiteConfiguration(models.Model):
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
     anthropic_api_key = EncryptedFieldDescriptor("anthropic_api_key")
@@ -325,6 +345,7 @@ class SiteConfiguration(models.Model):
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
     auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
+    rocketchat_auth_token = EncryptedFieldDescriptor("rocketchat_auth_token")
 
     MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
         "agent_model_name",
@@ -345,6 +366,7 @@ class SiteConfiguration(models.Model):
         "web_search_api_key",
         "sandbox_api_key",
         "auth_client_secret",
+        "rocketchat_auth_token",
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
@@ -377,6 +399,13 @@ class SiteConfiguration(models.Model):
         ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+        FieldGroup(
+            key="rocketchat",
+            title=_("Rocket Chat"),
+            match=("rocketchat_*",),
+            icon="rocketchat",
+            toggle_field="rocketchat_enabled",
+        ),
         FieldGroup(
             key="authentication",
             title=_("Authentication"),

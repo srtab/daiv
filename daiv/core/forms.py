@@ -117,6 +117,9 @@ class SiteConfigurationForm(forms.ModelForm):
             "sandbox_memory",
             "suggest_context_file_enabled",
             "openrouter_api_base",
+            "rocketchat_enabled",
+            "rocketchat_url",
+            "rocketchat_user_id",
             "jobs_throttle_rate",
             "auth_login_enabled",
             "auth_signup_open",
@@ -371,5 +374,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_search_api_key": _("API key for Tavily web search engine."),
             "sandbox_api_key": _("API key for the sandbox service."),
             "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
+            "rocketchat_auth_token": _("Bot user personal access token (X-Auth-Token)."),
         }
         return labels.get(name, "")
