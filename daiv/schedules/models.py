@@ -153,3 +153,61 @@ class ScheduledJob(TimeStampedModel):
         cron_iter = croniter(self.get_effective_cron(), local_now)
         next_local = cron_iter.get_next(datetime)
         self.next_run_at = next_local.astimezone(UTC)
+
+
+class ScheduleTemplate(TimeStampedModel):
+    """An admin-curated blueprint users can start a scheduled job from."""
+
+    name = models.CharField(_("name"), max_length=200)
+    description = models.TextField(_("description"), blank=True, default="")
+    prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
+    repo_id = models.CharField(
+        _("repository"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("Default repository. Leave blank to let users choose."),
+    )
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
+    cron_expression = models.CharField(_("cron expression"), max_length=100, blank=True, default="")
+    time = models.TimeField(_("time"), null=True, blank=True)
+    use_max = models.BooleanField(_("max mode"), default=False)
+    notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_schedule_templates",
+        verbose_name=_("created by"),
+    )
+
+    class Meta:
+        verbose_name = _("Schedule Template")
+        verbose_name_plural = _("Schedule Templates")
+        ordering = ["name"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
+                name="tpl_custom_requires_cron",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def clean(self) -> None:
+        super().clean()
+        if self.frequency == Frequency.CUSTOM:
+            if not self.cron_expression:
+                raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
+            if not croniter.is_valid(self.cron_expression):
+                raise ValidationError({
+                    "cron_expression": _(
+                        "Invalid cron expression. Use five space-separated fields: "
+                        "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
+                    )
+                })
+        if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
+            raise ValidationError({"time": _("Time is required for this frequency.")})
