@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
@@ -9,7 +11,7 @@ from notifications.models import UserChannelBinding
 
 @pytest.mark.django_db
 class TestRocketChatConnect:
-    URL = "/notifications/channels/rocketchat/"
+    URL = "/dashboard/notifications/channels/rocketchat/"
 
     def test_requires_login(self, client):
         response = client.post(self.URL, {"username": "alice"})
@@ -32,9 +34,9 @@ class TestRocketChatConnect:
 
     def test_invalid_username_does_not_create_binding(self, member_client, member_user):
         with patch("notifications.views.verify_username", return_value=(None, "User not found.")):
-            response = member_client.post(self.URL, {"username": "nope"}, follow=True)
-        assert response.status_code == 200
-        assert "User not found" in response.content.decode()
+            response = member_client.post(self.URL, {"username": "nope"}, follow=False)
+        assert response.status_code == 302
+        assert member_client.session.get("rocketchat_error") == "User not found."
         assert not UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.ROCKETCHAT).exists()
 
     def test_empty_username_does_not_create_binding(self, member_client, member_user):
@@ -56,11 +58,15 @@ class TestRocketChatConnect:
 
 @pytest.mark.django_db
 class TestRocketChatDisconnect:
-    URL = "/notifications/channels/rocketchat/delete/"
+    URL = "/dashboard/notifications/channels/rocketchat/delete/"
 
     def test_deletes_existing_binding(self, member_client, member_user):
         UserChannelBinding.objects.create(
-            user=member_user, channel_type=ChannelType.ROCKETCHAT, address="alice", is_verified=True
+            user=member_user,
+            channel_type=ChannelType.ROCKETCHAT,
+            address="alice",
+            is_verified=True,
+            verified_at=timezone.now(),
         )
         response = member_client.post(self.URL, follow=False)
         assert response.status_code == 302
