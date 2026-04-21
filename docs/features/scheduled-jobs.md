@@ -110,3 +110,13 @@ Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to e
 
 !!! info
     If you need programmatic control over scheduling (e.g., creating schedules from a script), use the [Jobs API](jobs-api.md) with an external scheduler like GitLab CI scheduled pipelines or system cron.
+
+## Schedule templates
+
+Admins can curate reusable **schedule templates** so teammates start from a known-good configuration rather than assembling a schedule from scratch.
+
+Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, repository, ref, frequency, time or cron, max mode, notification preference) plus an optional description that helps users pick the right one.
+
+When at least one template exists, the schedule create form shows a **Start from template** picker at the top. Selecting a template reloads the form with that template's values prefilled — every field remains editable before saving. If you have unsaved changes in the form, switching templates prompts for confirmation first so you don't lose work.
+
+Deleting a template never affects existing schedules: template values are copied into the schedule at creation time, and there is no link back.
