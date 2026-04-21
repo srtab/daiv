@@ -1,0 +1,52 @@
+{% extends "base_app.html" %}
+
+{% block title %}Schedule Templates — DAIV{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">Schedule templates</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">Reusable blueprints that any user can start a schedule from.</p>
+    </div>
+    <a href="{% url 'schedule_template_create' %}" class="btn-primary">New template</a>
+</div>
+
+<div class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    {% if templates %}
+    <div class="rounded-2xl border border-white/[0.06]">
+        {% for template in templates %}
+        <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0">
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-3">
+                    <span class="text-[15px] font-medium text-white">{{ template.name }}</span>
+                    <span class="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-300">{{ template.get_frequency_display }}</span>
+                </div>
+                {% if template.description %}
+                <p class="mt-1 text-sm text-gray-400">{{ template.description }}</p>
+                {% endif %}
+                <div class="mt-1 flex items-center gap-3 text-sm text-gray-500">
+                    <span>{{ template.repo_id|default:"Any repo" }}</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{% url 'schedule_template_update' template.pk %}"
+                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 hover:border-white/[0.12] hover:text-white">Edit</a>
+                <a href="{% url 'schedule_template_delete' template.pk %}"
+                   class="rounded-lg border border-red-500/10 bg-red-500/[0.03] px-3 py-1.5 text-sm font-medium text-red-400 hover:border-red-500/20 hover:text-red-300">Delete</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% include "accounts/_pagination.html" %}
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+        <p class="text-[15px] text-gray-400">No templates yet. Create one to share with your team.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
