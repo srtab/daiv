@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from django.utils import timezone
 
 import httpx
 import pytest
 from notifications.channels.registry import get_channel
-from notifications.channels.rocketchat import RocketChatChannel, RocketChatPermanentError, _rc_post
+from notifications.channels.rocketchat import RocketChatChannel, RocketChatPermanentError, _rc_post, verify_username
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 
@@ -91,3 +93,43 @@ class TestRcPost:
         with pytest.raises(Exception) as exc:
             _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@alice", "text": "hi"})
         assert not isinstance(exc.value, RocketChatPermanentError)
+
+
+class TestVerifyUsername:
+    def test_success_returns_rc_user_id(self, httpx_mock):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="GET",
+                url="https://rc.example.com/api/v1/users.info?username=alice",
+                json={"success": True, "user": {"_id": "u1", "username": "alice"}},
+                status_code=200,
+                match_headers={"X-Auth-Token": "bottoken", "X-User-Id": "botid"},
+            )
+            rc_id, err = verify_username("alice")
+        assert rc_id == "u1"
+        assert err is None
+
+    def test_user_not_found_returns_error(self, httpx_mock):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="GET",
+                url="https://rc.example.com/api/v1/users.info?username=nope",
+                json={"success": False, "error": "User not found.", "errorType": "error-user-not-found"},
+                status_code=400,
+            )
+            rc_id, err = verify_username("nope")
+        assert rc_id is None
+        assert err and "not found" in err.lower()
+
+    def test_not_configured_returns_error(self):
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = None
+            rc_id, err = verify_username("alice")
+        assert rc_id is None
+        assert err == "Rocket Chat is not configured."

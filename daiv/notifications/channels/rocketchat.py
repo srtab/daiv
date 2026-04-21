@@ -7,6 +7,7 @@ from django.utils.translation import gettext_lazy as _
 
 import httpx
 
+from core.site_settings import site_settings
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
 from notifications.choices import ChannelType
@@ -57,6 +58,46 @@ def _rc_post(url: str, user_id: str, token: str, method: str, payload: dict) -> 
     if body.get("errorType") in _PERMANENT_ERROR_TYPES:
         raise RocketChatPermanentError(str(body.get("error") or body.get("errorType")))
     raise RuntimeError(f"Rocket Chat call to {method} failed: {body!r}")
+
+
+def _site_rocketchat_credentials() -> tuple[str, str, str] | None:
+    """Return (url, user_id, token) or None when any of the three is unset."""
+    url = site_settings.rocketchat_url
+    user_id = site_settings.rocketchat_user_id
+    token = site_settings.rocketchat_auth_token
+    if not url or not user_id or not token:
+        return None
+    return url, user_id, token.get_secret_value()
+
+
+def verify_username(username: str) -> tuple[str | None, str | None]:
+    """Look up a Rocket Chat user by username.
+
+    Returns ``(rc_user_id, None)`` on success or ``(None, error_message)`` on failure.
+    """
+    creds = _site_rocketchat_credentials()
+    if creds is None:
+        return None, "Rocket Chat is not configured."
+    url, user_id, token = creds
+    endpoint = f"{url.rstrip('/')}/api/v1/users.info"
+    headers = {"X-Auth-Token": token, "X-User-Id": user_id}
+    try:
+        response = httpx.get(endpoint, headers=headers, params={"username": username}, timeout=_RC_TIMEOUT_SECONDS)
+    except httpx.RequestError as exc:
+        return None, str(exc)
+    if response.status_code >= 400:
+        try:
+            body = response.json()
+            return None, body.get("error") or body.get("errorType") or f"HTTP {response.status_code}"
+        except ValueError:
+            return None, f"HTTP {response.status_code}"
+    try:
+        body = response.json()
+    except ValueError:
+        return None, "Invalid response from Rocket Chat."
+    if body.get("success") is True and body.get("user", {}).get("_id"):
+        return body["user"]["_id"], None
+    return None, body.get("error") or body.get("errorType") or "User not found."
 
 
 @register_channel
