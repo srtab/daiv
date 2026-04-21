@@ -230,3 +230,15 @@ class ScheduleTemplate(TimeStampedModel):
 
     def to_schedule_kwargs(self) -> dict:
         return {f: getattr(self, f) for f in self.SCHEDULE_FIELDS}
+
+    @property
+    def frequency_summary(self) -> str:
+        """Human-readable one-line cadence for the picker preview."""
+        label = self.get_frequency_display()
+        if self.frequency == Frequency.HOURLY:
+            return _("Every hour")
+        if self.frequency == Frequency.CUSTOM:
+            return _("Custom: %(cron)s") % {"cron": self.cron_expression}
+        if self.time is not None:
+            return _("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")}
+        return label
