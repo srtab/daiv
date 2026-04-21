@@ -34,4 +34,13 @@ class Migration(migrations.Migration):
                 verbose_name="Rocket Chat bot user ID",
             ),
         ),
+        migrations.AddField(
+            model_name="siteconfiguration",
+            name="rocketchat_enabled",
+            field=models.BooleanField(
+                help_text="Offer Rocket Chat as a notification channel for users.",
+                null=True,
+                verbose_name="enable Rocket Chat",
+            ),
+        ),
     ]
