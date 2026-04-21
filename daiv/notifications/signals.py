@@ -89,24 +89,15 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
     if activity.trigger_type in EXCLUDED_TRIGGERS:
         return
 
-    effective = activity.effective_notify_on
-    if effective == NotifyOn.NEVER and activity.user_id is None and activity.scheduled_job_id is None:
-        logger.warning(
-            "No notify_on resolution path for activity %s (no user, no scheduled_job, no override)", activity.pk
-        )
-
-    if not _status_matches(effective, activity.status):
-        return
-
     recipients = _resolve_recipients(activity)
     if not recipients:
-        logger.warning("Activity %s resolved notify_on=%s but no recipient could be determined", activity.pk, effective)
         return
 
-    channels = [cls.channel_type for cls in all_channels()]
-    if not channels:
-        logger.error("No notification channels registered; dropping notification for activity %s", activity.pk)
-        return
+    effective = activity.effective_notify_on
+    # The Notification row doubles as the in-app bell entry and is always written for
+    # terminal activities with a recipient. ``notify_on`` only gates external delivery
+    # channels (email, etc.) — empty channels list means bell-only, no external dispatch.
+    channels = [cls.channel_type for cls in all_channels()] if _status_matches(effective, activity.status) else []
 
     subject, body, context = _render_payload(activity)
     link_url = reverse("activity_detail", args=[activity.pk])

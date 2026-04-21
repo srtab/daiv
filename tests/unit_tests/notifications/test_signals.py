@@ -4,7 +4,7 @@ import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
 from notifications.choices import ChannelType, NotifyOn
-from notifications.models import Notification, UserChannelBinding
+from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -37,14 +37,17 @@ class TestOnActivityFinished:
 
         assert Notification.objects.filter(recipient=member_user, event_type="schedule.finished").count() == 1
 
-    def test_api_job_successful_skipped_when_user_default_on_failure(self, member_user):
+    def test_api_job_successful_writes_bell_without_email_when_user_default_on_failure(self, member_user):
+        """Bell row is always written for a terminal activity with a recipient;
+        ``notify_on`` only gates external delivery channels."""
         activity = Activity.objects.create(
             trigger_type=TriggerType.API_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
-    def test_skips_when_notify_on_never(self, member_user, schedule):
+    def test_notify_on_never_writes_bell_without_email(self, member_user, schedule):
         schedule.notify_on = NotifyOn.NEVER
         schedule.save()
         activity = Activity.objects.create(
@@ -55,9 +58,10 @@ class TestOnActivityFinished:
             scheduled_job=schedule,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
-    def test_on_failure_skips_success(self, member_user, schedule):
+    def test_on_failure_writes_bell_on_success_without_email(self, member_user, schedule):
         schedule.notify_on = NotifyOn.ON_FAILURE
         schedule.save()
         activity = Activity.objects.create(
@@ -68,7 +72,8 @@ class TestOnActivityFinished:
             scheduled_job=schedule,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
     def test_on_failure_sends_on_failure(self, member_user, schedule):
         schedule.notify_on = NotifyOn.ON_FAILURE
@@ -95,8 +100,10 @@ class TestOnActivityFinished:
         )
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.count() == 1
+        # Gate passes → the Notification carries one delivery per registered channel (email today).
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
 
-    def test_on_success_skips_failure(self, member_user, schedule):
+    def test_on_success_writes_bell_on_failure_without_email(self, member_user, schedule):
         schedule.notify_on = NotifyOn.ON_SUCCESS
         schedule.save()
         activity = Activity.objects.create(
@@ -107,7 +114,8 @@ class TestOnActivityFinished:
             scheduled_job=schedule,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
     def test_body_excludes_result_summary_and_context_carries_metadata(self, member_user, schedule):
         activity = Activity.objects.create(
@@ -150,8 +158,9 @@ class TestOnActivityFinished:
         assert n.context["is_successful"] is False
         assert n.context["status_label"] == ActivityStatus.FAILED.label
 
-    def test_schedule_override_never_silences_schedule_always(self, member_user, schedule):
-        """Per-run notify_on=NEVER must override schedule.notify_on=ALWAYS."""
+    def test_schedule_override_never_silences_email_but_keeps_bell(self, member_user, schedule):
+        """Per-run notify_on=NEVER overrides schedule.notify_on=ALWAYS for email, but the
+        bell row is still written so the activity remains visible in history."""
         assert schedule.notify_on == NotifyOn.ALWAYS  # fixture baseline
         activity = Activity.objects.create(
             trigger_type=TriggerType.SCHEDULE,
@@ -162,7 +171,8 @@ class TestOnActivityFinished:
             notify_on=NotifyOn.NEVER,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
     def test_schedule_override_always_beats_schedule_never(self, member_user, schedule):
         """Per-run notify_on=ALWAYS must override schedule.notify_on=NEVER."""
@@ -231,7 +241,7 @@ class TestFanoutToSubscribers:
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
-    def test_notify_on_never_skips_all_subscribers(self, member_user, schedule):
+    def test_notify_on_never_skips_email_for_all_subscribers_but_writes_bell(self, member_user, schedule):
         schedule.notify_on = NotifyOn.NEVER
         schedule.save()
         sub = self._make_user("sub1")
@@ -245,7 +255,9 @@ class TestFanoutToSubscribers:
             scheduled_job=schedule,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert Notification.objects.filter(recipient=sub).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
     def test_one_recipient_failure_does_not_block_others(self, member_user, schedule, mocker):
         from notifications.services import notify as real_notify
@@ -287,7 +299,7 @@ class TestJobActivityNotifications:
         activity_finished.send(sender=Activity, activity=activity)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 1
 
-    def test_ui_job_successful_skipped_when_user_default_on_failure(self, member_user):
+    def test_ui_job_successful_writes_bell_without_email_when_user_default_on_failure(self, member_user):
         member_user.notify_on_jobs = NotifyOn.ON_FAILURE
         member_user.save(update_fields=["notify_on_jobs"])
 
@@ -295,9 +307,10 @@ class TestJobActivityNotifications:
             trigger_type=TriggerType.UI_JOB, user=member_user, repo_id="x/y", status=ActivityStatus.SUCCESSFUL
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
-    def test_per_run_override_never_silences_would_notify(self, member_user):
+    def test_per_run_override_never_writes_bell_without_email(self, member_user):
         member_user.notify_on_jobs = NotifyOn.ALWAYS
         member_user.save(update_fields=["notify_on_jobs"])
 
@@ -309,7 +322,8 @@ class TestJobActivityNotifications:
             notify_on=NotifyOn.NEVER,
         )
         activity_finished.send(sender=Activity, activity=activity)
-        assert Notification.objects.count() == 0
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert NotificationDelivery.objects.count() == 0
 
     def test_per_run_override_always_beats_user_default_never(self, member_user):
         member_user.notify_on_jobs = NotifyOn.NEVER
