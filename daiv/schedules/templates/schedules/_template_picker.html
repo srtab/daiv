@@ -1,7 +1,8 @@
 {% if not object and schedule_templates %}
+{{ schedule_templates|json_script:"schedule-templates-data" }}
 <div class="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
      x-data="{
-         templates: {{ template_picker_json|default:'[]' }},
+         templates: JSON.parse(document.getElementById('schedule-templates-data').textContent),
          selected: '{{ selected_template_id|default:'' }}',
          lastSelected: '{{ selected_template_id|default:'' }}',
          get description() {
@@ -27,7 +28,7 @@
     <select id="id_template_picker" x-model="selected" @change="onChange($event)" class="mt-2">
         <option value="">Blank schedule</option>
         {% for tpl in schedule_templates %}
-        <option value="{{ tpl.pk }}" {% if selected_template_id == tpl.pk|stringformat:"s" %}selected{% endif %}>{{ tpl.name }}</option>
+        <option value="{{ tpl.id }}" {% if selected_template_id == tpl.id|stringformat:"s" %}selected{% endif %}>{{ tpl.name }}</option>
         {% endfor %}
     </select>
     <p class="mt-2 text-sm text-gray-400" x-text="description" x-show="description" x-cloak></p>

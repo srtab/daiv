@@ -74,9 +74,10 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         if not pk:
             return None
         try:
-            return ScheduleTemplate.objects.get(pk=int(pk))
-        except ScheduleTemplate.DoesNotExist, ValueError:
+            pk_int = int(pk)
+        except ValueError:
             return None
+        return ScheduleTemplate.objects.filter(pk=pk_int).first()
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -94,11 +95,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
-        templates = list(ScheduleTemplate.objects.all().only("id", "name", "description"))
-        context["schedule_templates"] = templates
-        context["template_picker_json"] = json.dumps([
-            {"id": t.pk, "name": t.name, "description": t.description} for t in templates
-        ])
+        context["schedule_templates"] = list(ScheduleTemplate.objects.all().values("id", "name", "description"))
         context["selected_template_id"] = self.request.GET.get("template", "")
         return context
 
@@ -278,7 +275,6 @@ class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
     model = ScheduleTemplate
     template_name = "schedules/template_confirm_delete.html"
     success_url = reverse_lazy("schedule_template_list")
-    success_message = "Template deleted."
 
     def get_success_message(self, cleaned_data: dict) -> str:
         return f"Template '{self.object.name}' deleted."
