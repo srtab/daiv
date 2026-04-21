@@ -24,6 +24,8 @@
     </p>
 </div>
 
+        {% include "schedules/_template_picker.html" %}
+
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
             {% for error in form.non_field_errors %}
@@ -32,7 +34,10 @@
         </div>
         {% endif %}
 
+        <script>window.__scheduleFormDirty = false;</script>
         <form method="post"
+              @input.capture="window.__scheduleFormDirty = true"
+              @change.capture="window.__scheduleFormDirty = true"
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|time:"H:i" }}',
