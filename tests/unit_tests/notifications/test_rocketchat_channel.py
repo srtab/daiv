@@ -133,3 +133,85 @@ class TestVerifyUsername:
             rc_id, err = verify_username("alice")
         assert rc_id is None
         assert err == "Rocket Chat is not configured."
+
+
+@pytest.mark.django_db
+class TestSend:
+    def test_happy_path_posts_to_user_dm(self, httpx_mock, notification_with_delivery):
+        from notifications.exceptions import UnrecoverableDeliveryError  # noqa: F401
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        n.subject, n.body, n.link_url = "Subject", "Body line", "/x/"
+        n.save()
+
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="POST",
+                url="https://rc.example.com/api/v1/chat.postMessage",
+                json={"success": True},
+                status_code=200,
+            )
+            RocketChatChannel().send(n, d)
+
+        import json as _json
+
+        request = httpx_mock.get_requests()[0]
+        body = _json.loads(request.content)
+        assert body["channel"] == "@alice"
+        assert "Subject" in body["text"] and "Body line" in body["text"]
+
+    def test_missing_configuration_raises_unrecoverable(self, notification_with_delivery):
+        from notifications.exceptions import UnrecoverableDeliveryError
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = None
+            s.rocketchat_user_id = None
+            s.rocketchat_auth_token = None
+            with pytest.raises(UnrecoverableDeliveryError) as exc:
+                RocketChatChannel().send(n, d)
+        assert "not configured" in str(exc.value)
+
+    def test_permanent_rc_error_raises_unrecoverable(self, httpx_mock, notification_with_delivery):
+        from notifications.exceptions import UnrecoverableDeliveryError
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "nope"
+        d.save()
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="POST",
+                url="https://rc.example.com/api/v1/chat.postMessage",
+                json={"success": False, "error": "User not found.", "errorType": "error-user-not-found"},
+                status_code=200,
+            )
+            with pytest.raises(UnrecoverableDeliveryError):
+                RocketChatChannel().send(n, d)
+
+    def test_5xx_propagates_for_retry(self, httpx_mock, notification_with_delivery):
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        with patch("notifications.channels.rocketchat.site_settings") as s:
+            s.rocketchat_url = "https://rc.example.com"
+            s.rocketchat_user_id = "botid"
+            s.rocketchat_auth_token.get_secret_value.return_value = "bottoken"
+            httpx_mock.add_response(
+                method="POST", url="https://rc.example.com/api/v1/chat.postMessage", status_code=503
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                RocketChatChannel().send(n, d)

@@ -8,9 +8,11 @@ from django.utils.translation import gettext_lazy as _
 import httpx
 
 from core.site_settings import site_settings
+from core.utils import build_absolute_url
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
 from notifications.choices import ChannelType
+from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
 
 if TYPE_CHECKING:
@@ -100,6 +102,13 @@ def verify_username(username: str) -> tuple[str | None, str | None]:
     return None, body.get("error") or body.get("errorType") or "User not found."
 
 
+def _compose_text(notification: Notification) -> str:
+    parts = [notification.subject, "", notification.body]
+    if notification.link_url:
+        parts.extend(["", build_absolute_url(notification.link_url)])
+    return "\n".join(parts)
+
+
 @register_channel
 class RocketChatChannel(NotificationChannel):
     channel_type = ChannelType.ROCKETCHAT
@@ -115,4 +124,13 @@ class RocketChatChannel(NotificationChannel):
         return binding.address if binding else None
 
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
-        raise NotImplementedError("send() implemented in a later task")
+        creds = _site_rocketchat_credentials()
+        if creds is None:
+            raise UnrecoverableDeliveryError("Rocket Chat not configured")
+        url, user_id, token = creds
+
+        text = _compose_text(notification)
+        try:
+            _rc_post(url, user_id, token, "chat.postMessage", {"channel": f"@{delivery.address}", "text": text})
+        except RocketChatPermanentError as exc:
+            raise UnrecoverableDeliveryError(str(exc)) from exc
