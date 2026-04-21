@@ -9,10 +9,12 @@ class Command(BaseCommand):
     help = "Update the default Site domain from DAIV_EXTERNAL_URL."
 
     def handle(self, *args, **options):
-        domain = core_settings.EXTERNAL_URL.host
-        if not domain:
+        external_url = core_settings.EXTERNAL_URL
+        if not external_url.host:
             raise CommandError("DAIV_EXTERNAL_URL has no valid host. Check your DAIV_EXTERNAL_URL setting.")
-
+        domain = external_url.host
+        if external_url.port and external_url.port not in (80, 443):
+            domain = f"{domain}:{external_url.port}"
         rows = Site.objects.filter(pk=settings.SITE_ID).update(domain=domain, name="DAIV")
         if rows == 0:
             raise CommandError(f"Site with pk={settings.SITE_ID} does not exist. Run 'migrate' first.")
