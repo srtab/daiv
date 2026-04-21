@@ -34,9 +34,10 @@ class TestRocketChatConnect:
 
     def test_invalid_username_does_not_create_binding(self, member_client, member_user):
         with patch("notifications.views.verify_username", return_value=(None, "User not found.")):
-            response = member_client.post(self.URL, {"username": "nope"}, follow=False)
-        assert response.status_code == 302
-        assert member_client.session.get("rocketchat_error") == "User not found."
+            response = member_client.post(self.URL, {"username": "nope"}, follow=True)
+        assert response.status_code == 200
+        msgs = [str(m) for m in list(response.context["messages"])]
+        assert "User not found." in msgs
         assert not UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.ROCKETCHAT).exists()
 
     def test_empty_username_does_not_create_binding(self, member_client, member_user):

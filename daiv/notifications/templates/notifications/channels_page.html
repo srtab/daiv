@@ -32,30 +32,25 @@
           </span>
         {% endif %}
 
-        {% if row.channel_type == "rocketchat" %}
-          {% if row.binding %}
-            <form method="post" action="{% url 'notifications:rocketchat_disconnect' %}">
-              {% csrf_token %}
-              <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
-                {% translate "Disconnect" %}
-              </button>
-            </form>
-          {% else %}
-            <form method="post" action="{% url 'notifications:rocketchat_connect' %}" class="flex items-center gap-2">
-              {% csrf_token %}
-              <input type="text" name="username" value="{{ rocketchat_username_value }}" placeholder="@username"
-                     class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
-              <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
-                {% translate "Connect" %}
-              </button>
-            </form>
-          {% endif %}
+        {% if row.binding and row.disconnect_url %}
+          <form method="post" action="{{ row.disconnect_url }}">
+            {% csrf_token %}
+            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
+              {% translate "Disconnect" %}
+            </button>
+          </form>
+        {% elif row.connect_url %}
+          <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
+            {% csrf_token %}
+            <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
+                   class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
+            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
+              {% translate "Connect" %}
+            </button>
+          </form>
         {% endif %}
       </div>
     </div>
-    {% if row.channel_type == "rocketchat" and rocketchat_error and not row.binding %}
-      <div class="-mt-2 px-6 pb-3 text-xs text-red-400">{{ rocketchat_error }}</div>
-    {% endif %}
   {% endfor %}
 </div>
 {% endblock %}

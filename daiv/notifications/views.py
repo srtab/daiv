@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
@@ -15,6 +16,10 @@ from notifications.channels.rocketchat import verify_username
 from notifications.choices import ChannelType
 from notifications.models import Notification, UserChannelBinding
 
+_CHANNEL_CONNECT_URLS = {
+    ChannelType.ROCKETCHAT: ("notifications:rocketchat_connect", "notifications:rocketchat_disconnect", "@username")
+}
+
 
 class UserChannelsView(LoginRequiredMixin, TemplateView):
     template_name = "notifications/channels_page.html"
@@ -22,18 +27,19 @@ class UserChannelsView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         bindings_by_type = {b.channel_type: b for b in UserChannelBinding.objects.filter(user=self.request.user)}
-        rocketchat_error = self.request.session.pop("rocketchat_error", "")
-        rocketchat_username_value = self.request.session.pop("rocketchat_username_value", "")
         rows = []
         for cls in all_channels():
-            rows.append({
+            connect = _CHANNEL_CONNECT_URLS.get(cls.channel_type)
+            row = {
                 "channel_type": cls.channel_type,
                 "display_name": cls.display_name,
                 "binding": bindings_by_type.get(cls.channel_type),
-            })
+                "connect_url": reverse(connect[0]) if connect else "",
+                "disconnect_url": reverse(connect[1]) if connect else "",
+                "connect_placeholder": connect[2] if connect else "",
+            }
+            rows.append(row)
         ctx["channel_rows"] = rows
-        ctx["rocketchat_error"] = rocketchat_error
-        ctx["rocketchat_username_value"] = rocketchat_username_value
         return ctx
 
 
@@ -94,13 +100,12 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
         username = (request.POST.get("username") or "").strip().lstrip("@")
         redirect_url = reverse("user_channels")
         if not username:
-            request.session["rocketchat_error"] = "Username is required."
+            messages.error(request, "Username is required.")
             return HttpResponseRedirect(redirect_url)
 
         rc_user_id, error = verify_username(username)
         if error is not None or rc_user_id is None:
-            request.session["rocketchat_error"] = error or "User not found."
-            request.session["rocketchat_username_value"] = username
+            messages.error(request, error or "User not found.")
             return HttpResponseRedirect(redirect_url)
 
         UserChannelBinding.objects.update_or_create(

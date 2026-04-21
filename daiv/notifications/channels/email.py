@@ -14,10 +14,8 @@ from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
-from notifications.models import UserChannelBinding
 
 if TYPE_CHECKING:
-    from accounts.models import User
     from notifications.models import Notification, NotificationDelivery
 
 logger = logging.getLogger(__name__)
@@ -27,15 +25,6 @@ logger = logging.getLogger(__name__)
 class EmailChannel(NotificationChannel):
     channel_type = ChannelType.EMAIL
     display_name = _("Email")
-
-    def resolve_address(self, user: User) -> str | None:
-        binding = (
-            UserChannelBinding.objects
-            .filter(user=user, channel_type=self.channel_type, is_verified=True)
-            .order_by("-modified")
-            .first()
-        )
-        return binding.address if binding else None
 
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
         from core.utils import build_absolute_url, prefixed_email_subject

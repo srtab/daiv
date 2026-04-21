@@ -7,8 +7,15 @@ from django.utils import timezone
 import httpx
 import pytest
 from notifications.channels.registry import get_channel
-from notifications.channels.rocketchat import RocketChatChannel, RocketChatPermanentError, _rc_post, verify_username
+from notifications.channels.rocketchat import (
+    RocketChatChannel,
+    RocketChatPermanentError,
+    _rc_post,
+    _RCClient,
+    verify_username,
+)
 from notifications.choices import ChannelType
+from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
 
 
@@ -41,57 +48,53 @@ class TestResolveAddress:
 
 
 class TestRcPost:
-    URL = "https://rc.example.com"
-    USER_ID = "botid"
-    TOKEN = "bottoken"  # noqa: S105 — test constant
+    CLIENT = _RCClient(url="https://rc.example.com", user_id="botid", token="bottoken")  # noqa: S106 — test constant
+    ENDPOINT = "https://rc.example.com/api/v1/chat.postMessage"
 
     def test_success_returns_parsed_body(self, httpx_mock):
         httpx_mock.add_response(
             method="POST",
-            url=f"{self.URL}/api/v1/chat.postMessage",
+            url=self.ENDPOINT,
             json={"success": True, "message": {"_id": "m1"}},
             status_code=200,
-            match_headers={"X-Auth-Token": self.TOKEN, "X-User-Id": self.USER_ID},
+            match_headers={"X-Auth-Token": self.CLIENT.token, "X-User-Id": self.CLIENT.user_id},
             match_json={"channel": "@alice", "text": "hi"},
         )
-        result = _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@alice", "text": "hi"})
+        result = _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@alice", "text": "hi"})
         assert result["success"] is True
 
     def test_4xx_raises_permanent_error(self, httpx_mock):
         httpx_mock.add_response(
             method="POST",
-            url=f"{self.URL}/api/v1/chat.postMessage",
+            url=self.ENDPOINT,
             json={"success": False, "error": "invalid-channel", "errorType": "error-invalid-channel"},
             status_code=400,
         )
         with pytest.raises(RocketChatPermanentError) as exc:
-            _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@nope", "text": "hi"})
+            _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@nope", "text": "hi"})
         assert "invalid-channel" in str(exc.value)
 
     def test_known_permanent_error_in_2xx_body_raises_permanent_error(self, httpx_mock):
         httpx_mock.add_response(
             method="POST",
-            url=f"{self.URL}/api/v1/chat.postMessage",
+            url=self.ENDPOINT,
             json={"success": False, "error": "user not found", "errorType": "error-user-not-found"},
             status_code=200,
         )
         with pytest.raises(RocketChatPermanentError):
-            _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@nope", "text": "hi"})
+            _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@nope", "text": "hi"})
 
     def test_5xx_raises_httpx_status_error(self, httpx_mock):
-        httpx_mock.add_response(method="POST", url=f"{self.URL}/api/v1/chat.postMessage", status_code=503)
+        httpx_mock.add_response(method="POST", url=self.ENDPOINT, status_code=503)
         with pytest.raises(httpx.HTTPStatusError):
-            _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@alice", "text": "hi"})
+            _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@alice", "text": "hi"})
 
     def test_unknown_failure_body_in_2xx_raises_generic_exception(self, httpx_mock):
         httpx_mock.add_response(
-            method="POST",
-            url=f"{self.URL}/api/v1/chat.postMessage",
-            json={"success": False, "error": "something else"},
-            status_code=200,
+            method="POST", url=self.ENDPOINT, json={"success": False, "error": "something else"}, status_code=200
         )
         with pytest.raises(Exception) as exc:
-            _rc_post(self.URL, self.USER_ID, self.TOKEN, "chat.postMessage", {"channel": "@alice", "text": "hi"})
+            _rc_post(self.CLIENT, "chat.postMessage", {"channel": "@alice", "text": "hi"})
         assert not isinstance(exc.value, RocketChatPermanentError)
 
 
@@ -138,8 +141,6 @@ class TestVerifyUsername:
 @pytest.mark.django_db
 class TestSend:
     def test_happy_path_posts_to_user_dm(self, httpx_mock, notification_with_delivery):
-        from notifications.exceptions import UnrecoverableDeliveryError  # noqa: F401
-
         n, d = notification_with_delivery
         d.channel_type = ChannelType.ROCKETCHAT
         d.address = "alice"
@@ -167,8 +168,6 @@ class TestSend:
         assert "Subject" in body["text"] and "Body line" in body["text"]
 
     def test_missing_configuration_raises_unrecoverable(self, notification_with_delivery):
-        from notifications.exceptions import UnrecoverableDeliveryError
-
         n, d = notification_with_delivery
         d.channel_type = ChannelType.ROCKETCHAT
         d.address = "alice"
@@ -182,8 +181,6 @@ class TestSend:
         assert "not configured" in str(exc.value)
 
     def test_permanent_rc_error_raises_unrecoverable(self, httpx_mock, notification_with_delivery):
-        from notifications.exceptions import UnrecoverableDeliveryError
-
         n, d = notification_with_delivery
         d.channel_type = ChannelType.ROCKETCHAT
         d.address = "nope"
