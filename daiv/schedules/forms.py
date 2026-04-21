@@ -3,7 +3,7 @@ from django import forms
 from activity.forms import AgentRunFieldsMixin
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
 
 class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
@@ -62,3 +62,34 @@ class ScheduledJobUpdateForm(ScheduledJobCreateForm):
 
     class Meta(ScheduledJobCreateForm.Meta):
         fields = [*ScheduledJobCreateForm.Meta.fields, "is_enabled"]
+
+
+class ScheduleTemplateForm(forms.ModelForm):
+    """Admin form for creating/editing schedule templates."""
+
+    class Meta:
+        model = ScheduleTemplate
+        fields = [
+            "name",
+            "description",
+            "prompt",
+            "repo_id",
+            "ref",
+            "frequency",
+            "cron_expression",
+            "time",
+            "use_max",
+            "notify_on",
+        ]
+
+    def _clean_conditional_fields(self, cleaned_data: dict) -> dict:
+        frequency = cleaned_data.get("frequency")
+        if frequency != Frequency.CUSTOM:
+            cleaned_data["cron_expression"] = ""
+        if frequency in (Frequency.HOURLY, Frequency.CUSTOM):
+            cleaned_data["time"] = None
+        return cleaned_data
+
+    def clean(self):
+        cleaned_data = super().clean()
+        return self._clean_conditional_fields(cleaned_data)
