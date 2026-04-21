@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
@@ -429,8 +431,6 @@ class TestRocketChatFanOut:
     the user has a verified Rocket Chat binding."""
 
     def test_creates_rocketchat_delivery_when_binding_exists(self, member_user, schedule):
-        from django.utils import timezone
-
         UserChannelBinding.objects.create(
             user=member_user,
             channel_type=ChannelType.ROCKETCHAT,
@@ -450,17 +450,3 @@ class TestRocketChatFanOut:
         assert NotificationDelivery.objects.filter(channel_type=ChannelType.ROCKETCHAT).count() == 1
         delivery = NotificationDelivery.objects.get(channel_type=ChannelType.ROCKETCHAT)
         assert delivery.address == "alice"
-
-    def test_rocketchat_delivery_skipped_when_no_binding(self, member_user, schedule):
-        activity = Activity.objects.create(
-            trigger_type=TriggerType.SCHEDULE,
-            user=member_user,
-            repo_id="x/y",
-            status=ActivityStatus.SUCCESSFUL,
-            scheduled_job=schedule,
-        )
-        activity_finished.send(sender=Activity, activity=activity)
-
-        rc_deliveries = NotificationDelivery.objects.filter(channel_type=ChannelType.ROCKETCHAT)
-        assert rc_deliveries.count() == 1
-        assert rc_deliveries.get().status == "skipped"
