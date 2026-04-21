@@ -4,13 +4,14 @@
 <div x-data='templateGallery()'
      @open-template-gallery.window="open = true"
      @keydown.escape.window="if (open) close()"
-     x-cloak>
-    <div x-show="open" class="fixed inset-0 z-30">
-        <div x-show="open" x-transition.opacity
-             @click="close()"
-             class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+     x-show="open"
+     x-cloak
+     class="fixed inset-0 z-30">
+    <div x-show="open" x-transition.opacity
+         @click="close()"
+         class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
 
-        <aside x-show="open"
+    <aside x-show="open"
                x-transition:enter="transition duration-200 ease-out"
                x-transition:enter-start="translate-x-full"
                x-transition:enter-end="translate-x-0"
@@ -104,7 +105,6 @@
                 </p>
             </div>
         </aside>
-    </div>
 </div>
 
 <script>

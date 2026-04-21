@@ -86,3 +86,56 @@ class TestScheduleTemplateFrequencySummary:
         # should never raise on a partially-constructed instance.
         tpl = self._make(frequency=Frequency.DAILY, time=None)
         assert tpl.frequency_summary == "Daily"
+
+
+@pytest.mark.django_db
+class TestScheduleTemplateToPickerDict:
+    """`ScheduleTemplate.to_picker_dict` returns the exact shape the gallery consumes."""
+
+    def _make_tpl(self, **kwargs):
+        defaults = {
+            "name": "Nightly scan",
+            "description": "Audit the codebase.",
+            "prompt": "Scan for issues.",
+            "repo_id": "owner/repo",
+            "ref": "main",
+            "frequency": Frequency.DAILY,
+            "time": time(2, 0),
+            "notify_on": NotifyOn.ALWAYS,
+            "use_max": True,
+        }
+        defaults.update(kwargs)
+        return ScheduleTemplate.objects.create(**defaults)
+
+    def test_keys(self):
+        tpl = self._make_tpl()
+        row = tpl.to_picker_dict()
+        assert set(row.keys()) == {
+            "id",
+            "name",
+            "description",
+            "repo_id",
+            "ref",
+            "frequency_display",
+            "frequency_summary",
+            "notify_on_display",
+            "use_max",
+        }
+
+    def test_excludes_prompt(self):
+        # The prompt can be large and is never rendered in the gallery — it
+        # flows through the server-side ``?template=<id>`` prefill path.
+        tpl = self._make_tpl()
+        assert "prompt" not in tpl.to_picker_dict()
+
+    def test_values(self):
+        tpl = self._make_tpl(name="Weekly audit", repo_id="", ref="", use_max=False)
+        row = tpl.to_picker_dict()
+        assert row["id"] == tpl.id
+        assert row["name"] == "Weekly audit"
+        assert row["repo_id"] == ""
+        assert row["ref"] == ""
+        assert row["use_max"] is False
+        assert row["frequency_display"] == "Daily"
+        assert row["frequency_summary"] == "Daily at 02:00"
+        assert row["notify_on_display"] == "Always"

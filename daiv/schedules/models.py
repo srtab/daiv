@@ -173,6 +173,18 @@ class ScheduleTemplate(TimeStampedModel):
         "use_max",
         "notify_on",
     )
+    PICKER_FIELDS = (
+        "id",
+        "name",
+        "description",
+        "repo_id",
+        "ref",
+        "frequency",
+        "cron_expression",
+        "time",
+        "use_max",
+        "notify_on",
+    )
 
     name = models.CharField(_("name"), max_length=200, unique=True)
     description = models.TextField(_("description"), blank=True, default="")
@@ -242,3 +254,21 @@ class ScheduleTemplate(TimeStampedModel):
         if self.time is not None:
             return _("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")}
         return label
+
+    def to_picker_dict(self) -> dict:
+        """Serialize into the JSON shape the gallery drawer consumes.
+
+        Deliberately excludes ``prompt`` — the gallery shows the description only;
+        the prompt flows through the server-side ``?template=<id>`` prefill path.
+        """
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "repo_id": self.repo_id,
+            "ref": self.ref,
+            "frequency_display": self.get_frequency_display(),
+            "frequency_summary": self.frequency_summary,
+            "notify_on_display": self.get_notify_on_display(),
+            "use_max": self.use_max,
+        }
