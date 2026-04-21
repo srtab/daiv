@@ -95,3 +95,38 @@ class TestTemplateDeleteSafety:
         admin_client.post(reverse("schedule_template_delete", args=[template.pk]))
         assert not ScheduleTemplate.objects.filter(pk=template.pk).exists()
         assert ScheduledJob.objects.filter(pk=schedule.pk).exists()
+
+
+@pytest.mark.django_db
+class TestScheduleCreatePrefill:
+    def test_unknown_template_pk_is_ignored(self, member_client):
+        response = member_client.get(reverse("schedule_create") + "?template=99999")
+        assert response.status_code == 200
+
+    def test_non_integer_template_pk_is_ignored(self, member_client):
+        response = member_client.get(reverse("schedule_create") + "?template=abc")
+        assert response.status_code == 200
+
+    def test_valid_template_prefills_form(self, member_client, template):
+        response = member_client.get(reverse("schedule_create") + f"?template={template.pk}")
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert template.name in body
+        assert template.prompt in body
+        assert template.repo_id in body
+
+    def test_picker_hidden_when_no_templates(self, member_client):
+        ScheduleTemplate.objects.all().delete()
+        response = member_client.get(reverse("schedule_create"))
+        assert "Start from template" not in response.content.decode()
+
+    def test_picker_shown_when_templates_exist(self, member_client, template):
+        response = member_client.get(reverse("schedule_create"))
+        assert "Start from template" in response.content.decode()
+
+    def test_picker_hidden_on_edit(self, member_client, member_user, template):
+        schedule = ScheduledJob.objects.create(
+            user=member_user, name="X", prompt="p", repo_id="a/b", frequency=Frequency.DAILY, time=time(9, 0)
+        )
+        response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+        assert "Start from template" not in response.content.decode()

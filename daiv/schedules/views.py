@@ -57,14 +57,49 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     success_message = "Schedule '%(name)s' created."
     breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "New schedule", "url": None}]
 
+    TEMPLATE_FIELDS = (
+        "name",
+        "prompt",
+        "repo_id",
+        "ref",
+        "frequency",
+        "cron_expression",
+        "time",
+        "use_max",
+        "notify_on",
+    )
+
+    def _get_template(self) -> ScheduleTemplate | None:
+        pk = self.request.GET.get("template")
+        if not pk:
+            return None
+        try:
+            return ScheduleTemplate.objects.get(pk=int(pk))
+        except ScheduleTemplate.DoesNotExist, ValueError:
+            return None
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         return kwargs
 
+    def get_initial(self):
+        initial = super().get_initial()
+        tpl = self._get_template()
+        if tpl is not None:
+            for field in self.TEMPLATE_FIELDS:
+                initial[field] = getattr(tpl, field)
+        return initial
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
+        templates = list(ScheduleTemplate.objects.all().only("id", "name", "description"))
+        context["schedule_templates"] = templates
+        context["template_picker_json"] = json.dumps([
+            {"id": t.pk, "name": t.name, "description": t.description} for t in templates
+        ])
+        context["selected_template_id"] = self.request.GET.get("template", "")
         return context
 
     def form_valid(self, form):
