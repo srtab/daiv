@@ -299,3 +299,50 @@ class TestScheduleCreateViewTemplateContext:
         response = member_client.get(reverse("schedule_create"))
         assert response.status_code == 200
         assert response.context["schedule_templates"] == []
+
+
+@pytest.mark.django_db
+class TestScheduleFormGalleryWiring:
+    """The create form renders the gallery trigger when templates exist."""
+
+    @pytest.fixture
+    def tpl(self, admin_user):
+        return ScheduleTemplate.objects.create(
+            name="Nightly scan",
+            description="Runs nightly.",
+            prompt="Scan.",
+            frequency=Frequency.DAILY,
+            time=time(2, 0),
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+
+    def test_create_renders_trigger_and_gallery_when_templates_exist(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_create"))
+        body = response.content.decode()
+        assert "schedule-templates-data" in body
+        assert "Browse templates" in body
+        assert "open-template-gallery" in body
+
+    def test_create_omits_trigger_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        body = response.content.decode()
+        assert "schedule-templates-data" not in body
+        assert "Browse templates" not in body
+
+    def test_edit_omits_trigger_and_gallery(self, member_client, member_user, tpl):
+        schedule = ScheduledJob(
+            user=member_user,
+            name="Existing",
+            prompt="Hi.",
+            repo_id="o/r",
+            frequency=Frequency.DAILY,
+            time=time(3, 0),
+            notify_on=NotifyOn.NEVER,
+        )
+        schedule.compute_next_run()
+        schedule.save()
+        response = member_client.get(reverse("schedule_update", kwargs={"pk": schedule.pk}))
+        body = response.content.decode()
+        assert "schedule-templates-data" not in body
+        assert "Browse templates" not in body
