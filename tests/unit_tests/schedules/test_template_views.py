@@ -213,7 +213,7 @@ class TestScheduleTemplateFormConditionalClean:
 
 @pytest.mark.django_db
 class TestScheduleCreateViewTemplateContext:
-    """`ScheduleCreateView` exposes the full picker payload, not just name+id+description."""
+    """`ScheduleCreateView` serializes templates via `to_picker_dict`."""
 
     @pytest.fixture
     def tpl(self, admin_user):

@@ -173,6 +173,9 @@ class ScheduleTemplate(TimeStampedModel):
         "use_max",
         "notify_on",
     )
+    # Coupled to ``to_picker_dict()``: every field read there must be in this
+    # tuple or ``.only(*PICKER_FIELDS)`` queries will trigger a deferred-field
+    # fetch per row. ``prompt`` is deliberately excluded.
     PICKER_FIELDS = (
         "id",
         "name",
@@ -248,12 +251,12 @@ class ScheduleTemplate(TimeStampedModel):
         """Human-readable one-line cadence for the picker preview."""
         label = self.get_frequency_display()
         if self.frequency == Frequency.HOURLY:
-            return _("Every hour")
+            return str(_("Every hour"))
         if self.frequency == Frequency.CUSTOM:
-            return _("Custom: %(cron)s") % {"cron": self.cron_expression}
+            return str(_("Custom: %(cron)s") % {"cron": self.cron_expression})
         if self.time is not None:
-            return _("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")}
-        return label
+            return str(_("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")})
+        return str(label)
 
     def to_picker_dict(self) -> dict:
         """Serialize into the JSON shape the gallery drawer consumes.

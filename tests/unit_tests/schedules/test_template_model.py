@@ -123,8 +123,6 @@ class TestScheduleTemplateToPickerDict:
         }
 
     def test_excludes_prompt(self):
-        # The prompt can be large and is never rendered in the gallery — it
-        # flows through the server-side ``?template=<id>`` prefill path.
         tpl = self._make_tpl()
         assert "prompt" not in tpl.to_picker_dict()
 

@@ -40,11 +40,7 @@ def _subscriber_initial_json(schedule) -> str:
 
 
 def _template_picker_payload() -> list[dict]:
-    """Build the gallery drawer's embedded JSON payload from all templates.
-
-    ``.only(*PICKER_FIELDS)`` keeps the ``prompt`` TextField (which can be
-    large) out of the query result — it is never rendered in the gallery.
-    """
+    """Build the gallery drawer's embedded JSON payload from all templates."""
     return [t.to_picker_dict() for t in ScheduleTemplate.objects.only(*ScheduleTemplate.PICKER_FIELDS)]
 
 

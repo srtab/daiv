@@ -389,7 +389,6 @@ class TestScheduleListViewGalleryWiring:
     def test_empty_state_shows_template_cta_when_templates_exist(self, member_client, tpl):
         response = member_client.get(reverse("schedule_list"))
         body = response.content.decode()
-        # Empty state text stays; the new CTA appears alongside the Create button.
         assert "No scheduled jobs yet" in body
         assert "Start from template" in body
 
@@ -398,3 +397,12 @@ class TestScheduleListViewGalleryWiring:
         body = response.content.decode()
         assert "No scheduled jobs yet" in body
         assert "Start from template" not in body
+
+    def test_gallery_apply_url_matches_prefill_contract(self, member_client, tpl):
+        # Pins the gallery <-> prefill contract: the drawer's "Use this template"
+        # anchor must navigate to the URL that ScheduleCreateView's ?template=<id>
+        # prefill path accepts. Renamed params or routes would break both sides
+        # silently without this assertion.
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert f"{reverse('schedule_create')}?template=${{tpl.id}}" in body
