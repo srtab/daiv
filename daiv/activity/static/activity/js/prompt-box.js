@@ -1,44 +1,50 @@
 /**
- * Keeps the hidden <input> elements in sync with the visible chip row via
- * ``:value`` bindings; those hidden inputs carry the actual POST payload.
+ * Thin Alpine state shell for the prompt box.
+ *
+ * Owns the chip list (`repos`), the use-max toggle, and the open/close state
+ * of the HTMX-driven repo/branch pickers. The list contents themselves are
+ * server-rendered into `#repo-picker-list` / `#branch-picker-list` and attach
+ * back into this component's state via `@click="setRepo(...)"` / `setBranch(...)`
+ * — Alpine's MutationObserver picks those directives up when HTMX swaps them in.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("promptBox", ({ initialSlug = "", initialRef = "", initialUseMax = false, maxRepos = 1 }) => ({
         repos: initialSlug ? [{ slug: initialSlug, ref: initialRef || "" }] : [],
         useMax: initialUseMax,
         maxRepos,
-        mode: null, // 'add' | 'edit' | null
+
+        // 'repo' | 'branch' | null
+        popover: null,
+        // Index of the chip being edited, or null for an 'add' action.
         editingIndex: null,
-        draft: { slug: "", ref: "" },
 
-        openEdit(index) {
-            this.draft = { ...this.repos[index] };
+        openRepoPicker(index = null) {
             this.editingIndex = index;
-            this.mode = "edit";
+            this.popover = "repo";
         },
 
-        openAdd() {
-            this.draft = { slug: "", ref: "" };
+        openBranchPicker(index) {
+            if (index == null || !this.repos[index]) return;
+            this.editingIndex = index;
+            this.popover = "branch";
+        },
+
+        closePopover() {
+            this.popover = null;
             this.editingIndex = null;
-            this.mode = "add";
         },
 
-        commit() {
-            const slug = (this.draft.slug || "").trim();
-            if (!slug) return;
-            const entry = { slug, ref: (this.draft.ref || "").trim() };
-            if (this.mode === "add") {
-                this.repos.push(entry);
-            } else if (this.mode === "edit" && this.editingIndex !== null) {
-                this.repos.splice(this.editingIndex, 1, entry);
-            }
-            this.cancel();
+        setRepo(slug, defaultBranch) {
+            const entry = { slug, ref: defaultBranch || "" };
+            if (this.editingIndex === null) this.repos.push(entry);
+            else this.repos.splice(this.editingIndex, 1, entry);
+            this.closePopover();
         },
 
-        cancel() {
-            this.mode = null;
-            this.editingIndex = null;
-            this.draft = { slug: "", ref: "" };
+        setBranch(ref) {
+            if (this.editingIndex == null) return;
+            this.repos[this.editingIndex].ref = ref;
+            this.closePopover();
         },
 
         remove(index) {
