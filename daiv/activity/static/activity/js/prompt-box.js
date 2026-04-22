@@ -24,9 +24,27 @@ document.addEventListener("alpine:init", () => {
 
         popover: null,
         editingIndex: null,
+        repoLoading: false,
+        branchLoading: false,
+
+        init() {
+            this.$el.addEventListener("htmx:beforeRequest", (e) => {
+                if (e.target === this.$refs.repoSearch) this.repoLoading = true;
+                if (e.target === this.$refs.branchSearch) this.branchLoading = true;
+            });
+            this.$el.addEventListener("htmx:afterSwap", (e) => {
+                if (e.target === this.$refs.repoPickerList) this.repoLoading = false;
+                if (e.target === this.$refs.branchPickerList) this.branchLoading = false;
+            });
+            this.$el.addEventListener("htmx:sendError", (e) => {
+                if (e.target === this.$refs.repoSearch) this.repoLoading = false;
+                if (e.target === this.$refs.branchSearch) this.branchLoading = false;
+            });
+        },
 
         openRepoPicker(index = null) {
             this.editingIndex = index;
+            this.repoLoading = true;
             this.popover = "repo";
             this.$nextTick(() => this._refresh(this.$refs.repoSearch));
         },
@@ -35,6 +53,7 @@ document.addEventListener("alpine:init", () => {
             const repo = this.repos[index];
             if (!repo) return;
             this.editingIndex = index;
+            this.branchLoading = true;
             this.popover = "branch";
             // Slug goes into a <path:slug> Django converter that accepts '/', so we leave the
             // separator unencoded — nginx's default `allow_encoded_slashes off` would 404 on %2F.

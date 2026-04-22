@@ -110,7 +110,28 @@
                hx-sync="this:abort"
                hx-target="#repo-picker-list"
                class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
-        <div id="repo-picker-list" class="max-h-60 overflow-auto"></div>
+        <div x-show="repoLoading" class="animate-pulse py-1">
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-3/5"></div>
+            </div>
+            <div class="px-3 py-2">
+                <div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            </div>
+        </div>
+        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="max-h-60 overflow-auto"></div>
     </div>
 
     <div x-show="popover === 'branch'" x-cloak
@@ -125,7 +146,15 @@
                hx-sync="this:abort"
                hx-target="#branch-picker-list"
                class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
-        <div id="branch-picker-list" class="max-h-60 overflow-auto"></div>
+        <div x-show="branchLoading" class="animate-pulse py-1">
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/5"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div></div>
+        </div>
+        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
     </div>
 
     <input type="hidden" name="repo_id"
