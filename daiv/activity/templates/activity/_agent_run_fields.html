@@ -8,26 +8,21 @@
      })"
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
-    {# Visually-hidden label for accessibility #}
     <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
 
-    {# Auto-growing prompt textarea #}
     <textarea name="prompt" id="id_prompt" rows="3" required
               x-ref="prompt"
               @input="autosize($el)"
-              x-init="autosize($refs.prompt)"
+              x-init="$nextTick(() => autosize($refs.prompt))"
               @keydown.meta.enter.prevent="$el.form?.requestSubmit()"
               @keydown.ctrl.enter.prevent="$el.form?.requestSubmit()"
               placeholder="{% trans 'Describe what the agent should do in each run...' %}"
               class="block w-full resize-none !border-0 !bg-transparent !px-5 !pt-4 !pb-3 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0">{{ form.prompt.value|default:'' }}</textarea>
 
-    {# Hairline divider between textarea and toolbar #}
     <div class="border-t border-white/[0.05]"></div>
 
-    {# Bottom toolbar: chips on the left, Max switch on the right #}
     <div class="flex items-center justify-between gap-3 px-3 py-2">
 
-        {# Repo chip row #}
         <div class="flex flex-wrap items-center gap-1.5">
             <template x-for="(repo, index) in repos" :key="index">
                 <span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] py-1 pl-2.5 pr-1 text-[13px] font-medium text-gray-300">
@@ -53,7 +48,6 @@
                 </span>
             </template>
 
-            {# + Add repo — solid when empty (required), dashed ghost once a repo exists #}
             <button type="button"
                     x-show="repos.length < maxRepos"
                     @click="openAdd()"
@@ -68,7 +62,6 @@
             </button>
         </div>
 
-        {# Max switch — label wraps a real checkbox so screen-readers/form submit behave natively #}
         <label class="inline-flex shrink-0 cursor-pointer items-center gap-2 text-[13px] text-gray-400"
                title="{% trans 'More capable model with thinking set to high.' %}">
             <span>{% trans "Max" %}</span>
@@ -77,39 +70,39 @@
                 <span class="absolute left-[2px] top-[2px] h-[14px] w-[14px] rounded-full bg-white transition-all"
                       :class="useMax && '!left-[14px] !bg-[#030712]'"></span>
             </span>
-            {# Hidden false sentinel + real checkbox so "unchecked" POSTs as false #}
+            {# Hidden sentinel pairs with the checkbox so unchecked POSTs as false. #}
             <input type="hidden" name="use_max" value="false">
             <input type="checkbox" name="use_max" value="true" x-model="useMax"
                    {% if form.use_max.value %}checked{% endif %} class="sr-only">
         </label>
     </div>
 
-    {# Popover: add / edit repo. Rendered only when editingIndex !== null. #}
-    <div x-show="editingIndex !== null" x-cloak
-         @click.outside="cancel()"
-         @keydown.escape.window="cancel()"
-         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-4 shadow-lg">
-        <div x-data="repoSearch(draft.slug)"
-             x-init="$watch('selected', v => draft.slug = v || '')">
-            <label class="block text-[13px] font-medium text-gray-400">{% trans "Repository" %}</label>
-            <div class="relative mt-1.5">
-                {% include "codebase/_repo_combobox.html" %}
+    {# x-if (not x-show) so the nested repoSearch component's timer/AbortController are torn down on close. #}
+    <template x-if="mode !== null">
+        <div @click.outside="cancel()"
+             @keydown.escape.window="cancel()"
+             class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-4 shadow-lg">
+            <div x-data="repoSearch(draft.slug)"
+                 x-init="$watch('selected', v => draft.slug = v || '')">
+                <label class="block text-[13px] font-medium text-gray-400">{% trans "Repository" %}</label>
+                <div class="relative mt-1.5">
+                    {% include "codebase/_repo_combobox.html" %}
+                </div>
+            </div>
+            <label for="id_popover_ref" class="mt-3 block text-[13px] font-medium text-gray-400">{% trans "Branch / ref" %}</label>
+            <input type="text" id="id_popover_ref" x-model="draft.ref"
+                   placeholder="{% trans 'Default branch' %}"
+                   @keydown.enter.prevent="commit()"
+                   class="mt-1.5">
+            <div class="mt-3 flex justify-end gap-2">
+                <button type="button" @click="cancel()"
+                        class="btn-secondary !px-3 !py-1.5 !text-[13px]">{% trans "Cancel" %}</button>
+                <button type="button" @click="commit()"
+                        class="btn-primary !px-3 !py-1.5 !text-[13px]">{% trans "Save" %}</button>
             </div>
         </div>
-        <label for="id_popover_ref" class="mt-3 block text-[13px] font-medium text-gray-400">{% trans "Branch / ref" %}</label>
-        <input type="text" id="id_popover_ref" x-model="draft.ref"
-               placeholder="{% trans 'Default branch' %}"
-               @keydown.enter.prevent="commit()"
-               class="mt-1.5">
-        <div class="mt-3 flex justify-end gap-2">
-            <button type="button" @click="cancel()"
-                    class="btn-secondary !px-3 !py-1.5 !text-[13px]">{% trans "Cancel" %}</button>
-            <button type="button" @click="commit()"
-                    class="btn-primary !px-3 !py-1.5 !text-[13px]">{% trans "Save" %}</button>
-        </div>
-    </div>
+    </template>
 
-    {# Hidden inputs: POST contract. Server renders initial values; Alpine :value keeps them in sync. #}
     <input type="hidden" name="repo_id"
            value="{{ form.repo_id.value|default:'' }}"
            :value="repos[0]?.slug || ''">
@@ -117,7 +110,7 @@
            value="{{ form.ref.value|default:'' }}"
            :value="repos[0]?.ref || ''">
 
-    {# Required-repo guard: empty string → browser blocks submit. Django ignores unknown name. #}
+    {# sr-only required input: browser blocks submit when empty; Django ignores the `__`-prefixed name. #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"
@@ -125,7 +118,6 @@
            :value="repos.length > 0 ? 'ok' : ''">
 </div>
 
-{# Combined error list below the box #}
 {% if form.prompt.errors or form.repo_id.errors or form.ref.errors %}
 <ul class="mt-2 space-y-1 text-sm text-red-400">
     {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
