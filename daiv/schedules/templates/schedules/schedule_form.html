@@ -5,10 +5,7 @@
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
-<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
-        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
-        crossorigin="anonymous"></script>
-<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 {% endblock %}
 
@@ -38,12 +35,6 @@
                   time: '{{ form.time.value|time:"H:i" }}',
                   get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
                   get showCron() { return this.frequency === 'custom' },
-                  get summary() {
-                      const labels = {hourly: 'every hour', daily: 'daily', weekdays: 'weekdays (Mon–Fri)', weekly: 'weekly (Monday)', custom: 'custom schedule'};
-                      let s = 'Runs ' + (labels[this.frequency] || this.frequency);
-                      if (this.showTime && this.time) s += ' at ' + this.time;
-                      return s;
-                  }
               }"
               class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
             {% csrf_token %}
@@ -58,12 +49,12 @@
                 {% endif %}
             </div>
 
-            <div class="mt-5">
+            <div class="mt-5 -mx-6 [&>div]:!rounded-none">
                 {% include "activity/_agent_run_fields.html" with form=form %}
             </div>
 
             <!-- Frequency + Time/Cron -->
-            <div class="mt-6 grid grid-cols-3 gap-4 space-y-4 border-t border-white/[0.06] pt-6">
+            <div class="mt-6 grid grid-cols-3 gap-4">
                 <div class="col-span-2">
                     <label class="block text-[15px] font-medium text-gray-400">Frequency</label>
                     <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
@@ -101,8 +92,7 @@
                 </div>
             </div>
 
-            <!-- Schedule summary -->
-            <p class="mt-4 text-sm text-blue-400/80" x-text="summary"></p>
+            <div class="mt-6 border-t border-white/[0.06]"></div>
 
             {% include "notifications/_notify_on_radio.html" with form=form %}
 

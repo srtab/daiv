@@ -91,6 +91,10 @@ class SWERepoClient(RepoClient):
         """
         raise NotImplementedError("SWERepoClient does not support listing repositories")
 
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """List branches is not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support listing branches")
+
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.

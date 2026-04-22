@@ -1,0 +1,19 @@
+{% load i18n %}
+{% if error %}
+<ul><li class="px-3 py-2 text-[15px] text-red-400">{% trans "Could not load branches." %}</li></ul>
+{% else %}
+<ul>
+{% for branch in branches %}
+  <li>
+    <button type="button"
+            class="combobox-option flex w-full items-center justify-between px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06]"
+            @click="setBranch('{{ branch|escapejs }}')">
+      <span class="text-white">{{ branch }}</span>
+      {% if branch == selected %}<span class="text-emerald-400">✓</span>{% endif %}
+    </button>
+  </li>
+{% empty %}
+  <li class="px-3 py-2 text-[15px] text-gray-400">{% trans "No branches found." %}</li>
+{% endfor %}
+</ul>
+{% endif %}
