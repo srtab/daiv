@@ -1,5 +1,6 @@
 {% load i18n %}
 {% url 'codebase:picker-repositories' as repo_picker_url %}
+{% url 'codebase:picker-branches' slug='__SLUG__' as branch_picker_template %}
 {% trans "Choose repository" as choose_repo_label %}
 {% trans "Search repositories..." as search_repos_placeholder %}
 {% trans "Search branches..." as search_branches_placeholder %}
@@ -84,28 +85,28 @@
         </label>
     </div>
 
-    {# Repo picker popover — HTMX loads the list on open and on input. #}
-    <div x-show="popover === 'repo'" x-cloak
-         @click.outside="closePopover()"
-         @keydown.escape.window="closePopover()"
-         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
-        <input type="search" name="q" autofocus
-               placeholder="{{ search_repos_placeholder }}"
-               hx-get="{{ repo_picker_url }}"
-               hx-trigger="load, input changed delay:200ms, search"
-               hx-target="#repo-picker-list"
-               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
-        <div id="repo-picker-list" class="max-h-60 overflow-auto"></div>
-    </div>
+    {# x-if (not x-show) so `load` re-fires on each open and the branch URL isn't evaluated with a stale/empty slug. #}
+    <template x-if="popover === 'repo'">
+        <div @click.outside="closePopover()"
+             @keydown.escape.window="closePopover()"
+             class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+            <input type="search" name="q" autofocus
+                   placeholder="{{ search_repos_placeholder }}"
+                   hx-get="{{ repo_picker_url }}"
+                   hx-trigger="load, input changed delay:200ms, search"
+                   hx-target="#repo-picker-list"
+                   class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+            <div id="repo-picker-list" class="max-h-60 overflow-auto"></div>
+        </div>
+    </template>
 
-    {# Branch picker popover — only rendered when a repo is selected so hx-get URL is well-formed. #}
     <template x-if="popover === 'branch' && editingIndex !== null && repos[editingIndex]">
         <div @click.outside="closePopover()"
              @keydown.escape.window="closePopover()"
              class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
             <input type="search" name="q" autofocus
                    placeholder="{{ search_branches_placeholder }}"
-                   :hx-get="'/codebase/pickers/repositories/' + repos[editingIndex].slug + '/branches/?selected=' + encodeURIComponent(repos[editingIndex].ref || '')"
+                   :hx-get="'{{ branch_picker_template }}'.replace('__SLUG__', repos[editingIndex].slug) + '?selected=' + encodeURIComponent(repos[editingIndex].ref || '')"
                    hx-trigger="load, input changed delay:200ms, search"
                    hx-target="#branch-picker-list"
                    class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">

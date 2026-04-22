@@ -13,9 +13,7 @@ document.addEventListener("alpine:init", () => {
         useMax: initialUseMax,
         maxRepos,
 
-        // 'repo' | 'branch' | null
         popover: null,
-        // Index of the chip being edited, or null for an 'add' action.
         editingIndex: null,
 
         openRepoPicker(index = null) {
@@ -24,7 +22,6 @@ document.addEventListener("alpine:init", () => {
         },
 
         openBranchPicker(index) {
-            if (index == null || !this.repos[index]) return;
             this.editingIndex = index;
             this.popover = "branch";
         },
