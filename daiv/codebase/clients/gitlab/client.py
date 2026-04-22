@@ -154,6 +154,21 @@ class GitLabClient(RepoClient):
                 break
         return repos
 
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names, optionally filtered by server-side substring ``search``.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        kwargs: dict[str, Any] = {"per_page": min(limit, 100)}
+        if search:
+            kwargs["search"] = search
+        names: list[str] = []
+        for branch in project.branches.list(iterator=True, **kwargs):
+            names.append(branch.name)
+            if len(names) >= limit:
+                break
+        return names
+
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.
