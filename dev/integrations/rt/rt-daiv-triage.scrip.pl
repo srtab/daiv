@@ -83,7 +83,7 @@ attachments, CustomFields), then:
    missing from the requester.
 
 When finished, post your report as an **internal comment** (not
-correspondence) on RT ticket $id using the RT MCP. Use markdown.
+correspondence) on RT ticket $id using the RT MCP. Use HTML.
 End with a one-line **Recommendation** (e.g. "assign to backend",
 "needs more info from requester").
 PROMPT
