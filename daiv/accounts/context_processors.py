@@ -71,7 +71,10 @@ def nav(request) -> dict[str, Any]:
     if user is None or not user.is_authenticated:
         return {}
 
+    from codebase.conf import settings as codebase_settings
+
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
         "nav_active_section": _resolve_active_section(request),
+        "git_platform": codebase_settings.CLIENT.value,
     }

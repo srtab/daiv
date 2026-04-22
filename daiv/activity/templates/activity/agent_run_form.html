@@ -41,10 +41,12 @@
 {% endif %}
 
 <form method="post"
-      class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+      class="animate-fade-up mt-8 overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
     {% csrf_token %}
 
-    {% include "activity/_agent_run_fields.html" with form=form %}
+    <div class="-mx-6 -mt-6 [&>div]:!rounded-b-none">
+        {% include "activity/_agent_run_fields.html" with form=form %}
+    </div>
 
     {% include "notifications/_notify_on_radio.html" with form=form %}
 

@@ -316,6 +316,16 @@ class TestGitLabClient:
         assert result[0].lines_added == 0  # failed commit gets zero stats
         assert result[1].lines_added == 5
 
+    def test_list_repositories_orders_by_last_activity_desc(self, gitlab_client):
+        """`list_repositories` passes ``order_by=last_activity_at, sort=desc`` so recent projects surface first."""
+        gitlab_client.client.projects.list.return_value = iter([])
+
+        gitlab_client.list_repositories()
+
+        _, kwargs = gitlab_client.client.projects.list.call_args
+        assert kwargs["order_by"] == "last_activity_at"
+        assert kwargs["sort"] == "desc"
+
     def test_list_branches_passes_search_and_per_page(self, gitlab_client):
         """`list_branches` forwards `search` and caps `per_page` at `limit`."""
         mock_project = Mock()
@@ -328,7 +338,9 @@ class TestGitLabClient:
 
         assert result == ["feat/one"]
         gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
-        mock_project.branches.list.assert_called_once_with(iterator=True, per_page=10, search="feat")
+        mock_project.branches.list.assert_called_once_with(
+            iterator=True, per_page=10, sort="updated_desc", search="feat"
+        )
 
     def test_list_branches_without_search_omits_search_kwarg(self, gitlab_client):
         """Omitting `search` means no `search=` is passed to GitLab (returns all)."""
@@ -338,7 +350,7 @@ class TestGitLabClient:
 
         gitlab_client.list_branches("group/repo")
 
-        mock_project.branches.list.assert_called_once_with(iterator=True, per_page=20)
+        mock_project.branches.list.assert_called_once_with(iterator=True, per_page=20, sort="updated_desc")
 
     def test_list_branches_respects_limit(self, gitlab_client):
         """Iterator yields more than `limit`; result is truncated to `limit`."""

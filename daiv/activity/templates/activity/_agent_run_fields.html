@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% url 'codebase:picker-repositories' as repo_picker_url %}
 {% url 'codebase:picker-branches' slug='__SLUG__' as branch_picker_template %}
 {% trans "Choose repository" as choose_repo_label %}
@@ -10,13 +10,15 @@
         initialSlug: '{{ form.repo_id.value|default:''|escapejs }}',
         initialRef: '{{ form.ref.value|default:''|escapejs }}',
         initialUseMax: {% if form.use_max.value %}true{% else %}false{% endif %},
-        maxRepos: 1
+        maxRepos: 1,
+        repoPickerUrl: '{{ repo_picker_url|escapejs }}',
+        branchPickerTemplate: '{{ branch_picker_template|escapejs }}'
      })"
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
     <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
 
-    <textarea name="prompt" id="id_prompt" rows="3" required
+    <textarea name="prompt" id="id_prompt" rows="6" required
               x-ref="prompt"
               @input="autosize($el)"
               x-init="$nextTick(() => autosize($refs.prompt))"
@@ -63,9 +65,15 @@
                     x-show="repos.length < maxRepos"
                     @click.stop="openRepoPicker()"
                     class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
-                </svg>
+                {% if git_platform == "github" %}
+                    {% icon "github" "h-3.5 w-3.5" %}
+                {% elif git_platform == "gitlab" %}
+                    {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
+                {% else %}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                    </svg>
+                {% endif %}
                 <span>{{ choose_repo_label }}</span>
             </button>
         </div>
@@ -85,34 +93,40 @@
         </label>
     </div>
 
-    {# x-if (not x-show) so `load` re-fires on each open and the branch URL isn't evaluated with a stale/empty slug. #}
-    <template x-if="popover === 'repo'">
-        <div @click.outside="closePopover()"
-             @keydown.escape.window="closePopover()"
-             class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
-            <input type="search" name="q" autofocus
-                   placeholder="{{ search_repos_placeholder }}"
-                   hx-get="{{ repo_picker_url }}"
-                   hx-trigger="load, input changed delay:200ms, search"
-                   hx-target="#repo-picker-list"
-                   class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
-            <div id="repo-picker-list" class="max-h-60 overflow-auto"></div>
-        </div>
-    </template>
+    {% comment %}
+    Both popovers stay in the DOM with hx-get pre-set so HTMX registers them during its
+    initial sweep. openBranchPicker rewrites the branch input's hx-get (via setAttribute)
+    before firing `refresh`, so the __SLUG__ placeholder is replaced with the real slug.
+    {% endcomment %}
+    <div x-show="popover === 'repo'" x-cloak
+         @click.outside="closePopover()"
+         @keydown.escape.window="closePopover()"
+         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+        <input type="search" name="q" autofocus
+               x-ref="repoSearch"
+               placeholder="{{ search_repos_placeholder }}"
+               hx-get="{{ repo_picker_url }}"
+               hx-trigger="refresh, input changed delay:200ms, search"
+               hx-sync="this:abort"
+               hx-target="#repo-picker-list"
+               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+        <div id="repo-picker-list" class="max-h-60 overflow-auto"></div>
+    </div>
 
-    <template x-if="popover === 'branch' && editingIndex !== null && repos[editingIndex]">
-        <div @click.outside="closePopover()"
-             @keydown.escape.window="closePopover()"
-             class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
-            <input type="search" name="q" autofocus
-                   placeholder="{{ search_branches_placeholder }}"
-                   :hx-get="'{{ branch_picker_template }}'.replace('__SLUG__', repos[editingIndex].slug) + '?selected=' + encodeURIComponent(repos[editingIndex].ref || '')"
-                   hx-trigger="load, input changed delay:200ms, search"
-                   hx-target="#branch-picker-list"
-                   class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
-            <div id="branch-picker-list" class="max-h-60 overflow-auto"></div>
-        </div>
-    </template>
+    <div x-show="popover === 'branch'" x-cloak
+         @click.outside="closePopover()"
+         @keydown.escape.window="closePopover()"
+         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+        <input type="search" name="q" autofocus
+               x-ref="branchSearch"
+               placeholder="{{ search_branches_placeholder }}"
+               hx-get="{{ branch_picker_template }}"
+               hx-trigger="refresh, input changed delay:200ms, search"
+               hx-sync="this:abort"
+               hx-target="#branch-picker-list"
+               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+        <div id="branch-picker-list" class="max-h-60 overflow-auto"></div>
+    </div>
 
     <input type="hidden" name="repo_id"
            value="{{ form.repo_id.value|default:'' }}"
