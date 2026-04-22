@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Redesigned the "Start a run" and schedule forms with a ChatGPT-style prompt box: auto-growing textarea, repository chips rendering `org/repo @ ref`, and an inline Max-mode toggle.
+- Reworked the prompt-box repository picker as a searchable popover listing all available repositories (no 2-char typing gate) and added an equivalent popover branch picker — clicking the branch chip opens a searchable list of the repo's branches instead of accepting free-text refs. Selecting a repo now auto-fills the chip with that repo's default branch.
 - Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
 - Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
