@@ -31,6 +31,7 @@ urlpatterns = [
     path("dashboard/runs/", include("activity.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/schedules/", include("schedules.urls")),
+    path("codebase/", include("codebase.urls")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
