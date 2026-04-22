@@ -1,6 +1,4 @@
 /**
- * Alpine component for the agent-run prompt box.
- *
  * Keeps the hidden <input> elements in sync with the visible chip row via
  * ``:value`` bindings; those hidden inputs carry the actual POST payload.
  */

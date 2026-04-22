@@ -1,4 +1,6 @@
 {% load i18n %}
+{% trans "Add repository" as add_repo_label %}
+{% trans "Add repo" as add_repo_short_label %}
 
 <div x-data="promptBox({
         initialSlug: '{{ form.repo_id.value|default:''|escapejs }}',
@@ -27,7 +29,7 @@
             <template x-for="(repo, index) in repos" :key="index">
                 <span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] py-1 pl-2.5 pr-1 text-[13px] font-medium text-gray-300">
                     <button type="button"
-                            @click="openEdit(index)"
+                            @click.stop="openEdit(index)"
                             :aria-label="'Edit ' + repo.slug + (repo.ref ? ' @ ' + repo.ref : '')"
                             class="inline-flex items-center gap-1.5 hover:text-white">
                         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -50,7 +52,7 @@
 
             <button type="button"
                     x-show="repos.length < maxRepos"
-                    @click="openAdd()"
+                    @click.stop="openAdd()"
                     :class="repos.length === 0
                               ? 'border-white/[0.08] bg-white/[0.05] text-gray-300 hover:bg-white/[0.08]'
                               : 'border-dashed border-white/[0.1] text-gray-400 hover:text-gray-300'"
@@ -58,7 +60,7 @@
                 <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 5v14M5 12h14"/>
                 </svg>
-                <span x-text="repos.length === 0 ? '{% trans 'Add repository' %}' : '{% trans 'Add repo' %}'"></span>
+                <span x-text="repos.length === 0 ? '{{ add_repo_label|escapejs }}' : '{{ add_repo_short_label|escapejs }}'"></span>
             </button>
         </div>
 
@@ -98,6 +100,7 @@
                 <button type="button" @click="cancel()"
                         class="btn-secondary !px-3 !py-1.5 !text-[13px]">{% trans "Cancel" %}</button>
                 <button type="button" @click="commit()"
+                        :disabled="!draft.slug?.trim()"
                         class="btn-primary !px-3 !py-1.5 !text-[13px]">{% trans "Save" %}</button>
             </div>
         </div>
@@ -110,7 +113,7 @@
            value="{{ form.ref.value|default:'' }}"
            :value="repos[0]?.ref || ''">
 
-    {# sr-only required input: browser blocks submit when empty; Django ignores the `__`-prefixed name. #}
+    {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"
