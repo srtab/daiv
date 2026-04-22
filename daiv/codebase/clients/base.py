@@ -61,6 +61,16 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names for ``repo_id``.
+
+        If ``search`` is provided, branches are filtered case-insensitively by substring.
+        Platforms that support server-side search use it; others filter client-side.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         pass
 
