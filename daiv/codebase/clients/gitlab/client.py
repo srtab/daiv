@@ -124,6 +124,7 @@ class GitLabClient(RepoClient):
         optional_kwargs: dict[str, Any] = {}
         if search:
             optional_kwargs["search"] = search
+            optional_kwargs["search_namespaces"] = True
         if topics:
             optional_kwargs["topic"] = ",".join(topics)
         if limit is not None:
