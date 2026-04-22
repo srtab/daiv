@@ -1,7 +1,7 @@
 """Render tests for ``activity/_agent_run_fields.html``.
 
-Alpine behavior (popover, autosize, chip interactions) is verified manually
-in the browser, not here.
+Alpine/HTMX behavior (popover opening, picker fetches, chip interactions) is
+verified manually in the browser, not here.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from activity.forms import AgentRunCreateForm
 
@@ -82,3 +83,28 @@ def test_hidden_inputs_escape_repo_id_and_ref():
     # Django autoescape converts " to &quot; inside attribute values:
     assert "&quot;" in _tag(html, "repo_id")
     assert "&quot;" in _tag(html, "ref")
+
+
+def test_empty_state_shows_choose_repository_button():
+    """With no repo bound, the chip row renders the 'Choose repository' empty-state button."""
+    form = AgentRunCreateForm(initial={"prompt": "p"})
+    html = _render(form)
+    assert "Choose repository" in html
+
+
+def test_repo_picker_popover_uses_picker_url():
+    """The repo popover's search input uses the picker-repositories URL, not the old JSON endpoint."""
+    form = AgentRunCreateForm(initial={"prompt": "p"})
+    html = _render(form)
+    assert reverse("codebase:picker-repositories") in html
+    # The old _repo_combobox.html partial must no longer be included.
+    assert "x-combobox" not in html
+
+
+def test_branch_picker_template_references_branches_url_prefix():
+    """The branch popover builds its hx-get URL in Alpine; the literal URL prefix must appear in the template."""
+    form = AgentRunCreateForm(initial={"prompt": "p", "repo_id": "acme/api", "ref": "main"})
+    html = _render(form)
+    # The branch popover concatenates the slug at runtime; only the literal prefix is server-rendered.
+    assert "/codebase/pickers/repositories/" in html
+    assert "/branches/" in html
