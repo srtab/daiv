@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added multi-repository support to scheduled jobs, UI runs, MCP `submit_job`, and REST `POST /jobs`. A single submission can target 1-20 repositories; each runs as its own independent agent job, correlated by a shared `batch_id`. Activities from the same submission are groupable via `?batch=<uuid>` on the activity list.
-- Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag. UI submissions share the existing API rate-limit budget.
+- Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
 - Added model fallback support to all subagents (general-purpose, explore, and custom). When the primary LLM provider is unavailable, subagents now automatically fall back to an alternate provider, matching the existing behavior of the main agent. Includes a new `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` setting (default: `gpt-5-4-mini`) configurable via the dashboard or environment variable.
 - Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
 - Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
@@ -42,7 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** MCP `submit_job` and REST `POST /jobs` now require a `repos: [{repo_id, ref}]` list (1-20 entries) instead of the scalar `repo_id` / `ref` fields. Responses return `{batch_id, jobs, failed}` in place of a bare `job_id`. Existing single-repo callers must migrate to the list shape.
 - Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
 - Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
