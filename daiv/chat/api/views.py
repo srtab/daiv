@@ -1,20 +1,22 @@
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from django.conf import settings as django_settings
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from langgraph.store.memory import InMemoryStore
 from ninja import Router
+from ninja.errors import HttpError
+from ninja.security import django_auth
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import build_langsmith_config
+from chat.models import ChatThread
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from core.checkpointer import open_checkpointer
 from core.site_settings import site_settings
 
 from .security import AuthBearer
@@ -47,8 +49,16 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         return stream_kwargs
 
 
-chat_router = Router(tags=["chat"])
+chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 models_router = Router(auth=AuthBearer(), tags=["models"])
+
+
+def _extract_first_user_message(input_data: RunAgentInput) -> str:
+    for message in input_data.messages:
+        content = getattr(message, "content", "")
+        if isinstance(content, str) and content.strip():
+            return content
+    return ""
 
 
 @chat_router.post(
@@ -62,42 +72,62 @@ models_router = Router(auth=AuthBearer(), tags=["models"])
     },
 )
 async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput):
-    """
-    This endpoint is used to create a chat completion for a given set of messages within the indexed codebase.
-
-    The main goal is to have an OpenAI compatible API to allow seamless integration with existing tools and services.
+    """Handle one AG-UI run. Implicit-creates the ChatThread on first sight for the
+    authenticated caller, enforces ownership thereafter, and rejects concurrent runs on
+    the same thread.
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
-
     if not repo_id or not ref:
         raise Http404("Repository ID or reference not found")
+
+    user = request.auth
+    thread_id = input_data.thread_id
+    run_id = input_data.run_id
+
+    thread = await ChatThread.objects.filter(thread_id=thread_id).afirst()
+    if thread is None:
+        thread = await ChatThread.objects.acreate(
+            user=user,
+            thread_id=thread_id,
+            repo_id=repo_id,
+            ref=ref,
+            title=_extract_first_user_message(input_data)[:120],
+        )
+    elif thread.user_id != user.id:
+        raise HttpError(403, "Thread not found")
+    elif thread.active_run_id:
+        raise HttpError(409, "A run is already in progress for this thread")
+
+    thread.active_run_id = run_id
+    await thread.asave(update_fields=["active_run_id", "last_active_at"])
 
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def event_generator():
-        async with (
-            AsyncRedisSaver.from_conn_string(
-                django_settings.DJANGO_REDIS_CHECKPOINT_URL,
-                ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
-            ) as checkpointer,
-            set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
-        ):
-            agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
-            langsmith_config = build_langsmith_config(
-                runtime_ctx,
-                trigger="chat",
-                model=site_settings.agent_model_name,
-                thinking_level=site_settings.agent_thinking_level,
-            )
-            langgraph_agent = RuntimeContextLangGraphAGUIAgent(
-                name="DAIV",
-                description="DAIV agent",
-                graph=agent,
-                config={"recursion_limit": 500, **langsmith_config},
-                runtime_context=runtime_ctx,
-            )
-            async for event in langgraph_agent.run(input_data):
-                yield encoder.encode(cast("BaseEvent", event))
+        try:
+            async with (
+                open_checkpointer() as checkpointer,
+                set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
+            ):
+                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+                langsmith_config = build_langsmith_config(
+                    runtime_ctx,
+                    trigger="chat",
+                    model=site_settings.agent_model_name,
+                    thinking_level=site_settings.agent_thinking_level,
+                )
+                langgraph_agent = RuntimeContextLangGraphAGUIAgent(
+                    name="DAIV",
+                    description="DAIV agent",
+                    graph=agent,
+                    config={"recursion_limit": 500, **langsmith_config},
+                    runtime_context=runtime_ctx,
+                )
+                async for event in langgraph_agent.run(input_data):
+                    yield encoder.encode(cast("BaseEvent", event))
+        finally:
+            thread.active_run_id = ""
+            await thread.asave(update_fields=["active_run_id", "last_active_at"])
 
     return StreamingHttpResponse(event_generator(), content_type=encoder.get_content_type())
