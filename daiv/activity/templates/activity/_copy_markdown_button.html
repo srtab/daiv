@@ -1,0 +1,39 @@
+{% load icon_tags %}
+{% comment %}
+Copies raw markdown from a `{{ value|json_script:source_id }}` element to the
+clipboard. Paired with json_script so we embed the authored markdown (not the
+rendered HTML) safely regardless of its contents.
+
+Context:
+- source_id: id of the json_script element holding the raw markdown.
+- label: button label in the idle state.
+{% endcomment %}
+<button type="button"
+        data-label="{{ label }}"
+        x-data="{
+            copied: false,
+            failed: false,
+            async copy() {
+                const el = document.getElementById('{{ source_id }}');
+                if (!el) return;
+                try {
+                    await navigator.clipboard.writeText(JSON.parse(el.textContent));
+                    this.copied = true;
+                    setTimeout(() => this.copied = false, 2000);
+                } catch (e) {
+                    console.error('Clipboard write failed', e);
+                    this.failed = true;
+                    setTimeout(() => this.failed = false, 2000);
+                }
+            }
+        }"
+        @click="copy()"
+        :aria-label="copied ? 'Copied to clipboard' : (failed ? 'Copy failed' : $el.dataset.label)"
+        class="btn-secondary gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors"
+        :class="copied ? '!border-emerald-800/50 !bg-emerald-900/20 !text-emerald-300'
+                       : (failed ? '!border-red-800/50 !bg-red-950/30 !text-red-300' : '')">
+    <span class="inline-flex" x-show="!copied && !failed">{% icon "clipboard-document" "h-4 w-4" %}</span>
+    <span class="inline-flex" x-show="copied" x-cloak>{% icon "check" "h-4 w-4" %}</span>
+    <span class="inline-flex" x-show="failed" x-cloak>{% icon "exclamation-triangle" "h-4 w-4" %}</span>
+    <span x-text="copied ? 'Copied' : (failed ? 'Copy failed' : $el.parentElement.dataset.label)">{{ label }}</span>
+</button>

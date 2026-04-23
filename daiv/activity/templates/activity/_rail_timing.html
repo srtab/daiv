@@ -1,0 +1,45 @@
+{% load activity_tags %}
+<section class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+    <h5 class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Timing</h5>
+    <ol class="relative mt-3 space-y-2 border-l border-white/[0.08] pl-4" aria-label="Run timeline">
+        <li class="relative text-sm">
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-black"></span>
+            <span class="text-gray-300">Created</span>
+            <span class="ml-1 text-xs text-gray-500">{{ activity.created_at|date:"H:i:s" }}</span>
+        </li>
+        <li class="relative text-sm">
+            {% if activity.started_at %}
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full {% if activity.status == 'RUNNING' %}bg-blue-400 animate-pulse{% else %}bg-emerald-400{% endif %} ring-2 ring-black"></span>
+            <span class="text-gray-300">Started</span>
+            <span class="ml-1 text-xs text-gray-500">{{ activity.started_at|date:"H:i:s" }}</span>
+            {% else %}
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-gray-600 ring-2 ring-black"></span>
+            <span class="text-gray-500">Started</span>
+            <span class="ml-1 text-xs text-gray-500">—</span>
+            {% endif %}
+        </li>
+        <li class="relative text-sm">
+            {% if activity.status == "SUCCESSFUL" %}
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-black"></span>
+            <span class="text-gray-300">Finished</span>
+            <span class="ml-1 text-xs text-gray-500">{{ activity.finished_at|date:"H:i:s" }}</span>
+            {% elif activity.status == "FAILED" %}
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-red-400 ring-2 ring-black"></span>
+            <span class="text-gray-300">Failed</span>
+            <span class="ml-1 text-xs text-gray-500">{{ activity.finished_at|date:"H:i:s" }}</span>
+            {% else %}
+            <span aria-hidden="true" class="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-gray-600 ring-2 ring-black"></span>
+            <span class="text-gray-500">Finished</span>
+            <span class="ml-1 text-xs text-gray-500">—</span>
+            {% endif %}
+        </li>
+    </ol>
+    <div class="mt-3 flex justify-between border-t border-white/[0.06] pt-3 text-sm">
+        <span class="text-gray-500">
+            {% if activity.status == "RUNNING" or activity.status == "READY" %}Elapsed{% else %}Duration{% endif %}
+        </span>
+        <span class="text-gray-300">
+            {% if activity.duration %}{{ activity.duration|duration }}{% else %}—{% endif %}
+        </span>
+    </div>
+</section>

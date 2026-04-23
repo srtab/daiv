@@ -1,0 +1,17 @@
+<div class="rounded-2xl border border-red-900/30 bg-red-950/20 p-6">
+    <h2 class="text-[15px] font-semibold text-red-300">Error</h2>
+    {% if activity.task_result and activity.task_result.exception_class_path %}
+    <p class="mt-3 text-[15px] font-medium text-red-300">{{ activity.task_result.exception_class_path }}</p>
+    {% if activity.task_result.traceback %}
+    <div class="mt-4 rounded-xl bg-black/30 p-4">
+        <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.task_result.traceback }}</pre>
+    </div>
+    {% endif %}
+    {% elif activity.error_message %}
+    <div class="mt-3 rounded-xl bg-black/30 p-4">
+        <pre class="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-red-300/80">{{ activity.error_message }}</pre>
+    </div>
+    {% else %}
+    <p class="mt-3 text-sm text-red-400/60">No error details available.</p>
+    {% endif %}
+</div>

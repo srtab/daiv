@@ -244,10 +244,16 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
 
     reason_label = result.denial_reason.value if result.denial_reason else "policy"
     matched = result.matched_rule or "unknown"
+    hint = (
+        " This capability is intentionally unavailable — do not rephrase or try synonyms. "
+        "The Git middleware commits and pushes file changes automatically at turn-end "
+        "(see the Git context section in the system prompt)."
+        if matched.startswith("git ")
+        else " This capability is intentionally unavailable — do not rephrase."
+    )
     return (
         f"error: Command blocked by policy ({reason_label}): "
-        f"the command or one of its sub-commands matches the rule '{matched}'. "
-        "Remove or replace the disallowed command segment and retry."
+        f"the command or one of its sub-commands matches the rule '{matched}'.{hint}"
     )
 
 

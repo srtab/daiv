@@ -1,110 +1,174 @@
-{% extends "base.html" %}
+{% extends "base_app.html" %}
 {% load static dashboard_tags i18n icon_tags %}
 
 {% block title %}Dashboard — DAIV{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-    {% include "accounts/_header.html" %}
+{% block app_content %}
+<!-- Title row with period filter -->
+<div class="animate-fade-up flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">Welcome back, {{ user.name|default:user.email }}</p>
+    </div>
+    <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+        {% for p in periods %}
+        <a href="?period={{ p.key }}"
+           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
+                  {% if p.key == current_period %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+            {{ p.label }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
 
-    <!-- Content -->
-    <main class="mx-auto max-w-5xl px-6 py-12">
-        <!-- Title row with period filter -->
-        <div class="animate-fade-up flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-500">Welcome back, {{ user.name|default:user.email }}</p>
+<!-- Agent Activity -->
+<section class="animate-fade-up mt-10" style="animation-delay: 100ms">
+    <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-2.5">
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+                {% icon "beaker" "h-3.5 w-3.5 text-gray-400" %}
             </div>
-            <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-                {% for p in periods %}
-                <a href="?period={{ p.key }}"
-                   class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200
-                          {% if p.key == current_period %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-500 hover:text-gray-300{% endif %}">
-                    {{ p.label }}
+            <h2 class="text-[15px] font-semibold tracking-tight text-gray-300">Agent Activity</h2>
+        </div>
+        <a href="{% url 'activity_list' %}" class="text-sm text-gray-400 transition-colors hover:text-gray-300">View all &rarr;</a>
+    </div>
+
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-6">
+        {# Hero numbers #}
+        <div class="grid grid-cols-2 gap-6 sm:grid-cols-5">
+            <div>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 150ms">{{ activity.total }}</p>
+                <p class="mt-2 text-sm text-gray-400">jobs processed</p>
+            </div>
+            <div>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight {{ activity.success_rate_raw|success_rate_color }}" style="animation-delay: 200ms">{{ activity.success_rate }}</p>
+                <p class="mt-2 text-sm text-gray-400">success rate</p>
+            </div>
+            <div>
+                <div class="flex items-baseline gap-2">
+                    <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-blue-400" style="animation-delay: 250ms">{{ activity.running }}</p>
+                    {% if activity.running %}<span class="pulse-dot mb-1 inline-block h-2.5 w-2.5 rounded-full bg-blue-400"></span>{% endif %}
+                </div>
+                <p class="mt-2 text-sm text-gray-400">running now</p>
+            </div>
+            <div>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 300ms">{{ activity.code_changes }}</p>
+                <p class="mt-2 text-sm text-gray-400">with code changes <span class="text-gray-500">({{ activity.code_changes_pct }})</span></p>
+            </div>
+            <div>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 350ms">{{ activity.avg_duration }}</p>
+                <p class="mt-2 text-sm text-gray-400">avg duration</p>
+            </div>
+        </div>
+
+        {# Outcome breakdown bar #}
+        {% if activity.segments %}
+        <div class="mt-6 border-t border-white/[0.04] pt-6">
+            <p class="mb-3 text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500">Outcome breakdown</p>
+
+            <div class="flex h-3 w-full overflow-hidden rounded-full bg-white/[0.03]">
+                {% for seg in activity.segments %}
+                <div class="animate-bar {{ seg.css }}" style="width: {{ seg.pct }}%; animation-delay: {{ forloop.counter0|add:"5" }}00ms"></div>
+                {% endfor %}
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+                {% for seg in activity.segments %}
+                {% if seg.url %}
+                <a href="{{ seg.url }}" class="group flex items-center gap-2 transition-colors">
+                {% else %}
+                <span class="flex items-center gap-2">
+                {% endif %}
+                    <span class="inline-block h-2.5 w-2.5 rounded-sm {{ seg.css }}"></span>
+                    <span class="text-sm text-gray-400 {% if seg.url %}group-hover:text-gray-300{% endif %}">{{ seg.label }}</span>
+                    <span class="text-sm font-semibold tabular-nums text-white">{{ seg.value }}</span>
+                {% if seg.url %}
                 </a>
+                {% else %}
+                </span>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>
+        {% endif %}
+    </div>
+</section>
 
-        <!-- Metrics: two-column layout -->
-        <div class="animate-fade-up mt-10 grid gap-6 sm:grid-cols-2" style="animation-delay: 150ms">
-            <!-- Agent Activity -->
-            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
-                <div class="flex items-center gap-2.5 pb-4">
-                    <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                        {% icon "beaker" "h-3.5 w-3.5 text-gray-400" %}
-                    </div>
-                    <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Agent Activity</h2>
-                </div>
-                <div class="space-y-0 divide-y divide-white/[0.04]">
-                    {% for counter in counters %}
-                    <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
-                        <span class="text-[13px] text-gray-500">{{ counter.label }}</span>
-                        <div class="text-right">
-                            <span class="text-[20px] font-bold tabular-nums leading-none {{ counter.value|success_rate_color }}">{{ counter.value }}</span>
-                            {% if counter.today %}
-                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
+<!-- Code Velocity -->
+{% if velocity %}
+<section class="animate-fade-up mt-10" style="animation-delay: 250ms">
+    <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-2.5">
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+                {% icon "chart-bar" "h-3.5 w-3.5 text-gray-400" %}
             </div>
+            <h2 class="text-[15px] font-semibold tracking-tight text-gray-300">Code Velocity</h2>
+        </div>
+        <span class="cursor-not-allowed text-sm text-gray-600/50" title="Available soon">View details &rarr;</span>
+    </div>
 
-            <!-- Code Velocity -->
-            {% if merge_counters %}
-            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
-                <div class="flex items-center gap-2.5 pb-4">
-                    <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                        {% icon "chart-bar" "h-3.5 w-3.5 text-gray-400" %}
-                    </div>
-                    <h2 class="text-[14px] font-semibold tracking-tight text-gray-300">Code Velocity</h2>
-                </div>
-                <div class="space-y-0 divide-y divide-white/[0.04]">
-                    {% for counter in merge_counters %}
-                    <div class="flex items-baseline justify-between py-3 first:pt-0 last:pb-0">
-                        <span class="flex items-center gap-1.5 text-[13px] text-gray-500">
-                            {{ counter.label }}
-                            {% if counter.tooltip %}
-                            <span class="group relative cursor-help">
-                                {% icon "information-circle" "h-3.5 w-3.5 text-gray-600 transition-colors group-hover:text-gray-400" %}
-                                <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-gray-900 px-3 py-2 text-[12px] font-normal leading-relaxed text-gray-300 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                                    {{ counter.tooltip }}
-                                </span>
-                            </span>
-                            {% endif %}
-                        </span>
-                        <div class="text-right">
-                            <span class="text-[20px] font-bold tabular-nums leading-none {% if not counter.plain %}{{ counter.value|success_rate_color }}{% endif %}">{{ counter.value }}</span>
-                            {% if counter.today %}
-                            <div class="mt-1 text-[11px] font-medium tabular-nums text-emerald-400/80">+{{ counter.today }} today</div>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-6">
+        {# Merges + lines changed #}
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-5">
+            <div class="sm:col-span-2">
+                <p class="animate-number text-[56px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 350ms">{{ velocity.total_merges }}</p>
+                <p class="mt-2 text-sm text-gray-400">merges into default branches</p>
             </div>
-            {% endif %}
+            <div class="sm:col-span-3">
+                <p class="mb-3 text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500">Lines changed</p>
+
+                <div class="flex items-center gap-3">
+                    <span class="w-14 text-right text-sm font-semibold tabular-nums text-emerald-400">+{{ velocity.lines_added }}</span>
+                    <div class="h-5 flex-1 overflow-hidden rounded-lg bg-white/[0.03]">
+                        <div class="animate-bar h-full rounded-lg bg-emerald-500/30" style="width: {{ velocity.lines_added_pct }}%; animation-delay: 500ms"></div>
+                    </div>
+                </div>
+                <div class="h-2"></div>
+                <div class="flex items-center gap-3">
+                    <span class="w-14 text-right text-sm font-semibold tabular-nums text-red-400">-{{ velocity.lines_removed }}</span>
+                    <div class="h-5 flex-1 overflow-hidden rounded-lg bg-white/[0.03]">
+                        <div class="animate-bar h-full rounded-lg bg-red-500/30" style="width: {{ velocity.lines_removed_pct }}%; animation-delay: 600ms"></div>
+                    </div>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">Net change: {% if velocity.net_lines >= 0 %}+{% endif %}{{ velocity.net_lines }} lines</p>
+            </div>
         </div>
 
-        <!-- Quick Links -->
-        <div class="animate-fade-up mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="animation-delay: 300ms">
-            {% if user.is_admin %}
-            {% url 'user_list' as users_url %}
-            {% if total_users %}{% blocktranslate with count=total_users asvar users_badge %}{{ count }} total{% endblocktranslate %}{% endif %}
-            {% include "accounts/_quick_link_card.html" with url=users_url icon="users" title="Users" description="Manage user accounts and roles." badge=users_badge %}
-            {% url 'site_configuration' as config_url %}
-            {% include "accounts/_quick_link_card.html" with url=config_url icon="cog-6-tooth" title="Configuration" description="Manage models, features, and API keys." %}
-            {% endif %}
-            {% url 'api_keys' as api_keys_url %}
-            {% if active_api_keys %}{% blocktranslate with count=active_api_keys asvar api_keys_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
-            {% include "accounts/_quick_link_card.html" with url=api_keys_url icon="key" title="API Keys" description="Manage API keys for programmatic access to DAIV." badge=api_keys_badge %}
-            {% url 'schedule_list' as schedules_url %}
-            {% if active_schedules %}{% blocktranslate with count=active_schedules asvar schedules_badge %}{{ count }} active{% endblocktranslate %}{% endif %}
-            {% include "accounts/_quick_link_card.html" with url=schedules_url icon="clock" title="Scheduled Jobs" description="Automate agent runs on repositories with recurring schedules." badge=schedules_badge %}
-            {% url 'api:openapi-view' as api_docs_url %}
-            {% include "accounts/_quick_link_card.html" with url=api_docs_url icon="code-bracket" title="API Documentation" description="Explore the API endpoints and test requests interactively." %}
+        {# DAIV attribution #}
+        <div class="mt-6 border-t border-white/[0.04] pt-6">
+            <p class="mb-4 text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500">DAIV attribution</p>
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="rounded-xl border border-white/[0.05] bg-white/[0.02] px-5 py-4">
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-sm text-gray-400">MRs involving DAIV</span>
+                        <span class="text-[20px] font-bold tabular-nums text-violet-300">{{ velocity.daiv_merges_pct }}</span>
+                    </div>
+                    <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                        <div class="animate-bar h-full rounded-full bg-gradient-to-r from-violet-600/60 to-violet-400/40" style="width: {{ velocity.daiv_merges_pct_raw }}%; animation-delay: 700ms"></div>
+                    </div>
+                    <div class="mt-2 flex justify-between text-xs text-gray-500">
+                        <span>DAIV: {{ velocity.daiv_merges }} MRs</span>
+                        <span>Human: {{ velocity.human_merges }} MRs</span>
+                    </div>
+                </div>
+                <div class="rounded-xl border border-white/[0.05] bg-white/[0.02] px-5 py-4">
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-sm text-gray-400">Commits authored by DAIV</span>
+                        <span class="text-[20px] font-bold tabular-nums text-sky-300">{{ velocity.daiv_commits_pct }}</span>
+                    </div>
+                    <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                        <div class="animate-bar h-full rounded-full bg-gradient-to-r from-sky-600/60 to-sky-400/40" style="width: {{ velocity.daiv_commits_pct_raw }}%; animation-delay: 800ms"></div>
+                    </div>
+                    <div class="mt-2 flex justify-between text-xs text-gray-500">
+                        <span>DAIV: {{ velocity.daiv_commits }} commits</span>
+                        <span>Human: {{ velocity.human_commits }} commits</span>
+                    </div>
+                </div>
+            </div>
         </div>
-    </main>
-</div>
+    </div>
+</section>
+{% endif %}
 {% endblock %}

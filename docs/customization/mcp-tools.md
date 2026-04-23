@@ -23,7 +23,7 @@ The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives 
 **Configuration:**
 
 ```bash
-MCP_SENTRY_URL=http://mcp-sentry:8000/sse   # Default; set to None to disable
+MCP_SENTRY_URL=http://mcp-sentry:8000/mcp   # Default; set to None to disable
 ```
 
 `SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
@@ -44,7 +44,7 @@ The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) p
 **Configuration:**
 
 ```bash
-MCP_CONTEXT7_URL=http://mcp-context7:8000/sse  # Default; set to None to disable
+MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
 ```
 
 Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
@@ -136,6 +136,11 @@ This allows you to keep secrets out of the config file and inject them via envir
 
 To add a custom stdio-based MCP server, wrap it with [supergateway](https://github.com/supercorp-ai/supergateway) in its own container. Each MCP server should run in a separate container for security isolation.
 
+!!! important
+    Always run supergateway in **stateful mode** (`--stateful`). In stateless mode (the default), every tool call spawns a fresh child process chain (`npx` → `npm` → `sh` → `node`), which can exhaust the system's thread limit (`kernel.threads-max`) under concurrent load. Stateful mode keeps a single long-lived child process and multiplexes all requests through it.
+
+    Use `--sessionTimeout` to automatically clean up idle sessions (in milliseconds). A value of `300000` (5 minutes) works well for typical agent runs.
+
 Example `docker-compose.yml` service:
 
 ```yaml
@@ -146,8 +151,13 @@ mcp-my-tool:
   command:
     - --stdio
     - "npx my-mcp-server@latest"
+    - --outputTransport
+    - streamableHttp
     - --healthEndpoint
     - "/healthz"
+    - --stateful
+    - --sessionTimeout
+    - "300000"
   environment:
     MY_TOOL_API_KEY: ${MY_TOOL_API_KEY:-}
   healthcheck:
@@ -164,8 +174,8 @@ Then reference it in your config file:
 {
   "mcpServers": {
     "my-tool": {
-      "type": "sse",
-      "url": "http://mcp-my-tool:8000/sse"
+      "type": "http",
+      "url": "http://mcp-my-tool:8000/mcp"
     }
   }
 }

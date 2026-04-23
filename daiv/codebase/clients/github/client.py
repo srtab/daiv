@@ -134,6 +134,23 @@ class GitHubClient(RepoClient):
                 repos = repos[:limit]
         return repos
 
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names. GitHub's branches endpoint has no server-side
+        search, so we filter client-side; PyGithub paginates lazily so we don't fetch more
+        pages than needed when ``limit`` is reached.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        needle = search.lower() if search else None
+        names: list[str] = []
+        for branch in repo.get_branches():
+            if needle is not None and needle not in branch.name.lower():
+                continue
+            names.append(branch.name)
+            if len(names) >= limit:
+                break
+        return names
+
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.

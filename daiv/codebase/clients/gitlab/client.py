@@ -124,6 +124,7 @@ class GitLabClient(RepoClient):
         optional_kwargs: dict[str, Any] = {}
         if search:
             optional_kwargs["search"] = search
+            optional_kwargs["search_namespaces"] = True
         if topics:
             optional_kwargs["topic"] = ",".join(topics)
         if limit is not None:
@@ -136,6 +137,8 @@ class GitLabClient(RepoClient):
             simple=True,
             membership=True,
             min_access_level=40,  # 40 is the access level for the maintainer role
+            order_by="last_activity_at",
+            sort="desc",
             **optional_kwargs,
         ):
             repos.append(
@@ -153,6 +156,22 @@ class GitLabClient(RepoClient):
             if limit is not None and len(repos) >= limit:
                 break
         return repos
+
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names, optionally filtered by server-side substring ``search``.
+        Branches are ordered by commit recency (most recent first).
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        kwargs: dict[str, Any] = {"per_page": min(limit, 100), "sort": "updated_desc"}
+        if search:
+            kwargs["search"] = search
+        names: list[str] = []
+        for branch in project.branches.list(iterator=True, **kwargs):
+            names.append(branch.name)
+            if len(names) >= limit:
+                break
+        return names
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """

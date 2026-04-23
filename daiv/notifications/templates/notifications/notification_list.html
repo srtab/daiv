@@ -1,0 +1,43 @@
+{% extends "base_app.html" %}
+{% load dashboard_tags i18n %}
+
+{% block title %}{% translate "Notifications" %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block app_content %}
+<div class="flex items-center justify-between gap-4">
+  <h1 class="text-2xl font-bold tracking-tight">{% translate "Notifications" %}</h1>
+  <div class="flex items-center gap-4">
+    {% if unread_count %}
+      <form method="post" action="{% url 'notifications:mark_all_read' %}">
+        {% csrf_token %}
+        <button class="text-xs text-gray-400 hover:text-white">{% translate "Mark all as read" %}</button>
+      </form>
+    {% endif %}
+    <a href="{% url 'user_channels' %}" class="text-xs text-gray-400 hover:text-white">{% translate "Settings" %}</a>
+  </div>
+</div>
+
+<div class="mt-6 flex gap-2 text-sm">
+  <a href="?" class="rounded-full px-3 py-1 {% if current_filter == 'all' %}bg-white/[0.08] text-white{% else %}text-gray-400{% endif %}">{% translate "All" %}</a>
+  <a href="?status=unread" class="rounded-full px-3 py-1 {% if current_filter == 'unread' %}bg-white/[0.08] text-white{% else %}text-gray-400{% endif %}">{% translate "Unread" %}</a>
+  <a href="?status=read" class="rounded-full px-3 py-1 {% if current_filter == 'read' %}bg-white/[0.08] text-white{% else %}text-gray-400{% endif %}">{% translate "Read" %}</a>
+</div>
+
+<div class="mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.01]">
+  {% for notification in notifications %}
+    {% include "notifications/_notification_row.html" %}
+  {% empty %}
+    <p class="px-4 py-12 text-center text-sm text-gray-500">{% translate "No notifications yet." %}</p>
+  {% endfor %}
+</div>
+
+{% if is_paginated %}
+  {% querystring_without "page" as qs %}
+  <div class="mt-6 flex items-center justify-center gap-2 text-sm text-gray-400">
+    {% if page_obj.has_previous %}<a href="?{{ qs }}page={{ page_obj.previous_page_number }}">←</a>{% endif %}
+    <span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a href="?{{ qs }}page={{ page_obj.next_page_number }}">→</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

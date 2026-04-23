@@ -1,0 +1,53 @@
+{% extends "base_app.html" %}
+{% load activity_tags static %}
+
+{% block title %}{% activity_title activity %} — DAIV{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block alpine_plugins %}
+{% if is_in_flight %}
+<script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
+{% endif %}
+{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
+
+{% block app_content %}
+<div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}', '{{ activity.status }}')"{% endif %}>
+
+    {% include "activity/_header.html" %}
+    {% include "activity/_status_strip.html" %}
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
+        <div class="min-w-0">
+            {% if activity.status == "SUCCESSFUL" %}
+                {% if activity.task_result %}
+                    {% include "activity/_hero_success.html" %}
+                {% else %}
+                    {% include "activity/_hero_pruned.html" %}
+                {% endif %}
+            {% elif activity.status == "FAILED" %}
+                {% include "activity/_hero_failed.html" %}
+            {% else %}
+                {% include "activity/_hero_running.html" %}
+            {% endif %}
+
+            {% if activity.status == "RUNNING" or activity.status == "READY" %}
+                {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
+            {% elif activity.status == "SUCCESSFUL" and not activity.task_result and not activity.result_summary %}
+                {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
+            {% else %}
+                {% include "activity/_prompt_disclosure.html" %}
+            {% endif %}
+        </div>
+
+        <aside class="flex flex-col gap-4">
+            {% include "activity/_rail_timing.html" %}
+            {% include "activity/_rail_context.html" %}
+            {% include "activity/_rail_usage.html" %}
+        </aside>
+    </div>
+</div>
+{% endblock %}

@@ -1,10 +1,3 @@
-import logging
-
-from decouple import config
-from get_docker_secret import get_docker_secret
-
-logger = logging.getLogger("daiv.settings")
-
 # ---------------------------------------------------------------------------
 # django-allauth
 # ---------------------------------------------------------------------------
@@ -35,34 +28,6 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
 LOGIN_URL = "/accounts/login/"
 
-# Register social providers only when credentials are fully configured.
-# This prevents rendering login buttons that lead to broken OAuth flows.
-SOCIALACCOUNT_PROVIDERS = {}
-
-
-def _register_provider(name, scope, app_config):
-    client_id = get_docker_secret(f"ALLAUTH_{name.upper()}_CLIENT_ID", default="")
-    secret = get_docker_secret(f"ALLAUTH_{name.upper()}_SECRET", default="")
-    if client_id and secret:
-        app = {"client_id": client_id, "secret": secret, **app_config}
-        SOCIALACCOUNT_PROVIDERS[name] = {"SCOPE": scope, "APPS": [app]}
-    elif bool(client_id) != bool(secret):
-        logger.warning(
-            "Partial %s OAuth config: set both ALLAUTH_%s_CLIENT_ID and ALLAUTH_%s_SECRET, or neither.",
-            name.capitalize(),
-            name.upper(),
-            name.upper(),
-        )
-
-
-_register_provider("github", scope=["user:email"], app_config={})
-_register_provider(
-    "gitlab",
-    scope=["read_user"],
-    app_config={
-        "settings": {
-            "gitlab_url": config("ALLAUTH_GITLAB_URL", default="https://gitlab.com"),
-            "gitlab_server_url": config("ALLAUTH_GITLAB_SERVER_URL", default=""),
-        }
-    },
-)
+# Provider scopes are always registered; whether a provider is actually usable
+# (credentials, URLs) is determined at runtime by SocialAccountAdapter.list_apps().
+SOCIALACCOUNT_PROVIDERS = {"github": {"SCOPE": ["user:email"]}, "gitlab": {"SCOPE": ["read_user"]}}

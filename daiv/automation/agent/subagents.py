@@ -7,7 +7,7 @@ from deepagents.graph import SubAgent
 from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.summarization import compute_summarization_defaults
-from langchain.agents.middleware import TodoListMiddleware
+from langchain.agents.middleware import ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
 from automation.agent.middlewares.file_system import FilesystemMiddleware
@@ -44,6 +44,7 @@ def _build_general_purpose_middleware(
     sandbox_enabled: bool,
     web_search_enabled: bool,
     web_fetch_enabled: bool,
+    fallback_models: list[BaseChatModel] | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -78,6 +79,9 @@ def _build_general_purpose_middleware(
     if sandbox_enabled:
         middleware.append(SandboxMiddleware(close_session=False))
 
+    if fallback_models:
+        middleware.append(ModelFallbackMiddleware(*fallback_models))
+
     return middleware
 
 
@@ -88,6 +92,7 @@ def create_general_purpose_subagent(
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
 ) -> SubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -97,7 +102,7 @@ def create_general_purpose_subagent(
         description=GENERAL_PURPOSE_DESCRIPTION,
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
         middleware=_build_general_purpose_middleware(
-            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled
+            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models
         ),
         model=model,
         tools=[],
@@ -164,6 +169,15 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> SubAgent:
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
     ]
+
+    if fallback_model_name := site_settings.agent_explore_fallback_model_name:
+        try:
+            fallback_model = BaseAgent.get_model(model=fallback_model_name)
+            middleware.append(ModelFallbackMiddleware(fallback_model))
+        except Exception:
+            logger.warning(
+                "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
+            )
 
     return SubAgent(
         name="explore",
@@ -236,6 +250,7 @@ async def load_custom_subagents(
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
 ) -> list[SubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -251,6 +266,7 @@ async def load_custom_subagents(
         sandbox_enabled: Whether to enable the sandbox middleware.
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
+        fallback_models: Optional fallback models for model failover.
 
     Returns:
         List of SubAgent dicts for the loaded custom subagents.
@@ -259,12 +275,14 @@ async def load_custom_subagents(
 
     for source_path in sources:
         try:
-            items = await backend.als_info(source_path)
+            result = await backend.als(source_path)
         except Exception:
             logger.debug("Could not list %s, skipping custom subagents from this source", source_path)
             continue
 
-        md_files = [item["path"] for item in items if not item.get("is_dir") and item["path"].endswith(".md")]
+        md_files = [
+            item["path"] for item in (result.entries or []) if not item.get("is_dir") and item["path"].endswith(".md")
+        ]
         if not md_files:
             continue
 
@@ -302,7 +320,13 @@ async def load_custom_subagents(
                     description=frontmatter["description"],
                     system_prompt=body,
                     middleware=_build_general_purpose_middleware(
-                        subagent_model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled
+                        subagent_model,
+                        backend,
+                        runtime,
+                        sandbox_enabled,
+                        web_search_enabled,
+                        web_fetch_enabled,
+                        fallback_models,
                     ),
                     model=subagent_model,
                     tools=[],

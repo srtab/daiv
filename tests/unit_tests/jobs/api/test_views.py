@@ -28,12 +28,52 @@ def authenticated_client(api_key):
     return TestAsyncClient(api, headers={"Authorization": f"Bearer {api_key}"})
 
 
+def _single_repo_body(**overrides):
+    body = {"repos": [{"repo_id": "group/project", "ref": None}], "prompt": "p"}
+    body.update(overrides)
+    return body
+
+
+async def _make_task_row(task_id=None) -> AsyncMock:
+    """Create a real DBTaskResult row so the Activity FK is satisfied, and return a mock that
+    exposes the row's id."""
+    tid = task_id or uuid.uuid4()
+    await DBTaskResult.objects.acreate(
+        id=tid,
+        status="READY",
+        task_path=run_job_task.module_path,
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after="9999-01-01T00:00:00Z",
+        return_value={},
+    )
+    m = AsyncMock()
+    m.id = tid
+    return m
+
+
+class _FakeActivity:
+    """Stand-in for Activity returned from a mocked ``acreate_activity`` in tests that patch it."""
+
+    def __init__(self, task_result_id):
+        self.task_result_id = task_result_id
+
+
+async def _fake_acreate_activity(**kwargs):
+    return _FakeActivity(task_result_id=kwargs["task_result_id"])
+
+
+def _patch_acreate():
+    return patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity)
+
+
 # --- Authentication tests ---
 
 
 @pytest.mark.django_db
 async def test_submit_job_unauthenticated(client: TestAsyncClient):
-    response = await client.post("/jobs", json={"repo_id": "group/project", "prompt": "List all Python files"})
+    response = await client.post("/jobs", json=_single_repo_body(prompt="List all Python files"))
     assert response.status_code == 401
 
 
@@ -48,19 +88,37 @@ async def test_get_job_status_unauthenticated(client: TestAsyncClient):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_missing_prompt(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post("/jobs", json={"repo_id": "group/project"})
+    response = await authenticated_client.post("/jobs", json={"repos": [{"repo_id": "group/project", "ref": None}]})
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_empty_repos(authenticated_client: TestAsyncClient):
+    response = await authenticated_client.post("/jobs", json={"repos": [], "prompt": "p"})
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient):
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": f"o/r{i}", "ref": None} for i in range(21)], "prompt": "p"}
+    )
     assert response.status_code == 422
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post("/jobs", json={"repo_id": "", "prompt": "hello"})
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "", "ref": None}], "prompt": "hello"}
+    )
     assert response.status_code == 422
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_empty_prompt(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post("/jobs", json={"repo_id": "group/project", "prompt": ""})
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project", "ref": None}], "prompt": ""}
+    )
     assert response.status_code == 422
 
 
@@ -69,34 +127,126 @@ async def test_submit_job_empty_prompt(authenticated_client: TestAsyncClient):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_success(authenticated_client: TestAsyncClient):
-    mock_result = AsyncMock()
-    mock_result.id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
 
-    with patch("jobs.api.views.run_job_task") as mock_task:
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
+    async def _aenq(**kwargs):
+        return await _make_task_row(task_id)
+
+    with patch("activity.services.run_job_task") as mock_task:
+        mock_task.aenqueue.side_effect = _aenq
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "batch_id" in data
+    assert len(data["jobs"]) == 1
+    assert data["jobs"][0]["job_id"] == str(task_id)
+    assert data["failed"] == []
+    mock_task.aenqueue.assert_called_once_with(
+        repo_id="group/project", prompt="List all files", ref=None, use_max=False
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
+    async def _aenq(**kwargs):
+        return await _make_task_row()
+
+    with patch("activity.services.run_job_task") as mock_task:
+        mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
-            "/jobs", json={"repo_id": "group/project", "prompt": "List all files"}
+            "/jobs", json={"repos": [{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}], "prompt": "p"}
         )
 
     assert response.status_code == 202
     data = response.json()
-    assert data["job_id"] == mock_result.id
+    assert len(data["jobs"]) == 2
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_enqueue_failure(authenticated_client: TestAsyncClient):
-    with patch("jobs.api.views.run_job_task") as mock_task:
+async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
+    async def _aenq(**kwargs):
+        return await _make_task_row()
+
+    with patch("activity.services.run_job_task") as mock_task:
+        mock_task.aenqueue.side_effect = _aenq
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
+
+    assert response.status_code == 202
+    mock_task.aenqueue.assert_called_once_with(repo_id="group/project", prompt="Fix the bug", ref=None, use_max=True)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_use_max_to_activity(authenticated_client: TestAsyncClient):
+    """Verify the submit endpoint threads ``use_max`` into ``acreate_activity``."""
+
+    async def _aenq(**kwargs):
+        return await _make_task_row()
+
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue.side_effect = _aenq
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
+
+    assert response.status_code == 202
+    assert mock_create.await_args.kwargs["use_max"] is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_notify_on_to_activity(authenticated_client: TestAsyncClient):
+    """POST /jobs threads ``notify_on`` into ``acreate_activity``."""
+
+    async def _aenq(**kwargs):
+        return await _make_task_row()
+
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue.side_effect = _aenq
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="always"))
+
+    assert response.status_code == 202
+    assert mock_create.await_args.kwargs["notify_on"] == "always"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_notify_on_optional(authenticated_client: TestAsyncClient):
+    """Omitting ``notify_on`` is valid and forwards ``None`` (defer to user preference)."""
+
+    async def _aenq(**kwargs):
+        return await _make_task_row()
+
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue.side_effect = _aenq
+        mock_task.module_path = run_job_task.module_path
+        response = await authenticated_client.post("/jobs", json=_single_repo_body())
+
+    assert response.status_code == 202
+    assert mock_create.await_args.kwargs["notify_on"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_invalid_notify_on_returns_422(authenticated_client: TestAsyncClient):
+    response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="bogus"))
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient):
+    with patch("activity.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
-        response = await authenticated_client.post(
-            "/jobs", json={"repo_id": "group/project", "prompt": "List all files"}
-        )
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Failed to submit job. Please try again later."
+    assert response.status_code == 202
+    data = response.json()
+    assert data["jobs"] == []
+    assert len(data["failed"]) == 1
+    assert data["failed"][0]["repo_id"] == "group/project"
 
 
-# --- Get job status tests ---
+# --- Get job status tests (unchanged) ---
 
 
 @pytest.fixture
@@ -120,7 +270,9 @@ def create_job_result(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_successful(authenticated_client: TestAsyncClient, create_job_result):
-    db_result = await create_job_result(status="SUCCESSFUL", return_value="Here are the files...")
+    db_result = await create_job_result(
+        status="SUCCESSFUL", return_value={"response": "Here are the files...", "code_changes": False}
+    )
     response = await authenticated_client.get(f"/jobs/{db_result.id}")
 
     assert response.status_code == 200

@@ -1,0 +1,9 @@
+{% if trigger_type == "api_job" or trigger_type == "mcp_job" %}
+<span class="rounded-full bg-indigo-900/40 px-2.5 py-0.5 text-xs font-medium text-indigo-300">{{ trigger_type_display }}</span>
+{% elif trigger_type == "schedule" %}
+<span class="rounded-full bg-violet-900/40 px-2.5 py-0.5 text-xs font-medium text-violet-300">Schedule</span>
+{% elif trigger_type == "issue_webhook" %}
+<span class="rounded-full bg-amber-900/40 px-2.5 py-0.5 text-xs font-medium text-amber-300">Issue</span>
+{% elif trigger_type == "mr_webhook" %}
+<span class="rounded-full bg-cyan-900/40 px-2.5 py-0.5 text-xs font-medium text-cyan-300">MR/PR</span>
+{% endif %}

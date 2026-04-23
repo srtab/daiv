@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
+from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.utils import GitManager, redact_diff_content
@@ -151,13 +152,10 @@ class GitChangePublisher(ChangePublisher):
             )
 
         changes_metadata_graph = create_diff_to_metadata_graph(ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff))
-        result = await changes_metadata_graph.ainvoke(
-            input_data,
-            config={
-                "tags": [self.ctx.git_platform.value],
-                "metadata": {"scope": self.ctx.scope, "repo_id": self.ctx.repository.slug},
-            },
+        config = build_langsmith_config(
+            self.ctx, trigger="diff_to_metadata", model=self.ctx.config.models.diff_to_metadata.model
         )
+        result = await changes_metadata_graph.ainvoke(input_data, config=config)
         if result and ("pr_metadata" in result or "commit_message" in result):
             return result
 

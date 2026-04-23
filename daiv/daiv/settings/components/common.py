@@ -11,11 +11,22 @@ SITE_ID = 1
 
 # Application definition
 
-LOCAL_APPS = ["accounts", "automation", "codebase", "core", "mcp_server", "schedules", "slash_commands"]
+LOCAL_APPS = [
+    "accounts",
+    "activity",
+    "automation",
+    "codebase",
+    "core",
+    "mcp_server",
+    "notifications",
+    "schedules",
+    "slash_commands",
+]
 
 THIRD_PARTY_APPS = [
     "crontask",
     "django_extensions",
+    "django_filters",
     "django_tasks",
     "django_tasks_db",
     "oauth2_provider",
@@ -34,6 +45,7 @@ DJANGO_APPS = [
     "django.contrib.sitemaps",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.humanize",
 ]
 
 INSTALLED_APPS = LOCAL_APPS + THIRD_PARTY_APPS + DJANGO_APPS
@@ -63,6 +75,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "notifications.context_processors.unread_notification_count",
+                "accounts.context_processors.nav",
             ]
         },
     }
@@ -99,6 +113,10 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_NAME = "__Secure-sessionid"
 SESSION_COOKIE_SECURE = True
+
+
+# Upload size limit (default 2.5 MB is too small for GitLab webhook payloads)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # SECURITY - https://docs.djangoproject.com/en/dev/ref/middleware/#module-django.middleware.security

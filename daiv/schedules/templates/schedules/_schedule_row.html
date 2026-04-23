@@ -1,0 +1,75 @@
+<div id="schedule-{{ schedule.pk }}" class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0">
+    <div class="min-w-0 flex-1 {% if not schedule.is_enabled %}opacity-50{% endif %}">
+        <div class="flex items-center gap-3">
+            <span class="text-[15px] font-medium text-white">{{ schedule.name }}</span>
+            {% if schedule.is_enabled %}
+            <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">Active</span>
+            {% else %}
+            <span class="rounded-full bg-gray-800/60 px-2.5 py-0.5 text-xs font-medium text-gray-400">Paused</span>
+            {% endif %}
+            <span class="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-300">{{ schedule.get_frequency_display }}</span>
+        </div>
+        <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
+            {% include "accounts/_avatar.html" with user=schedule.user group=schedule.subscribers.all label="Owner" %}
+            <span>&middot;</span>
+            {% if schedule.repos|length == 1 %}
+            <span>{{ schedule.repos.0.repo_id }}</span>
+            {% else %}
+            <span title="{% for r in schedule.repos %}{{ r.repo_id }}{% if not forloop.last %}, {% endif %}{% endfor %}">{{ schedule.repos|length }} repositories</span>
+            {% endif %}
+            {% if schedule.next_run_at %}
+            <span>&middot;</span>
+            <span>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</span>
+            {% endif %}
+            {% if schedule.last_run_at %}
+            <span>&middot;</span>
+            <span>Last run: {{ schedule.last_run_at|timesince }} ago</span>
+            {% endif %}
+            {% if schedule.run_count %}
+            <span>&middot;</span>
+            <a href="{% url 'activity_list' %}?schedule={{ schedule.pk }}"
+               class="underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
+                {{ schedule.run_count }} run{{ schedule.run_count|pluralize }}
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="flex items-center gap-2">
+        <button hx-post="{% url 'schedule_toggle' schedule.pk %}"
+                hx-target="#schedule-{{ schedule.pk }}"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this"
+                class="rounded-lg border px-3 py-1.5 text-sm font-medium transition-all duration-200
+                       {% if schedule.is_enabled %}border-amber-500/10 bg-amber-500/[0.03] text-amber-400 hover:border-amber-500/20 hover:text-amber-300{% else %}border-emerald-500/10 bg-emerald-500/[0.03] text-emerald-400 hover:border-emerald-500/20 hover:text-emerald-300{% endif %}">
+            {% if schedule.is_enabled %}Pause{% else %}Resume{% endif %}
+        </button>
+        <a href="{% url 'schedule_update' schedule.pk %}"
+           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+            Edit
+        </a>
+        <div class="relative" x-data="{ open: false }">
+            <button @click="open = !open"
+                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5 text-sm text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5"/>
+                    <circle cx="8" cy="8" r="1.5"/>
+                    <circle cx="8" cy="13" r="1.5"/>
+                </svg>
+            </button>
+            <div x-show="open" @click.outside="open = false" x-transition
+                 class="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
+                <form method="post" action="{% url 'schedule_run_now' schedule.pk %}">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="flex w-full items-center px-3 py-2 text-left text-sm text-indigo-400 hover:bg-white/[0.04]">
+                        Run now
+                    </button>
+                </form>
+                <a href="{% url 'schedule_delete' schedule.pk %}"
+                   class="flex w-full items-center px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">
+                    Delete
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

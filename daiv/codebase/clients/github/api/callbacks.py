@@ -2,8 +2,11 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from activity.models import TriggerType
+from activity.services import acreate_activity
 from github.GithubException import GithubException
 
+from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -85,13 +88,31 @@ class IssueCallback(GitHubCallback):
         return True
 
     async def process_callback(self):
-        self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)
-        await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
+        try:
+            self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)
+        except GithubException:
+            logger.warning(
+                "Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number, exc_info=True
+            )
+        result = await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
+        daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
+        try:
+            await acreate_activity(
+                trigger_type=TriggerType.ISSUE_WEBHOOK,
+                task_result_id=result.id,
+                repo_id=self.repository.full_name,
+                issue_iid=self.issue.number,
+                use_max=self.issue.has_max_label(),
+                user=daiv_user,
+                external_username=self.sender.username,
+            )
+        except Exception:
+            logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
 
 
 class IssueCommentCallback(GitHubCallback):
     """
-    GitHub Note Webhook for automatically address the review feedback on an pull request or process slash commands.
+    GitHub Issue Comment Webhook for addressing issue follow-ups and merge request review feedback.
     """
 
     action: Literal["created", "edited", "deleted"]
@@ -129,6 +150,8 @@ class IssueCommentCallback(GitHubCallback):
         """
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
         """
+        daiv_user = await resolve_user("github", self.comment.user.id, username=self.comment.user.username)
+
         if self._is_issue_comment:
             try:
                 self._client.create_issue_emoji(
@@ -136,9 +159,24 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except GithubException:
                 logger.warning("Failed to add reaction to issue comment %s", self.comment.id, exc_info=True)
-            await address_issue_task.aenqueue(
+            result = await address_issue_task.aenqueue(
                 repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=str(self.comment.id)
             )
+            try:
+                await acreate_activity(
+                    trigger_type=TriggerType.ISSUE_WEBHOOK,
+                    task_result_id=result.id,
+                    repo_id=self.repository.full_name,
+                    issue_iid=self.issue.number,
+                    mention_comment_id=str(self.comment.id),
+                    use_max=self.issue.has_max_label(),
+                    user=daiv_user,
+                    external_username=self.comment.user.username,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to create activity for issue comment %s#%s", self.repository.full_name, self.issue.number
+                )
 
         elif self._is_merge_request_review:
             try:
@@ -147,11 +185,26 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except GithubException:
                 logger.warning("Failed to add reaction to PR comment %s", self.comment.id, exc_info=True)
-            await address_mr_comments_task.aenqueue(
+            result = await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
                 mention_comment_id=str(self.comment.id),
             )
+            try:
+                await acreate_activity(
+                    trigger_type=TriggerType.MR_WEBHOOK,
+                    task_result_id=result.id,
+                    repo_id=self.repository.full_name,
+                    merge_request_iid=self.issue.number,
+                    mention_comment_id=str(self.comment.id),
+                    use_max=self.issue.has_max_label(),
+                    user=daiv_user,
+                    external_username=self.comment.user.username,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to create activity for PR comment %s#%s", self.repository.full_name, self.issue.number
+                )
 
     @property
     def _is_merge_request_review(self) -> bool:
@@ -218,7 +271,7 @@ class PullRequestCallback(GitHubCallback):
 
 class PushCallback(GitHubCallback):
     """
-    GitHub Push Webhook for automatically invalidate the cache for the repository configurations.
+    GitHub Push Webhook for invalidating repository configuration cache.
     """
 
     ref: str

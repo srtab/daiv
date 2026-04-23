@@ -6,6 +6,7 @@ from functools import wraps
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
+from django.contrib.sites.models import Site
 from django.core.cache import cache
 
 import httpx
@@ -22,6 +23,32 @@ logger = logging.getLogger("daiv.core")
 SUPPORTED_MIMETYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by default
+
+
+def build_absolute_url(path: str) -> str:
+    """Build an absolute https:// URL from a relative path using the current Site domain."""
+    site = Site.objects.get_current()
+    return f"https://{site.domain}{path}"
+
+
+def prefixed_email_subject(subject: str) -> str:
+    """Prepend the current Site name as a bracketed prefix, e.g. ``[DAIV] Welcome``.
+
+    Idempotent: safe to call on already-prefixed subjects. Returns the subject unchanged
+    when the Site has no name or the Sites framework is misconfigured, so a missing Site
+    row never breaks email delivery.
+    """
+    try:
+        site = Site.objects.get_current()
+    except Site.DoesNotExist:
+        logger.warning("Site.objects.get_current() failed; sending email with unprefixed subject")
+        return subject
+    if not site.name:
+        return subject
+    prefix = f"[{site.name}] "
+    if subject.startswith(prefix):
+        return subject
+    return f"{prefix}{subject}"
 
 
 def is_valid_url(url: str) -> bool:

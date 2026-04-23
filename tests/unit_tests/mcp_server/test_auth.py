@@ -1,10 +1,11 @@
 from datetime import timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
 import pytest
-from mcp_server.auth import OAuthTokenAuthMiddleware
+from mcp.server.auth.provider import AccessToken as MCPAccessToken
+from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
 
 from accounts.models import User
 
@@ -66,108 +67,101 @@ def wrong_scope_token(user, oauth_app):
 
 
 @pytest.fixture
-def mock_app():
-    return AsyncMock()
+def no_app_token(user):
+    from oauth2_provider.models import AccessToken
+
+    return AccessToken.objects.create(
+        user=user,
+        token="test-no-app-token",  # noqa: S106
+        application=None,
+        expires=timezone.now() + timedelta(hours=1),
+        scope="mcp",
+    )
 
 
 @pytest.fixture
-def middleware(mock_app):
-    return OAuthTokenAuthMiddleware(mock_app)
-
-
-def _make_scope(path: str = "/mcp", headers: list[tuple[bytes, bytes]] | None = None) -> dict:
-    return {"type": "http", "method": "POST", "path": path, "headers": headers or [], "query_string": b""}
+def verifier():
+    return DjangoOAuthTokenVerifier()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_valid_token_passes_through(middleware, mock_app, access_token):
-    scope = _make_scope(headers=[(b"authorization", b"Bearer test-valid-token")])
-    receive = AsyncMock()
-    send = AsyncMock()
+async def test_valid_token_returns_access_token(verifier, access_token, oauth_app):
+    result = await verifier.verify_token("test-valid-token")
 
-    await middleware(scope, receive, send)
-
-    mock_app.assert_called_once()
-    assert scope["user"].username == "testuser"
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_missing_auth_header_returns_401(middleware, mock_app):
-    scope = _make_scope()
-    receive = AsyncMock()
-    send = AsyncMock()
-
-    await middleware(scope, receive, send)
-
-    mock_app.assert_not_called()
-    # Verify 401 response was sent (first call is http.response.start with status)
-    send_calls = send.call_args_list
-    assert len(send_calls) >= 1
-    start_message = send_calls[0][0][0]
-    assert start_message["status"] == 401
+    assert result is not None
+    assert result.token == "test-valid-token"  # noqa: S105
+    assert result.client_id == oauth_app.client_id
+    assert result.scopes == ["mcp"]
+    assert result.expires_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_invalid_token_returns_401(middleware, mock_app):
-    scope = _make_scope(headers=[(b"authorization", b"Bearer invalid-token")])
-    receive = AsyncMock()
-    send = AsyncMock()
+async def test_nonexistent_token_returns_none(verifier):
+    result = await verifier.verify_token("nonexistent-token")
 
-    await middleware(scope, receive, send)
-
-    mock_app.assert_not_called()
-    send_calls = send.call_args_list
-    start_message = send_calls[0][0][0]
-    assert start_message["status"] == 401
+    assert result is None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_expired_token_returns_401(middleware, mock_app, expired_token):
-    scope = _make_scope(headers=[(b"authorization", b"Bearer test-expired-token")])
-    receive = AsyncMock()
-    send = AsyncMock()
+async def test_expired_token_returns_none(verifier, expired_token):
+    result = await verifier.verify_token("test-expired-token")
 
-    await middleware(scope, receive, send)
-
-    mock_app.assert_not_called()
-    send_calls = send.call_args_list
-    start_message = send_calls[0][0][0]
-    assert start_message["status"] == 401
+    assert result is None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_wrong_scope_token_returns_401(middleware, mock_app, wrong_scope_token):
-    scope = _make_scope(headers=[(b"authorization", b"Bearer test-wrong-scope-token")])
-    receive = AsyncMock()
-    send = AsyncMock()
+async def test_wrong_scope_token_returns_none(verifier, wrong_scope_token):
+    result = await verifier.verify_token("test-wrong-scope-token")
 
-    await middleware(scope, receive, send)
-
-    mock_app.assert_not_called()
-    send_calls = send.call_args_list
-    start_message = send_calls[0][0][0]
-    assert start_message["status"] == 401
+    assert result is None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_non_bearer_auth_returns_401(middleware, mock_app):
-    scope = _make_scope(headers=[(b"authorization", b"Basic dXNlcjpwYXNz")])
-    receive = AsyncMock()
-    send = AsyncMock()
+async def test_token_without_application_returns_none(verifier, no_app_token):
+    result = await verifier.verify_token("test-no-app-token")
 
-    await middleware(scope, receive, send)
-
-    mock_app.assert_not_called()
-    send_calls = send.call_args_list
-    start_message = send_calls[0][0][0]
-    assert start_message["status"] == 401
+    assert result is None
 
 
-async def test_non_http_scope_passes_through(middleware, mock_app):
-    scope = {"type": "lifespan"}
-    receive = AsyncMock()
-    send = AsyncMock()
+@pytest.mark.django_db(transaction=True)
+async def test_database_error_propagates(verifier):
+    from django.db import OperationalError
 
-    await middleware(scope, receive, send)
+    mock_qs = AsyncMock()
+    mock_qs.aget.side_effect = OperationalError("connection refused")
 
-    mock_app.assert_called_once_with(scope, receive, send)
+    with patch("mcp_server.auth.OAuthAccessToken.objects") as mock_objects, pytest.raises(OperationalError):
+        mock_objects.select_related.return_value = mock_qs
+        await verifier.verify_token("any-token")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_returns_user(access_token, user):
+    mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        result = await get_current_user()
+
+    assert result is not None
+    assert result.pk == user.pk
+
+
+async def test_get_current_user_returns_none_without_token():
+    with patch("mcp_server.auth.get_access_token", return_value=None):
+        result = await get_current_user()
+
+    assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_returns_none_when_token_deleted(access_token):
+    """Token was valid at auth time but deleted before get_current_user runs (TOCTOU)."""
+    mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
+
+    # Delete the token to simulate revocation between verify_token and get_current_user
+    await access_token.adelete()
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        result = await get_current_user()
+
+    assert result is None

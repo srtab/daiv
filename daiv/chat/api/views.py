@@ -12,8 +12,10 @@ from langgraph.store.memory import InMemoryStore
 from ninja import Router
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.utils import build_langsmith_config
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from core.site_settings import site_settings
 
 from .security import AuthBearer
 
@@ -87,11 +89,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
         ):
             agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+            langsmith_config = build_langsmith_config(
+                runtime_ctx,
+                trigger="chat",
+                model=site_settings.agent_model_name,
+                thinking_level=site_settings.agent_thinking_level,
+            )
             langgraph_agent = RuntimeContextLangGraphAGUIAgent(
                 name="DAIV",
                 description="DAIV agent",
                 graph=agent,
-                config={"recursion_limit": 500},
+                config={"recursion_limit": 500, **langsmith_config},
                 runtime_context=runtime_ctx,
             )
             async for event in langgraph_agent.run(input_data):

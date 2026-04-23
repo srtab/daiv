@@ -5,7 +5,6 @@ from django.db import models, transaction
 
 from crontask import cron
 from django_tasks import task
-from jobs.tasks import run_job_task
 
 logger = logging.getLogger("daiv.schedules")
 
@@ -20,7 +19,10 @@ def dispatch_scheduled_jobs_cron_task():
     Each schedule is processed in its own savepoint so that one failure
     does not roll back updates for other schedules.
     """
-    from schedules.models import ScheduledJob, ScheduledJobRun
+    from activity.models import TriggerType
+    from activity.services import RepoTarget, submit_batch_runs
+
+    from schedules.models import ScheduledJob
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -34,22 +36,36 @@ def dispatch_scheduled_jobs_cron_task():
         for schedule in due_schedules:
             try:
                 with transaction.atomic():
-                    ref = schedule.ref or None
-                    result = run_job_task.enqueue(repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref)
-                    ScheduledJobRun.objects.create(scheduled_job=schedule, task_result_id=result.id)
+                    repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
+                    result = submit_batch_runs(
+                        user=schedule.user,
+                        prompt=schedule.prompt,
+                        repos=repos,
+                        use_max=schedule.use_max,
+                        notify_on=None,
+                        trigger_type=TriggerType.SCHEDULE,
+                        scheduled_job=schedule,
+                    )
                     schedule.last_run_at = now
-                    schedule.last_run_task_id = result.id
+                    schedule.last_run_batch_id = result.batch_id
                     schedule.run_count = models.F("run_count") + 1
                     schedule.compute_next_run(after=now)
                     schedule.save(
-                        update_fields=["last_run_at", "last_run_task_id", "run_count", "next_run_at", "modified"]
+                        update_fields=["last_run_at", "last_run_batch_id", "run_count", "next_run_at", "modified"]
                     )
-                    dispatched += 1
+                dispatched += 1
+                if result.failed:
+                    logger.warning(
+                        "Scheduled job pk=%d dispatched with %d per-repo enqueue failures: %s",
+                        schedule.pk,
+                        len(result.failed),
+                        [f.repo_id for f in result.failed],
+                    )
             except Exception:
                 logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
                 failed += 1
                 try:
-                    schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_task_id", "next_run_at"])
+                    schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_batch_id", "next_run_at"])
                     schedule.compute_next_run(after=now)
                     schedule.save(update_fields=["next_run_at", "modified"])
                 except Exception:

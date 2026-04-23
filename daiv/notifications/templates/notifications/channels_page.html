@@ -1,0 +1,56 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Notification channels" %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block app_content %}
+<h1 class="text-2xl font-bold tracking-tight">{% translate "Notification channels" %}</h1>
+<p class="mt-1.5 text-[15px] font-light text-gray-400">
+  {% translate "Configure how DAIV reaches you. More channels will appear here as they are added." %}
+</p>
+
+<div class="mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+  {% for row in channel_rows %}
+    <div class="flex flex-col gap-3 border-b border-white/[0.06] px-6 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 class="text-sm font-medium text-white">{{ row.display_name }}</h2>
+        {% if row.binding %}
+          <p class="mt-0.5 text-xs text-gray-400">{{ row.binding.address }}</p>
+        {% else %}
+          <p class="mt-0.5 text-xs text-gray-500">{% translate "Not configured" %}</p>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2">
+        {% if row.binding and row.binding.is_verified %}
+          <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400">
+            {% translate "Verified" %}
+          </span>
+        {% elif row.binding %}
+          <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">
+            {% translate "Unverified" %}
+          </span>
+        {% endif %}
+
+        {% if row.binding and row.disconnect_url %}
+          <form method="post" action="{{ row.disconnect_url }}">
+            {% csrf_token %}
+            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
+              {% translate "Disconnect" %}
+            </button>
+          </form>
+        {% elif row.connect_url %}
+          <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
+            {% csrf_token %}
+            <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
+                   class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
+            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
+              {% translate "Connect" %}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

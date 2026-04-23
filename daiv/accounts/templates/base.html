@@ -30,13 +30,17 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
             integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"
             crossorigin="anonymous"></script>
+    <script defer src="https://unpkg.com/htmx.org@2.0.8/dist/htmx.min.js"
+            integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz"
+            crossorigin="anonymous"></script>
+    <script defer src="{% static 'core/js/toasts.js' %}"></script>
 </head>
-<body class="h-full bg-[#030712] font-sans text-white antialiased">
+<body class="h-full bg-[#030712] font-sans text-white antialiased"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
     {% if messages %}
     <div id="messages" class="fixed top-5 right-5 z-50 flex flex-col gap-2">
         {% for message in messages %}
-        <div data-message
-             class="animate-fade-up rounded-lg border px-4 py-3 text-sm shadow-lg backdrop-blur-sm
+        <div class="animate-fade-up rounded-lg border px-4 py-3 text-sm shadow-lg backdrop-blur-sm
                     {% if message.tags == 'error' %}border-red-800/50 bg-red-950/80 text-red-200
                     {% elif message.tags == 'success' %}border-emerald-800/50 bg-emerald-950/80 text-emerald-200
                     {% elif message.tags == 'warning' %}border-amber-800/50 bg-amber-950/80 text-amber-200
@@ -46,17 +50,7 @@
         </div>
         {% endfor %}
     </div>
-    <script type="module">
-        const dismiss = () => document.querySelectorAll('[data-message]').forEach((el, i) => {
-            setTimeout(() => {
-                el.style.transition = 'opacity 0.3s, transform 0.3s';
-                el.style.opacity = '0';
-                el.style.transform = 'translateY(-8px)';
-                setTimeout(() => el.remove(), 300);
-            }, i * 100);
-        });
-        setTimeout(dismiss, 5000);
-    </script>
+    <script type="module">setTimeout(dismissToasts, 5000);</script>
     {% endif %}
     {% block content %}{% endblock %}
 </body>

@@ -315,3 +315,49 @@ class TestGitHubClient:
         result = github_client.get_bot_commit_email()
 
         assert result == "12345+daiv-bot[bot]@users.noreply.github.com"
+
+    def test_list_branches_returns_branch_names(self, github_client):
+        """`list_branches` returns branch names from PyGithub's iterator."""
+        mock_repo = Mock()
+        branches = []
+        for name in ("main", "feat/one", "fix/two"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo")
+
+        assert result == ["main", "feat/one", "fix/two"]
+        github_client.client.get_repo.assert_called_once_with("owner/repo", lazy=True)
+
+    def test_list_branches_filters_client_side_case_insensitively(self, github_client):
+        """Client-side substring filter is case-insensitive and preserves order."""
+        mock_repo = Mock()
+        branches = []
+        for name in ("main", "Feat/One", "fix/two", "feat/three"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo", search="feat")
+
+        assert result == ["Feat/One", "feat/three"]
+
+    def test_list_branches_respects_limit_and_stops_iteration(self, github_client):
+        """Iteration stops once `limit` matches are collected — no full page scan."""
+        branches = []
+        for name in ("a", "b", "c", "d"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo = Mock()
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo", limit=2)
+
+        assert result == ["a", "b"]

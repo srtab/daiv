@@ -27,9 +27,11 @@ def send_welcome_email(user: User, login_url: str) -> bool:
     Returns:
         True if the email was sent successfully, False otherwise.
     """
+    from core.utils import prefixed_email_subject
+
     try:
         context = {"user": user, "login_url": login_url}
-        subject = "You've been invited to DAIV"
+        subject = prefixed_email_subject("You've been invited")
         text_body = render_to_string("accounts/emails/welcome.txt", context)
         html_body = render_to_string("accounts/emails/welcome.html", context)
         send_mail(

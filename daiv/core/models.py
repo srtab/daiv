@@ -28,6 +28,7 @@ class FieldGroup:
     match: tuple[str, ...] = ()
     icon: str = ""
     fields: tuple[str, ...] = ()
+    toggle_field: str = ""
 
 
 class ThinkingLevelChoices(models.TextChoices):
@@ -138,6 +139,13 @@ class SiteConfiguration(models.Model):
     agent_explore_model_name = models.CharField(
         _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
     )
+    agent_explore_fallback_model_name = models.CharField(
+        _("explore fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model when the explore model fails."),
+    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
     )
@@ -236,6 +244,45 @@ class SiteConfiguration(models.Model):
         help_text=_("Memory limit in bytes to allocate to sandbox sessions by default. Leave empty for no limit."),
     )
 
+    # -- Authentication --
+    auth_login_enabled = models.BooleanField(
+        _("enable OAuth login"),
+        null=True,
+        help_text=_("Allow users to sign in with their Git platform account (GitHub or GitLab)."),
+    )
+    auth_signup_open = models.BooleanField(
+        _("open social signup"),
+        null=True,
+        help_text=_(
+            "Allow anyone who authenticates via the configured Git platform to create an account."
+            " When disabled, only users pre-created by an admin can sign in."
+        ),
+    )
+    auth_client_id = models.CharField(
+        _("OAuth client ID"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("OAuth application client ID for the configured Git platform."),
+    )
+    auth_gitlab_url = models.CharField(
+        _("GitLab URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Browser-facing URL of your GitLab instance."),
+    )
+    auth_gitlab_server_url = models.CharField(
+        _("GitLab server URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_(
+            "Server-to-server URL for GitLab API calls (token exchange, profile fetch) in Docker-internal networks."
+            " Leave empty to use the GitLab URL."
+        ),
+    )
+
     # -- Features --
     suggest_context_file_enabled = models.BooleanField(
         _("suggest context file"),
@@ -261,6 +308,25 @@ class SiteConfiguration(models.Model):
         help_text=_("Base URL for the OpenRouter API."),
     )
 
+    # -- Rocket Chat --
+    rocketchat_enabled = models.BooleanField(
+        _("enable Rocket Chat"), null=True, help_text=_("Offer Rocket Chat as a notification channel for users.")
+    )
+    rocketchat_url = models.CharField(
+        _("Rocket Chat URL"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Base URL of your Rocket Chat instance (e.g. https://rc.example.com)."),
+    )
+    rocketchat_user_id = models.CharField(
+        _("Rocket Chat bot user ID"),
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text=_("The bot user's _id, sent as the X-User-Id header."),
+    )
+
     # -- API Keys / Secrets (encrypted at rest) --
     _anthropic_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _openai_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
@@ -268,6 +334,8 @@ class SiteConfiguration(models.Model):
     _openrouter_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
     anthropic_api_key = EncryptedFieldDescriptor("anthropic_api_key")
@@ -276,12 +344,15 @@ class SiteConfiguration(models.Model):
     openrouter_api_key = EncryptedFieldDescriptor("openrouter_api_key")
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
+    auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
+    rocketchat_auth_token = EncryptedFieldDescriptor("rocketchat_auth_token")
 
     MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
         "agent_model_name",
         "agent_fallback_model_name",
         "agent_max_model_name",
         "agent_explore_model_name",
+        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "web_fetch_model_name",
@@ -294,6 +365,8 @@ class SiteConfiguration(models.Model):
         "openrouter_api_key",
         "web_search_api_key",
         "sandbox_api_key",
+        "auth_client_secret",
+        "rocketchat_auth_token",
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
@@ -310,10 +383,36 @@ class SiteConfiguration(models.Model):
             match=("anthropic_*", "openai_*", "google_*", "openrouter_*"),
             icon="providers",
         ),
-        FieldGroup(key="web_search", title=_("Web Search"), match=("web_search_*",), icon="web-search"),
-        FieldGroup(key="web_fetch", title=_("Web Fetch"), match=("web_fetch_*",), icon="web-fetch"),
+        FieldGroup(
+            key="web_search",
+            title=_("Web Search"),
+            match=("web_search_*",),
+            icon="web-search",
+            toggle_field="web_search_enabled",
+        ),
+        FieldGroup(
+            key="web_fetch",
+            title=_("Web Fetch"),
+            match=("web_fetch_*",),
+            icon="web-fetch",
+            toggle_field="web_fetch_enabled",
+        ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+        FieldGroup(
+            key="rocketchat",
+            title=_("Rocket Chat"),
+            match=("rocketchat_*",),
+            icon="rocketchat",
+            toggle_field="rocketchat_enabled",
+        ),
+        FieldGroup(
+            key="authentication",
+            title=_("Authentication"),
+            match=("auth_*",),
+            icon="lock-closed",
+            toggle_field="auth_login_enabled",
+        ),
     )
 
     objects: SingletonManager = SingletonManager()
@@ -348,9 +447,10 @@ class SiteConfiguration(models.Model):
 
         return mask_secret(value)
 
-    # Single worker is sufficient — we only need to avoid blocking the async event loop;
-    # concurrent DB lookups are not needed because the result is cached.
-    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    # Multiple workers so concurrent async callers don't queue behind a single slow
+    # DB/cache call and timeout.  The result is cached, so most calls resolve quickly;
+    # extra threads are only needed when the cache is cold or the DB is slow.
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     @classmethod
     def _fetch_from_cache_or_db(cls) -> SiteConfiguration | None:
@@ -448,6 +548,7 @@ class SiteConfiguration(models.Model):
                     match=group_def.match,
                     icon=group_def.icon,
                     fields=tuple(group_fields),
+                    toggle_field=group_def.toggle_field,
                 )
             )
         return groups

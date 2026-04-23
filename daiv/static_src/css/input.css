@@ -23,27 +23,62 @@ a, button, [role="button"] {
   animation: fade-up 0.5s ease-out both;
 }
 
+@keyframes number-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+
+.animate-number {
+  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.animate-bar {
+  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: left;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
 /* -- Button component styles -------------------------------------------- */
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
            bg-white text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98];
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-white/[0.06] bg-white/[0.03] text-gray-400 transition-all duration-200
            hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white;
   }
 
   .btn-danger {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-semibold
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
            bg-red-600 text-white transition-all duration-200 hover:bg-red-700 active:scale-[0.98];
   }
 
   .btn-danger-outline {
-    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[14px] font-medium
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-red-800/30 bg-red-950/20 text-red-400 transition-all duration-200
            hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
   }
@@ -60,13 +95,13 @@ a, button, [role="button"] {
   input[type="url"],
   textarea {
     @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5
-           text-[14px] text-white placeholder-gray-500 outline-none transition-all duration-200
+           text-[15px] text-white placeholder-gray-500 outline-none transition-all duration-200
            focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08];
   }
 
   select {
     @apply block w-full rounded-xl border border-white/[0.06] bg-[#0d1117] px-4 py-2.5
-           text-[14px] text-white outline-none transition-all duration-200
+           text-[15px] text-white outline-none transition-all duration-200
            focus:border-white/[0.15] focus:ring-1 focus:ring-white/[0.08];
   }
 
@@ -74,9 +109,155 @@ a, button, [role="button"] {
     @apply h-4 w-4 rounded border-white/[0.15] bg-white/[0.03] text-white accent-white;
   }
 
+  input[type="date"],
+  input[type="time"] {
+    color-scheme: dark;
+  }
+
   input:disabled,
   select:disabled,
   textarea:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+}
+
+/* -- Prose dark: markdown rendered inside dark boxes ---------------------- */
+
+@layer components {
+  .prose-dark {
+    @apply text-sm leading-relaxed text-gray-300;
+  }
+
+  .prose-dark h1 {
+    @apply mt-6 mb-3 text-lg font-semibold text-gray-100 first:mt-0;
+  }
+
+  .prose-dark h2 {
+    @apply mt-5 mb-2.5 text-base font-semibold text-gray-100 first:mt-0;
+  }
+
+  .prose-dark h3 {
+    @apply mt-4 mb-2 text-[15px] font-semibold text-gray-200 first:mt-0;
+  }
+
+  .prose-dark p {
+    @apply my-2.5;
+  }
+
+  .prose-dark ul {
+    @apply my-2.5 list-disc pl-5;
+  }
+
+  .prose-dark ol {
+    @apply my-2.5 list-decimal pl-5;
+  }
+
+  .prose-dark li {
+    @apply my-1;
+  }
+
+  .prose-dark a {
+    @apply text-blue-400 underline decoration-blue-400/30 hover:text-blue-300 hover:decoration-blue-300/50;
+  }
+
+  .prose-dark code {
+    @apply rounded bg-white/[0.06] px-1.5 py-0.5 text-[13px] text-gray-200;
+  }
+
+  .prose-dark pre {
+    @apply my-3 overflow-x-auto rounded-lg bg-black/40 p-3;
+  }
+
+  .prose-dark pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .prose-dark blockquote {
+    @apply my-3 border-l-2 border-gray-600 pl-4 text-gray-400;
+  }
+
+  .prose-dark table {
+    @apply my-3 w-full text-left;
+  }
+
+  .prose-dark th {
+    @apply border-b border-white/[0.08] pb-2 text-[13px] font-semibold text-gray-200;
+  }
+
+  .prose-dark td {
+    @apply border-b border-white/[0.04] py-2 text-[13px] text-gray-300;
+  }
+
+  .prose-dark hr {
+    @apply my-4 border-white/[0.06];
+  }
+
+  .prose-dark strong {
+    @apply font-semibold text-gray-200;
+  }
+}
+
+/* -- Status badge variants ------------------------------------------------ */
+
+@layer components {
+  .status-badge {
+    @apply rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .status-badge-success {
+    @apply bg-emerald-900/40 text-emerald-300;
+  }
+
+  .status-badge-failed {
+    @apply bg-red-900/40 text-red-300;
+  }
+
+  .status-badge-running {
+    @apply bg-blue-900/40 text-blue-300;
+  }
+
+  .status-badge-pending {
+    @apply bg-gray-800/60 text-gray-400;
+  }
+}
+
+/* -- Status dot variants -------------------------------------------------- */
+
+@layer components {
+  .status-dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply bg-emerald-400;
+  }
+
+  .status-dot-failed {
+    @apply bg-red-400;
+  }
+
+  .status-dot-running {
+    @apply bg-blue-400;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  .status-dot-pending {
+    @apply bg-gray-500;
+  }
+}
+
+/* -- Combobox size variant ------------------------------------------------ */
+
+@layer components {
+  .combobox-sm input[type="text"] {
+    @apply rounded-lg px-3 py-1.5 pr-8 text-sm;
+  }
+
+  .combobox-sm .combobox-icon {
+    @apply h-3.5 w-3.5;
+  }
+
+  .combobox-sm .combobox-option {
+    @apply px-3 py-2 text-sm;
   }
 }

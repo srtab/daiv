@@ -35,7 +35,7 @@
             <a href="/">
                 <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-10">
             </a>
-            <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">{% trans "Authorization request" %}</p>
+            <p class="mt-4 text-[15px] font-light tracking-wide text-gray-400">{% trans "Authorization request" %}</p>
         </div>
 
         <!-- Application info -->
@@ -46,8 +46,8 @@
                     {% icon "squares-plus" "h-6 w-6 text-gray-400" %}
                 </div>
                 <div class="min-w-0">
-                    <h2 class="text-[15px] font-semibold text-white truncate">{{ application.name }}</h2>
-                    <p class="mt-0.5 text-[13px] text-gray-500">{% trans "wants to access your account" %}</p>
+                    <h2 class="text-base font-semibold text-white truncate">{{ application.name }}</h2>
+                    <p class="mt-0.5 text-sm text-gray-400">{% trans "wants to access your account" %}</p>
                 </div>
             </div>
 
@@ -56,14 +56,14 @@
 
             <!-- Permissions -->
             <div>
-                <p class="mb-3 text-[12px] font-medium uppercase tracking-[0.15em] text-gray-500">{% trans "Permissions requested" %}</p>
+                <p class="mb-3 text-[13px] font-medium uppercase tracking-[0.15em] text-gray-400">{% trans "Permissions requested" %}</p>
                 <ul class="space-y-2.5">
                     {% for scope in scopes_descriptions %}
                     <li class="flex items-center gap-3">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10">
                             {% icon "check" "h-3.5 w-3.5 text-emerald-400" %}
                         </div>
-                        <span class="text-[14px] text-gray-300">{{ scope }}</span>
+                        <span class="text-[15px] text-gray-300">{{ scope }}</span>
                     </li>
                     {% endfor %}
                 </ul>
@@ -73,8 +73,8 @@
             {% if application.redirect_uris %}
             <div class="mt-5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3">
                 <div class="flex items-start gap-2.5">
-                    {% icon "link" "mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" %}
-                    <p class="text-[12px] leading-relaxed text-gray-500">
+                    {% icon "link" "mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" %}
+                    <p class="text-[13px] leading-relaxed text-gray-400">
                         {% trans "Will redirect to" %}
                         <span class="font-medium text-gray-400 break-all">{{ application.redirect_uris }}</span>
                     </p>
@@ -85,7 +85,7 @@
 
         <!-- Form errors -->
         {% if form.errors %}
-        <div class="animate-fade-up mt-4 rounded-xl border border-red-800/50 bg-red-950/80 px-4 py-3 text-[13px] text-red-200" style="animation-delay: 120ms">
+        <div class="animate-fade-up mt-4 rounded-xl border border-red-800/50 bg-red-950/80 px-4 py-3 text-sm text-red-200" style="animation-delay: 120ms">
             {{ form.errors }}
         </div>
         {% endif %}
@@ -111,7 +111,7 @@
         </form>
 
         <!-- Fine print -->
-        <p class="animate-fade-up mt-5 text-center text-[12px] font-light tracking-wide text-gray-500" style="animation-delay: 220ms">
+        <p class="animate-fade-up mt-5 text-center text-[13px] font-light tracking-wide text-gray-400" style="animation-delay: 220ms">
             {% trans "Authorizing will grant this application access to your DAIV account" %}
         </p>
 
@@ -127,8 +127,8 @@
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-red-800/30 bg-red-950/50">
                 {% icon "exclamation-triangle" "h-6 w-6 text-red-400" %}
             </div>
-            <h2 class="text-[15px] font-semibold text-white">{{ error.error }}</h2>
-            <p class="mt-2 text-[14px] text-gray-400">{{ error.description }}</p>
+            <h2 class="text-base font-semibold text-white">{{ error.error }}</h2>
+            <p class="mt-2 text-[15px] text-gray-400">{{ error.description }}</p>
         </div>
         {% endif %}
     </div>

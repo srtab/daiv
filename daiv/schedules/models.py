@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import zoneinfo
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
+from notifications.choices import NotifyOn
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -36,7 +37,11 @@ class ScheduledJobManager(models.Manager["ScheduledJob"]):
 
 
 class ScheduledJob(TimeStampedModel):
-    """A user-defined schedule that runs the DAIV agent on a repository."""
+    """A user-defined schedule that runs the DAIV agent on 1-20 repositories.
+
+    Target repositories are stored in ``repos`` as ``[{"repo_id": str, "ref": str}, ...]``.
+    Each dispatch fans out into one agent run per entry, correlated by ``last_run_batch_id``.
+    """
 
     objects = ScheduledJobManager()
 
@@ -45,13 +50,9 @@ class ScheduledJob(TimeStampedModel):
     )
     name = models.CharField(_("name"), max_length=200)
     prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
-    repo_id = models.CharField(_("repository"), max_length=255, help_text=_("Repository identifier, e.g. owner/repo."))
-    ref = models.CharField(
-        _("branch / ref"),
-        max_length=255,
-        blank=True,
-        default="",
-        help_text=_("Git branch or ref. Leave blank for the default branch."),
+    repos = models.JSONField(
+        _("repositories"),
+        help_text=_("List of {repo_id, ref} entries. 1-20 entries. Empty ref means the default branch."),
     )
     frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
     cron_expression = models.CharField(
@@ -64,14 +65,22 @@ class ScheduledJob(TimeStampedModel):
     time = models.TimeField(
         _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
     )
-    timezone = models.CharField(
-        _("timezone"), max_length=63, default="UTC", help_text=_("IANA timezone for the schedule.")
+    use_max = models.BooleanField(
+        _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
     )
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
-    last_run_task_id = models.UUIDField(_("last run task ID"), null=True, blank=True)
+    last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
+    notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    subscribers = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="subscribed_schedules",
+        verbose_name=_("subscribers"),
+        help_text=_("Other users CC'd on this schedule's finish notifications."),
+    )
 
     class Meta:
         verbose_name = _("Scheduled Job")
@@ -80,7 +89,7 @@ class ScheduledJob(TimeStampedModel):
         indexes = [models.Index(fields=["is_enabled", "next_run_at"], name="sched_enabled_next_idx")]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(frequency="custom") | ~models.Q(cron_expression=""),
+                condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
                 name="sched_custom_requires_cron",
             )
         ]
@@ -88,8 +97,17 @@ class ScheduledJob(TimeStampedModel):
     def __str__(self) -> str:
         return self.name
 
+    def _validated_repos(self) -> list[dict]:
+        from activity.services import validate_repo_list
+
+        try:
+            return validate_repo_list(self.repos)
+        except ValueError as err:
+            raise ValidationError({"repos": str(err)}) from err
+
     def clean(self) -> None:
         super().clean()
+        self.repos = self._validated_repos()
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
                 raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
@@ -102,10 +120,6 @@ class ScheduledJob(TimeStampedModel):
                 })
         if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
             raise ValidationError({"time": _("Time is required for this frequency.")})
-        try:
-            zoneinfo.ZoneInfo(self.timezone)
-        except (KeyError, zoneinfo.ZoneInfoNotFoundError) as e:
-            raise ValidationError({"timezone": _("Invalid timezone.")}) from e
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
@@ -135,48 +149,16 @@ class ScheduledJob(TimeStampedModel):
     def compute_next_run(self, after: datetime | None = None) -> None:
         """Compute and set ``next_run_at`` based on the cron expression and timezone.
 
-        The next fire time is calculated in the schedule's local timezone so
+        The next fire time is calculated in the project's local timezone so
         that DST transitions are handled correctly, then stored as UTC.
 
         Raises:
-            zoneinfo.ZoneInfoNotFoundError: If the timezone is not valid.
             ValueError: If the frequency/cron configuration is invalid.
         """
-        tz = zoneinfo.ZoneInfo(self.timezone)
         if after is None:
-            after = datetime.now(tz=UTC)
+            after = timezone.now()
 
-        local_now = after.astimezone(tz)
+        local_now = timezone.localtime(after)
         cron_iter = croniter(self.get_effective_cron(), local_now)
         next_local = cron_iter.get_next(datetime)
         self.next_run_at = next_local.astimezone(UTC)
-
-
-class ScheduledJobRun(models.Model):
-    """Records each dispatch of a scheduled job, linking to the task result.
-
-    Instances are immutable after creation. The ``task_result`` FK may become
-    NULL when the underlying ``DBTaskResult`` row is pruned by the retention policy.
-    """
-
-    scheduled_job = models.ForeignKey(
-        ScheduledJob, on_delete=models.CASCADE, related_name="runs", verbose_name=_("scheduled job")
-    )
-    task_result = models.ForeignKey(
-        "django_tasks_database.DBTaskResult",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        verbose_name=_("task result"),
-    )
-    created = models.DateTimeField(_("created"), auto_now_add=True, db_index=True)
-
-    class Meta:
-        verbose_name = _("Scheduled Job Run")
-        verbose_name_plural = _("Scheduled Job Runs")
-        ordering = ["-created"]
-        indexes = [models.Index(fields=["scheduled_job", "-created"], name="sched_run_job_created_idx")]
-
-    def __str__(self) -> str:
-        return f"Run {self.pk} for schedule {self.scheduled_job_id}"

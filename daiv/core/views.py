@@ -72,4 +72,5 @@ class SiteConfigurationView(AdminRequiredMixin, View):
 
     @staticmethod
     def _build_context(form: SiteConfigurationForm) -> dict:
-        return {"form": form, "field_groups": SiteConfiguration.get_field_groups()}
+        groups = [g for g in SiteConfiguration.get_field_groups() if any(f in form.fields for f in g.fields)]
+        return {"form": form, "field_groups": groups}

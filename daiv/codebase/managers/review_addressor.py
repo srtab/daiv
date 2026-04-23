@@ -7,13 +7,13 @@ from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
+from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -21,6 +21,7 @@ from core.utils import generate_uuid
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.agents")
@@ -200,7 +201,7 @@ class CommentsAddressorManager(BaseManager):
     @classmethod
     async def address_comments(
         cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx
-    ) -> dict[str, bool]:
+    ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
@@ -210,7 +211,7 @@ class CommentsAddressorManager(BaseManager):
             runtime_ctx (RuntimeCtx): The runtime context.
 
         Returns:
-            A dict with ``code_changes`` indicating whether code was published.
+            An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
         manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
@@ -220,7 +221,7 @@ class CommentsAddressorManager(BaseManager):
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self) -> dict[str, bool]:
+    async def _address_comments(self) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
         """
@@ -236,36 +237,34 @@ class CommentsAddressorManager(BaseManager):
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
-            agent_config = RunnableConfig(
+            agent_config = build_langsmith_config(
+                self.ctx,
+                trigger="mention",
+                model=agent_kwargs["model_names"][0],
+                thinking_level=agent_kwargs["thinking_level"],
+                agent_name=daiv_agent.get_name(),
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
-                metadata={
+                extra_metadata={
                     "author": self.merge_request.author.username,
                     "triggered_by": mention_comment.notes[0].author.username,
-                    "trigger": "mention",
-                    "repository": self.ctx.repository.slug,
-                    "git_platform": self.client.git_platform.value,
                     "merge_request_id": self.merge_request.merge_request_id,
-                    "scope": self.ctx.scope,
-                    "model": agent_kwargs["model_names"][0],
-                    "thinking_level": agent_kwargs["thinking_level"],
                 },
             )
-
             try:
-                result = await daiv_agent.ainvoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                name=mention_comment.notes[0].author.username,
-                                id=mention_comment.notes[0].id,
-                                content=mention_comment.notes[0].body,
-                            )
-                        ]
-                    },
-                    config=agent_config,
-                    context=self.ctx,
-                )
+                with track_usage_metadata() as usage_handler:
+                    result = await daiv_agent.ainvoke(
+                        {
+                            "messages": [
+                                HumanMessage(
+                                    name=mention_comment.notes[0].author.username,
+                                    id=mention_comment.notes[0].id,
+                                    content=mention_comment.notes[0].body,
+                                )
+                            ]
+                        },
+                        config=agent_config,
+                        context=self.ctx,
+                    )
             except Exception:
                 draft_published = await self._recover_draft(
                     daiv_agent,
@@ -276,6 +275,7 @@ class CommentsAddressorManager(BaseManager):
                 self._add_unable_to_address_review_note(draft_published=draft_published)
                 raise
             else:
+                response_text = ""
                 if (
                     result
                     and "messages" in result
@@ -291,7 +291,12 @@ class CommentsAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_review_note()
 
-                return await self._read_code_changes(daiv_agent, agent_config)
+                return await self._build_agent_result(
+                    daiv_agent,
+                    agent_config,
+                    response=response_text,
+                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                )
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
         """

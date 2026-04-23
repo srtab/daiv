@@ -5,11 +5,11 @@ from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import extract_text_content, get_daiv_agent_kwargs
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
+from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
@@ -17,6 +17,7 @@ from core.utils import generate_uuid
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
     from codebase.base import Issue
     from codebase.context import RuntimeCtx
 
@@ -41,7 +42,7 @@ class IssueAddressorManager(BaseManager):
     @classmethod
     async def address_issue(
         cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx
-    ) -> dict[str, bool]:
+    ) -> AgentResult:
         """
         Address the issue.
 
@@ -51,7 +52,7 @@ class IssueAddressorManager(BaseManager):
             runtime_ctx (RuntimeCtx): The runtime context.
 
         Returns:
-            A dict with ``code_changes`` indicating whether code was published.
+            An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
         manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
 
@@ -61,7 +62,7 @@ class IssueAddressorManager(BaseManager):
             manager._add_unable_to_address_issue_note()
             raise
 
-    async def _address_issue(self) -> dict[str, bool]:
+    async def _address_issue(self) -> AgentResult:
         """
         Process the issue by addressing it with the appropriate actions.
         """
@@ -99,24 +100,23 @@ class IssueAddressorManager(BaseManager):
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
-            agent_config = RunnableConfig(
+            agent_config = build_langsmith_config(
+                self.ctx,
+                trigger="mention" if self.mention_comment_id else "label",
+                model=agent_kwargs["model_names"][0],
+                thinking_level=agent_kwargs["thinking_level"],
+                agent_name=daiv_agent.get_name(),
                 configurable={"thread_id": self.thread_id},
-                tags=[daiv_agent.get_name(), self.client.git_platform.value, self.ctx.repository.slug, self.ctx.scope],
-                metadata={
+                extra_metadata={
                     "author": self.issue.author.username,
                     "triggered_by": triggered_by,
-                    "trigger": "mention" if self.mention_comment_id else "label",
-                    "repository": self.ctx.repository.slug,
-                    "git_platform": self.client.git_platform.value,
                     "issue_id": self.issue.iid,
                     "labels": [label.lower() for label in self.issue.labels],
-                    "scope": self.ctx.scope,
-                    "model": agent_kwargs["model_names"][0],
-                    "thinking_level": agent_kwargs["thinking_level"],
                 },
             )
             try:
-                result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
+                with track_usage_metadata() as usage_handler:
+                    result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
             except Exception:
                 draft_published = await self._recover_draft(
                     daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
@@ -124,6 +124,7 @@ class IssueAddressorManager(BaseManager):
                 self._add_unable_to_address_issue_note(draft_published=draft_published)
                 raise
             else:
+                response_text = ""
                 if (
                     result
                     and "messages" in result
@@ -139,7 +140,12 @@ class IssueAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_issue_note()
 
-                return await self._read_code_changes(daiv_agent, agent_config)
+                return await self._build_agent_result(
+                    daiv_agent,
+                    agent_config,
+                    response=response_text,
+                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                )
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """

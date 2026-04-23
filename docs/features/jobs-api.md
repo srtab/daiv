@@ -56,9 +56,10 @@ POST /api/jobs
 
 | Field     | Type   | Required | Description |
 |-----------|--------|----------|-------------|
-| `repo_id` | string | yes      | Repository identifier (e.g., `group/project`) |
-| `prompt`  | string | yes      | The prompt to send to the agent |
-| `ref`     | string | no       | Git ref (branch/tag). Defaults to the repository's default branch |
+| `repo_id` | string  | yes      | Repository identifier (e.g., `group/project`) |
+| `prompt`  | string  | yes      | The prompt to send to the agent |
+| `ref`     | string  | no       | Git ref (branch/tag). Defaults to the repository's default branch |
+| `use_max` | boolean | no       | Use the more capable model with thinking set to high. Defaults to `false` |
 
 **Example:**
 
@@ -203,3 +204,7 @@ triage-and-create-issues:
 
 !!! tip
     Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project settings. Mark the API key as **masked** and **protected**.
+
+## See also
+
+- [Request Tracker Triage](../integrations/rt/index.md) — an end-to-end example of using the Jobs API from an RT Scrip to triage new support tickets automatically.

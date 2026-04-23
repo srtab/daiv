@@ -1,37 +1,30 @@
-{% extends "base.html" %}
-{% load static %}
+{% extends "base_app.html" %}
+{% load i18n static %}
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
-<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
-        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
-        crossorigin="anonymous"></script>
+<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+<script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 {% endblock %}
 
-{% block content %}
-<div class="min-h-dvh">
-    {% include "accounts/_header.html" %}
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
 
-    <!-- Content -->
-    <main class="mx-auto max-w-5xl py-12">
-        <div class="animate-fade-up flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit schedule{% else %}Create schedule{% endif %}</h1>
-                <p class="mt-1.5 text-[14px] font-light text-gray-400">
-                    {% if object %}Update "{{ object.name }}".{% else %}Set up a recurring agent run on a repository.{% endif %}
-                </p>
-            </div>
-            <a href="{% url 'schedule_list' %}"
-               class="text-[14px] text-gray-400 transition-colors hover:text-white">
-                &larr; Schedules
-            </a>
-        </div>
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit schedule{% else %}Create schedule{% endif %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% if object %}Update "{{ object.name }}".{% else %}Set up a recurring agent run on a repository.{% endif %}
+    </p>
+</div>
 
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
             {% for error in form.non_field_errors %}
-            <p class="text-[14px] text-red-200">{{ error }}</p>
+            <p class="text-[15px] text-red-200">{{ error }}</p>
             {% endfor %}
         </div>
         {% endif %}
@@ -39,186 +32,84 @@
         <form method="post"
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
-                  time: '{{ form.time.value|default:'' }}',
-                  timezone: '{{ form.timezone.value|default:'UTC' }}',
+                  time: '{{ form.time.value|time:"H:i" }}',
                   get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
                   get showCron() { return this.frequency === 'custom' },
-                  get summary() {
-                      const labels = {hourly: 'every hour', daily: 'daily', weekdays: 'weekdays (Mon–Fri)', weekly: 'weekly (Monday)', custom: 'custom schedule'};
-                      let s = 'Runs ' + (labels[this.frequency] || this.frequency);
-                      if (this.showTime && this.time) s += ' at ' + this.time;
-                      if (this.timezone) s += ' ' + this.timezone;
-                      return s;
-                  }
               }"
               class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
             {% csrf_token %}
 
             <!-- Name -->
             <div>
-                <label for="id_name" class="block text-[14px] font-medium text-gray-400">Name <span class="text-red-400">*</span></label>
+                <label for="id_name" class="block text-[15px] font-medium text-gray-400">Name <span class="text-red-400">*</span></label>
                 <input type="text" name="name" id="id_name" value="{{ form.name.value|default:'' }}" maxlength="200" required
                        placeholder="e.g., Daily code review" class="mt-2">
                 {% if form.name.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.name.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>
                 {% endif %}
             </div>
 
-            <!-- Prompt -->
-            <div class="mt-5">
-                <label for="id_prompt" class="block text-[14px] font-medium text-gray-400">Prompt <span class="text-red-400">*</span></label>
-                <textarea name="prompt" id="id_prompt" rows="4" required
-                          placeholder="Describe what the agent should do in each run...&#10;&#10;e.g., Review open merge requests and leave feedback on code quality."
-                          class="mt-2">{{ form.prompt.value|default:'' }}</textarea>
-                {% if form.prompt.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.prompt.errors.0 }}</p>
-                {% endif %}
+            <div class="mt-5 -mx-6 [&>div]:!rounded-none">
+                {% include "activity/_agent_run_fields.html" with form=form %}
             </div>
 
-            <!-- Repository + Branch -->
-            <div class="mt-5 grid grid-cols-3 gap-4">
-                <div class="col-span-2"
-                     x-data="{
-                         selected: '{{ form.repo_id.value|default:'' }}' || null,
-                         results: [],
-                         isLoading: false,
-                         _timer: null,
-                         _controller: null,
-
-                         search(query) {
-                             clearTimeout(this._timer);
-                             if (query.length < 2) { this.results = []; return; }
-                             this._timer = setTimeout(() => this._fetch(query), 300);
-                         },
-
-                         async _fetch(query) {
-                             this._controller?.abort();
-                             this._controller = new AbortController();
-                             this.isLoading = true;
-                             try {
-                                 const resp = await fetch(
-                                     '/api/codebase/repositories/search?q=' + encodeURIComponent(query),
-                                     { signal: this._controller.signal }
-                                 );
-                                 this.results = resp.ok ? await resp.json() : [];
-                             } catch (e) {
-                                 if (e.name !== 'AbortError') this.results = [];
-                             } finally {
-                                 this.isLoading = false;
-                             }
-                         }
-                     }">
-                    <div x-combobox x-model="selected" name="repo_id" nullable>
-                        <label x-combobox:label class="block text-[14px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
-                        <div class="relative mt-2">
-                            <input type="text" x-combobox:input
-                                   :display-value="v => v || ''"
-                                   @input="search($event.target.value)"
-                                   placeholder="Search repositories..."
-                                   autocomplete="off">
-                            <svg x-show="isLoading" x-cloak class="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                            </svg>
-                        </div>
-                        <div x-combobox:options x-cloak
-                             class="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-white/[0.06] bg-[#0d1117] shadow-lg">
-                            <ul>
-                                <template x-for="repo in results" :key="repo.slug" hidden>
-                                    <li x-combobox:option :value="repo.slug"
-                                        class="cursor-pointer px-3 py-2 text-[14px]"
-                                        :class="$comboboxOption.isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.06]'">
-                                        <span x-text="repo.slug" class="text-white"></span>
-                                        <span x-show="repo.name !== repo.slug" x-text="'— ' + repo.name" class="ml-1 text-gray-500"></span>
-                                    </li>
-                                </template>
-                            </ul>
-                            <p x-show="results.length === 0 && !isLoading" class="px-3 py-2 text-[13px] text-gray-500">No repositories found.</p>
-                        </div>
+            <!-- Frequency + Time/Cron -->
+            <div class="mt-6 grid grid-cols-3 gap-4">
+                <div class="col-span-2">
+                    <label class="block text-[15px] font-medium text-gray-400">Frequency</label>
+                    <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                        {% for value, label in form.frequency.field.choices %}
+                        <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                               :class="frequency === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                            <input type="radio" name="frequency" value="{{ value }}" x-model="frequency" class="sr-only">
+                            {{ label }}
+                        </label>
+                        {% endfor %}
                     </div>
-                    {% if form.repo_id.errors %}
-                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.repo_id.errors.0 }}</p>
-                    {% endif %}
-                    <p class="mt-1.5 text-[13px] text-gray-500">Search and select a repository.</p>
-                </div>
-
-                <div>
-                    <label for="id_ref" class="block text-[14px] font-medium text-gray-400">Branch / Ref</label>
-                    <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255"
-                           placeholder="Default branch" class="mt-2">
-                    {% if form.ref.errors %}
-                    <p class="mt-1.5 text-[13px] text-red-400">{{ form.ref.errors.0 }}</p>
+                    {% if form.frequency.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.frequency.errors.0 }}</p>
                     {% endif %}
                 </div>
-            </div>
 
-            <!-- Frequency -->
-            <div class="mt-5">
-                <label class="block text-[14px] font-medium text-gray-400">Frequency</label>
-                <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-                    {% for value, label in form.frequency.field.choices %}
-                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200"
-                           :class="frequency === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'">
-                        <input type="radio" name="frequency" value="{{ value }}" x-model="frequency" class="sr-only">
-                        {{ label }}
-                    </label>
-                    {% endfor %}
+                <!-- Cron Expression (shown only for Custom) -->
+                <div x-show="showCron" x-cloak>
+                    <label for="id_cron_expression" class="block text-[15px] font-medium text-gray-400">Cron Expression <span class="text-red-400">*</span></label>
+                    <input type="text" name="cron_expression" id="id_cron_expression" value="{{ form.cron_expression.value|default:'' }}" maxlength="100"
+                           placeholder="e.g., 0 9 * * 1-5" class="mt-2 font-mono">
+                    {% if form.cron_expression.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.cron_expression.errors.0 }}</p>
+                    {% endif %}
+                    <p class="mt-1.5 text-sm text-gray-400">minute hour dom month dow</p>
                 </div>
-                {% if form.frequency.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.frequency.errors.0 }}</p>
-                {% endif %}
+
+                <!-- Time (hidden for Hourly and Custom) -->
+                <div x-show="showTime" x-cloak>
+                    <label for="id_time" class="block text-[15px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
+                    <input type="time" name="time" id="id_time" x-model="time" class="mt-2 !w-auto">
+                    {% if form.time.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>
+                    {% endif %}
+                </div>
             </div>
 
-            <!-- Cron Expression (shown only for Custom) -->
-            <div class="mt-5" x-show="showCron" x-cloak>
-                <label for="id_cron_expression" class="block text-[14px] font-medium text-gray-400">Cron Expression <span class="text-red-400">*</span></label>
-                <input type="text" name="cron_expression" id="id_cron_expression" value="{{ form.cron_expression.value|default:'' }}" maxlength="100"
-                       placeholder="e.g., 0 9 * * 1-5" class="mt-2 font-mono">
-                {% if form.cron_expression.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.cron_expression.errors.0 }}</p>
-                {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-500">Five-field cron expression: minute hour day-of-month month day-of-week.</p>
-            </div>
+            <div class="mt-6 border-t border-white/[0.06]"></div>
 
-            <!-- Time (hidden for Hourly and Custom) -->
-            <div class="mt-5" x-show="showTime" x-cloak>
-                <label for="id_time" class="block text-[14px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
-                <input type="time" name="time" id="id_time" value="{{ form.time.value|default:'' }}" x-model="time" class="mt-2 !w-auto">
-                {% if form.time.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.time.errors.0 }}</p>
-                {% endif %}
-            </div>
+            {% include "notifications/_notify_on_radio.html" with form=form %}
 
-            <!-- Timezone -->
-            <div class="mt-5">
-                <label for="id_timezone" class="block text-[14px] font-medium text-gray-400">Timezone</label>
-                <input type="text" name="timezone" id="id_timezone" value="{{ form.timezone.value|default:'UTC' }}"
-                       x-model="timezone" list="tz-list" maxlength="63" class="mt-2">
-                <datalist id="tz-list">
-                    {% for tz in timezones %}
-                    <option value="{{ tz }}">
-                    {% endfor %}
-                </datalist>
-                {% if form.timezone.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.timezone.errors.0 }}</p>
-                {% endif %}
-            </div>
-
-            <!-- Schedule summary -->
-            <p class="mt-4 text-[13px] text-blue-400/80" x-text="summary"></p>
+            {% include "schedules/_subscriber_picker.html" %}
 
             {% if object %}
             <!-- Enabled (edit only) -->
-            <div class="mt-5">
+            <div class="mt-6 space-y-4 border-t border-white/[0.06] pt-6">
                 <label class="flex cursor-pointer items-center gap-3">
                     <input type="hidden" name="is_enabled" value="false">
                     <input type="checkbox" name="is_enabled" value="true" {% if form.is_enabled.value %}checked{% endif %}>
-                    <span class="text-[14px] font-medium text-gray-400">Enabled</span>
+                    <span class="text-[15px] font-medium text-gray-400">Enabled</span>
                 </label>
                 {% if form.is_enabled.errors %}
-                <p class="mt-1.5 text-[13px] text-red-400">{{ form.is_enabled.errors.0 }}</p>
+                <p class="mt-1.5 text-sm text-red-400">{{ form.is_enabled.errors.0 }}</p>
                 {% endif %}
-                <p class="mt-1.5 text-[13px] text-gray-500">Disabled schedules will not run until re-enabled.</p>
+                <p class="mt-1.5 text-sm text-gray-400">Disabled schedules will not run until re-enabled.</p>
             </div>
             {% endif %}
 
@@ -237,6 +128,4 @@
                 {% endif %}
             </div>
         </form>
-    </main>
-</div>
 {% endblock %}

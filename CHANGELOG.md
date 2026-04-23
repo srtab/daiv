@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
+- Added model fallback support to all subagents (general-purpose, explore, and custom). When the primary LLM provider is unavailable, subagents now automatically fall back to an alternate provider, matching the existing behavior of the main agent. Includes a new `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` setting (default: `gpt-5-4-mini`) configurable via the dashboard or environment variable.
 - Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
 - Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
 - Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 authentication using PKCE. Enables MCP clients like Claude Code to connect to DAIV via a remote URL with browser-based authentication. Exposes `submit_job` and `get_job_status` tools. Includes OAuth metadata discovery (`/.well-known/oauth-authorization-server`), dynamic client registration (`/api/oauth/register`), and Bearer token validation for MCP requests.
@@ -31,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Standardized LangSmith metadata and tags across all agent invocation paths. The Jobs API and Chat API were missing critical metadata fields (`scope`, `repository`, `git_platform`) and had no tags, making their traces invisible in several LangSmith dashboard charts.
 - Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
 - Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
 - Fixed `PullRequestMetadata.branch` validation to reject invalid branch names (e.g., names with spaces or uppercase characters) that previously passed the incomplete regex.
@@ -44,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
 - Increased Claude max output tokens from 4,096 to 16,384.
 - Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
+- Upgraded `deepagents` from 0.4.12 to 0.5.1, adding prompt caching, large message eviction, CRLF normalization, and multimodal file support; migrated from deprecated `als_info` backend method to the new `als` API.
 
 ### Removed
 

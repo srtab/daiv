@@ -166,6 +166,8 @@ state-snapshots.txt
 .ruff_cache/
 .cursor
 .claude/
+.superpowers/
+docs/superpowers/
 
 request.json
 

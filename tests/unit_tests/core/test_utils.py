@@ -1,12 +1,51 @@
+from django.contrib.sites.models import Site
+
 import httpx
+import pytest
 
 from core.utils import (
     async_download_url,
     batch_async_download_url,
+    build_absolute_url,
     build_uri,
     extract_valid_image_mimetype,
     is_valid_url,
+    prefixed_email_subject,
 )
+
+
+@pytest.mark.django_db
+class BuildAbsoluteUrlTest:
+    def test_builds_url_with_site_domain(self):
+        Site.objects.filter(pk=1).update(domain="app.example.com")
+        assert build_absolute_url("/notifications/") == "https://app.example.com/notifications/"
+
+    def test_builds_url_with_bare_path(self):
+        Site.objects.filter(pk=1).update(domain="app.example.com")
+        assert build_absolute_url("/") == "https://app.example.com/"
+
+    def test_uses_current_site_domain(self):
+        Site.objects.filter(pk=1).update(domain="custom.domain.org")
+        assert build_absolute_url("/activity/42/") == "https://custom.domain.org/activity/42/"
+
+
+@pytest.mark.django_db
+class PrefixedEmailSubjectTest:
+    def test_prepends_site_name_in_brackets(self):
+        Site.objects.filter(pk=1).update(name="DAIV")
+        assert prefixed_email_subject("Welcome") == "[DAIV] Welcome"
+
+    def test_returns_subject_unchanged_when_site_name_empty(self):
+        Site.objects.filter(pk=1).update(name="")
+        assert prefixed_email_subject("Welcome") == "Welcome"
+
+    def test_is_idempotent_on_already_prefixed_subject(self):
+        Site.objects.filter(pk=1).update(name="DAIV")
+        assert prefixed_email_subject("[DAIV] Welcome") == "[DAIV] Welcome"
+
+    def test_returns_subject_unchanged_when_site_missing(self, mocker):
+        mocker.patch("core.utils.Site.objects.get_current", side_effect=Site.DoesNotExist)
+        assert prefixed_email_subject("Welcome") == "Welcome"
 
 
 class IsValidUrlTest:

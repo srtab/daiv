@@ -1,0 +1,23 @@
+<div class="flex items-center">
+    {% with owner_label=user.name|default:user.email %}
+    <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[10px] font-semibold text-white{% if group %} ring-2 ring-[#0a0e1a]{% endif %}"
+          title="{% if label %}{{ label }}: {% endif %}{{ owner_label }}">
+        {{ owner_label|first|upper }}
+    </span>
+    {% endwith %}
+    {% if group %}
+    {% for member in group|slice:":3" %}
+    {% with member_label=member.name|default:member.email %}
+    <span class="-ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-[10px] font-semibold text-white ring-2 ring-[#0a0e1a]"
+          title="{{ member_label }}">
+        {{ member_label|first|upper }}
+    </span>
+    {% endwith %}
+    {% endfor %}
+    {% if group|length > 3 %}
+    <span class="-ml-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-gray-800 px-1.5 text-[10px] font-semibold text-gray-300 ring-2 ring-[#0a0e1a]">
+        +{{ group|length|add:"-3" }}
+    </span>
+    {% endif %}
+    {% endif %}
+</div>

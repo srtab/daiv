@@ -1,0 +1,14 @@
+{% load i18n activity_tags %}{{ notification.subject }}
+{% spaceless %}={% for _ in notification.subject %}={% endfor %}{% endspaceless %}
+
+{{ notification.body }}
+{% with ctx=notification.context %}
+{% if ctx.status_label %}{% translate "Status" %}: {{ ctx.status_label }}
+{% endif %}{% if ctx.trigger_name %}{{ ctx.trigger_label|default:_("Trigger") }}: {{ ctx.trigger_name }}
+{% endif %}{% if ctx.repo_id %}{% translate "Repository" %}: {{ ctx.repo_id }}
+{% endif %}{% if ctx.duration_seconds is not None %}{% translate "Duration" %}: {{ ctx.duration_seconds|duration }}
+{% endif %}{% endwith %}
+{% if link_absolute_url %}{% translate "View full result" %}: {{ link_absolute_url }}
+{% endif %}
+--
+DAIV

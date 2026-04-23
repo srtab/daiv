@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from langchain_core.messages.content import create_image_block
+from langchain_core.runnables import RunnableConfig
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -18,6 +19,7 @@ from .schemas import Image
 if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
 
+    from codebase.context import RuntimeCtx
     from codebase.repo_config import AgentModelConfig
 
 
@@ -230,6 +232,64 @@ def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = Fal
         thinking_level = site_settings.agent_max_thinking_level
 
     return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
+
+
+def build_langsmith_config(
+    ctx: RuntimeCtx,
+    *,
+    trigger: str,
+    model: str,
+    thinking_level: str | None = None,
+    agent_name: str | None = None,
+    extra_metadata: dict[str, Any] | None = None,
+    extra_tags: list[str] | None = None,
+    configurable: dict[str, Any] | None = None,
+) -> RunnableConfig:
+    """
+    Build a standardized RunnableConfig with LangSmith metadata and tags.
+
+    Ensures all agent invocations carry the dashboard-critical metadata fields
+    (scope, repository, git_platform, trigger, model) regardless of the callsite.
+
+    Args:
+        ctx: The runtime context.
+        trigger: What triggered this invocation (e.g. "job", "chat", "label", "mention", "diff_to_metadata").
+        model: The primary model name used for this invocation.
+        thinking_level: The thinking level, if applicable.
+        agent_name: The agent name to include in tags (e.g. "DAIV Agent").
+        extra_metadata: Additional metadata fields specific to the callsite.
+        extra_tags: Additional tags specific to the callsite.
+        configurable: Configurable dict (e.g. thread_id for checkpointed agents).
+
+    Returns:
+        A RunnableConfig with standardized metadata and tags.
+    """
+    metadata: dict[str, Any] = {
+        "repository": ctx.repository.slug,
+        "git_platform": ctx.git_platform.value,
+        "trigger": trigger,
+        "model": model,
+    }
+    if ctx.scope is not None:
+        metadata["scope"] = ctx.scope
+    if thinking_level is not None:
+        metadata["thinking_level"] = thinking_level
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
+    tags: list[str] = [ctx.git_platform.value, ctx.repository.slug]
+    if ctx.scope:
+        tags.append(ctx.scope)
+    if agent_name:
+        tags.append(agent_name)
+    if extra_tags:
+        tags.extend(extra_tags)
+
+    config_kwargs: dict[str, Any] = {"metadata": metadata, "tags": tags}
+    if configurable is not None:
+        config_kwargs["configurable"] = configurable
+
+    return RunnableConfig(**config_kwargs)
 
 
 def extract_body_from_frontmatter(frontmatter_text: str) -> str:

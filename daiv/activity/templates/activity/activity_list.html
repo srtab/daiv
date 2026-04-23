@@ -1,0 +1,176 @@
+{% extends "base_app.html" %}
+{% load activity_tags dashboard_tags humanize i18n icon_tags l10n static %}
+
+{% block title %}Agent Activity — DAIV{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
+        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
+{% endblock %}
+
+{% block app_content %}
+<div x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
+    <div class="animate-fade-up">
+        <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
+        </p>
+    </div>
+
+        <!-- Filters -->
+        <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-4" style="animation-delay: 50ms">
+            <!-- Status pills -->
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <a href="?{% querystring_without 'status' 'page' %}"
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
+                              {% if not current_status %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        All
+                    </a>
+                    {% for value, label in statuses %}
+                    <a href="?{% querystring_without 'status' 'page' %}&status={{ value }}"
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
+                              {% if current_status == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        {{ label }}
+                    </a>
+                    {% endfor %}
+                </div>
+
+                <!-- Trigger type filter -->
+                <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <a href="?{% querystring_without 'trigger' 'page' %}"
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
+                              {% if not current_trigger %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        All types
+                    </a>
+                    {% for value, label in trigger_types %}
+                    <a href="?{% querystring_without 'trigger' 'page' %}&trigger={{ value }}"
+                       class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
+                              {% if current_trigger == value %}bg-white/[0.1] text-white shadow-sm{% else %}text-gray-400 hover:text-gray-300{% endif %}">
+                        {{ label }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Second row: repo, date filters -->
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Repository async search -->
+                <div class="combobox-sm relative w-96" x-data="{
+                    ...repoSearch('{{ current_repo }}'),
+                    _initial: '{{ current_repo }}' || null,
+                    init() {
+                        this.$watch('selected', (value) => {
+                            if (value === this._initial) return;
+                            const params = new URLSearchParams(window.location.search);
+                            if (value) { params.set('repo', value); } else { params.delete('repo'); }
+                            params.delete('page');
+                            window.location.search = params.toString();
+                        });
+                    }
+                }">
+                    {% include "codebase/_repo_combobox.html" %}
+                </div>
+
+                <form method="get" class="flex items-center gap-2">
+                    {% if current_status %}<input type="hidden" name="status" value="{{ current_status }}">{% endif %}
+                    {% if current_trigger %}<input type="hidden" name="trigger" value="{{ current_trigger }}">{% endif %}
+                    {% if current_repo %}<input type="hidden" name="repo" value="{{ current_repo }}">{% endif %}
+                    {% if current_schedule %}<input type="hidden" name="schedule" value="{{ current_schedule }}">{% endif %}
+                    {% if current_batch %}<input type="hidden" name="batch" value="{{ current_batch }}">{% endif %}
+                    <input type="date" name="date_from" value="{{ current_from }}"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
+                           placeholder="From" onchange="this.form.submit()">
+                    <span class="text-sm text-gray-400">to</span>
+                    <input type="date" name="date_to" value="{{ current_to }}"
+                           class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
+                           placeholder="To" onchange="this.form.submit()">
+                </form>
+
+                {% if current_batch %}
+                <span class="inline-flex items-center gap-1 rounded-full border border-blue-400/30 bg-blue-500/10 py-1 pl-3 pr-1 text-[13px] font-medium text-blue-300">
+                    <span>{% blocktrans with id=current_batch_short %}Batch {{ id }}{% endblocktrans %}</span>
+                    <a href="?{% querystring_without 'batch' 'page' %}"
+                       aria-label="{% trans 'Clear batch filter' %}"
+                       title="{% trans 'Clear batch filter' %}"
+                       class="inline-flex h-5 w-5 items-center justify-center rounded-full text-blue-300/70 hover:bg-white/[0.05] hover:text-white">×</a>
+                </span>
+                {% endif %}
+
+                {% if has_active_filters %}
+                <a href="{% url 'activity_list' %}"
+                   class="text-sm text-gray-400 transition-colors hover:text-white">
+                    Clear filters
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Activity list -->
+        <div class="animate-fade-up mt-6" style="animation-delay: 100ms">
+            {% if activities %}
+            <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+                {% for a in activities %}
+                <div class="group relative flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0 transition-colors hover:bg-white/[0.02]"
+                     :id="'activity-' + '{{ a.pk }}'">
+                    <a href="{% url 'activity_detail' a.pk %}" class="absolute inset-0" aria-label="View activity"></a>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-3">
+                            {% include "activity/_status_pill.html" with variant=a.status|status_variant label=a.get_status_display pk=a.pk status=a.status %}
+                            <p class="truncate text-[15px] font-medium text-white">
+                                {% activity_title a %}
+                            </p>
+                            {% if a.merge_request_iid and a.merge_request_web_url %}
+                            <a href="{{ a.merge_request_web_url }}" target="_blank" rel="noopener"
+                               class="relative z-10 inline-flex items-center gap-1 rounded-md border border-blue-400/30 bg-blue-500/10 px-1.5 py-0.5 text-xs font-medium text-blue-300 transition-colors hover:bg-blue-500/20">
+                                {% icon "merge-request" "h-3 w-3" %}
+                                !{{ a.merge_request_iid|unlocalize }}
+                            </a>
+                            {% endif %}
+                        </div>
+                        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 pl-1">
+                            <span class="text-sm text-gray-400">{{ a.get_trigger_type_display }}</span>
+                            {% if a.user %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            {% include "accounts/_avatar.html" with user=a.user label="Owner" %}
+                            {% elif a.external_username %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-300">{{ a.external_username }}</span>
+                            {% endif %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.repo_id }}</span>
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.created_at|naturaltime }}</span>
+                            {% if a.duration %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.duration|duration }}</span>
+                            {% endif %}
+                            {% if a.total_tokens %}
+                            <span class="text-sm text-gray-500">&middot;</span>
+                            <span class="text-sm text-gray-400">{{ a.total_tokens|format_tokens }} tokens</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <svg class="ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>
+                </div>
+                {% endfor %}
+            </div>
+            {% include "accounts/_pagination.html" %}
+            {% else %}
+            <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+                <p class="text-[15px] text-gray-400">
+                    {% if has_active_filters %}
+                        No activities match your filters.
+                    {% else %}
+                        No agent activity recorded yet.
+                    {% endif %}
+                </p>
+            </div>
+            {% endif %}
+        </div>
+</div>
+{% endblock %}

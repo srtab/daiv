@@ -2,8 +2,11 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from activity.models import TriggerType
+from activity.services import acreate_activity
 from gitlab.exceptions import GitlabError
 
+from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
@@ -107,9 +110,26 @@ class IssueCallback(BaseCallback):
             self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
         except GitlabError:
             logger.warning("Failed to add reaction to issue %s", self.object_attributes.iid, exc_info=True)
-        await address_issue_task.aenqueue(
+        result = await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
         )
+        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
+        try:
+            await acreate_activity(
+                trigger_type=TriggerType.ISSUE_WEBHOOK,
+                task_result_id=result.id,
+                repo_id=self.project.path_with_namespace,
+                issue_iid=self.object_attributes.iid,
+                use_max=self.object_attributes.has_max_label(),
+                user=daiv_user,
+                external_username=self.user.username,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create activity for issue %s#%s",
+                self.project.path_with_namespace,
+                self.object_attributes.iid,
+            )
 
 
 class NoteCallback(BaseCallback):
@@ -156,6 +176,8 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
+        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
+
         if self.issue and self._is_issue_comment:
             try:
                 self._client.create_issue_emoji(
@@ -163,11 +185,28 @@ class NoteCallback(BaseCallback):
                 )
             except GitlabError:
                 logger.warning("Failed to add reaction to issue comment %s", self.object_attributes.id, exc_info=True)
-            await address_issue_task.aenqueue(
+            result = await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
             )
+            try:
+                await acreate_activity(
+                    trigger_type=TriggerType.ISSUE_WEBHOOK,
+                    task_result_id=result.id,
+                    repo_id=self.project.path_with_namespace,
+                    issue_iid=self.issue.iid,
+                    mention_comment_id=self.object_attributes.discussion_id,
+                    use_max=self.issue.has_max_label(),
+                    user=daiv_user,
+                    external_username=self.user.username,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to create activity for issue comment %s#%s",
+                    self.project.path_with_namespace,
+                    self.issue.iid,
+                )
 
         elif self.merge_request and self._is_merge_request_comment:
             try:
@@ -176,11 +215,28 @@ class NoteCallback(BaseCallback):
                 )
             except GitlabError:
                 logger.warning("Failed to add reaction to MR comment %s", self.object_attributes.id, exc_info=True)
-            await address_mr_comments_task.aenqueue(
+            result = await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
             )
+            try:
+                await acreate_activity(
+                    trigger_type=TriggerType.MR_WEBHOOK,
+                    task_result_id=result.id,
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_iid=self.merge_request.iid,
+                    mention_comment_id=self.object_attributes.discussion_id,
+                    use_max=self.merge_request.has_max_label(),
+                    user=daiv_user,
+                    external_username=self.user.username,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to create activity for MR comment %s#%s",
+                    self.project.path_with_namespace,
+                    self.merge_request.iid,
+                )
 
     @cached_property
     def _is_merge_request_comment(self) -> bool:
@@ -252,7 +308,7 @@ class MergeRequestCallback(BaseCallback):
 
 class PushCallback(BaseCallback):
     """
-    Gitlab Push Webhook for automatically update the codebase index.
+    Gitlab Push Webhook for invalidating repository configuration cache.
     """
 
     object_kind: Literal["push"]
@@ -262,7 +318,7 @@ class PushCallback(BaseCallback):
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the push is to the default branch or to any branch with MR created.
+        Accept the webhook if the push is to the default branch.
         """
         return bool(self.project.default_branch and self.ref.endswith(self.project.default_branch))
 

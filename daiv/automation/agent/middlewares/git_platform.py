@@ -68,18 +68,21 @@ This tool is best for retrieving the current state of:
 - Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
 
 **How to use it well:**
-- Use `output_mode="simplified"` to discover the right resource (recent items, IDs, pipeline list)
-- Use `output_mode="detailed"` once you know the exact target and need full fields or logs
-- Prefer one targeted query over broad listings
-- If debugging CI, move in this order: pipeline -> jobs -> failing job trace
+- Use `output_mode="simplified"` ONLY for broad `list` discovery where you just need IDs (e.g. `project-merge-request list --state opened`).
+- Use `output_mode="detailed"` for every `get --iid`/`--id` call and for any `list` subcommand where you need status/name/stage fields. `simplified` strips almost every field on `get` and is pure overhead when the target is already known.
+- Do NOT call a resource in `simplified` mode and then re-call the same resource in `detailed` mode — the second call makes the first redundant. Pick the right mode up front.
+- Prefer one targeted query over broad listings.
+- If debugging CI, move in this order: pipeline -> failing jobs -> failing job trace.
 
 **Useful subcommand patterns:**
 - Issue by IID: `project-issue get --iid <issue_iid>`
 - Issue note (comment): `project-issue-note create --issue-iid <issue_iid> --body "<text>"`
 - Merge request by IID: `project-merge-request get --iid <merge_request_iid>`
 - MR note (comment): `project-merge-request-note create --mr-iid <merge_request_iid> --body "<text>"`
-- MR pipelines: `project-merge-request-pipeline list --mr-iid <merge_request_iid>`
-- Pipeline jobs: `project-pipeline-job list --pipeline-id <pipeline_id>`
+- MR pipelines (only when you need the *history* of pipelines for an MR): `project-merge-request-pipeline list --mr-iid <merge_request_iid>`
+  - For the *latest* pipeline status of an MR, do NOT call this — the detailed response of `project-merge-request get --iid <merge_request_iid>` already includes `head_pipeline.status` and `head_pipeline.id`.
+- Pipeline jobs (failures only — preferred for CI triage): `project-pipeline-job list --pipeline-id <pipeline_id> --scope failed`
+- Pipeline jobs (all): `project-pipeline-job list --pipeline-id <pipeline_id>` (use only when you need to see passing/skipped jobs too, e.g. to diagnose a *skipped* job)
 - Job trace: `project-job trace --id <job_id>`
 - Filtered issue list: `project-issue list --state opened --labels bug --page <page_number>`
 - MR diff versions: `project-merge-request-diff list --mr-iid <merge_request_iid>`
@@ -203,8 +206,6 @@ Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 - For issue work, fetch the issue first and use its title/description as the task definition.
 - For merge request work, fetch the MR first; if CI is relevant, inspect its latest pipeline before changing code.
 - For pipeline failures, do not edit code or CI config until you have read the failing job trace(s).
-- Use `output_mode="simplified"` to discover the right resource.
-- Use `output_mode="detailed"` to inspect a specific resource or read traces.
 
 **Inline MR comment policy:**
 - When the user asks for an inline MR comment, do not create a plain merge request note.
@@ -236,11 +237,11 @@ assistant:
 <example>
 user: Fix the failing pipeline for merge request #123.
 assistant:
-  [Call `{GITLAB_TOOL_NAME}("project-merge-request-pipeline list --mr-iid 123", output_mode="simplified")`]
-  [Pick the latest relevant pipeline_id]
-  [Call `{GITLAB_TOOL_NAME}("project-pipeline-job list --pipeline-id <pipeline_id>", output_mode="detailed")`]
-  [Identify failing jobs]
+  [Call `{GITLAB_TOOL_NAME}("project-merge-request get --iid 123", output_mode="detailed")`]
+  [Read `head_pipeline.status` and `head_pipeline.id` directly from the MR detail — no separate pipeline fetch needed for the latest pipeline]
+  [Call `{GITLAB_TOOL_NAME}("project-pipeline-job list --pipeline-id <pipeline_id> --scope failed", output_mode="detailed")`]
   [For each failing job: Call `{GITLAB_TOOL_NAME}("project-job trace --id <job_id>", output_mode="detailed")`]
+  [If no jobs come back with --scope failed (pipeline failed because a job was *skipped* or config-rejected), re-list without --scope to inspect job statuses/stages]
 assistant:
   [Use the traces to form a root-cause hypothesis]
   [Then change code or CI config]

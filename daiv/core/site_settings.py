@@ -38,6 +38,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_max_model_name": ModelName.CLAUDE_OPUS_4_6,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "agent_explore_fallback_model_name": ModelName.GPT_5_4_MINI,
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
         # Diff to Metadata
@@ -64,6 +65,16 @@ def _build_field_defaults() -> dict[str, Any]:
         "sandbox_network_enabled": False,
         # Jobs
         "jobs_throttle_rate": "20/hour",
+        # Authentication
+        "auth_login_enabled": False,
+        "auth_signup_open": False,
+        "auth_client_id": None,
+        "auth_gitlab_url": "https://gitlab.com",
+        "auth_gitlab_server_url": None,
+        # Rocket Chat
+        "rocketchat_enabled": False,
+        "rocketchat_url": None,
+        "rocketchat_user_id": None,
     }
 
 
@@ -89,6 +100,10 @@ class SiteSettings:
         "openai_api_key": "OPENAI_API_KEY",
         "google_api_key": "GOOGLE_API_KEY",
         "openrouter_api_key": "OPENROUTER_API_KEY",
+        "auth_client_id": "ALLAUTH_CLIENT_ID",
+        "auth_client_secret": "ALLAUTH_CLIENT_SECRET",
+        "auth_gitlab_url": "ALLAUTH_GITLAB_URL",
+        "auth_gitlab_server_url": "ALLAUTH_GITLAB_SERVER_URL",
     }
 
     @property

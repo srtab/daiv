@@ -1,0 +1,59 @@
+{% extends "base_app.html" %}
+{% load i18n static %}
+
+{% block title %}{% if source_activity %}Retry run{% else %}Start a run{% endif %} — DAIV{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">
+        {% if source_activity %}Retry run{% else %}Start a run{% endif %}
+    </h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% if source_activity %}
+        Retried from
+        <a href="{% url 'activity_detail' source_activity.pk %}" class="underline hover:text-gray-200">
+            {{ source_activity.repo_id }} &middot; {{ source_activity.created_at|date:"Y-m-d H:i" }}
+        </a>
+        {% else %}
+        Launch a new agent run on a repository.
+        {% endif %}
+    </p>
+</div>
+
+{% if form.non_field_errors %}
+<div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
+    {% for error in form.non_field_errors %}
+    <p class="text-[15px] text-red-200">{{ error }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form method="post"
+      class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+    {% csrf_token %}
+
+    <div class="-mx-6 -mt-6 [&>div]:!rounded-b-none">
+        {% include "activity/_agent_run_fields.html" with form=form %}
+    </div>
+
+    {% include "notifications/_notify_on_radio.html" with form=form %}
+
+    <div class="mt-8 flex items-center gap-3">
+        <button type="submit" class="btn-primary">
+            {% if source_activity %}Retry{% else %}Start run{% endif %}
+        </button>
+        <a href="{% url 'activity_list' %}" class="btn-secondary">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}
