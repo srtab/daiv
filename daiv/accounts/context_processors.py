@@ -12,6 +12,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
     "runs": {"agent_run_new"},
     "activity": {"activity_list", "activity_detail", "activity_stream", "activity_download_md"},
+    "chat": {"chat_list", "chat_new", "chat_detail"},
     "schedules": {
         "schedule_list",
         "schedule_create",

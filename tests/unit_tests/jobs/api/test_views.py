@@ -143,9 +143,13 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     assert len(data["jobs"]) == 1
     assert data["jobs"][0]["job_id"] == str(task_id)
     assert data["failed"] == []
-    mock_task.aenqueue.assert_called_once_with(
-        repo_id="group/project", prompt="List all files", ref=None, use_max=False
-    )
+    mock_task.aenqueue.assert_called_once()
+    kwargs = mock_task.aenqueue.call_args.kwargs
+    assert kwargs["repo_id"] == "group/project"
+    assert kwargs["prompt"] == "List all files"
+    assert kwargs["ref"] is None
+    assert kwargs["use_max"] is False
+    assert kwargs["thread_id"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -176,7 +180,13 @@ async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
 
     assert response.status_code == 202
-    mock_task.aenqueue.assert_called_once_with(repo_id="group/project", prompt="Fix the bug", ref=None, use_max=True)
+    mock_task.aenqueue.assert_called_once()
+    kwargs = mock_task.aenqueue.call_args.kwargs
+    assert kwargs["repo_id"] == "group/project"
+    assert kwargs["prompt"] == "Fix the bug"
+    assert kwargs["ref"] is None
+    assert kwargs["use_max"] is True
+    assert kwargs["thread_id"]
 
 
 @pytest.mark.django_db(transaction=True)

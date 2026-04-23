@@ -87,9 +87,13 @@ async def test_submit_job_passes_ref():
     with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
-        mock_task.aenqueue.assert_called_once_with(
-            repo_id="group/project", prompt="Fix the bug", ref="feature-branch", use_max=False
-        )
+        mock_task.aenqueue.assert_called_once()
+        kwargs = mock_task.aenqueue.call_args.kwargs
+        assert kwargs["repo_id"] == "group/project"
+        assert kwargs["prompt"] == "Fix the bug"
+        assert kwargs["ref"] == "feature-branch"
+        assert kwargs["use_max"] is False
+        assert kwargs["thread_id"]
 
 
 @pytest.mark.django_db(transaction=True)

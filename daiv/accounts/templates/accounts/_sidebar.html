@@ -42,6 +42,13 @@
       {% endif %}
     </a>
 
+    <a href="{% url 'chat_list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'chat' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'chat' %}opacity-0{% endif %}"></span>
+      {% icon "chat-bubble" "h-4 w-4" %}
+      <span>{% translate "Chat" %}</span>
+    </a>
+
     <a href="{% url 'schedule_list' %}"
        class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'schedules' %}">
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'schedules' %}opacity-0{% endif %}"></span>
