@@ -57,10 +57,21 @@ class ActivityListView(LoginRequiredMixin, FilterView):
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_schedule"] = cleaned.get("schedule") or ""
+        context["current_batch"] = cleaned.get("batch") or ""
+        context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
         # Date fields are read raw: cleaned_data yields `date` objects, but the
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["has_active_filters"] = any([
+            context["current_status"],
+            context["current_trigger"],
+            context["current_repo"],
+            context["current_schedule"],
+            context["current_batch"],
+            context["current_from"],
+            context["current_to"],
+        ])
         context["trigger_types"] = TriggerType.choices
         context["statuses"] = ActivityStatus.choices
         # Resolve schedule name for display

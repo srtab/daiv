@@ -79,8 +79,7 @@ def test_renders_combined_error_list_below_box():
     form = AgentRunCreateForm(data={"prompt": "", "repos_json": ""})
     form.is_valid()
     html = _render(form)
-    assert 'class="mt-2 space-y-1 text-sm text-red-400"' in html
-    assert html.count("<ul") >= 1
+    assert re.search(r"<ul[^>]*text-red-400", html)
     assert "required" in html.lower()
 
 

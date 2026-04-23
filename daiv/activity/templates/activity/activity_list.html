@@ -81,6 +81,7 @@
                     {% if current_trigger %}<input type="hidden" name="trigger" value="{{ current_trigger }}">{% endif %}
                     {% if current_repo %}<input type="hidden" name="repo" value="{{ current_repo }}">{% endif %}
                     {% if current_schedule %}<input type="hidden" name="schedule" value="{{ current_schedule }}">{% endif %}
+                    {% if current_batch %}<input type="hidden" name="batch" value="{{ current_batch }}">{% endif %}
                     <input type="date" name="date_from" value="{{ current_from }}"
                            class="rounded-lg border border-white/[0.06] bg-[#0d1117] px-3 py-1.5 text-sm text-gray-300"
                            placeholder="From" onchange="this.form.submit()">
@@ -90,7 +91,17 @@
                            placeholder="To" onchange="this.form.submit()">
                 </form>
 
-                {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
+                {% if current_batch %}
+                <span class="inline-flex items-center gap-1 rounded-full border border-blue-400/30 bg-blue-500/10 py-1 pl-3 pr-1 text-[13px] font-medium text-blue-300">
+                    <span>{% blocktrans with id=current_batch_short %}Batch {{ id }}{% endblocktrans %}</span>
+                    <a href="?{% querystring_without 'batch' 'page' %}"
+                       aria-label="{% trans 'Clear batch filter' %}"
+                       title="{% trans 'Clear batch filter' %}"
+                       class="inline-flex h-5 w-5 items-center justify-center rounded-full text-blue-300/70 hover:bg-white/[0.05] hover:text-white">×</a>
+                </span>
+                {% endif %}
+
+                {% if has_active_filters %}
                 <a href="{% url 'activity_list' %}"
                    class="text-sm text-gray-400 transition-colors hover:text-white">
                     Clear filters
@@ -152,7 +163,7 @@
             {% else %}
             <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
                 <p class="text-[15px] text-gray-400">
-                    {% if current_status or current_trigger or current_repo or current_from or current_to or current_schedule %}
+                    {% if has_active_filters %}
                         No activities match your filters.
                     {% else %}
                         No agent activity recorded yet.

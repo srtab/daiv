@@ -193,6 +193,19 @@ class TestActivityListView:
         assert activity in response.context["activities"]
         assert response.context["current_status"] == ""
 
+    def test_has_active_filters_false_with_no_params(self, logged_in_client, user):
+        _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"))
+        assert response.context["has_active_filters"] is False
+        assert response.context["current_batch_short"] == ""
+
+    def test_has_active_filters_true_when_only_batch_is_set(self, logged_in_client, user):
+        batch_id = uuid.uuid4()
+        _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"), {"batch": str(batch_id)})
+        assert response.context["has_active_filters"] is True
+        assert response.context["current_batch_short"] == str(batch_id)[:8]
+
 
 @pytest.mark.django_db
 class TestActivityDetailView:

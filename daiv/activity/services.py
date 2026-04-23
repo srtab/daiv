@@ -66,7 +66,8 @@ def validate_repo_list(raw) -> list[dict]:
             raise ValueError("ref must be a string (empty for default branch).")
         key = (repo_id, ref)
         if key in seen:
-            raise ValueError("Duplicate (repo_id, ref) entries are not allowed.")
+            label = f"{repo_id} on {ref}" if ref else repo_id
+            raise ValueError(f"Repository already in the list: {label}.")
         seen.add(key)
         out.append({"repo_id": repo_id, "ref": ref})
     return out
