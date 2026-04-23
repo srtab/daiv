@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -39,6 +40,36 @@ class BatchSubmitResult:
     batch_id: uuid.UUID
     activities: list[Activity] = field(default_factory=list)
     failed: list[BatchSubmitFailure] = field(default_factory=list)
+
+
+def validate_repo_list(raw) -> list[dict]:
+    """Validate and normalize a list of ``{repo_id, ref}`` entries.
+
+    Raises ``ValueError`` on any violation. Returns a fresh list of normalized dicts
+    (guaranteed string keys/values, no duplicates, 1-20 entries).
+    """
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("At least one repository is required.")
+    if len(raw) > MAX_REPOS_PER_BATCH:
+        raise ValueError(f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission.")
+
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or set(entry.keys()) != {"repo_id", "ref"}:
+            raise ValueError("Each entry must be an object with keys 'repo_id' and 'ref'.")
+        repo_id = entry["repo_id"]
+        ref = entry["ref"] or ""
+        if not isinstance(repo_id, str) or not repo_id.strip():
+            raise ValueError("repo_id must be a non-empty string.")
+        if not isinstance(ref, str):
+            raise ValueError("ref must be a string (empty for default branch).")
+        key = (repo_id, ref)
+        if key in seen:
+            raise ValueError("Duplicate (repo_id, ref) entries are not allowed.")
+        seen.add(key)
+        out.append({"repo_id": repo_id, "ref": ref})
+    return out
 
 
 def _validate(repos: list[RepoTarget]) -> None:
@@ -136,29 +167,23 @@ async def asubmit_batch_runs(
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
 
-    Partial enqueue failures are best-effort: the failing repository is added to
-    ``result.failed`` and siblings continue. An ``Activity`` creation failure after
-    a successful enqueue is logged but the orphaned job still runs (same as today's
-    single-repo pathway).
+    Best-effort: per-repo enqueue failures land in ``result.failed``; post-enqueue
+    activity-creation failures are logged and leave the job orphaned (matches the
+    prior single-repo pathway).
     """
     _validate(repos)
     batch_id = uuid.uuid4()
-    activities: list[Activity] = []
-    failed: list[BatchSubmitFailure] = []
 
-    for target in repos:
+    async def _submit_one(target: RepoTarget) -> Activity | BatchSubmitFailure:
         ref_for_task = target.ref or None
         try:
             task = await run_job_task.aenqueue(repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max)
-        except Exception as err:  # noqa: BLE001 — partial failure is intentional per the spec.
+        except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            failed.append(
-                BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
-            )
-            continue
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
         try:
-            activity = await acreate_activity(
+            return await acreate_activity(
                 trigger_type=trigger_type,
                 task_result_id=task.id,
                 repo_id=target.repo_id,
@@ -177,10 +202,22 @@ async def asubmit_batch_runs(
                 target.repo_id,
                 task.id,
             )
-            # Do NOT add to ``failed``: the job is still running — matches single-repo behaviour.
-            continue
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 
-        activities.append(activity)
+    outcomes = await asyncio.gather(*[_submit_one(t) for t in repos])
+
+    activities: list[Activity] = []
+    failed: list[BatchSubmitFailure] = []
+    for outcome in outcomes:
+        if isinstance(outcome, BatchSubmitFailure):
+            # Orphan activity-creation failures come back as failures too, but the original
+            # code path left them out of ``failed``. Preserve that: only enqueue failures are
+            # surfaced to callers; keep the orphan-job-runs behaviour transparent.
+            if outcome.error == "ActivityCreationFailed":
+                continue
+            failed.append(outcome)
+        else:
+            activities.append(outcome)
 
     return BatchSubmitResult(batch_id=batch_id, activities=activities, failed=failed)
 

@@ -15,12 +15,22 @@ def _mock_task():
     return m
 
 
+class _FakeActivity:
+    def __init__(self, task_result_id):
+        self.task_result_id = task_result_id
+
+
+async def _fake_acreate_activity(**kwargs):
+    return _FakeActivity(task_result_id=kwargs["task_result_id"])
+
+
+def _patch_acreate():
+    return patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity)
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_single_repo_returns_batch_response():
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -41,10 +51,7 @@ async def test_submit_job_multi_repo_enqueues_each():
         call_log.append(kwargs)
         return tasks[len(call_log) - 1]
 
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _aenqueue
         result = await submit_job(
             repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
@@ -65,10 +72,7 @@ async def test_submit_job_reports_partial_failure():
             raise RuntimeError("boom")
         return _mock_task()
 
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _flaky
         result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
 
@@ -80,10 +84,7 @@ async def test_submit_job_reports_partial_failure():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_ref():
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
         mock_task.aenqueue.assert_called_once_with(
@@ -94,10 +95,7 @@ async def test_submit_job_passes_ref():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_use_max_to_activity():
     """MCP submit tool threads ``use_max`` into ``acreate_activity``."""
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", use_max=True)
 
@@ -109,10 +107,7 @@ async def test_submit_job_forwards_notify_on_to_activity():
     """MCP submit tool threads ``notify_on`` into ``acreate_activity``."""
     from notifications.choices import NotifyOn
 
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", notify_on=NotifyOn.ALWAYS)
 
@@ -122,10 +117,7 @@ async def test_submit_job_forwards_notify_on_to_activity():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_notify_on_defaults_to_none():
     """Omitting ``notify_on`` forwards ``None`` to the activity."""
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
@@ -135,7 +127,7 @@ async def test_submit_job_notify_on_defaults_to_none():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_fail():
     """When every enqueue fails, no jobs in response, all entries in failed."""
-    with patch("mcp_server.server.run_job_task") as mock_task:
+    with patch("activity.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -188,9 +180,9 @@ async def test_submit_job_wait_success():
     finished.finished_at = now
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
@@ -221,9 +213,9 @@ async def test_submit_job_wait_pending_when_never_found():
                 yield None  # never yields
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
@@ -264,7 +256,7 @@ async def test_get_job_status_wait_already_complete():
     mock_db_result.started_at = now
     mock_db_result.finished_at = now
 
-    with patch("mcp_server.server.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
+    with patch("activity.services.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
         mock_task.module_path = "jobs.tasks.run_job_task"
         mock_model.objects.aget = AsyncMock(return_value=mock_db_result)
         mock_model.DoesNotExist = Exception
@@ -297,7 +289,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.finished_at = now
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
@@ -332,7 +324,7 @@ async def test_get_job_status_wait_not_found_then_appears():
         pass
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
@@ -354,9 +346,9 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
     mock_result.id = str(uuid.uuid4())
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
@@ -380,7 +372,7 @@ async def test_get_job_status_db_exception():
     class _DoesNotExistError(Exception):
         pass
 
-    with patch("mcp_server.server.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
+    with patch("activity.services.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
         mock_task.module_path = "jobs.tasks.run_job_task"
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))

@@ -5,7 +5,7 @@ import uuid as uuid_mod
 from typing import TYPE_CHECKING, Annotated
 
 from activity.models import TriggerType
-from activity.services import acreate_activity
+from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
 from mcp.server.auth.settings import AuthSettings
@@ -64,7 +64,6 @@ continue polling with `get_job_status` if the result is not yet available.\
 TERMINAL_STATUSES = {"SUCCESSFUL", "FAILED"}
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
-MAX_REPOS_PER_SUBMIT = 20
 
 
 class RepoSubmitSpec(BaseModel):
@@ -117,14 +116,13 @@ async def submit_job(
     Returns ``{batch_id, jobs: [{job_id, repo_id, ref}], failed: [...]}``. Each job runs
     independently; poll with ``get_job_status`` per job_id or pass ``wait=true``.
     """
-    # Defensive validation: FastMCP only validates at the protocol layer; direct calls bypass it.
+    # FastMCP validates only at the protocol layer; direct calls bypass it.
     if not repos:
         return json.dumps({"error": "At least one repository is required."})
-    if len(repos) > MAX_REPOS_PER_SUBMIT:
-        return json.dumps({"error": f"At most {MAX_REPOS_PER_SUBMIT} repositories allowed per submission."})
+    if len(repos) > MAX_REPOS_PER_BATCH:
+        return json.dumps({"error": f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission."})
 
-    # Coerce raw dict inputs (from direct Python calls / MCP protocol) into RepoSubmitSpec.
-    repos = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+    specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
 
     mcp_user = None
     try:
@@ -132,45 +130,38 @@ async def submit_job(
     except Exception:
         logger.exception("Failed to resolve current user for MCP submit_job")
 
-    batch_id = str(uuid_mod.uuid4())
+    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    result = await asubmit_batch_runs(
+        user=mcp_user,
+        prompt=prompt,
+        repos=targets,
+        use_max=use_max,
+        notify_on=notify_on,
+        trigger_type=TriggerType.MCP_JOB,
+    )
+
+    # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
+    # non-failed one with the next activity in result.activities (same order as input).
+    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+    activities_iter = iter(result.activities)
     jobs: list[dict] = []
-    failed: list[dict] = []
     job_ids: list[str] = []
-
-    for spec in repos:
-        ref_for_task = spec.ref or None
-        try:
-            task = await run_job_task.aenqueue(repo_id=spec.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max)
-        except Exception as err:
-            logger.exception("Failed to enqueue MCP job for repo_id=%s", spec.repo_id)
-            failed.append({"repo_id": spec.repo_id, "ref": spec.ref, "error": f"{type(err).__name__}: {err}"})
+    for spec in specs:
+        if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
+        activity = next(activities_iter)
+        jobs.append({"job_id": str(activity.task_result_id), "repo_id": spec.repo_id, "ref": spec.ref})
+        job_ids.append(str(activity.task_result_id))
 
-        try:
-            await acreate_activity(
-                trigger_type=TriggerType.MCP_JOB,
-                task_result_id=task.id,
-                repo_id=spec.repo_id,
-                ref=spec.ref or "",
-                prompt=prompt,
-                use_max=use_max,
-                user=mcp_user,
-                notify_on=notify_on,
-                batch_id=uuid_mod.UUID(batch_id),
-            )
-        except Exception:
-            logger.exception("Failed to create activity for MCP job %s (orphan job running)", task.id)
+    failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
-        jobs.append({"job_id": str(task.id), "repo_id": spec.repo_id, "ref": spec.ref})
-        job_ids.append(str(task.id))
+    logger.info("MCP batch submitted: batch_id=%s count=%d failures=%d", result.batch_id, len(jobs), len(failed_out))
 
-    logger.info("MCP batch submitted: batch_id=%s count=%d failures=%d", batch_id, len(jobs), len(failed))
-
-    response: dict = {"batch_id": batch_id, "jobs": jobs, "failed": failed}
+    response: dict = {"batch_id": str(result.batch_id), "jobs": jobs, "failed": failed_out}
     if not wait:
         return json.dumps(response)
 
-    return await _poll_batch_until_complete(batch_id, job_ids, response)
+    return await _poll_batch_until_complete(str(result.batch_id), job_ids, response)
 
 
 def _build_job_response_dict(db_result: DBTaskResult) -> dict:
@@ -194,27 +185,7 @@ def _build_job_response(db_result: DBTaskResult) -> str:
     return json.dumps(_build_job_response_dict(db_result))
 
 
-async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_response: dict) -> str:
-    """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
-    if not job_ids:
-        return json.dumps(enqueue_response)
-
-    job_uuids = [uuid_mod.UUID(j) for j in job_ids]
-    elapsed = 0.0
-    results_by_id: dict[str, DBTaskResult] = {}
-
-    while elapsed < MAX_POLL_DURATION and len(results_by_id) < len(job_uuids):
-        await asyncio.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
-
-        try:
-            async for row in DBTaskResult.objects.filter(id__in=job_uuids, task_path=run_job_task.module_path):
-                if row.status in TERMINAL_STATUSES:
-                    results_by_id[str(row.id)] = row
-        except Exception:
-            logger.exception("Failed to poll batch_id=%s", batch_id)
-            break
-
+def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, DBTaskResult]) -> str:
     return json.dumps({
         "batch_id": batch_id,
         "jobs": enqueue_response["jobs"],
@@ -223,9 +194,34 @@ async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_
             _build_job_response_dict(results_by_id[jid])
             if jid in results_by_id
             else {"job_id": jid, "status": "PENDING"}
-            for jid in job_ids
+            for jid in [j["job_id"] for j in enqueue_response["jobs"]]
         ],
     })
+
+
+async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_response: dict) -> str:
+    """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
+    results_by_id: dict[str, DBTaskResult] = {}
+    if not job_ids:
+        return _batch_response(batch_id, enqueue_response, results_by_id)
+
+    elapsed = 0.0
+    outstanding = {uuid_mod.UUID(j) for j in job_ids}
+
+    while elapsed < MAX_POLL_DURATION and outstanding:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+
+        try:
+            async for row in DBTaskResult.objects.filter(id__in=list(outstanding), task_path=run_job_task.module_path):
+                if row.status in TERMINAL_STATUSES:
+                    results_by_id[str(row.id)] = row
+                    outstanding.discard(row.id)
+        except Exception:
+            logger.exception("Failed to poll batch_id=%s", batch_id)
+            break
+
+    return _batch_response(batch_id, enqueue_response, results_by_id)
 
 
 async def _poll_job_until_complete(job_id: str) -> str:

@@ -7,6 +7,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
@@ -280,13 +281,9 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 trigger_type=TriggerType.UI_JOB,
             )
         except Http404, PermissionDenied, SuspiciousOperation:
-            # Let Django's middleware render these as 4xx responses instead of
-            # masking them as a generic "submit failed" 200.
+            # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.
             raise
         except Exception:
-            # Either enqueue failed (no job ran) or the Activity row couldn't be written
-            # after enqueue (job is running orphaned). Either way we preserve the form
-            # contents and let the user retry; operators see the traceback in logs.
             logger.exception(
                 "Failed to submit UI run",
                 extra={"user_pk": self.request.user.pk, "repos": form.cleaned_data.get("repos")},
@@ -295,10 +292,10 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             return self.form_invalid(form)
 
         if result.failed:
-            from django.contrib import messages as _messages
-
             failed_ids = ", ".join(f.repo_id for f in result.failed)
-            _messages.warning(self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids})
+            messages_module.warning(
+                self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
+            )
 
         if len(result.activities) == 1 and not result.failed:
             return redirect("activity_detail", pk=result.activities[0].pk)

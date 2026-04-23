@@ -15,7 +15,7 @@ from django.utils.translation import gettext_lazy as _
 
 from notifications.choices import NotifyOn
 
-MAX_REPOS_PER_SUBMIT = 20
+from activity.services import validate_repo_list
 
 
 class AgentRunFieldsMixin(forms.Form):
@@ -36,29 +36,10 @@ class AgentRunFieldsMixin(forms.Form):
         except json.JSONDecodeError as err:
             raise forms.ValidationError(_("Malformed repository list.")) from err
 
-        if not isinstance(parsed, list) or not parsed:
-            raise forms.ValidationError(_("Select at least one repository."))
-        if len(parsed) > MAX_REPOS_PER_SUBMIT:
-            raise forms.ValidationError(_("Select no more than %(n)d repositories.") % {"n": MAX_REPOS_PER_SUBMIT})
-
-        seen: set[tuple[str, str]] = set()
-        out: list[dict] = []
-        for entry in parsed:
-            if not isinstance(entry, dict) or set(entry.keys()) != {"repo_id", "ref"}:
-                raise forms.ValidationError(_("Each repository entry must have keys 'repo_id' and 'ref'."))
-            repo_id = entry["repo_id"]
-            ref = entry["ref"] or ""
-            if not isinstance(repo_id, str) or not repo_id.strip():
-                raise forms.ValidationError(_("repo_id must be a non-empty string."))
-            if not isinstance(ref, str):
-                raise forms.ValidationError(_("ref must be a string."))
-            key = (repo_id, ref)
-            if key in seen:
-                raise forms.ValidationError(_("Duplicate repositories are not allowed."))
-            seen.add(key)
-            out.append({"repo_id": repo_id, "ref": ref})
-
-        self.cleaned_data["repos"] = out
+        try:
+            self.cleaned_data["repos"] = validate_repo_list(parsed)
+        except ValueError as err:
+            raise forms.ValidationError(str(err)) from err
         return raw
 
 

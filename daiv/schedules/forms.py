@@ -1,4 +1,5 @@
 from django import forms
+from django.core.exceptions import ValidationError
 
 from activity.forms import AgentRunFieldsMixin
 
@@ -37,29 +38,23 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
         return self._clean_conditional_fields(cleaned_data)
 
     def _post_clean(self):
-        # Mirror the parsed repos onto the model instance so ScheduledJob.clean() sees them.
+        # Mirror parsed repos onto the instance so ScheduledJob.clean() sees them.
         repos = self.cleaned_data.get("repos")
         if repos is not None and self.instance is not None:
             self.instance.repos = repos
-        # If ``repos`` isn't in cleaned_data (clean_repos_json already raised), the
-        # form-level error is already recorded; the instance stays as-is so the model's
-        # own clean can proceed on placeholder data without crashing.
         super()._post_clean()
 
     def _update_errors(self, errors):
-        """Remap model-level 'repos' errors to the form's 'repos_json' field."""
+        # ScheduledJob.clean() keys repo errors to "repos"; remap to the form field "repos_json".
         if hasattr(errors, "error_dict") and "repos" in errors.error_dict:
-            from django.core.exceptions import ValidationError
-
-            remapped = {}
-            for field, errs in errors.error_dict.items():
-                remapped["repos_json" if field == "repos" else field] = errs
+            remapped = {
+                ("repos_json" if field == "repos" else field): errs for field, errs in errors.error_dict.items()
+            }
             errors = ValidationError(remapped)
         super()._update_errors(errors)
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
-        instance.repos = self.cleaned_data["repos"]
         if instance.is_enabled:
             instance.compute_next_run()
         if commit:

@@ -4,7 +4,7 @@ import uuid as uuid_mod
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
 from activity.models import TriggerType
-from activity.services import acreate_activity
+from activity.services import RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
@@ -37,41 +37,29 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
     in ``failed``; the rest of the batch still runs.
     """
-    batch_id = uuid_mod.uuid4()
+    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    result = await asubmit_batch_runs(
+        user=request.auth,
+        prompt=payload.prompt,
+        repos=targets,
+        use_max=payload.use_max,
+        notify_on=payload.notify_on,
+        trigger_type=TriggerType.API_JOB,
+    )
+
+    # Pair each non-failed spec (in input order) with the corresponding activity, so the
+    # client sees the ref it sent (None vs "") rather than the "" normalized by the service.
+    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+    activities_iter = iter(result.activities)
     jobs: list[JobSubmitJobItem] = []
-    failed: list[JobSubmitFailureItem] = []
-
     for spec in payload.repos:
-        ref_for_task = spec.ref or None
-        try:
-            task = await run_job_task.aenqueue(
-                repo_id=spec.repo_id, prompt=payload.prompt, ref=ref_for_task, use_max=payload.use_max
-            )
-        except Exception as err:
-            logger.exception("Failed to enqueue job for repo_id=%s", spec.repo_id)
-            failed.append(
-                JobSubmitFailureItem(repo_id=spec.repo_id, ref=spec.ref or "", error=f"{type(err).__name__}: {err}")
-            )
+        if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
+        activity = next(activities_iter)
+        jobs.append(JobSubmitJobItem(job_id=str(activity.task_result_id), repo_id=spec.repo_id, ref=spec.ref))
 
-        try:
-            await acreate_activity(
-                trigger_type=TriggerType.API_JOB,
-                task_result_id=task.id,
-                repo_id=spec.repo_id,
-                ref=spec.ref or "",
-                prompt=payload.prompt,
-                use_max=payload.use_max,
-                user=request.auth,
-                notify_on=payload.notify_on,
-                batch_id=batch_id,
-            )
-        except Exception:
-            logger.exception("Failed to create activity for job %s (orphan running)", task.id)
-
-        jobs.append(JobSubmitJobItem(job_id=str(task.id), repo_id=spec.repo_id, ref=spec.ref))
-
-    return 202, JobSubmitResponse(batch_id=str(batch_id), jobs=jobs, failed=failed)
+    failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
+    return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)
 
 
 @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})
