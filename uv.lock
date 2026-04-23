@@ -9,7 +9,7 @@ resolution-markers = [
 
 [[package]]
 name = "ag-ui-langgraph"
-version = "0.0.31"
+version = "0.0.34"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ag-ui-protocol" },
@@ -18,9 +18,9 @@ dependencies = [
     { name = "langgraph" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/83/7a9026b6e9b82379cb1a356ca6f18b20b6106b94baf268c43a765da0acc1/ag_ui_langgraph-0.0.31.tar.gz", hash = "sha256:a7c58763fa267f96e12fae5e22a9f933b0f2caafcfa6e3d98bb6406247217058", size = 11342548, upload-time = "2026-04-08T18:31:41.351Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/5e/950cdb65de973660f2634a675b0a614657a5a00258a7eede21d3a9318992/ag_ui_langgraph-0.0.34.tar.gz", hash = "sha256:755323d5256407ce62d6b9af447a9f1250554e7056c5e2115027a4174a736c41", size = 258423, upload-time = "2026-04-20T21:09:25.789Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/64/6cd42a2c170ee174ce68bc761580b58c45454d7da0818495d08d0a8bf30d/ag_ui_langgraph-0.0.31-py3-none-any.whl", hash = "sha256:9ffae20103715f046182e2317efd10b1b8c59d454ec026a265e07a6e2ea4e4ec", size = 19825, upload-time = "2026-04-08T18:31:18.817Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/e5/c4eeee50262de83eb10de29b55259244d0a95edceb0d08c63ba0ae175719/ag_ui_langgraph-0.0.34-py3-none-any.whl", hash = "sha256:124dccdae48af124f857b746aa3c0424b2d332b73b06ac426b6d5dcd811ea984", size = 27020, upload-time = "2026-04-20T21:09:26.816Z" },
 ]
 
 [package.optional-dependencies]
@@ -554,7 +554,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ag-ui-langgraph", specifier = "==0.0.31" },
+    { name = "ag-ui-langgraph", specifier = "==0.0.34" },
     { name = "copilotkit", specifier = "==0.1.86" },
     { name = "croniter", specifier = "==6.2.2" },
     { name = "ddgs", specifier = "==9.14.0" },

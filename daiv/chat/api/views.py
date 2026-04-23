@@ -29,22 +29,17 @@ HEADER_REF = "X-Ref"
 
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
-    """Inject runtime context into AG-UI stream kwargs."""
+    """
+    Forward the daiv RuntimeCtx dataclass as LangGraph's typed `context=` kwarg.
+
+    Upstream's `get_stream_kwargs` only accepts dict-shaped contexts (it merges via
+    `dict.update`), but our graph declares `context_schema=RuntimeCtx` and expects the
+    frozen dataclass itself.
+    """
 
     def __init__(self, *, runtime_context: Any, **kwargs: Any):
         super().__init__(**kwargs)
         self._runtime_context = runtime_context
-
-    def set_message_in_progress(self, run_id: str, data: dict[str, Any]) -> None:
-        """
-        Merge in-progress message data while tolerating upstream None sentinels.
-
-        ag-ui-langgraph stores `None` when a stream segment is finished. If a new
-        message/tool-call segment starts in the same run, the default merge logic
-        attempts to unpack that `None` as a mapping and crashes.
-        """
-        current_message_in_progress = self.messages_in_process.get(run_id) or {}
-        self.messages_in_process[run_id] = {**current_message_in_progress, **data}
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         stream_kwargs = super().get_stream_kwargs(*args, **kwargs)
