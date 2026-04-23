@@ -60,7 +60,13 @@ class TestSubmitBatchRunsSync:
         assert result.activities[0].batch_id == result.batch_id
         assert result.activities[0].repo_id == "a/b"
         assert result.activities[0].trigger_type == TriggerType.UI_JOB
-        m_task.aenqueue.assert_awaited_once_with(repo_id="a/b", prompt="do it", ref=None, use_max=False)
+        m_task.aenqueue.assert_awaited_once()
+        enqueue_kwargs = m_task.aenqueue.await_args.kwargs
+        assert enqueue_kwargs["repo_id"] == "a/b"
+        assert enqueue_kwargs["prompt"] == "do it"
+        assert enqueue_kwargs["ref"] is None
+        assert enqueue_kwargs["use_max"] is False
+        assert enqueue_kwargs["thread_id"] == result.activities[0].thread_id
 
     def test_five_repos_creates_five_activities_sharing_batch_id(self, member_user):
         tasks_seen = []
@@ -86,6 +92,12 @@ class TestSubmitBatchRunsSync:
         assert [t["repo_id"] for t in tasks_seen] == [f"o/r{i}" for i in range(5)]
         assert tasks_seen[0]["ref"] is None  # empty ref threads as None
         assert tasks_seen[1]["ref"] == "dev"
+        # Each activity gets a distinct thread_id that matches the one passed to the task.
+        activity_thread_ids = [a.thread_id for a in result.activities]
+        assert all(activity_thread_ids)
+        assert len(set(activity_thread_ids)) == 5
+        task_thread_ids = [t["thread_id"] for t in tasks_seen]
+        assert set(task_thread_ids) == set(activity_thread_ids)
 
     def test_empty_repos_raises_value_error(self, member_user):
         with pytest.raises(ValueError):

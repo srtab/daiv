@@ -96,6 +96,7 @@ def create_activity(
     external_username: str = "",
     notify_on: NotifyOn | None = None,
     batch_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -116,6 +117,7 @@ def create_activity(
         external_username=external_username,
         notify_on=notify_on,
         batch_id=batch_id,
+        thread_id=thread_id,
     )
 
 
@@ -135,6 +137,7 @@ async def acreate_activity(
     external_username: str = "",
     notify_on: NotifyOn | None = None,
     batch_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -152,6 +155,7 @@ async def acreate_activity(
         external_username=external_username,
         notify_on=notify_on,
         batch_id=batch_id,
+        thread_id=thread_id,
     )
 
 
@@ -177,8 +181,11 @@ async def asubmit_batch_runs(
 
     async def _submit_one(target: RepoTarget) -> Activity | BatchSubmitFailure:
         ref_for_task = target.ref or None
+        thread_id = str(uuid.uuid4())
         try:
-            task = await run_job_task.aenqueue(repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max)
+            task = await run_job_task.aenqueue(
+                repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max, thread_id=thread_id
+            )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
@@ -196,6 +203,7 @@ async def asubmit_batch_runs(
                 external_username=external_username,
                 notify_on=notify_on,
                 batch_id=batch_id,
+                thread_id=thread_id,
             )
         except Exception:
             logger.exception(
