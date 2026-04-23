@@ -46,18 +46,8 @@ class ScheduledJob(TimeStampedModel):
     )
     name = models.CharField(_("name"), max_length=200)
     prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
-    repo_id = models.CharField(_("repository"), max_length=255, help_text=_("Repository identifier, e.g. owner/repo."))
-    ref = models.CharField(
-        _("branch / ref"),
-        max_length=255,
-        blank=True,
-        default="",
-        help_text=_("Git branch or ref. Leave blank for the default branch."),
-    )
     repos = models.JSONField(
         _("repositories"),
-        default=list,
-        blank=True,
         help_text=_("List of {repo_id, ref} entries. 1-20 entries. Empty ref means the default branch."),
     )
     frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
@@ -77,7 +67,6 @@ class ScheduledJob(TimeStampedModel):
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
-    last_run_task_id = models.UUIDField(_("last run task ID"), null=True, blank=True)
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)

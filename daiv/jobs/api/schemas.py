@@ -5,16 +5,34 @@ from ninja import Field, Schema
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
 
 
-class JobSubmitRequest(Schema):
+class RepoSubmitItem(Schema):
     repo_id: str = Field(min_length=1)
     ref: str | None = None
+
+
+class JobSubmitRequest(Schema):
+    repos: list[RepoSubmitItem] = Field(min_length=1, max_length=20)
     prompt: str = Field(min_length=1)
     use_max: bool = False
     notify_on: NotifyOn | None = None
 
 
-class JobSubmitResponse(Schema):
+class JobSubmitJobItem(Schema):
     job_id: str
+    repo_id: str
+    ref: str | None = None
+
+
+class JobSubmitFailureItem(Schema):
+    repo_id: str
+    ref: str
+    error: str
+
+
+class JobSubmitResponse(Schema):
+    batch_id: str
+    jobs: list[JobSubmitJobItem]
+    failed: list[JobSubmitFailureItem]
 
 
 class JobStatusResponse(Schema):

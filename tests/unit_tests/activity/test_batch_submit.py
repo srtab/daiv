@@ -144,8 +144,6 @@ class TestSubmitBatchRunsSync:
             user=member_user,
             name="s",
             prompt="p",
-            repo_id="x/y",
-            ref="",
             repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.DAILY,
             time="12:00",

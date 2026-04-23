@@ -11,7 +11,6 @@ class TestScheduledJobNotifyOn:
             "user": user,
             "name": "s",
             "prompt": "p",
-            "repo_id": "x/y",
             "frequency": "daily",
             "time": "12:00",
             "repos": [{"repo_id": "x/y", "ref": ""}],
@@ -32,7 +31,14 @@ class TestScheduledJobNotifyOn:
 @pytest.mark.django_db
 class TestScheduledJobSubscribers:
     def _make(self, user, **overrides):
-        defaults = {"user": user, "name": "s", "prompt": "p", "repo_id": "x/y", "frequency": "daily", "time": "12:00"}
+        defaults = {
+            "user": user,
+            "name": "s",
+            "prompt": "p",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
+            "frequency": "daily",
+            "time": "12:00",
+        }
         defaults.update(overrides)
         return ScheduledJob.objects.create(**defaults)
 
@@ -67,8 +73,7 @@ class TestScheduledJobRepos:
             "user": user,
             "name": "s",
             "prompt": "p",
-            "repo_id": "x/y",
-            "ref": "main",
+            "repos": [{"repo_id": "x/y", "ref": "main"}],
             "frequency": Frequency.DAILY,
             "time": "12:00",
         }
@@ -92,8 +97,6 @@ class TestScheduledJobReposClean:
             "user": user,
             "name": "s",
             "prompt": "p",
-            "repo_id": "x/y",
-            "ref": "",
             "frequency": Frequency.DAILY,
             "time": "12:00",
             "repos": [{"repo_id": "x/y", "ref": ""}],

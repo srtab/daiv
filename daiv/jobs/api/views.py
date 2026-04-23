@@ -14,7 +14,7 @@ from chat.api.security import AuthBearer
 from core.site_settings import site_settings
 from jobs.tasks import run_job_task
 
-from .schemas import JobStatusResponse, JobSubmitRequest, JobSubmitResponse
+from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
 
 logger = logging.getLogger("daiv.jobs")
 
@@ -32,34 +32,46 @@ class _LazyThrottle(AuthRateThrottle):
 
 @jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[_LazyThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
+    """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
+
+    Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
+    in ``failed``; the rest of the batch still runs.
     """
-    Submit a job to be processed asynchronously by the DAIV agent.
+    batch_id = uuid_mod.uuid4()
+    jobs: list[JobSubmitJobItem] = []
+    failed: list[JobSubmitFailureItem] = []
 
-    Returns a job ID that can be used to poll for the result.
-    """
-    try:
-        result = await run_job_task.aenqueue(
-            repo_id=payload.repo_id, prompt=payload.prompt, ref=payload.ref, use_max=payload.use_max
-        )
-    except Exception:
-        logger.exception("Failed to enqueue job for repo_id=%s", payload.repo_id)
-        return 503, {"detail": "Failed to submit job. Please try again later."}
+    for spec in payload.repos:
+        ref_for_task = spec.ref or None
+        try:
+            task = await run_job_task.aenqueue(
+                repo_id=spec.repo_id, prompt=payload.prompt, ref=ref_for_task, use_max=payload.use_max
+            )
+        except Exception as err:
+            logger.exception("Failed to enqueue job for repo_id=%s", spec.repo_id)
+            failed.append(
+                JobSubmitFailureItem(repo_id=spec.repo_id, ref=spec.ref or "", error=f"{type(err).__name__}: {err}")
+            )
+            continue
 
-    try:
-        await acreate_activity(
-            trigger_type=TriggerType.API_JOB,
-            task_result_id=result.id,
-            repo_id=payload.repo_id,
-            ref=payload.ref or "",
-            prompt=payload.prompt,
-            use_max=payload.use_max,
-            user=request.auth,
-            notify_on=payload.notify_on,
-        )
-    except Exception:
-        logger.exception("Failed to create activity for job %s", result.id)
+        try:
+            await acreate_activity(
+                trigger_type=TriggerType.API_JOB,
+                task_result_id=task.id,
+                repo_id=spec.repo_id,
+                ref=spec.ref or "",
+                prompt=payload.prompt,
+                use_max=payload.use_max,
+                user=request.auth,
+                notify_on=payload.notify_on,
+                batch_id=batch_id,
+            )
+        except Exception:
+            logger.exception("Failed to create activity for job %s (orphan running)", task.id)
 
-    return 202, JobSubmitResponse(job_id=result.id)
+        jobs.append(JobSubmitJobItem(job_id=str(task.id), repo_id=spec.repo_id, ref=spec.ref))
+
+    return 202, JobSubmitResponse(batch_id=str(batch_id), jobs=jobs, failed=failed)
 
 
 @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})

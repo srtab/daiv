@@ -12,7 +12,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
@@ -64,18 +64,20 @@ continue polling with `get_job_status` if the result is not yet available.\
 TERMINAL_STATUSES = {"SUCCESSFUL", "FAILED"}
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
+MAX_REPOS_PER_SUBMIT = 20
+
+
+class RepoSubmitSpec(BaseModel):
+    repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
+    ref: str | None = Field(
+        default=None, description="Git reference (branch name or commit SHA). None / empty string = default branch."
+    )
 
 
 @mcp.tool()
 async def submit_job(
-    repo_id: Annotated[
-        str,
-        Field(
-            description=(
-                'Repository identifier. Use "owner/repo" for GitHub or the full project path for GitLab'
-                ' (e.g. "group/project" or "group/subgroup/project").'
-            )
-        ),
+    repos: Annotated[
+        list[RepoSubmitSpec], Field(min_length=1, max_length=20, description="1-20 repositories to run against.")
     ],
     prompt: Annotated[
         str,
@@ -85,21 +87,10 @@ async def submit_job(
                 " to commit, push, create a branch, or open a merge/pull request; those steps run"
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
-                " names, or error messages."
+                " names, or error messages. The same prompt runs independently against each repository."
             )
         ),
     ],
-    ref: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Starting point for the job (base branch name or commit SHA) that the agent reads"
-                " from. Defaults to the repository's default branch. This is the base, not a target"
-                " branch name to create: DAIV always publishes the result to a new branch and opens"
-                " a new MR/PR, regardless of what `ref` points to."
-            )
-        ),
-    ] = None,
     use_max: Annotated[
         bool, Field(description="Use the max model configuration (more capable model with thinking set to high).")
     ] = False,
@@ -107,7 +98,7 @@ async def submit_job(
         NotifyOn | None,
         Field(
             description=(
-                "When to receive notifications for this job. When omitted, falls back to the user's default preference."
+                "When to receive notifications for each job. When omitted, falls back to the user's default preference."
             )
         ),
     ] = None,
@@ -115,53 +106,78 @@ async def submit_job(
         bool,
         Field(
             description=(
-                "When true, blocks until the job completes (up to 10 minutes) and returns the full result"
-                " instead of just the job ID."
+                "When true, blocks until every job in the batch completes (up to 10 minutes total)"
+                " and returns each job's full result."
             )
         ),
     ] = False,
 ) -> str:
-    """Submit a job to the DAIV agent for a repository."""
-    try:
-        result = await run_job_task.aenqueue(repo_id=repo_id, prompt=prompt, ref=ref, use_max=use_max)
-    except Exception:
-        logger.exception("Failed to enqueue MCP job for repo_id=%s", repo_id)
-        return json.dumps({"error": f"Failed to submit job for repository '{repo_id}'. Please try again later."})
+    """Submit a batch of agent jobs. Each repository runs as an independent job.
 
-    job_id = str(result.id)
+    Returns ``{batch_id, jobs: [{job_id, repo_id, ref}], failed: [...]}``. Each job runs
+    independently; poll with ``get_job_status`` per job_id or pass ``wait=true``.
+    """
+    # Defensive validation: FastMCP only validates at the protocol layer; direct calls bypass it.
+    if not repos:
+        return json.dumps({"error": "At least one repository is required."})
+    if len(repos) > MAX_REPOS_PER_SUBMIT:
+        return json.dumps({"error": f"At most {MAX_REPOS_PER_SUBMIT} repositories allowed per submission."})
+
+    # Coerce raw dict inputs (from direct Python calls / MCP protocol) into RepoSubmitSpec.
+    repos = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+
     mcp_user = None
     try:
         mcp_user = await get_current_user()
     except Exception:
-        logger.exception("Failed to resolve current user for MCP job %s", job_id)
+        logger.exception("Failed to resolve current user for MCP submit_job")
 
-    try:
-        await acreate_activity(
-            trigger_type=TriggerType.MCP_JOB,
-            task_result_id=result.id,
-            repo_id=repo_id,
-            ref=ref or "",
-            prompt=prompt,
-            use_max=use_max,
-            user=mcp_user,
-            notify_on=notify_on,
-        )
-    except Exception:
-        logger.exception("Failed to create activity for MCP job %s", job_id)
+    batch_id = str(uuid_mod.uuid4())
+    jobs: list[dict] = []
+    failed: list[dict] = []
+    job_ids: list[str] = []
 
-    logger.info("MCP job submitted: job_id=%s, repo_id=%s", job_id, repo_id)
+    for spec in repos:
+        ref_for_task = spec.ref or None
+        try:
+            task = await run_job_task.aenqueue(repo_id=spec.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max)
+        except Exception as err:
+            logger.exception("Failed to enqueue MCP job for repo_id=%s", spec.repo_id)
+            failed.append({"repo_id": spec.repo_id, "ref": spec.ref, "error": f"{type(err).__name__}: {err}"})
+            continue
 
+        try:
+            await acreate_activity(
+                trigger_type=TriggerType.MCP_JOB,
+                task_result_id=task.id,
+                repo_id=spec.repo_id,
+                ref=spec.ref or "",
+                prompt=prompt,
+                use_max=use_max,
+                user=mcp_user,
+                notify_on=notify_on,
+                batch_id=uuid_mod.UUID(batch_id),
+            )
+        except Exception:
+            logger.exception("Failed to create activity for MCP job %s (orphan job running)", task.id)
+
+        jobs.append({"job_id": str(task.id), "repo_id": spec.repo_id, "ref": spec.ref})
+        job_ids.append(str(task.id))
+
+    logger.info("MCP batch submitted: batch_id=%s count=%d failures=%d", batch_id, len(jobs), len(failed))
+
+    response: dict = {"batch_id": batch_id, "jobs": jobs, "failed": failed}
     if not wait:
-        return json.dumps({"job_id": job_id})
+        return json.dumps(response)
 
-    return await _poll_job_until_complete(job_id)
+    return await _poll_batch_until_complete(batch_id, job_ids, response)
 
 
-def _build_job_response(db_result: DBTaskResult) -> str:
-    """Build a JSON response string from a DBTaskResult."""
+def _build_job_response_dict(db_result: DBTaskResult) -> dict:
+    """Build a dict response from a DBTaskResult (shared by single + batch paths)."""
     error = "Job execution failed." if db_result.status == "FAILED" else None
     parsed = parse_agent_result(db_result.return_value)
-    return json.dumps({
+    return {
         "job_id": str(db_result.id),
         "status": db_result.status,
         "result": parsed["response"] or None,
@@ -170,6 +186,45 @@ def _build_job_response(db_result: DBTaskResult) -> str:
         "created_at": db_result.enqueued_at.isoformat() if db_result.enqueued_at else None,
         "started_at": db_result.started_at.isoformat() if db_result.started_at else None,
         "finished_at": db_result.finished_at.isoformat() if db_result.finished_at else None,
+    }
+
+
+def _build_job_response(db_result: DBTaskResult) -> str:
+    """Build a JSON response string from a DBTaskResult."""
+    return json.dumps(_build_job_response_dict(db_result))
+
+
+async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_response: dict) -> str:
+    """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
+    if not job_ids:
+        return json.dumps(enqueue_response)
+
+    job_uuids = [uuid_mod.UUID(j) for j in job_ids]
+    elapsed = 0.0
+    results_by_id: dict[str, DBTaskResult] = {}
+
+    while elapsed < MAX_POLL_DURATION and len(results_by_id) < len(job_uuids):
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+
+        try:
+            async for row in DBTaskResult.objects.filter(id__in=job_uuids, task_path=run_job_task.module_path):
+                if row.status in TERMINAL_STATUSES:
+                    results_by_id[str(row.id)] = row
+        except Exception:
+            logger.exception("Failed to poll batch_id=%s", batch_id)
+            break
+
+    return json.dumps({
+        "batch_id": batch_id,
+        "jobs": enqueue_response["jobs"],
+        "failed": enqueue_response["failed"],
+        "statuses": [
+            _build_job_response_dict(results_by_id[jid])
+            if jid in results_by_id
+            else {"job_id": jid, "status": "PENDING"}
+            for jid in job_ids
+        ],
     })
 
 

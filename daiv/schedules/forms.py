@@ -41,9 +41,6 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
         repos = self.cleaned_data.get("repos")
         if repos is not None and self.instance is not None:
             self.instance.repos = repos
-            first = repos[0]
-            self.instance.repo_id = first["repo_id"]
-            self.instance.ref = first["ref"]
         # If ``repos`` isn't in cleaned_data (clean_repos_json already raised), the
         # form-level error is already recorded; the instance stays as-is so the model's
         # own clean can proceed on placeholder data without crashing.
@@ -63,11 +60,6 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
         instance.repos = self.cleaned_data["repos"]
-        # Back-compat: the scalar repo_id/ref columns still exist (dropped in a later migration).
-        # Mirror the first entry so any pre-migration consumers see consistent data.
-        first = instance.repos[0]
-        instance.repo_id = first["repo_id"]
-        instance.ref = first["ref"]
         if instance.is_enabled:
             instance.compute_next_run()
         if commit:

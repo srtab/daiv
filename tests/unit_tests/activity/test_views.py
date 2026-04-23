@@ -419,7 +419,7 @@ class TestActivityVisibilityForSubscribers:
             "user": owner,
             "name": "s",
             "prompt": "p",
-            "repo_id": "x/y",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
             "frequency": Frequency.DAILY,
             "time": "12:00",
         }
@@ -429,7 +429,7 @@ class TestActivityVisibilityForSubscribers:
     def _activity(self, schedule, **overrides):
         data = {
             "trigger_type": TriggerType.SCHEDULE,
-            "repo_id": schedule.repo_id,
+            "repo_id": schedule.repos[0]["repo_id"],
             "status": ActivityStatus.SUCCESSFUL,
             "scheduled_job": schedule,
             "user": schedule.user,
@@ -490,7 +490,12 @@ class TestActivityDetailSubscriberContext:
         owner = User.objects.create_user(username="own", email="own@t.com", password="x")  # noqa: S106
         sub = User.objects.create_user(username="sub", email="sub@t.com", password="x")  # noqa: S106
         schedule = ScheduledJob.objects.create(
-            user=owner, name="s", prompt="p", repo_id="x/y", frequency=Frequency.DAILY, time="12:00"
+            user=owner,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
         )
         schedule.subscribers.add(sub)
         activity = Activity.objects.create(

@@ -74,7 +74,12 @@ class TestActivityFilter:
 
     def test_schedule_filter_matches_fk(self, user):
         job = ScheduledJob.objects.create(
-            user=user, name="nightly", prompt="x", repo_id="group/project", frequency=Frequency.DAILY, time=time(3, 0)
+            user=user,
+            name="nightly",
+            prompt="x",
+            repos=[{"repo_id": "group/project", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time=time(3, 0),
         )
         match = _create(scheduled_job=job)
         other = _create()

@@ -19,8 +19,6 @@ def schedule(member_user):
         user=member_user,
         name="Daily review",
         prompt="Review open merge requests.",
-        repo_id="owner/repo",
-        ref="",
         repos=[{"repo_id": "owner/repo", "ref": ""}],
         frequency="daily",
         time=time(9, 0),
@@ -269,7 +267,7 @@ class TestScheduleUpdateViewSubscribers:
         payload = {
             "name": schedule.name,
             "prompt": schedule.prompt,
-            "repos_json": _json.dumps([{"repo_id": schedule.repo_id, "ref": schedule.ref}]),
+            "repos_json": _json.dumps(schedule.repos),
             "frequency": schedule.frequency,
             "cron_expression": "",
             "time": "09:00",
