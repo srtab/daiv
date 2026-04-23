@@ -9,34 +9,84 @@ from mcp_server.server import get_job_status, list_repositories, submit_job
 from codebase.base import GitPlatform, Repository
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_success():
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
+def _mock_task():
+    m = MagicMock()
+    m.id = str(uuid.uuid4())
+    return m
 
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug")
+
+class _FakeActivity:
+    def __init__(self, task_result_id):
+        self.task_result_id = task_result_id
+
+
+async def _fake_acreate_activity(**kwargs):
+    return _FakeActivity(task_result_id=kwargs["task_result_id"])
+
+
+def _patch_acreate():
+    return patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_single_repo_returns_batch_response():
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
     data = json.loads(result)
-    assert "job_id" in data
-    assert data["job_id"] == mock_result.id
+    assert "batch_id" in data
+    assert len(data["jobs"]) == 1
+    assert data["jobs"][0]["repo_id"] == "group/project"
+    assert data["jobs"][0]["ref"] is None
+    assert data["failed"] == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_multi_repo_enqueues_each():
+    tasks = [_mock_task() for _ in range(3)]
+    call_log = []
+
+    async def _aenqueue(**kwargs):
+        call_log.append(kwargs)
+        return tasks[len(call_log) - 1]
+
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        mock_task.aenqueue = _aenqueue
+        result = await submit_job(
+            repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
+            prompt="p",
+        )
+
+    data = json.loads(result)
+    assert len(data["jobs"]) == 3
+    assert {j["repo_id"] for j in data["jobs"]} == {"o/a", "o/b", "o/c"}
+    refs = [c["ref"] for c in call_log]
+    assert None in refs and "dev" in refs
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_reports_partial_failure():
+    async def _flaky(**kwargs):
+        if kwargs["repo_id"] == "o/b":
+            raise RuntimeError("boom")
+        return _mock_task()
+
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        mock_task.aenqueue = _flaky
+        result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
+
+    data = json.loads(result)
+    assert len(data["jobs"]) == 1
+    assert len(data["failed"]) == 1
+    assert data["failed"][0]["repo_id"] == "o/b"
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_ref():
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        await submit_job(repo_id="group/project", prompt="Fix the bug", ref="feature-branch")
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
         mock_task.aenqueue.assert_called_once_with(
             repo_id="group/project", prompt="Fix the bug", ref="feature-branch", use_max=False
         )
@@ -45,15 +95,9 @@ async def test_submit_job_passes_ref():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_use_max_to_activity():
     """MCP submit tool threads ``use_max`` into ``acreate_activity``."""
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        await submit_job(repo_id="group/project", prompt="Fix the bug", use_max=True)
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", use_max=True)
 
     assert mock_create.await_args.kwargs["use_max"] is True
 
@@ -63,15 +107,9 @@ async def test_submit_job_forwards_notify_on_to_activity():
     """MCP submit tool threads ``notify_on`` into ``acreate_activity``."""
     from notifications.choices import NotifyOn
 
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        await submit_job(repo_id="group/project", prompt="p", notify_on=NotifyOn.ALWAYS)
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", notify_on=NotifyOn.ALWAYS)
 
     assert mock_create.await_args.kwargs["notify_on"] == NotifyOn.ALWAYS
 
@@ -79,28 +117,39 @@ async def test_submit_job_forwards_notify_on_to_activity():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_notify_on_defaults_to_none():
     """Omitting ``notify_on`` forwards ``None`` to the activity."""
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock) as mock_create,
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        await submit_job(repo_id="group/project", prompt="p")
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
     assert mock_create.await_args.kwargs["notify_on"] is None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_failure():
-    with patch("mcp_server.server.run_job_task") as mock_task:
+async def test_submit_job_all_fail():
+    """When every enqueue fails, no jobs in response, all entries in failed."""
+    with patch("activity.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug")
+        result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
     data = json.loads(result)
+    assert data["jobs"] == []
+    assert len(data["failed"]) == 1
+    assert "group/project" in data["failed"][0]["repo_id"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_empty_batch_returns_error_json():
+    result = await submit_job(repos=[], prompt="p")
+    data = json.loads(result)
     assert "error" in data
-    assert "group/project" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_oversized_batch_returns_error_json():
+    repos = [{"repo_id": f"o/r{i}", "ref": None} for i in range(21)]
+    result = await submit_job(repos=repos, prompt="p")
+    data = json.loads(result)
+    assert "error" in data
 
 
 @pytest.mark.django_db(transaction=True)
@@ -110,128 +159,75 @@ async def test_submit_job_wait_success():
     mock_result.id = job_id
 
     now = datetime.now(UTC)
-    mock_db_result = MagicMock()
-    mock_db_result.id = job_id
-    mock_db_result.status = "SUCCESSFUL"
-    mock_db_result.return_value = "All done"
-    mock_db_result.enqueued_at = now
-    mock_db_result.started_at = now
-    mock_db_result.finished_at = now
+
+    class _AsyncRows:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def __aiter__(self):
+            return self._aiter()
+
+        async def _aiter(self):
+            for r in self._rows:
+                yield r
+
+    finished = MagicMock()
+    finished.id = uuid.UUID(job_id)
+    finished.status = "SUCCESSFUL"
+    finished.return_value = "All done"
+    finished.enqueued_at = now
+    finished.started_at = now
+    finished.finished_at = now
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.objects.aget = AsyncMock(return_value=mock_db_result)
+        mock_model.objects.filter = MagicMock(return_value=_AsyncRows([finished]))
 
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
+        result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    assert data["status"] == "SUCCESSFUL"
-    assert data["result"] == "All done"
-    assert data["error"] is None
-    assert data["job_id"] == job_id
+    assert "batch_id" in data
+    assert len(data["statuses"]) == 1
+    assert data["statuses"][0]["status"] == "SUCCESSFUL"
+    assert data["statuses"][0]["result"] == "All done"
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_failed():
+async def test_submit_job_wait_pending_when_never_found():
+    """When the batch poll times out without terminal results, statuses report PENDING."""
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
-    now = datetime.now(UTC)
-    mock_db_result = MagicMock()
-    mock_db_result.status = "FAILED"
-    mock_db_result.return_value = None
-    mock_db_result.enqueued_at = now
-    mock_db_result.started_at = now
-    mock_db_result.finished_at = now
+    class _EmptyAsyncRows:
+        def __aiter__(self):
+            return self._aiter()
+
+        async def _aiter(self):
+            if False:
+                yield None  # never yields
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.objects.aget = AsyncMock(return_value=mock_db_result)
-
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
-
-    data = json.loads(result)
-    assert data["status"] == "FAILED"
-    assert data["error"] == "Job execution failed."
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_polls_until_complete():
-    """Test that wait=True polls multiple times until the job finishes."""
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    now = datetime.now(UTC)
-    running_result = MagicMock()
-    running_result.status = "RUNNING"
-
-    finished_result = MagicMock()
-    finished_result.status = "SUCCESSFUL"
-    finished_result.return_value = "Done"
-    finished_result.enqueued_at = now
-    finished_result.started_at = now
-    finished_result.finished_at = now
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.objects.aget = AsyncMock(side_effect=[running_result, running_result, finished_result])
-
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
-
-    data = json.loads(result)
-    assert data["status"] == "SUCCESSFUL"
-    assert mock_model.objects.aget.call_count == 3
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_timeout():
-    """Test that wait=True returns status when max poll duration is exceeded."""
-    mock_result = MagicMock()
-    mock_result.id = str(uuid.uuid4())
-
-    now = datetime.now(UTC)
-    running_result = MagicMock()
-    running_result.status = "RUNNING"
-    running_result.return_value = None
-    running_result.enqueued_at = now
-    running_result.started_at = now
-    running_result.finished_at = None
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.objects.aget = AsyncMock(return_value=running_result)
-        mock_model.DoesNotExist = Exception
+        mock_model.objects.filter = MagicMock(return_value=_EmptyAsyncRows())
 
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
+        result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    assert data["status"] == "RUNNING"
+    assert data["statuses"][0]["status"] == "PENDING"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -260,7 +256,7 @@ async def test_get_job_status_wait_already_complete():
     mock_db_result.started_at = now
     mock_db_result.finished_at = now
 
-    with patch("mcp_server.server.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
+    with patch("activity.services.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
         mock_task.module_path = "jobs.tasks.run_job_task"
         mock_model.objects.aget = AsyncMock(return_value=mock_db_result)
         mock_model.DoesNotExist = Exception
@@ -293,7 +289,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.finished_at = now
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
@@ -328,7 +324,7 @@ async def test_get_job_status_wait_not_found_then_appears():
         pass
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
@@ -344,61 +340,28 @@ async def test_get_job_status_wait_not_found_then_appears():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_poll_job_db_exception():
-    """DB error during polling returns an error response."""
-    job_id = str(uuid.uuid4())
+async def test_submit_job_batch_poll_db_exception_breaks_loop():
+    """DB error during batch polling terminates the loop; PENDING returned."""
     mock_result = MagicMock()
-    mock_result.id = job_id
-
-    class _DoesNotExistError(Exception):
-        pass
+    mock_result.id = str(uuid.uuid4())
 
     with (
-        patch("mcp_server.server.run_job_task") as mock_task,
+        patch("activity.services.run_job_task") as mock_task,
         patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.DoesNotExist = _DoesNotExistError
-        mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))
-
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
-
-    data = json.loads(result)
-    assert "error" in data
-    assert "Failed to retrieve job status" in data["error"]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_poll_job_timeout_never_found():
-    """When the job never appears in DB during polling, return a descriptive timeout error."""
-    job_id = str(uuid.uuid4())
-    mock_result = MagicMock()
-    mock_result.id = job_id
-
-    class _DoesNotExistError(Exception):
-        pass
-
-    with (
-        patch("mcp_server.server.run_job_task") as mock_task,
-        patch("mcp_server.server.DBTaskResult") as mock_model,
-        patch("mcp_server.server.acreate_activity", new_callable=AsyncMock),
+        _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
-        mock_model.DoesNotExist = _DoesNotExistError
-        mock_model.objects.aget = AsyncMock(side_effect=_DoesNotExistError)
+        mock_model.objects.filter = MagicMock(side_effect=RuntimeError("DB down"))
 
-        result = await submit_job(repo_id="group/project", prompt="Fix the bug", wait=True)
+        result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    assert "was submitted but has not appeared yet" in data["error"]
-    assert data["job_id"] == str(mock_result.id)
+    # Loop breaks on DB error; statuses report PENDING for unresolved jobs.
+    assert data["statuses"][0]["status"] == "PENDING"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -409,7 +372,7 @@ async def test_get_job_status_db_exception():
     class _DoesNotExistError(Exception):
         pass
 
-    with patch("mcp_server.server.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
+    with patch("activity.services.run_job_task") as mock_task, patch("mcp_server.server.DBTaskResult") as mock_model:
         mock_task.module_path = "jobs.tasks.run_job_task"
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))

@@ -74,7 +74,12 @@ class TestActivityFilter:
 
     def test_schedule_filter_matches_fk(self, user):
         job = ScheduledJob.objects.create(
-            user=user, name="nightly", prompt="x", repo_id="group/project", frequency=Frequency.DAILY, time=time(3, 0)
+            user=user,
+            name="nightly",
+            prompt="x",
+            repos=[{"repo_id": "group/project", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time=time(3, 0),
         )
         match = _create(scheduled_job=job)
         other = _create()
@@ -129,3 +134,20 @@ class TestActivityFilter:
         assert match in qs
         assert wrong_status not in qs
         assert wrong_repo not in qs
+
+    def test_batch_filter_matches_by_batch_id(self, user):
+        import uuid as _uuid
+
+        b = _uuid.uuid4()
+        match = _create(batch_id=b)
+        other = _create(batch_id=_uuid.uuid4())
+        qs = ActivityFilter({"batch": str(b)}, queryset=Activity.objects.all()).qs
+        assert match in qs
+        assert other not in qs
+
+    def test_batch_filter_invalid_uuid_is_ignored(self, user):
+        a = _create()
+        f = ActivityFilter({"batch": "not-a-uuid"}, queryset=Activity.objects.all())
+        assert not f.form.is_valid()
+        # Invalid value is dropped → no filter applied.
+        assert a in f.qs

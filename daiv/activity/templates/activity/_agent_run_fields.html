@@ -5,15 +5,16 @@
 {% trans "Search repositories..." as search_repos_placeholder %}
 {% trans "Search branches..." as search_branches_placeholder %}
 {% trans "default" as default_branch_label %}
+{% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
 
-<div x-data="promptBox({
-        initialSlug: '{{ form.repo_id.value|default:''|escapejs }}',
-        initialRef: '{{ form.ref.value|default:''|escapejs }}',
+<div x-data='promptBox({
+        initialRepos: {{ form.repos.value|default:"[]" }},
         initialUseMax: {% if form.use_max.value %}true{% else %}false{% endif %},
-        maxRepos: 1,
-        repoPickerUrl: '{{ repo_picker_url|escapejs }}',
-        branchPickerTemplate: '{{ branch_picker_template|escapejs }}'
-     })"
+        maxRepos: 20,
+        repoPickerUrl: "{{ repo_picker_url|escapejs }}",
+        branchPickerTemplate: "{{ branch_picker_template|escapejs }}",
+        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}"
+     })'
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
     <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
@@ -33,7 +34,8 @@
 
         <div class="flex flex-wrap items-center gap-1.5">
             <template x-for="(repo, index) in repos" :key="index">
-                <span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] py-1 pl-1 pr-1 text-[13px] font-medium text-gray-300">
+                <span class="inline-flex items-center gap-1 rounded-full border py-1 pl-1 pr-1 text-[13px] font-medium transition-colors"
+                      :class="conflictIndex === index ? 'border-red-400/60 bg-red-500/15 text-red-200' : 'border-white/[0.08] bg-white/[0.05] text-gray-300'">
                     <button type="button"
                             @click.stop="openRepoPicker(index)"
                             :aria-label="'Change repository ' + repo.slug"
@@ -62,7 +64,7 @@
             </template>
 
             <button type="button"
-                    x-show="repos.length < maxRepos"
+                    x-show="repos.length === 0"
                     @click.stop="openRepoPicker()"
                     class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
                 {% if git_platform == "github" %}
@@ -75,6 +77,17 @@
                     </svg>
                 {% endif %}
                 <span>{{ choose_repo_label }}</span>
+            </button>
+
+            <button type="button"
+                    x-show="repos.length > 0 && repos.length < maxRepos"
+                    @click.stop="openRepoPicker()"
+                    aria-label="{% trans 'Add repository' %}"
+                    title="{% trans 'Add repository' %}"
+                    class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
             </button>
         </div>
 
@@ -157,25 +170,21 @@
         <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
     </div>
 
-    <input type="hidden" name="repo_id"
-           value="{{ form.repo_id.value|default:'' }}"
-           :value="repos[0]?.slug || ''">
-    <input type="hidden" name="ref"
-           value="{{ form.ref.value|default:'' }}"
-           :value="repos[0]?.ref || ''">
+    <input type="hidden" name="repos"
+           value="{{ form.repos.value|default:'[]' }}"
+           :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
 
     {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"
-           value="{% if form.repo_id.value %}ok{% endif %}"
+           value="{% if form.repos.value and form.repos.value != '[]' %}ok{% endif %}"
            :value="repos.length > 0 ? 'ok' : ''">
-</div>
 
-{% if form.prompt.errors or form.repo_id.errors or form.ref.errors %}
-<ul class="mt-2 space-y-1 text-sm text-red-400">
-    {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
-    {% for err in form.repo_id.errors %}<li>{{ err }}</li>{% endfor %}
-    {% for err in form.ref.errors %}<li>{{ err }}</li>{% endfor %}
-</ul>
-{% endif %}
+    <ul {% if not form.prompt.errors and not form.repos.errors %}x-show="conflictMessage" x-cloak{% endif %}
+        class="border-t border-white/[0.05] px-4 py-2.5 text-sm text-red-400">
+        {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.repos.errors %}<li>{{ err }}</li>{% endfor %}
+        <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
+    </ul>
+</div>

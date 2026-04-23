@@ -18,7 +18,7 @@ def schedule(member_user, email_binding):
         user=member_user,
         name="s",
         prompt="p",
-        repo_id="x/y",
+        repos=[{"repo_id": "x/y", "ref": ""}],
         frequency=Frequency.DAILY,
         time="12:00",
         notify_on=NotifyOn.ALWAYS,

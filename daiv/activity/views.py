@@ -7,6 +7,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
@@ -23,7 +24,7 @@ from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
-from activity.services import submit_ui_run
+from activity.services import RepoTarget, submit_batch_runs
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -56,10 +57,21 @@ class ActivityListView(LoginRequiredMixin, FilterView):
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_schedule"] = cleaned.get("schedule") or ""
+        context["current_batch"] = cleaned.get("batch") or ""
+        context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
         # Date fields are read raw: cleaned_data yields `date` objects, but the
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["has_active_filters"] = any([
+            context["current_status"],
+            context["current_trigger"],
+            context["current_repo"],
+            context["current_schedule"],
+            context["current_batch"],
+            context["current_from"],
+            context["current_to"],
+        ])
         context["trigger_types"] = TriggerType.choices
         context["statuses"] = ActivityStatus.choices
         # Resolve schedule name for display
@@ -258,8 +270,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if source is not None:
             initial.update({
                 "prompt": source.prompt,
-                "repo_id": source.repo_id,
-                "ref": source.ref,
+                "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
                 "use_max": source.use_max,
             })
         return initial
@@ -270,27 +281,36 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         return ctx
 
     def form_valid(self, form):
+        repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in form.cleaned_data["repos"]]
         try:
-            activity = submit_ui_run(user=self.request.user, **form.cleaned_data)
+            result = submit_batch_runs(
+                user=self.request.user,
+                prompt=form.cleaned_data["prompt"],
+                repos=repos,
+                use_max=form.cleaned_data["use_max"],
+                notify_on=form.cleaned_data["notify_on"],
+                trigger_type=TriggerType.UI_JOB,
+            )
         except Http404, PermissionDenied, SuspiciousOperation:
-            # Let Django's middleware render these as 4xx responses instead of
-            # masking them as a generic "submit failed" 200.
+            # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.
             raise
         except Exception:
-            # Either enqueue failed (no job ran) or the Activity row couldn't be written
-            # after enqueue (job is running orphaned). Either way we preserve the form
-            # contents and let the user retry; operators see the traceback in logs.
             logger.exception(
                 "Failed to submit UI run",
-                extra={
-                    "user_pk": self.request.user.pk,
-                    "repo_id": form.cleaned_data.get("repo_id"),
-                    "ref": form.cleaned_data.get("ref") or None,
-                },
+                extra={"user_pk": self.request.user.pk, "repos": form.cleaned_data.get("repos")},
             )
             form.add_error(None, _("Failed to submit the run. Please try again in a moment."))
             return self.form_invalid(form)
-        return redirect("activity_detail", pk=activity.pk)
+
+        if result.failed:
+            failed_ids = ", ".join(f.repo_id for f in result.failed)
+            messages_module.warning(
+                self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
+            )
+
+        if len(result.activities) == 1 and not result.failed:
+            return redirect("activity_detail", pk=result.activities[0].pk)
+        return redirect(reverse("activity_list") + f"?batch={result.batch_id}")
 
     def get_breadcrumbs(self):
         return [{"label": "Activity", "url": reverse("activity_list")}, {"label": "Start a run", "url": None}]

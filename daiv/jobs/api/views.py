@@ -4,7 +4,7 @@ import uuid as uuid_mod
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
 from activity.models import TriggerType
-from activity.services import acreate_activity
+from activity.services import RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
 from ninja.throttling import AuthRateThrottle
@@ -14,7 +14,7 @@ from chat.api.security import AuthBearer
 from core.site_settings import site_settings
 from jobs.tasks import run_job_task
 
-from .schemas import JobStatusResponse, JobSubmitRequest, JobSubmitResponse
+from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
 
 logger = logging.getLogger("daiv.jobs")
 
@@ -32,34 +32,34 @@ class _LazyThrottle(AuthRateThrottle):
 
 @jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[_LazyThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
+    """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
+
+    Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
+    in ``failed``; the rest of the batch still runs.
     """
-    Submit a job to be processed asynchronously by the DAIV agent.
+    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    result = await asubmit_batch_runs(
+        user=request.auth,
+        prompt=payload.prompt,
+        repos=targets,
+        use_max=payload.use_max,
+        notify_on=payload.notify_on,
+        trigger_type=TriggerType.API_JOB,
+    )
 
-    Returns a job ID that can be used to poll for the result.
-    """
-    try:
-        result = await run_job_task.aenqueue(
-            repo_id=payload.repo_id, prompt=payload.prompt, ref=payload.ref, use_max=payload.use_max
-        )
-    except Exception:
-        logger.exception("Failed to enqueue job for repo_id=%s", payload.repo_id)
-        return 503, {"detail": "Failed to submit job. Please try again later."}
+    # Pair each non-failed spec (in input order) with the corresponding activity, so the
+    # client sees the ref it sent (None vs "") rather than the "" normalized by the service.
+    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+    activities_iter = iter(result.activities)
+    jobs: list[JobSubmitJobItem] = []
+    for spec in payload.repos:
+        if (spec.repo_id, spec.ref or "") in failed_keys:
+            continue
+        activity = next(activities_iter)
+        jobs.append(JobSubmitJobItem(job_id=str(activity.task_result_id), repo_id=spec.repo_id, ref=spec.ref))
 
-    try:
-        await acreate_activity(
-            trigger_type=TriggerType.API_JOB,
-            task_result_id=result.id,
-            repo_id=payload.repo_id,
-            ref=payload.ref or "",
-            prompt=payload.prompt,
-            use_max=payload.use_max,
-            user=request.auth,
-            notify_on=payload.notify_on,
-        )
-    except Exception:
-        logger.exception("Failed to create activity for job %s", result.id)
-
-    return 202, JobSubmitResponse(job_id=result.id)
+    failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
+    return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)
 
 
 @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})

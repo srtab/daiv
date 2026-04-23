@@ -54,6 +54,10 @@ class ActivityManager(models.Manager["Activity"]):
             models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
         ).distinct()
 
+    def by_batch(self, batch_id) -> models.QuerySet[Activity]:
+        """Return activities that share a ``batch_id`` (multi-repo submission group)."""
+        return self.filter(batch_id=batch_id)
+
 
 class Activity(models.Model):
     """Unified record of every agent execution, regardless of trigger source.
@@ -83,6 +87,14 @@ class Activity(models.Model):
     )
 
     status = models.CharField(_("status"), max_length=10, choices=ActivityStatus.choices, default=ActivityStatus.READY)
+
+    batch_id = models.UUIDField(
+        _("batch ID"),
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("Shared identifier for activities from the same submission."),
+    )
 
     external_username = models.CharField(
         _("external username"),

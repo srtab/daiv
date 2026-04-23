@@ -1,73 +1,79 @@
-import uuid
-from unittest import mock
+"""Tests for the UI agent-run form."""
+
+import json
 
 import pytest
 from activity.forms import AgentRunCreateForm
-from activity.models import Activity, TriggerType
-from activity.services import submit_ui_run
-from django_tasks_db.models import DBTaskResult, get_date_max
+from notifications.choices import NotifyOn
 
 
-def _make_task_result(task_id: uuid.UUID) -> mock.Mock:
-    DBTaskResult.objects.create(
-        id=task_id,
-        status="READY",
-        task_path="jobs.tasks.run_job_task",
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after=get_date_max(),
-        return_value={},
-    )
-    return mock.Mock(id=task_id)
+def _valid(**overrides):
+    data = {
+        "prompt": "do the thing",
+        "repos": json.dumps([{"repo_id": "acme/repo", "ref": "main"}]),
+        "use_max": False,
+        "notify_on": NotifyOn.NEVER,
+    }
+    data.update(overrides)
+    return data
 
 
-@pytest.mark.django_db(transaction=True)
-def test_submit_ui_run_enqueues_and_creates_activity(member_user):
-    task_id = uuid.uuid4()
-    fake_task = _make_task_result(task_id)
+class TestAgentRunCreateForm:
+    def test_valid_single_repo(self):
+        form = AgentRunCreateForm(data=_valid())
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["repos"] == [{"repo_id": "acme/repo", "ref": "main"}]
 
-    with mock.patch("activity.services.run_job_task") as m_task:
-        m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
-        activity = submit_ui_run(user=member_user, prompt="do the thing", repo_id="acme/repo", ref="main", use_max=True)
+    def test_valid_multiple_repos(self):
+        form = AgentRunCreateForm(
+            data=_valid(repos=json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}]))
+        )
+        assert form.is_valid(), form.errors
+        assert len(form.cleaned_data["repos"]) == 2
 
-    m_task.aenqueue.assert_awaited_once_with(repo_id="acme/repo", prompt="do the thing", ref="main", use_max=True)
+    def test_rejects_empty_repos(self):
+        form = AgentRunCreateForm(data=_valid(repos="[]"))
+        assert not form.is_valid()
+        assert "repos" in form.errors
 
-    reloaded = Activity.objects.get(pk=activity.pk)
-    assert reloaded.trigger_type == TriggerType.UI_JOB
-    assert reloaded.use_max is True
-    assert reloaded.repo_id == "acme/repo"
-    assert reloaded.ref == "main"
-    assert reloaded.prompt == "do the thing"
-    assert reloaded.user == member_user
-    assert reloaded.task_result_id == task_id
+    def test_rejects_oversized_repos(self):
+        big = [{"repo_id": f"o/r{i}", "ref": ""} for i in range(21)]
+        form = AgentRunCreateForm(data=_valid(repos=json.dumps(big)))
+        assert not form.is_valid()
+        assert "repos" in form.errors
+
+    def test_rejects_malformed_json(self):
+        form = AgentRunCreateForm(data=_valid(repos="not-json"))
+        assert not form.is_valid()
+        assert "repos" in form.errors
+
+    def test_rejects_malformed_entry(self):
+        form = AgentRunCreateForm(data=_valid(repos=json.dumps([{"repo_id": ""}])))
+        assert not form.is_valid()
+        assert "repos" in form.errors
+
+    def test_rejects_duplicate_entries(self):
+        form = AgentRunCreateForm(
+            data=_valid(repos=json.dumps([{"repo_id": "a/b", "ref": "main"}, {"repo_id": "a/b", "ref": "main"}]))
+        )
+        assert not form.is_valid()
+        assert "repos" in form.errors
+
+    def test_requires_notify_on(self):
+        data = _valid()
+        data.pop("notify_on")
+        form = AgentRunCreateForm(data=data)
+        assert not form.is_valid()
+        assert "notify_on" in form.errors
+
+    def test_requires_prompt(self):
+        form = AgentRunCreateForm(data=_valid(prompt=""))
+        assert not form.is_valid()
+        assert "prompt" in form.errors
 
 
-@pytest.mark.django_db(transaction=True)
-def test_submit_ui_run_passes_none_for_empty_ref(member_user):
-    task_id = uuid.uuid4()
-    fake_task = _make_task_result(task_id)
-
-    with mock.patch("activity.services.run_job_task") as m_task:
-        m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
-        submit_ui_run(user=member_user, prompt="x", repo_id="acme/repo", ref="")
-
-    assert m_task.aenqueue.await_args.kwargs["ref"] is None
-
-
-def test_agent_run_form_requires_notify_on():
-    """notify_on is required on the UI form — the view pre-fills it from the user's
-    preference, so an empty submission is a client-side bug, not "defer"."""
-    form = AgentRunCreateForm(data={"prompt": "do the thing", "repo_id": "x/y", "ref": "", "use_max": False})
-    assert not form.is_valid()
-    assert "notify_on" in form.errors
-
-
-def test_agent_run_form_accepts_valid_notify_on():
-    from notifications.choices import NotifyOn
-
-    form = AgentRunCreateForm(
-        data={"prompt": "p", "repo_id": "x/y", "ref": "", "use_max": False, "notify_on": NotifyOn.ON_FAILURE}
-    )
+@pytest.mark.parametrize("notify_on", [NotifyOn.NEVER, NotifyOn.ALWAYS, NotifyOn.ON_FAILURE])
+def test_notify_on_round_trips(notify_on):
+    form = AgentRunCreateForm(data=_valid(notify_on=notify_on))
     assert form.is_valid(), form.errors
-    assert form.cleaned_data["notify_on"] == NotifyOn.ON_FAILURE
+    assert form.cleaned_data["notify_on"] == notify_on

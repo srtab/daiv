@@ -14,8 +14,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
         fields = [
             "name",
             "prompt",
-            "repo_id",
-            "ref",
+            "repos",
             "frequency",
             "cron_expression",
             "time",

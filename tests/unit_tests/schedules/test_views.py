@@ -1,11 +1,13 @@
 import uuid
 from datetime import time
+from unittest import mock
 
 from django.test import Client
 from django.urls import reverse
 
 import pytest
-from activity.models import TriggerType
+from activity.models import Activity, TriggerType
+from django_tasks_db.models import DBTaskResult, get_date_max
 
 from accounts.models import User
 from schedules.models import ScheduledJob
@@ -17,7 +19,7 @@ def schedule(member_user):
         user=member_user,
         name="Daily review",
         prompt="Review open merge requests.",
-        repo_id="owner/repo",
+        repos=[{"repo_id": "owner/repo", "ref": ""}],
         frequency="daily",
         time=time(9, 0),
         is_enabled=True,
@@ -111,91 +113,105 @@ class TestScheduleToggleView:
         assert schedule.next_run_at is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestScheduleRunNowView:
-    def test_enqueues_job_and_redirects_to_activity_detail(self, member_client, member_user, schedule, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.id = uuid.uuid4()
-        mock_task = mocker.patch("schedules.views.run_job_task")
-        mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
-        mock_activity = mocker.MagicMock()
-        mock_activity.pk = uuid.uuid4()
-        mock_create = mocker.patch("schedules.views.create_activity", return_value=mock_activity)
-
-        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
-
-        mock_task.enqueue.assert_called_once_with(
-            repo_id=schedule.repo_id, prompt=schedule.prompt, ref=None, use_max=schedule.use_max
+    @staticmethod
+    def _make_task_row():
+        tid = uuid.uuid4()
+        DBTaskResult.objects.create(
+            id=tid,
+            status="READY",
+            task_path="jobs.tasks.run_job_task",
+            args_kwargs={"args": [], "kwargs": {}},
+            queue_name="default",
+            backend_name="default",
+            run_after=get_date_max(),
+            return_value={},
         )
-        mock_create.assert_called_once_with(
-            trigger_type=TriggerType.SCHEDULE,
-            task_result_id=mock_result.id,
-            repo_id=schedule.repo_id,
-            ref="",
-            prompt=schedule.prompt,
-            use_max=schedule.use_max,
-            scheduled_job=schedule,
-            user=member_user,
+        m = mock.MagicMock()
+        m.id = tid
+        return m
+
+    @staticmethod
+    async def _amake_task_row():
+        tid = uuid.uuid4()
+        await DBTaskResult.objects.acreate(
+            id=tid,
+            status="READY",
+            task_path="jobs.tasks.run_job_task",
+            args_kwargs={"args": [], "kwargs": {}},
+            queue_name="default",
+            backend_name="default",
+            run_after=get_date_max(),
+            return_value={},
         )
+        m = mock.MagicMock()
+        m.id = tid
+        return m
+
+    def test_enqueues_single_repo_and_redirects_to_activity_detail(self, member_client, member_user, schedule):
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
         assert response.status_code == 302
-        assert response.url == reverse("activity_detail", args=[mock_activity.pk])
+        activity = Activity.objects.get(scheduled_job=schedule)
+        assert activity.trigger_type == TriggerType.SCHEDULE
+        assert activity.batch_id is not None
+        assert response.url == reverse("activity_detail", args=[activity.pk])
 
-        schedule.refresh_from_db()
-        assert schedule.run_count == 0
+    def test_multi_repo_redirects_to_batch_filtered_activity_list(self, member_client, member_user, schedule):
+        schedule.repos = [{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": ""}]
+        schedule.save(update_fields=["repos"])
 
-    def test_works_on_disabled_schedule(self, member_client, schedule, mocker):
+        async def _aenq(**kwargs):
+            return await self._amake_task_row()
+
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue.side_effect = _aenq
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
+        assert response.status_code == 302
+        assert "batch=" in response.url
+        activities = list(Activity.objects.filter(scheduled_job=schedule))
+        assert len(activities) == 2
+        assert len({a.batch_id for a in activities}) == 1
+
+    def test_works_on_disabled_schedule(self, member_client, schedule):
         schedule.is_enabled = False
         schedule.next_run_at = None
         schedule.save(update_fields=["is_enabled", "next_run_at"])
 
-        mock_result = mocker.MagicMock()
-        mock_result.id = uuid.uuid4()
-        mock_task = mocker.patch("schedules.views.run_job_task")
-        mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
-        mock_activity = mocker.MagicMock()
-        mock_activity.pk = uuid.uuid4()
-        mock_create = mocker.patch("schedules.views.create_activity", return_value=mock_activity)
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
-        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
         assert response.status_code == 302
-        assert response.url == reverse("activity_detail", args=[mock_activity.pk])
-        mock_create.assert_called_once()
+        activity = Activity.objects.get(scheduled_job=schedule)
+        assert response.url == reverse("activity_detail", args=[activity.pk])
 
-    def test_enqueue_failure_returns_error_message(self, member_client, schedule, mocker):
-        mock_task = mocker.patch("schedules.views.run_job_task")
-        mock_task.enqueue = mocker.MagicMock(side_effect=RuntimeError("backend down"))
-        mock_create = mocker.patch("schedules.views.create_activity")
+    def test_enqueue_failure_returns_error_message(self, member_client, schedule):
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("backend down"))
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
-        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
+        # All repos failed → no activities, redirect to schedule_list with a warning message.
         assert response.status_code == 200
-        mock_create.assert_not_called()
+        assert not Activity.objects.filter(scheduled_job=schedule).exists()
         content = response.content.decode()
-        assert "Failed to trigger" in content
-
-    def test_activity_failure_falls_back_to_schedule_list(self, member_client, schedule, mocker):
-        mock_result = mocker.MagicMock()
-        mock_result.id = uuid.uuid4()
-        mock_task = mocker.patch("schedules.views.run_job_task")
-        mock_task.enqueue = mocker.MagicMock(return_value=mock_result)
-        mocker.patch("schedules.views.create_activity", side_effect=RuntimeError("db error"))
-
-        response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
-        assert response.status_code == 302
-        assert response.url == reverse("schedule_list")
-
-        followed = member_client.get(response.url)
-        assert "triggered successfully" in followed.content.decode()
+        assert "triggered with failures" in content or "Failed to trigger" in content
 
 
 @pytest.mark.django_db
 class TestScheduleCreateViewSubscribers:
     def test_owner_passed_to_form_on_create(self, member_client, member_user):
+        import json as _json
+
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
         payload = {
             "name": "Daily",
             "prompt": "p",
-            "repo_id": "x/y",
-            "ref": "",
+            "repos": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
@@ -210,11 +226,12 @@ class TestScheduleCreateViewSubscribers:
         assert schedule.user == member_user
 
     def test_owner_rejected_as_own_subscriber_on_create(self, member_client, member_user):
+        import json as _json
+
         payload = {
             "name": "Daily",
             "prompt": "p",
-            "repo_id": "x/y",
-            "ref": "",
+            "repos": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
@@ -244,12 +261,13 @@ class TestScheduleUpdateViewSubscribers:
         assert "Subscribers" in html
 
     def test_owner_passed_to_form_on_update(self, member_client, schedule):
+        import json as _json
+
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x")  # noqa: S106
         payload = {
             "name": schedule.name,
             "prompt": schedule.prompt,
-            "repo_id": schedule.repo_id,
-            "ref": schedule.ref,
+            "repos": _json.dumps(schedule.repos),
             "frequency": schedule.frequency,
             "cron_expression": "",
             "time": "09:00",
