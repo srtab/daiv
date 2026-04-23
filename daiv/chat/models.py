@@ -29,7 +29,7 @@ class ChatThread(models.Model):
         indexes = [models.Index(fields=["user", "-last_active_at"])]
 
     def __str__(self) -> str:
-        return self.title or self.thread_id
+        return str(self.title or self.thread_id)
 
     @classmethod
     async def aget_or_create_from_activity(cls, user, activity) -> tuple[ChatThread, bool]:

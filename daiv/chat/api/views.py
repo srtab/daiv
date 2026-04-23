@@ -81,7 +81,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if not repo_id or not ref:
         raise Http404("Repository ID or reference not found")
 
-    user = request.auth
+    user = request.auth  # ty: ignore[unresolved-attribute]  # attached by django-ninja
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
