@@ -96,6 +96,16 @@ class Activity(models.Model):
         help_text=_("Shared identifier for activities from the same submission."),
     )
 
+    thread_id = models.CharField(
+        _("thread ID"),
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text=_("LangGraph checkpoint key. Lets chat resume this run."),
+    )
+
     external_username = models.CharField(
         _("external username"),
         max_length=255,
