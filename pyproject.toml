@@ -60,7 +60,7 @@ dependencies = [
   "redis==7.4.0",
   "sentry-sdk==2.58.0",
   "unidiff==0.7.5",
-  "uvicorn[standard]==0.44.0",
+  "uvicorn[standard]==0.45.0",
   "whitenoise==6.12.0",
 ]
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
