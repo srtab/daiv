@@ -101,11 +101,41 @@ class ScheduledJob(TimeStampedModel):
             )
         ]
 
+    MAX_REPOS = 20
+
     def __str__(self) -> str:
         return self.name
 
+    def _validated_repos(self) -> list[dict]:
+        repos = self.repos
+        if not isinstance(repos, list) or not repos:
+            raise ValidationError({"repos": _("At least one repository is required.")})
+        if len(repos) > self.MAX_REPOS:
+            raise ValidationError({
+                "repos": _("A schedule can target at most %(n)d repositories.") % {"n": self.MAX_REPOS}
+            })
+
+        seen: set[tuple[str, str]] = set()
+        normalized: list[dict] = []
+        for entry in repos:
+            if not isinstance(entry, dict) or set(entry.keys()) != {"repo_id", "ref"}:
+                raise ValidationError({"repos": _("Each entry must be an object with keys 'repo_id' and 'ref'.")})
+            repo_id = entry["repo_id"]
+            ref = entry["ref"]
+            if not isinstance(repo_id, str) or not repo_id.strip():
+                raise ValidationError({"repos": _("repo_id must be a non-empty string.")})
+            if not isinstance(ref, str):
+                raise ValidationError({"repos": _("ref must be a string (empty for default branch).")})
+            key = (repo_id, ref)
+            if key in seen:
+                raise ValidationError({"repos": _("Duplicate (repo_id, ref) entries are not allowed.")})
+            seen.add(key)
+            normalized.append({"repo_id": repo_id, "ref": ref})
+        return normalized
+
     def clean(self) -> None:
         super().clean()
+        self.repos = self._validated_repos()
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
                 raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})

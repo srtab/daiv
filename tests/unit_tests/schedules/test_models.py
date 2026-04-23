@@ -7,7 +7,15 @@ from schedules.models import Frequency, ScheduledJob
 @pytest.mark.django_db
 class TestScheduledJobNotifyOn:
     def _make(self, user, **overrides):
-        defaults = {"user": user, "name": "s", "prompt": "p", "repo_id": "x/y", "frequency": "daily", "time": "12:00"}
+        defaults = {
+            "user": user,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "frequency": "daily",
+            "time": "12:00",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
+        }
         defaults.update(overrides)
         return ScheduledJob(**defaults)
 
@@ -75,3 +83,64 @@ class TestScheduledJobRepos:
     def test_last_run_batch_id_defaults_to_none(self, member_user):
         s = self._make(member_user)
         assert s.last_run_batch_id is None
+
+
+@pytest.mark.django_db
+class TestScheduledJobReposClean:
+    def _build(self, user, **overrides):
+        defaults = {
+            "user": user,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
+        }
+        defaults.update(overrides)
+        return ScheduledJob(**defaults)
+
+    def test_empty_repos_rejected(self, member_user):
+        from django.core.exceptions import ValidationError
+
+        s = self._build(member_user, repos=[])
+        with pytest.raises(ValidationError) as exc:
+            s.full_clean()
+        assert "repos" in exc.value.error_dict
+
+    def test_oversized_repos_rejected(self, member_user):
+        from django.core.exceptions import ValidationError
+
+        s = self._build(member_user, repos=[{"repo_id": f"r/{i}", "ref": ""} for i in range(21)])
+        with pytest.raises(ValidationError) as exc:
+            s.full_clean()
+        assert "repos" in exc.value.error_dict
+
+    def test_malformed_entry_rejected(self, member_user):
+        from django.core.exceptions import ValidationError
+
+        s = self._build(member_user, repos=[{"repo_id": "", "ref": "main"}])
+        with pytest.raises(ValidationError) as exc:
+            s.full_clean()
+        assert "repos" in exc.value.error_dict
+
+    def test_missing_ref_key_rejected(self, member_user):
+        from django.core.exceptions import ValidationError
+
+        s = self._build(member_user, repos=[{"repo_id": "x/y"}])
+        with pytest.raises(ValidationError) as exc:
+            s.full_clean()
+        assert "repos" in exc.value.error_dict
+
+    def test_duplicate_entries_rejected(self, member_user):
+        from django.core.exceptions import ValidationError
+
+        s = self._build(member_user, repos=[{"repo_id": "x/y", "ref": ""}, {"repo_id": "x/y", "ref": ""}])
+        with pytest.raises(ValidationError) as exc:
+            s.full_clean()
+        assert "repos" in exc.value.error_dict
+
+    def test_valid_repos_passes(self, member_user):
+        s = self._build(member_user, repos=[{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])
+        s.full_clean()  # no raise
