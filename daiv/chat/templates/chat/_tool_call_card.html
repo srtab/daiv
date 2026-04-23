@@ -1,0 +1,16 @@
+{% load i18n %}
+<details class="tool-call rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm"
+         data-tool-call-id="{{ tool_call.id }}">
+  <summary class="tool-call__summary flex cursor-pointer items-center gap-2 text-gray-300">
+    <span class="tool-call__name font-medium text-violet-300">{{ tool_call.name }}</span>
+    {% if tool_call.args_preview %}
+      <span class="tool-call__preview truncate text-gray-500">{{ tool_call.args_preview }}</span>
+    {% endif %}
+  </summary>
+  {% if tool_call.args %}
+    <pre class="tool-call__args mt-2 whitespace-pre-wrap text-xs text-gray-400">{{ tool_call.args }}</pre>
+  {% endif %}
+  {% if tool_call.result %}
+    <pre class="tool-call__result mt-2 whitespace-pre-wrap text-xs text-gray-300">{{ tool_call.result }}</pre>
+  {% endif %}
+</details>

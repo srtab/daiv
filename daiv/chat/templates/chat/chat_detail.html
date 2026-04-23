@@ -1,7 +1,52 @@
 {% extends "base_app.html" %}
-{% load i18n %}
+{% load static i18n %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
 
 {% block app_content %}
-{% if expired %}<p>{% trans "Expired." %}</p>{% endif %}
-{{ messages_history|json_script:"chat-initial-messages" }}
+  {{ messages_history|json_script:"chat-initial-messages" }}
+
+  <div
+    x-data='chat({
+      endpoint: "/api/chat/completions",
+      thread: {% if thread %}{
+        thread_id: "{{ thread.thread_id|escapejs }}",
+        repo_id: "{{ thread.repo_id|escapejs }}",
+        ref: "{{ thread.ref|escapejs }}"
+      }{% else %}null{% endif %},
+      expired: {% if expired %}true{% else %}false{% endif %}
+    })'
+    class="flex h-[calc(100vh-8rem)] flex-col">
+
+    {% if expired %}
+      <div class="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+        {% trans "This conversation's state has expired. Start a new chat to continue." %}
+      </div>
+    {% endif %}
+
+    <div x-ref="transcript" class="flex-1 space-y-3 overflow-y-auto pb-4"
+         :class="{ 'flex items-center justify-center': !thread && messages.length === 0 }">
+      <template x-if="!thread && messages.length === 0">
+        <div class="max-w-md text-center">
+          <h2 class="text-xl font-semibold text-white">{% trans "What do you want to explore?" %}</h2>
+          <p class="mt-2 text-sm text-gray-400">{% trans "Pick a repository and branch below, then ask anything." %}</p>
+        </div>
+      </template>
+      <template x-for="m in messages" :key="m.id">
+        <div x-html="renderMessage(m)"></div>
+      </template>
+    </div>
+
+    {% if not expired %}
+      {% include "chat/_composer.html" %}
+    {% endif %}
+
+    <template id="message-template">
+      {% include "chat/_message.html" with message="__MESSAGE__" %}
+    </template>
+  </div>
+
+  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
 {% endblock %}

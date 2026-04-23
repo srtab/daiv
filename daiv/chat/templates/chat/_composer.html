@@ -1,0 +1,52 @@
+{% load i18n %}
+<form @submit.prevent="submit()"
+      class="composer mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors focus-within:border-white/[0.18]"
+      :class="{ 'composer--sending opacity-60': streaming }">
+
+  <div class="composer__chips mb-2 flex flex-wrap gap-1.5 text-[13px]">
+    <template x-if="thread">
+      <span class="chip inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-gray-300">
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+        </svg>
+        <span x-text="thread.repo_id"></span>
+        <span class="text-gray-500">·</span>
+        <span class="text-blue-300" x-text="thread.ref"></span>
+      </span>
+    </template>
+
+    <template x-if="!thread">
+      <span class="inline-flex items-center gap-2">
+        <input type="text"
+               x-model="draftRepoId"
+               placeholder="{% trans 'owner/repo' %}"
+               class="chip-input h-7 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-white placeholder-gray-500">
+        <input type="text"
+               x-model="draftRef"
+               placeholder="main"
+               class="chip-input h-7 w-24 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-blue-300 placeholder-gray-500">
+      </span>
+    </template>
+  </div>
+
+  <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>
+  <textarea id="chat_prompt"
+            x-ref="prompt"
+            x-model="draftMessage"
+            @keydown.meta.enter.prevent="submit()"
+            @keydown.ctrl.enter.prevent="submit()"
+            rows="3"
+            :disabled="streaming"
+            placeholder="{% trans 'Ask about the repository…' %}"
+            class="composer__textarea block w-full resize-none !border-0 !bg-transparent px-2 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0"></textarea>
+
+  <div class="composer__actions mt-2 flex items-center justify-end gap-2">
+    <button type="button"
+            x-show="streaming"
+            @click="stop()"
+            class="btn-secondary">{% trans "Stop" %}</button>
+    <button type="submit"
+            :disabled="streaming || !canSend()"
+            class="btn-primary">{% trans "Send" %}</button>
+  </div>
+</form>
