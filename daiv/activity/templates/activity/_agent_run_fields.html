@@ -8,7 +8,7 @@
 {% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
 
 <div x-data='promptBox({
-        initialRepos: {{ form.repos_json.value|default:"[]" }},
+        initialRepos: {{ form.repos.value|default:"[]" }},
         initialUseMax: {% if form.use_max.value %}true{% else %}false{% endif %},
         maxRepos: 20,
         repoPickerUrl: "{{ repo_picker_url|escapejs }}",
@@ -170,21 +170,21 @@
         <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
     </div>
 
-    <input type="hidden" name="repos_json"
-           value="{{ form.repos_json.value|default:'[]' }}"
+    <input type="hidden" name="repos"
+           value="{{ form.repos.value|default:'[]' }}"
            :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
 
     {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"
-           value="{% if form.repos_json.value and form.repos_json.value != '[]' %}ok{% endif %}"
+           value="{% if form.repos.value and form.repos.value != '[]' %}ok{% endif %}"
            :value="repos.length > 0 ? 'ok' : ''">
 
-    <ul {% if not form.prompt.errors and not form.repos_json.errors %}x-show="conflictMessage" x-cloak{% endif %}
+    <ul {% if not form.prompt.errors and not form.repos.errors %}x-show="conflictMessage" x-cloak{% endif %}
         class="border-t border-white/[0.05] px-4 py-2.5 text-sm text-red-400">
         {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
-        {% for err in form.repos_json.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.repos.errors %}<li>{{ err }}</li>{% endfor %}
         <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
     </ul>
 </div>

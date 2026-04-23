@@ -24,12 +24,11 @@ def _input_tag(html, name):
     return match.group(0)
 
 
-def test_renders_single_hidden_repos_json_input():
-    form = AgentRunCreateForm(initial={"prompt": "p", "repos_json": '[{"repo_id": "acme/api", "ref": "main"}]'})
+def test_renders_single_hidden_repos_input():
+    form = AgentRunCreateForm(initial={"prompt": "p", "repos": [{"repo_id": "acme/api", "ref": "main"}]})
     html = _render(form)
-    tag = _input_tag(html, "repos_json")
+    tag = _input_tag(html, "repos")
     assert "acme/api" in tag
-    # The pre-refactor scalar inputs must not be present.
     assert re.search(r'<input[^>]*\bname="repo_id"', html) is None
     assert re.search(r'<input[^>]*\bname="ref"', html) is None
 
@@ -64,7 +63,7 @@ def test_renders_use_max_checkbox_unchecked_when_not_set():
 
 
 def test_required_guard_has_value_when_repos_present():
-    form = AgentRunCreateForm(initial={"prompt": "p", "repos_json": '[{"repo_id": "x/y", "ref": ""}]'})
+    form = AgentRunCreateForm(initial={"prompt": "p", "repos": [{"repo_id": "x/y", "ref": ""}]})
     html = _render(form)
     assert 'value="ok"' in _input_tag(html, "__repo_required_guard")
 
@@ -75,8 +74,15 @@ def test_required_guard_empty_when_no_repos():
     assert 'value="ok"' not in _input_tag(html, "__repo_required_guard")
 
 
+def test_empty_repos_renders_as_json_array_not_null():
+    # Alpine parses the hidden input value as JSON to seed initialRepos; "null" would break boot.
+    form = AgentRunCreateForm(initial={"prompt": "p"})
+    html = _render(form)
+    assert 'value="[]"' in _input_tag(html, "repos")
+
+
 def test_renders_combined_error_list_below_box():
-    form = AgentRunCreateForm(data={"prompt": "", "repos_json": ""})
+    form = AgentRunCreateForm(data={"prompt": "", "repos": ""})
     form.is_valid()
     html = _render(form)
     assert re.search(r"<ul[^>]*text-red-400", html)
@@ -91,18 +97,15 @@ def test_empty_state_shows_choose_repository_button():
 
 
 def test_repo_picker_popover_uses_picker_url():
-    """The repo popover's search input uses the picker-repositories URL, not the old JSON endpoint."""
     form = AgentRunCreateForm(initial={"prompt": "p"})
     html = _render(form)
     assert reverse("codebase:picker-repositories") in html
-    # The old _repo_combobox.html partial must no longer be included.
     assert "x-combobox" not in html
 
 
 def test_branch_picker_template_references_branches_url_prefix():
     """The branch popover builds its hx-get URL in Alpine; the literal URL prefix must appear in the template."""
-    form = AgentRunCreateForm(initial={"prompt": "p", "repos_json": '[{"repo_id": "acme/api", "ref": "main"}]'})
+    form = AgentRunCreateForm(initial={"prompt": "p", "repos": [{"repo_id": "acme/api", "ref": "main"}]})
     html = _render(form)
-    # The branch popover concatenates the slug at runtime; only the literal prefix is server-rendered.
     assert "/codebase/pickers/repositories/" in html
     assert "/branches/" in html

@@ -81,7 +81,7 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.object.user
         initial = kwargs.setdefault("initial", {})
-        initial["repos_json"] = json.dumps(self.object.repos)
+        initial["repos"] = self.object.repos
         return kwargs
 
     def get_context_data(self, **kwargs):

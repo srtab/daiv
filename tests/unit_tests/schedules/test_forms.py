@@ -11,7 +11,7 @@ def _valid_data(**overrides):
     data = {
         "name": "s",
         "prompt": "p",
-        "repos_json": json.dumps([{"repo_id": "x/y", "ref": ""}]),
+        "repos": json.dumps([{"repo_id": "x/y", "ref": ""}]),
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
@@ -31,7 +31,7 @@ class TestScheduledJobCreateForm:
 
     def test_valid_multi_repo(self, member_user):
         form = ScheduledJobCreateForm(
-            data=_valid_data(repos_json=json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])),
+            data=_valid_data(repos=json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])),
             owner=member_user,
         )
         assert form.is_valid(), form.errors
@@ -42,7 +42,7 @@ class TestScheduledJobCreateForm:
 
     def test_save_persists_repos(self, member_user):
         form = ScheduledJobCreateForm(
-            data=_valid_data(repos_json=json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])),
+            data=_valid_data(repos=json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])),
             owner=member_user,
         )
         assert form.is_valid(), form.errors
@@ -54,9 +54,9 @@ class TestScheduledJobCreateForm:
         assert job.repos == [{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}]
 
     def test_rejects_empty_repos(self, member_user):
-        form = ScheduledJobCreateForm(data=_valid_data(repos_json="[]"), owner=member_user)
+        form = ScheduledJobCreateForm(data=_valid_data(repos="[]"), owner=member_user)
         assert not form.is_valid()
-        assert "repos_json" in form.errors
+        assert "repos" in form.errors
 
 
 @pytest.mark.django_db

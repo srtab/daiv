@@ -1,5 +1,4 @@
 from django import forms
-from django.core.exceptions import ValidationError
 
 from activity.forms import AgentRunFieldsMixin
 
@@ -12,7 +11,17 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
 
     class Meta:
         model = ScheduledJob
-        fields = ["name", "prompt", "frequency", "cron_expression", "time", "use_max", "notify_on", "subscribers"]
+        fields = [
+            "name",
+            "prompt",
+            "repos",
+            "frequency",
+            "cron_expression",
+            "time",
+            "use_max",
+            "notify_on",
+            "subscribers",
+        ]
         widgets = {"subscribers": forms.SelectMultiple(attrs={"class": "hidden"})}
 
     def __init__(self, *args, owner=None, **kwargs):
@@ -36,22 +45,6 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         return self._clean_conditional_fields(cleaned_data)
-
-    def _post_clean(self):
-        # Mirror parsed repos onto the instance so ScheduledJob.clean() sees them.
-        repos = self.cleaned_data.get("repos")
-        if repos is not None and self.instance is not None:
-            self.instance.repos = repos
-        super()._post_clean()
-
-    def _update_errors(self, errors):
-        # ScheduledJob.clean() keys repo errors to "repos"; remap to the form field "repos_json".
-        if hasattr(errors, "error_dict") and "repos" in errors.error_dict:
-            remapped = {
-                ("repos_json" if field == "repos" else field): errs for field, errs in errors.error_dict.items()
-            }
-            errors = ValidationError(remapped)
-        super()._update_errors(errors)
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)

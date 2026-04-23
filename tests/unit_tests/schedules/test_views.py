@@ -211,7 +211,7 @@ class TestScheduleCreateViewSubscribers:
         payload = {
             "name": "Daily",
             "prompt": "p",
-            "repos_json": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
+            "repos": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
@@ -231,7 +231,7 @@ class TestScheduleCreateViewSubscribers:
         payload = {
             "name": "Daily",
             "prompt": "p",
-            "repos_json": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
+            "repos": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
@@ -267,7 +267,7 @@ class TestScheduleUpdateViewSubscribers:
         payload = {
             "name": schedule.name,
             "prompt": schedule.prompt,
-            "repos_json": _json.dumps(schedule.repos),
+            "repos": _json.dumps(schedule.repos),
             "frequency": schedule.frequency,
             "cron_expression": "",
             "time": "09:00",

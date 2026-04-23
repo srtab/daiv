@@ -54,7 +54,7 @@ async def _amake_task_result(task_id: uuid.UUID) -> mock.Mock:
 def _single_repo_post_data(repo_id="acme/repo", ref=""):
     return {
         "prompt": "go",
-        "repos_json": json.dumps([{"repo_id": repo_id, "ref": ref}]),
+        "repos": json.dumps([{"repo_id": repo_id, "ref": ref}]),
         "use_max": "on",
         "notify_on": "never",
     }
@@ -83,7 +83,7 @@ def test_get_retry_prefills_fields(member_client, member_user):
     assert resp.context["form"].initial == {
         "notify_on": member_user.notify_on_jobs,
         "prompt": "P",
-        "repos_json": json.dumps([{"repo_id": "a/b", "ref": "develop"}]),
+        "repos": [{"repo_id": "a/b", "ref": "develop"}],
         "use_max": True,
     }
     assert resp.context["source_activity"].pk == source.pk
@@ -143,7 +143,7 @@ def test_post_multi_repo_redirects_to_filtered_activity_list(member_client):
             reverse("runs:agent_run_new"),
             data={
                 "prompt": "go",
-                "repos_json": json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "main"}]),
+                "repos": json.dumps([{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "main"}]),
                 "notify_on": "never",
             },
         )

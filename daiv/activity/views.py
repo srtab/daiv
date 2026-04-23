@@ -270,7 +270,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if source is not None:
             initial.update({
                 "prompt": source.prompt,
-                "repos_json": json.dumps([{"repo_id": source.repo_id, "ref": source.ref}]),
+                "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
                 "use_max": source.use_max,
             })
         return initial
