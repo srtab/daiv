@@ -129,3 +129,20 @@ class TestActivityFilter:
         assert match in qs
         assert wrong_status not in qs
         assert wrong_repo not in qs
+
+    def test_batch_filter_matches_by_batch_id(self, user):
+        import uuid as _uuid
+
+        b = _uuid.uuid4()
+        match = _create(batch_id=b)
+        other = _create(batch_id=_uuid.uuid4())
+        qs = ActivityFilter({"batch": str(b)}, queryset=Activity.objects.all()).qs
+        assert match in qs
+        assert other not in qs
+
+    def test_batch_filter_invalid_uuid_is_ignored(self, user):
+        a = _create()
+        f = ActivityFilter({"batch": "not-a-uuid"}, queryset=Activity.objects.all())
+        assert not f.form.is_valid()
+        # Invalid value is dropped → no filter applied.
+        assert a in f.qs
