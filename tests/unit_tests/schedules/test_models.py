@@ -1,7 +1,7 @@
 import pytest
 from notifications.choices import NotifyOn
 
-from schedules.models import ScheduledJob
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.mark.django_db
@@ -50,3 +50,28 @@ class TestScheduledJobSubscribers:
         job = self._make(member_user)
         job.subscribers.add(admin_user)
         assert list(admin_user.subscribed_schedules.all()) == [job]
+
+
+@pytest.mark.django_db
+class TestScheduledJobRepos:
+    def _make(self, user, **overrides):
+        defaults = {
+            "user": user,
+            "name": "s",
+            "prompt": "p",
+            "repo_id": "x/y",
+            "ref": "main",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
+        }
+        defaults.update(overrides)
+        return ScheduledJob.objects.create(**defaults)
+
+    def test_repos_field_accepts_list_of_dicts(self, member_user):
+        s = self._make(member_user, repos=[{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}])
+        s.refresh_from_db()
+        assert s.repos == [{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}]
+
+    def test_last_run_batch_id_defaults_to_none(self, member_user):
+        s = self._make(member_user)
+        assert s.last_run_batch_id is None

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
@@ -210,3 +211,26 @@ class TestSyncFromTaskResultUsage:
         assert activity.input_tokens == 3000
         assert activity.cost_usd is None
         assert "cost_usd" not in changed
+
+
+@pytest.mark.django_db
+class TestActivityBatchId:
+    def test_batch_id_persisted(self, member_user):
+        batch = uuid.uuid4()
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=batch
+        )
+        activity.refresh_from_db()
+        assert activity.batch_id == batch
+
+    def test_batch_id_defaults_to_null(self, member_user):
+        activity = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user)
+        assert activity.batch_id is None
+
+    def test_by_batch_returns_only_matching(self, member_user):
+        b1, b2 = uuid.uuid4(), uuid.uuid4()
+        a = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=b1)
+        other = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=b2)
+        qs = Activity.objects.by_batch(b1)
+        assert a in qs
+        assert other not in qs
