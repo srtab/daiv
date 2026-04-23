@@ -506,7 +506,7 @@ requires-dist = [
     { name = "deepagents", specifier = "==0.5.1" },
     { name = "django", specifier = "==6.0.4" },
     { name = "django-allauth", extras = ["socialaccount"], specifier = "==65.16.1" },
-    { name = "django-crontask", specifier = "==1.1.3" },
+    { name = "django-crontask", specifier = "==1.2.0" },
     { name = "django-extensions", specifier = "==4.1.0" },
     { name = "django-filter", specifier = "==25.2" },
     { name = "django-ninja", specifier = "==1.6.2" },
@@ -707,15 +707,15 @@ socialaccount = [
 
 [[package]]
 name = "django-crontask"
-version = "1.1.3"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apscheduler" },
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4b/0d/5cfa032e3fa03d4c17eb070735c26128866b522f869ed6e1fda880caff7e/django_crontask-1.1.3.tar.gz", hash = "sha256:0ac69ee9cf52d196112e54e92e19995ba2962c8f45a4c90b821b110facb4b043", size = 8583, upload-time = "2026-01-16T13:25:37.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/fd/98d8ddacb4c5c7cb48d0a479261abb74d1f5da7d455ae438ce9d5a52206f/django_crontask-1.2.0.tar.gz", hash = "sha256:49378661b8b8cd3b7d756585fd9203c23ceeb37e3489f38b30e4933867f24658", size = 9606, upload-time = "2026-04-23T10:17:39.713Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/ea/e04f5959ad46c8fecac0012c23c90237d27d7406986872d0b9379259e0c9/django_crontask-1.1.3-py3-none-any.whl", hash = "sha256:60fc5eceaa159509372de7c82d07ae4540e1ff78ef4a482c6b87198760bfe468", size = 8948, upload-time = "2026-01-16T13:25:36.496Z" },
+    { url = "https://files.pythonhosted.org/packages/67/70/3fe937ca481eae1adc2dd8a40dba38429245bad20ff82950167f8f59b323/django_crontask-1.2.0-py3-none-any.whl", hash = "sha256:a0660554d17220239a096f2858f95ca2c2e6ae31b4f919a7a2237917d76f34b7", size = 10185, upload-time = "2026-04-23T10:17:38.205Z" },
 ]
 
 [[package]]
