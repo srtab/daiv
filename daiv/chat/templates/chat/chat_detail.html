@@ -1,0 +1,7 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block app_content %}
+{% if expired %}<p>{% trans "Expired." %}</p>{% endif %}
+{{ messages_history|json_script:"chat-initial-messages" }}
+{% endblock %}

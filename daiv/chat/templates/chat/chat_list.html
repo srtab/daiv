@@ -1,0 +1,11 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block app_content %}
+<h1>{% trans "Chat" %}</h1>
+<ul>
+  {% for t in threads %}
+    <li><a href="{% url 'chat_detail' thread_id=t.thread_id %}">{{ t.title|default:t.thread_id }}</a></li>
+  {% endfor %}
+</ul>
+{% endblock %}
