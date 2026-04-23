@@ -12,7 +12,11 @@
         <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
             {% include "accounts/_avatar.html" with user=schedule.user group=schedule.subscribers.all label="Owner" %}
             <span>&middot;</span>
-            <span>{{ schedule.repo_id }}</span>
+            {% if schedule.repos|length == 1 %}
+            <span>{{ schedule.repos.0.repo_id }}</span>
+            {% else %}
+            <span title="{% for r in schedule.repos %}{{ r.repo_id }}{% if not forloop.last %}, {% endif %}{% endfor %}">{{ schedule.repos|length }} repositories</span>
+            {% endif %}
             {% if schedule.next_run_at %}
             <span>&middot;</span>
             <span>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</span>
