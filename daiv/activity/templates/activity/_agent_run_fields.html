@@ -6,14 +6,13 @@
 {% trans "Search branches..." as search_branches_placeholder %}
 {% trans "default" as default_branch_label %}
 
-<div x-data="promptBox({
-        initialSlug: '{{ form.repo_id.value|default:''|escapejs }}',
-        initialRef: '{{ form.ref.value|default:''|escapejs }}',
+<div x-data='promptBox({
+        initialRepos: {{ form.repos_json.value|default:"[]" }},
         initialUseMax: {% if form.use_max.value %}true{% else %}false{% endif %},
-        maxRepos: 1,
-        repoPickerUrl: '{{ repo_picker_url|escapejs }}',
-        branchPickerTemplate: '{{ branch_picker_template|escapejs }}'
-     })"
+        maxRepos: 20,
+        repoPickerUrl: "{{ repo_picker_url|escapejs }}",
+        branchPickerTemplate: "{{ branch_picker_template|escapejs }}"
+     })'
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
     <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
@@ -157,25 +156,21 @@
         <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
     </div>
 
-    <input type="hidden" name="repo_id"
-           value="{{ form.repo_id.value|default:'' }}"
-           :value="repos[0]?.slug || ''">
-    <input type="hidden" name="ref"
-           value="{{ form.ref.value|default:'' }}"
-           :value="repos[0]?.ref || ''">
+    <input type="hidden" name="repos_json"
+           value="{{ form.repos_json.value|default:'[]' }}"
+           :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
 
     {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"
-           value="{% if form.repo_id.value %}ok{% endif %}"
+           value="{% if form.repos_json.value and form.repos_json.value != '[]' %}ok{% endif %}"
            :value="repos.length > 0 ? 'ok' : ''">
 </div>
 
-{% if form.prompt.errors or form.repo_id.errors or form.ref.errors %}
+{% if form.prompt.errors or form.repos_json.errors %}
 <ul class="mt-2 space-y-1 text-sm text-red-400">
     {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
-    {% for err in form.repo_id.errors %}<li>{{ err }}</li>{% endfor %}
-    {% for err in form.ref.errors %}<li>{{ err }}</li>{% endfor %}
+    {% for err in form.repos_json.errors %}<li>{{ err }}</li>{% endfor %}
 </ul>
 {% endif %}

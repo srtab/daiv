@@ -9,14 +9,13 @@
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("promptBox", ({
-        initialSlug = "",
-        initialRef = "",
+        initialRepos = [],
         initialUseMax = false,
         maxRepos = 1,
         repoPickerUrl = "",
         branchPickerTemplate = "",
     }) => ({
-        repos: initialSlug ? [{ slug: initialSlug, ref: initialRef || "" }] : [],
+        repos: (initialRepos || []).map(r => ({ slug: r.repo_id, ref: r.ref || "" })),
         useMax: initialUseMax,
         maxRepos,
         repoPickerUrl,

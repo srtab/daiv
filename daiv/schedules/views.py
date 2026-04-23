@@ -14,8 +14,6 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from activity.models import TriggerType
-from activity.services import create_activity
-from jobs.tasks import run_job_task
 
 from accounts.mixins import BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm
@@ -82,6 +80,8 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.object.user
+        initial = kwargs.setdefault("initial", {})
+        initial["repos_json"] = json.dumps(self.object.repos)
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -133,35 +133,35 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
+        from activity.services import RepoTarget, submit_batch_runs
+
         schedule = get_object_or_404(self.get_queryset(), pk=pk)
+        repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
         try:
-            ref = schedule.ref or None
-            result = run_job_task.enqueue(
-                repo_id=schedule.repo_id, prompt=schedule.prompt, ref=ref, use_max=schedule.use_max
+            result = submit_batch_runs(
+                user=request.user,
+                prompt=schedule.prompt,
+                repos=repos,
+                use_max=schedule.use_max,
+                notify_on=None,
+                trigger_type=TriggerType.SCHEDULE,
+                scheduled_job=schedule,
             )
         except Exception:
             logger.exception("Failed to enqueue run-now for schedule pk=%d (%s)", schedule.pk, schedule.name)
             messages.error(request, f"Failed to trigger schedule '{schedule.name}'. Please try again.")
             return redirect("schedule_list")
 
-        activity = None
-        try:
-            activity = create_activity(
-                trigger_type=TriggerType.SCHEDULE,
-                task_result_id=result.id,
-                repo_id=schedule.repo_id,
-                ref=ref or "",
-                prompt=schedule.prompt,
-                use_max=schedule.use_max,
-                scheduled_job=schedule,
-                user=request.user,
-            )
-        except Exception:
-            logger.exception("Failed to create activity for run-now schedule pk=%d (%s)", schedule.pk, schedule.name)
+        if result.failed:
+            failed_ids = ", ".join(f.repo_id for f in result.failed)
+            messages.warning(request, f"Schedule '{schedule.name}' triggered with failures: {failed_ids}.")
+        else:
+            messages.success(request, f"Schedule '{schedule.name}' triggered successfully.")
 
-        messages.success(request, f"Schedule '{schedule.name}' triggered successfully.")
-        if activity is not None:
-            return redirect("activity_detail", pk=activity.pk)
+        if len(result.activities) == 1 and not result.failed:
+            return redirect("activity_detail", pk=result.activities[0].pk)
+        if result.activities:
+            return redirect(reverse("activity_list") + f"?batch={result.batch_id}")
         return redirect("schedule_list")
 
 
