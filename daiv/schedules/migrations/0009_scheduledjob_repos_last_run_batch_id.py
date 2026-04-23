@@ -14,7 +14,9 @@ def backfill_repos_and_batch_id(apps, schema_editor):
 
 
 def _noop_reverse(apps, schema_editor):
-    """No-op reverse: old scalar columns remain populated, so the forward state is lossless."""
+    """No-op reverse. Safe only before migration 0010 drops the scalar columns; after 0010
+    reverse cannot reconstruct ``repo_id`` / ``ref`` / ``last_run_task_id`` from ``repos``.
+    """
     return
 
 

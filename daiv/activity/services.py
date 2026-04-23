@@ -167,9 +167,9 @@ async def asubmit_batch_runs(
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
 
-    Best-effort: per-repo enqueue failures land in ``result.failed``; post-enqueue
-    activity-creation failures are logged and leave the job orphaned (matches the
-    prior single-repo pathway).
+    Best-effort: any per-repo exception (enqueue failure or post-enqueue activity-creation
+    failure) lands in ``result.failed`` while siblings continue. Callers can use this to
+    distinguish "submitted" from "orphaned" and recover accordingly.
     """
     _validate(repos)
     batch_id = uuid.uuid4()
@@ -204,17 +204,19 @@ async def asubmit_batch_runs(
             )
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 
-    outcomes = await asyncio.gather(*[_submit_one(t) for t in repos])
+    # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
+    # whole batch; _submit_one already catches Exception itself.
+    outcomes = await asyncio.gather(*[_submit_one(t) for t in repos], return_exceptions=True)
 
     activities: list[Activity] = []
     failed: list[BatchSubmitFailure] = []
-    for outcome in outcomes:
-        if isinstance(outcome, BatchSubmitFailure):
-            # Orphan activity-creation failures come back as failures too, but the original
-            # code path left them out of ``failed``. Preserve that: only enqueue failures are
-            # surfaced to callers; keep the orphan-job-runs behaviour transparent.
-            if outcome.error == "ActivityCreationFailed":
-                continue
+    for target, outcome in zip(repos, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            logger.error("submit_batch_runs: unexpected exception for repo_id=%s", target.repo_id, exc_info=outcome)
+            failed.append(
+                BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(outcome).__name__}: {outcome}")
+            )
+        elif isinstance(outcome, BatchSubmitFailure):
             failed.append(outcome)
         else:
             activities.append(outcome)

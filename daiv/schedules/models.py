@@ -37,7 +37,11 @@ class ScheduledJobManager(models.Manager["ScheduledJob"]):
 
 
 class ScheduledJob(TimeStampedModel):
-    """A user-defined schedule that runs the DAIV agent on a repository."""
+    """A user-defined schedule that runs the DAIV agent on 1-20 repositories.
+
+    Target repositories are stored in ``repos`` as ``[{"repo_id": str, "ref": str}, ...]``.
+    Each dispatch fans out into one agent run per entry, correlated by ``last_run_batch_id``.
+    """
 
     objects = ScheduledJobManager()
 

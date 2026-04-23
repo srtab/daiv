@@ -137,6 +137,47 @@ class TestSubmitBatchRunsSync:
         assert failure.repo_id == "o/b"
         assert "DB hiccup" in failure.error
 
+    def test_orphan_activity_creation_failure_surfaces_in_failed(self, member_user):
+        """When enqueue succeeds but acreate_activity raises, the failure is surfaced to the
+        caller (not silently dropped) so batch response pairing stays aligned.
+        """
+
+        async def _aenqueue(**kwargs):
+            return await _atask_result_row(uuid.uuid4())
+
+        class _Stub:
+            def __init__(self, task_result_id):
+                self.task_result_id = task_result_id
+
+        async def _flaky_create(**kwargs):
+            if kwargs["repo_id"] == "o/b":
+                raise RuntimeError("activity INSERT failed")
+            return _Stub(task_result_id=kwargs["task_result_id"])
+
+        with (
+            mock.patch("activity.services.run_job_task") as m_task,
+            mock.patch("activity.services.acreate_activity", side_effect=_flaky_create),
+        ):
+            m_task.aenqueue = _aenqueue
+            repos = [
+                RepoTarget(repo_id="o/a", ref=""),
+                RepoTarget(repo_id="o/b", ref=""),
+                RepoTarget(repo_id="o/c", ref=""),
+            ]
+            result = submit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=repos,
+                use_max=False,
+                notify_on=None,
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        assert len(result.activities) == 2
+        assert len(result.failed) == 1
+        assert result.failed[0].repo_id == "o/b"
+        assert "ActivityCreationFailed" in result.failed[0].error
+
     def test_activity_persists_scheduled_job_link(self, member_user):
         from schedules.models import Frequency, ScheduledJob
 
