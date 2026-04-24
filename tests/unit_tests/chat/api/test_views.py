@@ -1,9 +1,11 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey, User
+from chat.api.views import _extract_first_user_message
 from chat.models import ChatThread
 from daiv.api import api
 
@@ -51,6 +53,29 @@ def _mock_stream(*_args, **_kwargs):
     ctx.__aenter__ = AsyncMock(return_value=MagicMock())
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
+
+
+def _fake_input(messages):
+    return SimpleNamespace(messages=[SimpleNamespace(content=c) for c in messages])
+
+
+def test_extract_first_user_message_empty_returns_empty_string():
+    assert _extract_first_user_message(_fake_input([])) == ""
+
+
+def test_extract_first_user_message_skips_non_string_content():
+    # AG-UI supports list-of-blocks content for multimodal messages; they shouldn't be used
+    # as a title. We fall through to the next string-typed message.
+    payload = _fake_input([[{"type": "text", "text": "hi"}], "fallback title"])
+    assert _extract_first_user_message(payload) == "fallback title"
+
+
+def test_extract_first_user_message_skips_whitespace_only():
+    assert _extract_first_user_message(_fake_input(["   \n\t", "actual content"])) == "actual content"
+
+
+def test_extract_first_user_message_returns_first_non_empty_string():
+    assert _extract_first_user_message(_fake_input(["first", "second"])) == "first"
 
 
 @pytest.mark.django_db
@@ -123,6 +148,44 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
     assert created.user_id == user.id
     assert created.repo_id == "a/b"
     assert created.ref == "main"
+    # The finally block in event_generator clears the run slot after the stream completes.
+    assert created.active_run_id == ""
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await ChatThread.objects.acreate(thread_id="t-boom", user=user, repo_id="a/b", ref="main")
+
+    with (
+        patch("chat.api.views.open_checkpointer", _mock_stream),
+        patch("chat.api.views.set_runtime_ctx", _mock_stream),
+        patch("chat.api.views.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.views.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
+    ):
+        m_instance = MagicMock()
+
+        async def _boom(_input):
+            if False:
+                yield
+            raise RuntimeError("kaboom")
+
+        m_instance.run = _boom
+        m_agent_cls.return_value = m_instance
+
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-boom"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert "RUN_ERROR" in body
+    assert "kaboom" in body
+    refreshed = await ChatThread.objects.aget(thread_id="t-boom")
+    assert refreshed.active_run_id == ""
     await user.adelete()
 
 

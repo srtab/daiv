@@ -2,8 +2,10 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
+from django.utils import timezone
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
+from ag_ui.core.events import EventType, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
@@ -57,6 +59,10 @@ def _extract_first_user_message(input_data: RunAgentInput) -> str:
     return next((c for m in input_data.messages if isinstance(c := getattr(m, "content", ""), str) and c.strip()), "")
 
 
+async def _release_thread(thread_id: str) -> None:
+    await ChatThread.objects.filter(thread_id=thread_id).aupdate(active_run_id="", last_active_at=timezone.now())
+
+
 @chat_router.post(
     "/completions",
     response=dict,
@@ -68,31 +74,34 @@ def _extract_first_user_message(input_data: RunAgentInput) -> str:
     },
 )
 async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput):
-    """Handle one AG-UI run. Implicit-creates the ChatThread on first sight for the
-    authenticated caller, enforces ownership thereafter, and rejects concurrent runs on
-    the same thread.
+    """AG-UI streaming endpoint. First sight of a ``thread_id`` creates its ``ChatThread``
+    under the authenticated caller; subsequent requests must own it. Uses a conditional
+    ``UPDATE`` on ``active_run_id`` to atomically claim the per-thread run slot — races
+    between parallel tabs resolve to a single winner and a 409 for the loser.
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
     if not repo_id or not ref:
         raise Http404("Repository ID or reference not found")
 
-    user = request.auth  # ty: ignore[unresolved-attribute]  # attached by django-ninja
+    user = request.auth  # ty: ignore[unresolved-attribute]  # populated by AuthBearer/django_auth
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
-    thread, created = await ChatThread.objects.aget_or_create(
+    thread, _created = await ChatThread.objects.aget_or_create(
         thread_id=thread_id,
         defaults={"user": user, "repo_id": repo_id, "ref": ref, "title": _extract_first_user_message(input_data)[:120]},
     )
-    if not created:
-        if thread.user_id != user.id:
-            raise HttpError(403, "Thread not found")
-        if thread.active_run_id:
-            raise HttpError(409, "A run is already in progress for this thread")
+    if thread.user_id != user.id:
+        raise HttpError(403, "Thread not found")
 
-    thread.active_run_id = run_id
-    await thread.asave(update_fields=["active_run_id", "last_active_at"])
+    # Atomic claim: only succeeds if the slot is currently free. Avoids TOCTOU between a
+    # "is it free?" read and a "claim it" write when two tabs fire simultaneously.
+    claimed = await ChatThread.objects.filter(thread_id=thread_id, active_run_id="").aupdate(
+        active_run_id=run_id, last_active_at=timezone.now()
+    )
+    if not claimed:
+        raise HttpError(409, "A run is already in progress for this thread")
 
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
@@ -118,8 +127,12 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
                 )
                 async for event in langgraph_agent.run(input_data):
                     yield encoder.encode(cast("BaseEvent", event))
+        except Exception as exc:
+            logger.exception("Chat run failed for thread_id=%s run_id=%s", thread_id, run_id)
+            yield encoder.encode(
+                RunErrorEvent(type=EventType.RUN_ERROR, message=f"{type(exc).__name__}: {exc}", code="run_failed")
+            )
         finally:
-            thread.active_run_id = ""
-            await thread.asave(update_fields=["active_run_id", "last_active_at"])
+            await _release_thread(thread_id)
 
     return StreamingHttpResponse(event_generator(), content_type=encoder.get_content_type())

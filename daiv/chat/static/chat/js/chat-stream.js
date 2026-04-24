@@ -50,9 +50,28 @@
     if (!el) return [];
     try {
       return JSON.parse(el.textContent);
-    } catch {
+    } catch (err) {
+      console.error("chat: failed to parse server-embedded transcript", err);
       return [];
     }
+  };
+
+  const HTTP_ERROR_MESSAGES = {
+    403: "You don't have access to this conversation.",
+    404: "Conversation not found.",
+    409: "Another run is already in progress for this thread. Wait for it to finish, or try again.",
+  };
+
+  const formatHttpError = async (resp) => {
+    const friendly = HTTP_ERROR_MESSAGES[resp.status];
+    if (friendly) return friendly;
+    try {
+      const data = await resp.clone().json();
+      if (data?.detail) return data.detail;
+    } catch {
+      /* fall through to status-only message */
+    }
+    return `Request failed (status ${resp.status}). Please retry.`;
   };
 
   const chat = (config) => ({
@@ -121,15 +140,15 @@
         });
 
         if (!resp.ok) {
-          const text = await resp.text();
-          assistantMsg.error = `${resp.status}: ${text}`;
+          assistantMsg.error = await formatHttpError(resp);
           return;
         }
 
         await this.consume(resp.body, assistantMsg);
       } catch (err) {
         if (err.name !== "AbortError") {
-          assistantMsg.error = err.message;
+          console.error("chat: stream failed", err);
+          assistantMsg.error = "Connection lost — please retry.";
         }
       } finally {
         this.streaming = false;
@@ -158,8 +177,8 @@
           let evt;
           try {
             evt = JSON.parse(line.slice(5).trim());
-          } catch {
-            console.warn("chat: bad SSE frame", line);
+          } catch (err) {
+            console.error("chat: malformed SSE frame, skipping", line, err);
             continue;
           }
           this.dispatch(evt, assistantMsg);
