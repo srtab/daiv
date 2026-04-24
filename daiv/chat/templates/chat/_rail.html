@@ -1,0 +1,53 @@
+{% load i18n %}
+<aside class="chat-rail" aria-label="{% trans 'Session context' %}">
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">{% trans "Repo" %}</div>
+    <div class="chat-rail__repo" x-text="thread ? thread.repo_id : '—'"></div>
+    <div class="chat-rail__repo" x-show="thread">
+      <span class="chat-rail__repo-ref" x-text="thread ? thread.ref : ''"></span>
+    </div>
+  </div>
+
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">{% trans "Run status" %}</div>
+    <div class="chat-rail__status" :class="`chat-rail__status--${runStatus.tone}`">
+      <span class="chat-rail__status-dot"></span>
+      <span x-text="runStatus.label"></span>
+    </div>
+  </div>
+
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">
+      {% trans "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+    </div>
+    <template x-if="!latestTodos.length">
+      <div style="color: #64748b;">—</div>
+    </template>
+    <template x-for="t in latestTodos" :key="t.content">
+      <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+        <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+        <span x-text="t.content"></span>
+      </div>
+    </template>
+  </div>
+
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">{% trans "Files touched" %}</div>
+    <template x-if="!filesTouched.length">
+      <div style="color: #64748b;">—</div>
+    </template>
+    <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
+      <button type="button" class="chat-rail__file"
+              :class="{ 'chat-rail__file--new': f.isNew }"
+              @click="jumpToTool(f.segmentId)"
+              :title="f.path"
+              x-text="f.path"></button>
+    </template>
+    <button type="button" class="chat-rail__file"
+            style="color: #64748b; padding-top: 6px;"
+            x-show="filesTouched.length > filesTouchedLimit"
+            @click="filesTouchedLimit = filesTouched.length">
+      {% trans "Show all" %} (<span x-text="filesTouched.length"></span>)
+    </button>
+  </div>
+</aside>
