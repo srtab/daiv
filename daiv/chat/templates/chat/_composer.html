@@ -1,30 +1,34 @@
 {% load i18n %}
 <form @submit.prevent="submit()"
-      class="composer mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors focus-within:border-white/[0.18]"
-      :class="{ 'composer--sending opacity-60': streaming }">
+      class="chat-composer"
+      :class="{ 'chat-composer--sending': streaming }">
 
-  <div class="composer__chips mb-2 flex flex-wrap gap-1.5 text-[13px]">
+  <button type="button"
+          class="chat-jump"
+          x-show="showJumpToLatest"
+          @click="scrollToBottom({force: true})"
+          x-transition.opacity>↓ {% trans "Jump to latest" %}</button>
+
+  <div class="chat-composer__meta">
     <template x-if="thread">
-      <span class="chip inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-gray-300">
+      <span class="chat-composer__chip">
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
         </svg>
         <span x-text="thread.repo_id"></span>
-        <span class="text-gray-500">·</span>
-        <span class="text-blue-300" x-text="thread.ref"></span>
+        <span class="chat-composer__chip-sep">/</span>
+        <span class="chat-composer__chip-ref" x-text="thread.ref"></span>
       </span>
     </template>
 
     <template x-if="!thread">
-      <span class="inline-flex items-center gap-2">
-        <input type="text"
-               x-model="draftRepoId"
+      <span class="chat-composer__chip-inputs">
+        <input type="text" x-model="draftRepoId"
                placeholder="{% trans 'owner/repo' %}"
-               class="chip-input h-7 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-white placeholder-gray-500">
-        <input type="text"
-               x-model="draftRef"
-               placeholder="main"
-               class="chip-input h-7 w-24 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-blue-300 placeholder-gray-500">
+               class="chat-composer__chip-input">
+        <span class="chat-composer__chip-sep">/</span>
+        <input type="text" x-model="draftRef" placeholder="main"
+               class="chat-composer__chip-input chat-composer__chip-input--ref">
       </span>
     </template>
   </div>
@@ -33,20 +37,30 @@
   <textarea id="chat_prompt"
             x-ref="prompt"
             x-model="draftMessage"
+            @input="autosize()"
             @keydown.meta.enter.prevent="submit()"
             @keydown.ctrl.enter.prevent="submit()"
-            rows="3"
+            rows="2"
             :disabled="streaming"
-            placeholder="{% trans 'Ask about the repository…' %}"
-            class="composer__textarea block w-full resize-none !border-0 !bg-transparent px-2 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0"></textarea>
+            placeholder="{% trans 'Describe the change, the bug, or what to explore…' %}"
+            class="chat-composer__textarea"></textarea>
 
-  <div class="composer__actions mt-2 flex items-center justify-end gap-2">
-    <button type="button"
-            x-show="streaming"
-            @click="stop()"
-            class="btn-secondary">{% trans "Stop" %}</button>
-    <button type="submit"
-            :disabled="streaming || !canSend()"
-            class="btn-primary">{% trans "Send" %}</button>
+  <div class="chat-composer__actions">
+    <div class="chat-composer__hint">
+      <kbd class="chat-composer__kbd">⌘</kbd>
+      <kbd class="chat-composer__kbd">↵</kbd>
+      <span>{% trans "to send" %}</span>
+    </div>
+    <div style="display: inline-flex; gap: 8px;">
+      <button type="button" x-show="streaming" @click="stop()"
+              class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
+      <button type="submit" :disabled="streaming || !canSend()"
+              class="chat-composer__btn chat-composer__btn--send">
+        <span x-text="streaming ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
+        <svg x-show="!streaming" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
+        </svg>
+      </button>
+    </div>
   </div>
 </form>
