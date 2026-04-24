@@ -1,4 +1,5 @@
 import logging
+from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
@@ -49,6 +50,17 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         stream_kwargs = super().get_stream_kwargs(*args, **kwargs)
         stream_kwargs.setdefault("context", self._runtime_context)
         return stream_kwargs
+
+    def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
+        # Upstream calls ``graph.config_schema().schema()`` which recurses into
+        # ``context_schema=RuntimeCtx``. RuntimeCtx holds a ``git.Repo`` field that pydantic
+        # cannot turn into JSON schema, so the call raises PydanticInvalidForJsonSchema.
+        # Derive context keys from the dataclass directly and keep the rest of the shape
+        # matching upstream's contract.
+        ctx_schema = getattr(self.graph, "context_schema", None)
+        context_keys = [f.name for f in fields(ctx_schema)] if is_dataclass(ctx_schema) else []
+        constant = list(self.constant_schema_keys)
+        return {"input": constant, "output": constant, "config": [], "context": context_keys}
 
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])

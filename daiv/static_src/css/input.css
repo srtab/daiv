@@ -543,24 +543,32 @@ a, button, [role="button"] {
     line-height: 1.65;
   }
 
+  .chat-turn--user {
+    grid-template-columns: 1fr 44px;
+  }
+
+  .chat-turn--user .chat-turn__gutter {
+    order: 2;
+  }
+
   .chat-turn--user .chat-turn__body {
+    order: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     white-space: pre-wrap;
     word-wrap: break-word;
+    text-align: right;
   }
 
   .chat-turn--user .chat-segment--text {
-    display: inline-block;
-    width: fit-content;
-    max-width: 100%;
+    max-width: min(100%, 70ch);
     padding: 8px 14px;
     background: rgba(255, 255, 255, 0.035);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 14px;
-    border-top-left-radius: 6px;
-  }
-
-  .chat-turn--user .chat-segment--text > .chat-text {
-    display: inline;
+    border-top-right-radius: 6px;
+    text-align: left;
   }
 
   .chat-segment + .chat-segment {
@@ -794,6 +802,36 @@ a, button, [role="button"] {
   .chat-thinking__dot {
     width: 6px;
     height: 6px;
+    border-radius: 999px;
+    background: #fbbf24;
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  /* Persistent run-status bar (shown while streaming, above composer) */
+
+  .chat-statusbar {
+    position: sticky;
+    bottom: calc(16px + 110px); /* sit above composer */
+    margin: 0 auto 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(20, 22, 40, 0.9);
+    border: 1px solid rgba(167, 139, 250, 0.25);
+    border-radius: 999px;
+    color: #c4b5fd;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    backdrop-filter: blur(8px);
+    width: fit-content;
+    z-index: 11;
+  }
+
+  .chat-statusbar__dot {
+    width: 8px;
+    height: 8px;
     border-radius: 999px;
     background: #fbbf24;
     box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);

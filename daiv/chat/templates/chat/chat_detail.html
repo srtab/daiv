@@ -2,25 +2,18 @@
 {% load static i18n %}
 
 {% block title %}{% if thread.title %}{{ thread.title }} — {% endif %}DAIV Chat{% endblock %}
-{% block container_width %}max-w-none{% endblock %}
+{% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block head_extra %}
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
-  <link rel="stylesheet"
-        href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css"
-        integrity="sha384-YhsltK5kXyJZJ8nvWE3RnExXgcgzMPRR3D+y9W9FJObKrPyP3I8wfcrZsS5NW7rA"
-        crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
 {% endblock %}
 
 {% block alpine_plugins %}
-  <script defer src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"
-          integrity="sha384-zCmAWe+U9pJ+aEMxuA6xZXjkgtXkHTVmU6n4B/R3M3gB+JE3bu1pKdYu+gYg3cIR"
-          crossorigin="anonymous"></script>
-  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
-          integrity="sha384-TZxa9m+aQXQxlp1Jr6+Uo9ryH2UHikpJvPtUWKLLyBuGtgdiUE6Lf2qIbAOhzfrB"
-          crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
   <script defer src="{% static 'chat/js/markdown.js' %}"></script>
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
@@ -95,7 +88,7 @@
                     </template>
                   </template>
                   <template x-if="seg.type === 'text' && turn.role === 'user'">
-                    <div class="chat-text" x-text="seg.content"></div>
+                    <span class="chat-text" x-text="seg.content"></span>
                   </template>
 
                   <template x-if="seg.type === 'tool_call'">
@@ -141,6 +134,11 @@
             </div>
           </article>
         </template>
+      </div>
+
+      <div class="chat-statusbar" x-show="streaming" x-transition.opacity>
+        <span class="chat-statusbar__dot"></span>
+        <span x-text="runStatus.label"></span>
       </div>
 
       {% if not expired %}

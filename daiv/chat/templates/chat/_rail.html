@@ -1,22 +1,6 @@
 {% load i18n %}
 <aside class="chat-rail" aria-label="{% trans 'Session context' %}">
   <div class="chat-rail__block">
-    <div class="chat-rail__label">{% trans "Repo" %}</div>
-    <div class="chat-rail__repo" x-text="thread ? thread.repo_id : '—'"></div>
-    <div class="chat-rail__repo" x-show="thread">
-      <span class="chat-rail__repo-ref" x-text="thread ? thread.ref : ''"></span>
-    </div>
-  </div>
-
-  <div class="chat-rail__block">
-    <div class="chat-rail__label">{% trans "Run status" %}</div>
-    <div class="chat-rail__status" :class="`chat-rail__status--${runStatus.tone}`">
-      <span class="chat-rail__status-dot"></span>
-      <span x-text="runStatus.label"></span>
-    </div>
-  </div>
-
-  <div class="chat-rail__block">
     <div class="chat-rail__label">
       {% trans "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
     </div>
