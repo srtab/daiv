@@ -1,47 +1,153 @@
 {% extends "base_app.html" %}
 {% load static i18n %}
 
-{% block container_width %}max-w-3xl{% endblock %}
+{% block title %}{% if thread.title %}{{ thread.title }} — {% endif %}DAIV Chat{% endblock %}
+{% block container_width %}max-w-none{% endblock %}
+
+{% block head_extra %}
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css"
+        integrity="sha384-YhsltK5kXyJZJ8nvWE3RnExXgcgzMPRR3D+y9W9FJObKrPyP3I8wfcrZsS5NW7rA"
+        crossorigin="anonymous">
+{% endblock %}
+
+{% block alpine_plugins %}
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"
+          integrity="sha384-zCmAWe+U9pJ+aEMxuA6xZXjkgtXkHTVmU6n4B/R3M3gB+JE3bu1pKdYu+gYg3cIR"
+          crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+          integrity="sha384-TZxa9m+aQXQxlp1Jr6+Uo9ryH2UHikpJvPtUWKLLyBuGtgdiUE6Lf2qIbAOhzfrB"
+          crossorigin="anonymous"></script>
+  <script defer src="{% static 'chat/js/markdown.js' %}"></script>
+  <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
+  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+{% endblock %}
 
 {% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
 
 {% block app_content %}
-  {{ messages_history|json_script:"chat-initial-messages" }}
+  {{ turns|json_script:"chat-initial-turns" }}
 
-  <div
-    x-data='chat({
-      endpoint: "/api/chat/completions",
-      thread: {% if thread %}{
-        thread_id: "{{ thread.thread_id|escapejs }}",
-        repo_id: "{{ thread.repo_id|escapejs }}",
-        ref: "{{ thread.ref|escapejs }}"
-      }{% else %}null{% endif %}
-    })'
-    class="flex h-[calc(100vh-8rem)] flex-col">
+  <div x-data='chat({
+         endpoint: "/api/chat/completions",
+         csrfToken: "{{ csrf_token|escapejs }}",
+         thread: {% if thread %}{
+           thread_id: "{{ thread.thread_id|escapejs }}",
+           repo_id: "{{ thread.repo_id|escapejs }}",
+           ref: "{{ thread.ref|escapejs }}"
+         }{% else %}null{% endif %}
+       })'
+       x-cloak
+       class="chat-shell">
 
-    {% if expired %}
-      <div class="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
-        {% trans "This conversation's state has expired. Start a new chat to continue." %}
-      </div>
-    {% endif %}
-
-    <div x-ref="transcript" class="flex-1 space-y-3 overflow-y-auto pb-4"
-         :class="{ 'flex items-center justify-center': !thread && messages.length === 0 }">
-      <template x-if="!thread && messages.length === 0">
-        <div class="max-w-md text-center">
-          <h2 class="text-xl font-semibold text-white">{% trans "What do you want to explore?" %}</h2>
-          <p class="mt-2 text-sm text-gray-400">{% trans "Pick a repository and branch below, then ask anything." %}</p>
+    <div class="chat-column">
+      {% if expired %}
+        <div class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
+          {% trans "This conversation's state has expired. Start a new chat to continue." %}
         </div>
-      </template>
-      <template x-for="m in messages" :key="m.id">
-        <div x-html="renderMessage(m)"></div>
-      </template>
+      {% endif %}
+
+      {# Responsive summary strip shown below 1100px #}
+      <div class="chat-summary" x-show="turns.length > 0 || thread">
+        <span x-show="thread"><span x-text="thread ? thread.repo_id : ''"></span> <span class="chat-summary__sep">·</span> <span x-text="thread ? thread.ref : ''" style="color:#93c5fd;"></span></span>
+        <span class="chat-summary__sep">·</span>
+        <span x-text="runStatus.label"></span>
+        <template x-if="latestTodos.length">
+          <span><span class="chat-summary__sep">·</span> <span x-text="`${todosDone}/${latestTodos.length} todos`"></span></span>
+        </template>
+        <template x-if="filesTouched.length">
+          <span><span class="chat-summary__sep">·</span> <span x-text="`${filesTouched.length} files`"></span></span>
+        </template>
+      </div>
+
+      <div class="chat-transcript">
+        {# Empty state #}
+        <template x-if="!thread && turns.length === 0">
+          <div class="chat-hero">
+            <span class="chat-hero__eyebrow">{% trans "New chat" %}</span>
+            <h1 class="chat-hero__title">{% trans "What are we building today?" %}</h1>
+            <p class="chat-hero__subtitle">
+              {% trans "Pick a repo, describe what you need — DAIV will explore and work through it." %}
+            </p>
+          </div>
+        </template>
+
+        {# Turns #}
+        <template x-for="(turn, ti) in turns" :key="turn.id">
+          <article class="chat-turn" :class="`chat-turn--${turn.role}`">
+            <div class="chat-turn__gutter" aria-hidden="true">
+              <div class="chat-turn__marker">
+                <span x-text="turn.role === 'assistant' ? 'D' : 'You'"></span>
+              </div>
+              <div class="chat-turn__rail"
+                   :class="{ 'chat-turn__rail--streaming': turn.streaming && ti === turns.length - 1 }"></div>
+            </div>
+
+            <div class="chat-turn__body">
+              <template x-for="(seg, si) in turn.segments" :key="si">
+                <div class="chat-segment" :class="`chat-segment--${seg.type}`">
+                  <template x-if="seg.type === 'text'">
+                    <template x-if="turn.role === 'assistant'">
+                      <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
+                    </template>
+                  </template>
+                  <template x-if="seg.type === 'text' && turn.role === 'user'">
+                    <div class="chat-text" x-text="seg.content"></div>
+                  </template>
+
+                  <template x-if="seg.type === 'tool_call'">
+                    <details class="chat-tool" :id="`tool-${seg.id}`"
+                             :class="`chat-tool--${seg.status}`"
+                             :data-status="seg.status">
+                      <summary class="chat-tool__summary">
+                        <span class="chat-tool__icon">
+                          <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
+                          <template x-if="seg.status === 'done'">✓</template>
+                          <template x-if="seg.status === 'error'">×</template>
+                        </span>
+                        <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
+                        <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
+                        <template x-for="b in toolSignature(seg).badges" :key="b.text">
+                          <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
+                        </template>
+                        <span class="chat-tool__chev">
+                          <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
+                            <path fill-rule="evenodd" d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z" clip-rule="evenodd"/>
+                          </svg>
+                        </span>
+                      </summary>
+                      <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
+                    </details>
+                  </template>
+                </div>
+              </template>
+
+              <template x-if="turn.streaming && turn.role === 'assistant' && turn.segments.length === 0">
+                <div class="chat-thinking" aria-live="polite">
+                  <span class="chat-thinking__dot"></span>
+                  <span x-text="thinkingLabel"></span>
+                </div>
+              </template>
+
+              <template x-if="turn.error">
+                <p class="text-sm text-red-400 mt-2" x-text="turn.error"></p>
+              </template>
+              <template x-if="turn.aborted">
+                <p class="text-sm text-gray-500 mt-2">{% trans "You stopped this run." %}</p>
+              </template>
+            </div>
+          </article>
+        </template>
+      </div>
+
+      {% if not expired %}
+        {% include "chat/_composer.html" %}
+      {% endif %}
     </div>
 
-    {% if not expired %}
-      {% include "chat/_composer.html" %}
-    {% endif %}
+    {% include "chat/_rail.html" %}
   </div>
-
-  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
 {% endblock %}
