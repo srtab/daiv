@@ -550,12 +550,17 @@ a, button, [role="button"] {
 
   .chat-turn--user .chat-segment--text {
     display: inline-block;
+    width: fit-content;
     max-width: 100%;
     padding: 8px 14px;
     background: rgba(255, 255, 255, 0.035);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 14px;
     border-top-left-radius: 6px;
+  }
+
+  .chat-turn--user .chat-segment--text > .chat-text {
+    display: inline;
   }
 
   .chat-segment + .chat-segment {

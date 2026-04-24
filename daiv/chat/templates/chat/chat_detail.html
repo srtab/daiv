@@ -105,8 +105,8 @@
                       <summary class="chat-tool__summary">
                         <span class="chat-tool__icon">
                           <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
-                          <template x-if="seg.status === 'done'">✓</template>
-                          <template x-if="seg.status === 'error'">×</template>
+                          <template x-if="seg.status === 'done'"><span>✓</span></template>
+                          <template x-if="seg.status === 'error'"><span>×</span></template>
                         </span>
                         <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
                         <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>

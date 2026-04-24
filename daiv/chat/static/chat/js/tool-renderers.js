@@ -127,7 +127,7 @@
       const code = Number(exitMatch[1]);
       badges.push(badge(`exit ${code}`, code === 0 ? "success" : "danger"));
     }
-    return { label: "bash_tool", path: `$ ${truncate(command, 120)}`, badges };
+    return { label: "bash", path: `$ ${truncate(command, 120)}`, badges };
   };
 
   const sigWriteTodos = (args) => {
@@ -146,7 +146,7 @@
     grep: sigGrep,
     glob: sigGlob,
     ls: sigLs,
-    bash_tool: sigBash,
+    bash: sigBash,
     write_todos: sigWriteTodos,
   };
 
@@ -242,7 +242,7 @@
   const BODY_BY_TOOL = {
     edit_file: (args, result) => diffBody(result) || genericBody(args, result),
     grep: (args, result) => grepBody(result),
-    bash_tool: (args, result) => bashBody(args, result),
+    bash: (args, result) => bashBody(args, result),
     write_todos: (args) => todosBody(args),
   };
 
