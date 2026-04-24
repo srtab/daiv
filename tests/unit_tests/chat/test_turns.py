@@ -62,3 +62,46 @@ def test_build_turns_ai_empty_content_omits_text_segment():
     assert result[0]["segments"] == [
         {"type": "tool_call", "id": "tc-3", "name": "ls", "args": '{"path": "/"}', "result": None, "status": "done"}
     ]
+
+
+def test_build_turns_ai_list_content_preserves_block_interleaving():
+    m = AIMessage(
+        content=[
+            {"type": "text", "text": "Let me look."},
+            {"type": "tool_use", "id": "tc-a", "name": "read_file", "input": {"path": "a.py"}},
+            {"type": "text", "text": "Now I'll search."},
+            {"type": "tool_use", "id": "tc-b", "name": "grep", "input": {"pattern": "x"}},
+        ],
+        id="a-3",
+        tool_calls=[
+            {"id": "tc-a", "name": "read_file", "args": {"path": "a.py"}},
+            {"id": "tc-b", "name": "grep", "args": {"pattern": "x"}},
+        ],
+    )
+    result = build_turns([m])
+    segments = result[0]["segments"]
+    assert [s["type"] for s in segments] == ["text", "tool_call", "text", "tool_call"]
+    assert segments[0]["content"] == "Let me look."
+    assert segments[1]["id"] == "tc-a"
+    assert segments[1]["name"] == "read_file"
+    assert segments[2]["content"] == "Now I'll search."
+    assert segments[3]["id"] == "tc-b"
+
+
+def test_build_turns_ai_list_content_tool_use_without_matching_tool_call_still_emitted():
+    m = AIMessage(
+        content=[{"type": "tool_use", "id": "tc-orphan", "name": "custom", "input": {"k": "v"}}],
+        id="a-4",
+        tool_calls=[],
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {
+            "type": "tool_call",
+            "id": "tc-orphan",
+            "name": "custom",
+            "args": '{"k": "v"}',
+            "result": None,
+            "status": "done",
+        }
+    ]

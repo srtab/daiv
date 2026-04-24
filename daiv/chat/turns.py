@@ -47,16 +47,32 @@ def _build_user_turn(m: Any) -> dict[str, Any]:
 
 
 def _build_assistant_turn(m: Any) -> dict[str, Any]:
-    segments: list[dict[str, Any]] = []
     content = getattr(m, "content", "")
-    if isinstance(content, list):
-        # Anthropic content-block interleaving is handled in a later task.
-        pass
-    elif isinstance(content, str) and content.strip():
-        segments.append({"type": "text", "content": content})
+    tool_calls = getattr(m, "tool_calls", None) or []
+    tc_by_id: dict[str, Any] = {}
+    for tc in tool_calls:
+        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+        if tc_id:
+            tc_by_id[tc_id] = tc
 
-    for tc in getattr(m, "tool_calls", None) or []:
-        segments.append(_tool_call_segment(tc))
+    segments: list[dict[str, Any]] = []
+
+    if isinstance(content, list):
+        for block in content:
+            btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+            if btype == "text":
+                text = block.get("text") if isinstance(block, dict) else getattr(block, "text", "")
+                if text:
+                    segments.append({"type": "text", "content": text})
+            elif btype in _TOOL_USE_BLOCK_TYPES:
+                tc_id = block.get("id") if isinstance(block, dict) else getattr(block, "id", None)
+                canonical = tc_by_id.get(tc_id, block)
+                segments.append(_tool_call_segment(canonical))
+    else:
+        if isinstance(content, str) and content.strip():
+            segments.append({"type": "text", "content": content})
+        for tc in tool_calls:
+            segments.append(_tool_call_segment(tc))
 
     return {"id": getattr(m, "id", "") or "", "role": "assistant", "segments": segments}
 
