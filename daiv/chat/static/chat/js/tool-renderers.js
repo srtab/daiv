@@ -139,6 +139,18 @@
     };
   };
 
+  const BUILTIN_SUBAGENTS = new Set(["general-purpose", "explore"]);
+
+  const sigTask = (args) => {
+    const subagent = pickKey(args, ["subagent_type", "agent", "type"]) ?? "";
+    const description = pickKey(args, ["description", "title"]) ?? "";
+    const badges = [];
+    if (subagent) {
+      badges.push(badge(subagent, BUILTIN_SUBAGENTS.has(subagent) ? "violet" : "info"));
+    }
+    return { label: "task", path: truncate(description, 120), badges };
+  };
+
   const SIGNATURE_BY_TOOL = {
     read_file: sigReadFile,
     write_file: sigWriteFile,
@@ -148,6 +160,7 @@
     ls: sigLs,
     bash: sigBash,
     write_todos: sigWriteTodos,
+    task: sigTask,
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {
@@ -224,6 +237,30 @@
     return block("Shell", `<div class="chat-bash">${cmdLine}${output}</div>`);
   };
 
+  const taskBody = (argsStr, result) => {
+    const args = parseArgs(argsStr);
+    const description = pickKey(args, ["description", "title"]) ?? "";
+    const subagent = pickKey(args, ["subagent_type", "agent", "type"]) ?? "";
+    const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";
+    const parts = [];
+    if (description || subagent) {
+      const meta = `<div class="chat-task__meta">` +
+        (subagent ? `<span class="chat-task__agent">${escapeHtml(subagent)}</span>` : "") +
+        (description ? `<span class="chat-task__desc">${escapeHtml(description)}</span>` : "") +
+        `</div>`;
+      parts.push(block("Task", meta));
+    }
+    if (prompt) parts.push(block("Prompt", pre(String(prompt))));
+    if (result != null && String(result).length) {
+      // Task results are markdown; let renderMarkdown handle them if available
+      const resHtml = window.renderMarkdown
+        ? `<div class="chat-text">${window.renderMarkdown(result)}</div>`
+        : pre(String(result));
+      parts.push(block("Result", resHtml));
+    }
+    return parts.join("");
+  };
+
   const todosBody = (argsStr) => {
     const args = parseArgs(argsStr);
     const todos = Array.isArray(args.todos) ? args.todos : [];
@@ -244,6 +281,7 @@
     grep: (args, result) => grepBody(result),
     bash: (args, result) => bashBody(args, result),
     write_todos: (args) => todosBody(args),
+    task: (args, result) => taskBody(args, result),
   };
 
   window.toolBodyHTML = (name, argsStr, result, status) => {

@@ -349,11 +349,26 @@
       }
     },
 
+    _runningTaskSegment(turn) {
+      // Returns the still-running `task` tool segment in this turn, or null.
+      // While one exists, subagent-internal tool/text frames bleed through the
+      // outer AGUI stream — we suppress them so the rendered turn matches what
+      // build_turns produces on refresh (a single collapsed task card).
+      for (const s of turn.segments) {
+        if (s.type === "tool_call" && s.name === "task" && s.status === "running") return s;
+      }
+      return null;
+    },
+
     dispatch(evt, turn) {
       const type = evt.type;
+      const activeTask = this._runningTaskSegment(turn);
+
       if (type === AGUI.TEXT_MESSAGE_START) {
+        if (activeTask) return;
         this._appendTextSegment(turn, "");
       } else if (type === AGUI.TEXT_MESSAGE_CONTENT || type === AGUI.TEXT_MESSAGE_CHUNK) {
+        if (activeTask) return;
         const delta = evt.delta || evt.content || "";
         const last = turn.segments[turn.segments.length - 1];
         if (!last || last.type !== "text") {
@@ -362,6 +377,8 @@
           last.content += delta;
         }
       } else if (type === AGUI.TOOL_CALL_START) {
+        // If a parent task is running and this isn't the task's own id, suppress.
+        if (activeTask && evt.toolCallId !== activeTask.id) return;
         turn.segments.push({
           type: "tool_call",
           id: evt.toolCallId,

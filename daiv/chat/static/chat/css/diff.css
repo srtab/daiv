@@ -134,3 +134,24 @@
 .chat-todo--in_progress {
   color: #fbbf24;
 }
+
+.chat-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.chat-task__agent {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.12);
+  color: #c4b5fd;
+}
+
+.chat-task__desc {
+  color: #94a3b8;
+}
