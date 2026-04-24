@@ -15,8 +15,7 @@
         thread_id: "{{ thread.thread_id|escapejs }}",
         repo_id: "{{ thread.repo_id|escapejs }}",
         ref: "{{ thread.ref|escapejs }}"
-      }{% else %}null{% endif %},
-      expired: {% if expired %}true{% else %}false{% endif %}
+      }{% else %}null{% endif %}
     })'
     class="flex h-[calc(100vh-8rem)] flex-col">
 
@@ -42,10 +41,6 @@
     {% if not expired %}
       {% include "chat/_composer.html" %}
     {% endif %}
-
-    <template id="message-template">
-      {% include "chat/_message.html" with message="__MESSAGE__" %}
-    </template>
   </div>
 
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>

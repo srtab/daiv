@@ -1,16 +1,15 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from codebase.base import GitPlatform
+from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
@@ -90,10 +89,7 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
             )
 
-        async with AsyncRedisSaver.from_conn_string(
-            django_settings.DJANGO_REDIS_CHECKPOINT_URL,
-            ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
-        ) as checkpointer:
+        async with open_checkpointer() as checkpointer:
             agent_kwargs = get_daiv_agent_kwargs(
                 model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
             )

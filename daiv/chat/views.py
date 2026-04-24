@@ -5,6 +5,7 @@ from typing import Any
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponseGone
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.views.generic import DetailView, ListView, View
 
 from activity.models import Activity
@@ -25,10 +26,16 @@ async def _ahydrate(thread_id: str) -> tuple[list[Any], bool]:
     return messages, False
 
 
+_ROLE_NORMALIZE = {"ai": "assistant", "assistant": "assistant", "human": "user", "user": "user"}
+
+
 def _serialize_message(m: Any) -> dict[str, Any]:
     role = getattr(m, "type", None) or getattr(m, "role", "")
-    normalized = "assistant" if role in ("ai", "assistant") else ("user" if role in ("human", "user") else str(role))
-    return {"id": getattr(m, "id", "") or "", "role": normalized, "content": getattr(m, "content", "")}
+    return {
+        "id": getattr(m, "id", "") or "",
+        "role": _ROLE_NORMALIZE.get(role, str(role)),
+        "content": getattr(m, "content", ""),
+    }
 
 
 class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
@@ -64,8 +71,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        thread = ctx.get("thread")
-        ctx["thread"] = thread  # ensure key present even in empty-state
+        thread = ctx.setdefault("thread", None)
         if thread is None:
             ctx.update({"messages_history": [], "expired": False})
             return ctx
@@ -75,13 +81,11 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         return ctx
 
     def get_breadcrumbs(self):
+        chat_url = reverse("chat_list")
         thread = getattr(self, "object", None)
         if thread is None:
-            return [{"label": "Chat", "url": "/dashboard/chat/"}, {"label": "New", "url": None}]
-        return [
-            {"label": "Chat", "url": "/dashboard/chat/"},
-            {"label": thread.title or thread.thread_id[:8], "url": None},
-        ]
+            return [{"label": "Chat", "url": chat_url}, {"label": "New", "url": None}]
+        return [{"label": "Chat", "url": chat_url}, {"label": thread.title or thread.thread_id[:8], "url": None}]
 
 
 class ChatThreadFromActivityView(LoginRequiredMixin, View):

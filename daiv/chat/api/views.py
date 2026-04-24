@@ -54,11 +54,7 @@ models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
 def _extract_first_user_message(input_data: RunAgentInput) -> str:
-    for message in input_data.messages:
-        content = getattr(message, "content", "")
-        if isinstance(content, str) and content.strip():
-            return content
-    return ""
+    return next((c for m in input_data.messages if isinstance(c := getattr(m, "content", ""), str) and c.strip()), "")
 
 
 @chat_router.post(
@@ -85,19 +81,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
-    thread = await ChatThread.objects.filter(thread_id=thread_id).afirst()
-    if thread is None:
-        thread = await ChatThread.objects.acreate(
-            user=user,
-            thread_id=thread_id,
-            repo_id=repo_id,
-            ref=ref,
-            title=_extract_first_user_message(input_data)[:120],
-        )
-    elif thread.user_id != user.id:
-        raise HttpError(403, "Thread not found")
-    elif thread.active_run_id:
-        raise HttpError(409, "A run is already in progress for this thread")
+    thread, created = await ChatThread.objects.aget_or_create(
+        thread_id=thread_id,
+        defaults={"user": user, "repo_id": repo_id, "ref": ref, "title": _extract_first_user_message(input_data)[:120]},
+    )
+    if not created:
+        if thread.user_id != user.id:
+            raise HttpError(403, "Thread not found")
+        if thread.active_run_id:
+            raise HttpError(409, "A run is already in progress for this thread")
 
     thread.active_run_id = run_id
     await thread.asave(update_fields=["active_run_id", "last_active_at"])

@@ -34,14 +34,12 @@ class ChatThread(models.Model):
     @classmethod
     async def aget_or_create_from_activity(cls, user, activity) -> tuple[ChatThread, bool]:
         """Look up or create a thread that continues an activity run. Idempotent."""
-        existing = await cls.objects.filter(thread_id=activity.thread_id).afirst()
-        if existing is not None:
-            return existing, False
-        thread = await cls.objects.acreate(
-            user=user,
+        return await cls.objects.aget_or_create(
             thread_id=activity.thread_id,
-            repo_id=activity.repo_id,
-            ref=activity.ref or "",
-            title=(activity.prompt or "")[:120],
+            defaults={
+                "user": user,
+                "repo_id": activity.repo_id,
+                "ref": activity.ref or "",
+                "title": (activity.prompt or "")[:120],
+            },
         )
-        return thread, True

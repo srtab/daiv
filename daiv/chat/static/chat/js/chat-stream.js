@@ -22,11 +22,9 @@
       .replaceAll(">", "&gt;");
 
   const renderMessage = (m) => {
-    const tpl = document.getElementById("message-template");
-    if (!tpl) return `<div>${escapeHtml(m.content || "")}</div>`;
-    // Minimal renderer: our _message.html partial uses Django template tags that the browser
-    // can't evaluate, so we produce a compatible bubble structure here. Keep the classes in
-    // sync with _message.html when restyling.
+    // Markup kept in lockstep with daiv/chat/templates/chat/_message.html — if you restyle
+    // the partial, mirror the same classes here so server-rendered history matches live
+    // messages.
     const roleLabel = m.role === "user" ? "You" : m.role === "assistant" ? "DAIV" : m.role;
     let html = `<article class="msg msg--${escapeHtml(m.role)} rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
       <header class="msg__header mb-1 text-xs uppercase tracking-wide text-gray-500">${escapeHtml(roleLabel)}</header>
@@ -67,6 +65,8 @@
     streaming: false,
     error: null,
     abortCtl: null,
+    _toolCallIndex: new Map(),
+    _scrollQueued: false,
 
     canSend() {
       if (!this.draftMessage.trim()) return false;
@@ -88,6 +88,7 @@
       this.messages.push(userMsg);
       const assistantMsg = { id: uuid(), role: "assistant", content: "", tool_calls: [] };
       this.messages.push(assistantMsg);
+      this._toolCallIndex.clear();
 
       const body = {
         threadId: this.thread.thread_id,
@@ -172,20 +173,19 @@
         case AGUI.TEXT_MESSAGE_CHUNK:
           assistantMsg.content += evt.delta || evt.content || "";
           break;
-        case AGUI.TOOL_CALL_START:
-          assistantMsg.tool_calls.push({
-            id: evt.toolCallId,
-            name: evt.toolCallName,
-            args: "",
-          });
+        case AGUI.TOOL_CALL_START: {
+          const tc = { id: evt.toolCallId, name: evt.toolCallName, args: "" };
+          assistantMsg.tool_calls.push(tc);
+          this._toolCallIndex.set(evt.toolCallId, tc);
           break;
+        }
         case AGUI.TOOL_CALL_ARGS: {
-          const tc = assistantMsg.tool_calls.find((t) => t.id === evt.toolCallId);
+          const tc = this._toolCallIndex.get(evt.toolCallId);
           if (tc) tc.args += evt.delta || "";
           break;
         }
         case AGUI.TOOL_CALL_RESULT: {
-          const tc = assistantMsg.tool_calls.find((t) => t.id === evt.toolCallId);
+          const tc = this._toolCallIndex.get(evt.toolCallId);
           if (tc) tc.result = evt.content;
           break;
         }
@@ -199,8 +199,13 @@
     },
 
     scrollToBottom() {
-      const el = this.$refs.transcript;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (this._scrollQueued) return;
+      this._scrollQueued = true;
+      requestAnimationFrame(() => {
+        this._scrollQueued = false;
+        const el = this.$refs.transcript;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
     },
 
     renderMessage,
