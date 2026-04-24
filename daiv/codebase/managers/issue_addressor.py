@@ -144,7 +144,9 @@ class IssueAddressorManager(BaseManager):
                     daiv_agent,
                     agent_config,
                     response=response_text,
-                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                    usage=build_usage_summary(
+                        usage_handler.usage_metadata, provider_costs=usage_handler.cost_by_model
+                    ).to_dict(),
                 )
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):

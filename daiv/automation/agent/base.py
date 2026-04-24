@@ -152,6 +152,12 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         model_kwargs = BaseAgent.get_model_kwargs(
             model=model_name, model_provider=provider, thinking_level=thinking_level, **kwargs
         )
+        if provider == ModelProvider.OPENROUTER:
+            # Route through our subclass so OpenRouter's `cost` field survives streaming.
+            from automation.agent.openrouter import ChatOpenRouter
+
+            model_kwargs.pop("model_provider", None)
+            return ChatOpenRouter(**model_kwargs)
         return init_chat_model(**model_kwargs)
 
     @staticmethod
@@ -207,6 +213,13 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             }
             _kwargs["openai_api_base"] = site_settings.openrouter_api_base
             _kwargs["openai_api_key"] = site_settings.openrouter_api_key.get_secret_value()
+            # Opt into OpenRouter's authoritative usage accounting (returns the actual
+            # billed `cost` per call, including provider-specific cache-write rates that
+            # genai_prices cannot reconstruct from token counts alone). `stream_usage`
+            # ensures the OpenAI client sets `stream_options.include_usage=true`, which
+            # OpenRouter needs to emit usage on the final stream chunk.
+            _kwargs["extra_body"] = {"usage": {"include": True}}
+            _kwargs["stream_usage"] = True
 
             if thinking_level:
                 if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
@@ -214,11 +227,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                         thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
                     )
                     _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
+                    _kwargs["extra_body"]["reasoning"] = {"max_tokens": thinking_tokens}
                     # When using thinking the temperature need to be set to 1 for Anthropic models
                     _kwargs["temperature"] = 1
                 else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
+                    _kwargs["extra_body"]["reasoning"] = {"effort": thinking_level.value}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value
