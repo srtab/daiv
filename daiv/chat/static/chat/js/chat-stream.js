@@ -13,48 +13,9 @@
     TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
   };
 
+  const PATH_TOOLS = new Set(["read_file", "write_file", "edit_file", "grep", "glob", "ls"]);
+
   const uuid = () => crypto.randomUUID();
-
-  const escapeHtml = (s) =>
-    String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-
-  const renderMessage = (m) => {
-    // Markup kept in lockstep with daiv/chat/templates/chat/_message.html — if you restyle
-    // the partial, mirror the same classes here so server-rendered history matches live
-    // messages.
-    const roleLabel = m.role === "user" ? "You" : m.role === "assistant" ? "DAIV" : m.role;
-    let html = `<article class="msg msg--${escapeHtml(m.role)} rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-      <header class="msg__header mb-1 text-xs uppercase tracking-wide text-gray-500">${escapeHtml(roleLabel)}</header>
-      <div class="msg__content prose prose-invert max-w-none text-[15px] text-gray-100">${escapeHtml(m.content).replaceAll("\n", "<br>")}</div>`;
-    if (m.tool_calls && m.tool_calls.length) {
-      html += `<div class="msg__tools mt-3 space-y-2">`;
-      for (const tc of m.tool_calls) {
-        html += `<details class="tool-call rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm">
-          <summary class="flex cursor-pointer items-center gap-2 text-gray-300"><span class="font-medium text-violet-300">${escapeHtml(tc.name || "")}</span></summary>
-          ${tc.args ? `<pre class="mt-2 whitespace-pre-wrap text-xs text-gray-400">${escapeHtml(tc.args)}</pre>` : ""}
-          ${tc.result ? `<pre class="mt-2 whitespace-pre-wrap text-xs text-gray-300">${escapeHtml(tc.result)}</pre>` : ""}
-        </details>`;
-      }
-      html += `</div>`;
-    }
-    if (m.error) html += `<p class="msg__error mt-2 text-sm text-red-400">${escapeHtml(m.error)}</p>`;
-    html += `</article>`;
-    return html;
-  };
-
-  const loadInitialMessages = () => {
-    const el = document.getElementById("chat-initial-messages");
-    if (!el) return [];
-    try {
-      return JSON.parse(el.textContent);
-    } catch (err) {
-      console.error("chat: failed to parse server-embedded transcript", err);
-      return [];
-    }
-  };
 
   const HTTP_ERROR_MESSAGES = {
     403: "You don't have access to this conversation.",
@@ -69,23 +30,183 @@
       const data = await resp.clone().json();
       if (data?.detail) return data.detail;
     } catch {
-      /* fall through to status-only message */
+      /* fall through */
     }
     return `Request failed (status ${resp.status}). Please retry.`;
   };
 
+  const loadInitialTurns = () => {
+    const el = document.getElementById("chat-initial-turns");
+    if (!el) return [];
+    try {
+      return JSON.parse(el.textContent);
+    } catch (err) {
+      console.error("chat: failed to parse server-embedded turns", err);
+      return [];
+    }
+  };
+
+  const THINKING_LABELS = [
+    "Thinking…",
+    "Reading files…",
+    "Exploring the codebase…",
+    "Understanding context…",
+    "Planning the change…",
+    "Running tools…",
+  ];
+
+  const pickPath = (argsStr, toolName) => {
+    try {
+      const args = JSON.parse(argsStr);
+      if (!args || typeof args !== "object") return null;
+      if (toolName === "grep" || toolName === "glob") return args.pattern ?? args.query ?? args.glob ?? null;
+      return args.path ?? args.file_path ?? args.dir ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const chat = (config) => ({
     endpoint: config.endpoint,
+    csrfToken: config.csrfToken || "",
     thread: config.thread,
-    messages: loadInitialMessages(),
+    turns: loadInitialTurns(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "main",
     streaming: false,
-    error: null,
     abortCtl: null,
-    _toolCallIndex: new Map(),
+    _toolIndex: new Map(),
+    _filesSeen: new Set(),
     _scrollQueued: false,
+    _autoFollow: true,
+    _thinkingTimer: null,
+    _scrollListener: null,
+    thinkingLabel: THINKING_LABELS[0],
+    filesTouchedLimit: 20,
+
+    init() {
+      // Seed _filesSeen with any paths already present in hydrated history so
+      // the "new row pulse" animation does not fire on initial load.
+      for (const t of this.turns) {
+        for (const seg of t.segments) {
+          if (seg.type !== "tool_call") continue;
+          const p = pickPath(seg.args, seg.name);
+          if (p) this._filesSeen.add(`${seg.name}::${p}`);
+        }
+      }
+
+      const onScroll = () => {
+        const doc = document.documentElement;
+        const distanceFromBottom = doc.scrollHeight - (window.scrollY + window.innerHeight);
+        this._autoFollow = distanceFromBottom < 120;
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      this._scrollListener = onScroll;
+
+      this.$watch("streaming", (on) => {
+        if (on) {
+          let i = 0;
+          this.thinkingLabel = THINKING_LABELS[0];
+          this._thinkingTimer = setInterval(() => {
+            i = (i + 1) % THINKING_LABELS.length;
+            this.thinkingLabel = THINKING_LABELS[i];
+          }, 1800);
+        } else if (this._thinkingTimer) {
+          clearInterval(this._thinkingTimer);
+          this._thinkingTimer = null;
+        }
+      });
+    },
+
+    destroy() {
+      if (this._scrollListener) window.removeEventListener("scroll", this._scrollListener);
+      if (this._thinkingTimer) clearInterval(this._thinkingTimer);
+    },
+
+    // ---------- Derived getters (right rail) ---------------------------
+
+    get runStatus() {
+      const last = this.turns[this.turns.length - 1];
+      if (last?.error) return { tone: "error", label: "error" };
+      if (!this.streaming) return { tone: "idle", label: "idle" };
+      const activeTool = last?.segments.slice().reverse().find(
+        (s) => s.type === "tool_call" && s.status === "running",
+      );
+      if (activeTool) return { tone: "running", label: `running ${activeTool.name}…` };
+      return { tone: "thinking", label: this.thinkingLabel };
+    },
+
+    get latestTodos() {
+      for (let i = this.turns.length - 1; i >= 0; i--) {
+        const segs = this.turns[i].segments;
+        for (let j = segs.length - 1; j >= 0; j--) {
+          const s = segs[j];
+          if (s.type === "tool_call" && s.name === "write_todos") {
+            try {
+              const args = JSON.parse(s.args || "{}");
+              return Array.isArray(args.todos) ? args.todos : [];
+            } catch {
+              return [];
+            }
+          }
+        }
+      }
+      return [];
+    },
+
+    get todosDone() {
+      return this.latestTodos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+    },
+
+    get filesTouched() {
+      const map = new Map(); // path -> { path, segmentId, isNew }
+      for (const t of this.turns) {
+        for (const seg of t.segments) {
+          if (seg.type !== "tool_call" || !PATH_TOOLS.has(seg.name)) continue;
+          const path = pickPath(seg.args, seg.name);
+          if (!path) continue;
+          const key = `${seg.name}::${path}`;
+          const isNew = !this._filesSeen.has(key);
+          map.set(path, { path, segmentId: `tool-${seg.id}`, isNew });
+        }
+      }
+      // Reverse so most-recent comes first.
+      const arr = [...map.values()].reverse();
+      // After computing, promote newly-seen files into the "seen" set so their
+      // pulse animation only fires once.
+      for (const f of arr) this._filesSeen.add(`${f.path}`);
+      return arr;
+    },
+
+    get showJumpToLatest() {
+      return this.streaming && !this._autoFollow;
+    },
+
+    // ---------- Rendering helpers used inline by x-html ---------------
+
+    renderMarkdown(raw) {
+      return window.renderMarkdown ? window.renderMarkdown(raw) : "";
+    },
+
+    toolSignature(seg) {
+      if (!window.toolSignature) return { label: seg.name, path: "", badges: [] };
+      return window.toolSignature(seg.name, seg.args, seg.result, seg.status);
+    },
+
+    toolBodyHTML(seg) {
+      if (!window.toolBodyHTML) return "";
+      return window.toolBodyHTML(seg.name, seg.args, seg.result, seg.status);
+    },
+
+    todoIcon(status) {
+      const s = (status || "pending").toLowerCase();
+      if (s === "completed") return "☑";
+      if (s === "in_progress") return "◐";
+      return "☐";
+    },
+
+    // ---------- User actions ------------------------------------------
 
     canSend() {
       if (!this.draftMessage.trim()) return false;
@@ -93,9 +214,15 @@
       return !!(this.draftRepoId && this.draftRef);
     },
 
+    autosize() {
+      const el = this.$refs.prompt;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 14 * 16) + "px";
+    },
+
     async submit() {
       if (!this.canSend() || this.streaming) return;
-      this.error = null;
 
       if (!this.thread) {
         const threadId = uuid();
@@ -103,25 +230,45 @@
         history.replaceState(null, "", `/dashboard/chat/${threadId}/`);
       }
 
-      const userMsg = { id: uuid(), role: "user", content: this.draftMessage };
-      this.messages.push(userMsg);
-      const assistantMsg = { id: uuid(), role: "assistant", content: "", tool_calls: [] };
-      this.messages.push(assistantMsg);
-      this._toolCallIndex.clear();
+      this.turns.push({
+        id: uuid(),
+        role: "user",
+        segments: [{ type: "text", content: this.draftMessage }],
+      });
+      this.turns.push({
+        id: uuid(),
+        role: "assistant",
+        segments: [],
+        streaming: true,
+      });
+      const assistantTurn = this.turns[this.turns.length - 1];
+      this._toolIndex.clear();
+      this._autoFollow = true;
+
+      const priorMessages = this.turns
+        .slice(0, -1)
+        .map((t) => ({
+          id: t.id,
+          role: t.role,
+          content: t.segments
+            .filter((s) => s.type === "text")
+            .map((s) => s.content)
+            .join("\n\n"),
+        }))
+        .filter((m) => m.content);
 
       const body = {
         threadId: this.thread.thread_id,
         runId: uuid(),
         state: {},
-        messages: this.messages
-          .slice(0, -1)
-          .map((m) => ({ id: m.id, role: m.role, content: m.content })),
+        messages: priorMessages,
         tools: [],
         context: [],
         forwardedProps: {},
       };
 
       this.draftMessage = "";
+      this.autosize();
       this.streaming = true;
       this.abortCtl = new AbortController();
 
@@ -132,7 +279,7 @@
             "Content-Type": "application/json",
             "X-Repo-ID": this.thread.repo_id,
             "X-Ref": this.thread.ref,
-            "X-CSRFToken": document.cookie.match(/csrftoken=([^;]+)/)?.[1] || "",
+            "X-CSRFToken": this.csrfToken,
           },
           body: JSON.stringify(body),
           credentials: "include",
@@ -140,17 +287,23 @@
         });
 
         if (!resp.ok) {
-          assistantMsg.error = await formatHttpError(resp);
+          assistantTurn.error = await formatHttpError(resp);
           return;
         }
 
-        await this.consume(resp.body, assistantMsg);
+        await this.consume(resp.body, assistantTurn);
       } catch (err) {
         if (err.name !== "AbortError") {
           console.error("chat: stream failed", err);
-          assistantMsg.error = "Connection lost — please retry.";
+          assistantTurn.error = "Connection lost — please retry.";
+        } else {
+          assistantTurn.aborted = true;
         }
       } finally {
+        assistantTurn.streaming = false;
+        assistantTurn.segments.forEach((s) => {
+          if (s.type === "tool_call" && s.status === "running") s.status = "done";
+        });
         this.streaming = false;
         this.abortCtl = null;
         this.scrollToBottom();
@@ -161,7 +314,17 @@
       this.abortCtl?.abort();
     },
 
-    async consume(stream, assistantMsg) {
+    jumpToTool(segmentId) {
+      const el = document.getElementById(segmentId);
+      if (!el) return;
+      if (el.tagName.toLowerCase() === "details") el.open = true;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.remove("chat-tool__highlight");
+      void el.offsetWidth; // restart animation
+      el.classList.add("chat-tool__highlight");
+    },
+
+    async consume(stream, turn) {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -181,53 +344,71 @@
             console.error("chat: malformed SSE frame, skipping", line, err);
             continue;
           }
-          this.dispatch(evt, assistantMsg);
+          this.dispatch(evt, turn);
         }
       }
     },
 
-    dispatch(evt, assistantMsg) {
-      switch (evt.type) {
-        case AGUI.TEXT_MESSAGE_CONTENT:
-        case AGUI.TEXT_MESSAGE_CHUNK:
-          assistantMsg.content += evt.delta || evt.content || "";
-          break;
-        case AGUI.TOOL_CALL_START: {
-          const tc = { id: evt.toolCallId, name: evt.toolCallName, args: "" };
-          assistantMsg.tool_calls.push(tc);
-          this._toolCallIndex.set(evt.toolCallId, tc);
-          break;
+    dispatch(evt, turn) {
+      const type = evt.type;
+      if (type === AGUI.TEXT_MESSAGE_START) {
+        this._appendTextSegment(turn, "");
+      } else if (type === AGUI.TEXT_MESSAGE_CONTENT || type === AGUI.TEXT_MESSAGE_CHUNK) {
+        const delta = evt.delta || evt.content || "";
+        const last = turn.segments[turn.segments.length - 1];
+        if (!last || last.type !== "text") {
+          this._appendTextSegment(turn, delta);
+        } else {
+          last.content += delta;
         }
-        case AGUI.TOOL_CALL_ARGS: {
-          const tc = this._toolCallIndex.get(evt.toolCallId);
-          if (tc) tc.args += evt.delta || "";
-          break;
+      } else if (type === AGUI.TOOL_CALL_START) {
+        turn.segments.push({
+          type: "tool_call",
+          id: evt.toolCallId,
+          name: evt.toolCallName,
+          args: "",
+          result: null,
+          status: "running",
+        });
+        this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
+      } else if (type === AGUI.TOOL_CALL_ARGS) {
+        const idx = this._toolIndex.get(evt.toolCallId);
+        if (idx != null && turn.segments[idx]) {
+          turn.segments[idx].args += evt.delta || "";
         }
-        case AGUI.TOOL_CALL_RESULT: {
-          const tc = this._toolCallIndex.get(evt.toolCallId);
-          if (tc) tc.result = evt.content;
-          break;
+      } else if (type === AGUI.TOOL_CALL_RESULT) {
+        const idx = this._toolIndex.get(evt.toolCallId);
+        if (idx != null && turn.segments[idx]) {
+          turn.segments[idx].result = evt.content;
+          turn.segments[idx].status = "done";
         }
-        case AGUI.RUN_ERROR:
-          assistantMsg.error = evt.message || "Run failed";
-          break;
-        default:
-          break;
+      } else if (type === AGUI.RUN_ERROR) {
+        turn.error = evt.message || "Run failed";
+        turn.segments.forEach((s) => {
+          if (s.type === "tool_call" && s.status === "running") s.status = "error";
+        });
       }
       this.scrollToBottom();
     },
 
-    scrollToBottom() {
+    _appendTextSegment(turn, content) {
+      turn.segments.push({ type: "text", content });
+      return turn.segments[turn.segments.length - 1];
+    },
+
+    scrollToBottom({ force = false } = {}) {
+      if (!force && !this._autoFollow) return;
       if (this._scrollQueued) return;
       this._scrollQueued = true;
       requestAnimationFrame(() => {
         this._scrollQueued = false;
-        const el = this.$refs.transcript;
-        if (el) el.scrollTop = el.scrollHeight;
+        window.scrollTo({
+          top: document.documentElement.scrollHeight,
+          behavior: force ? "smooth" : "auto",
+        });
+        if (force) this._autoFollow = true;
       });
     },
-
-    renderMessage,
   });
 
   document.addEventListener("alpine:init", () => {
