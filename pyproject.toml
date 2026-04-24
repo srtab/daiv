@@ -40,7 +40,7 @@ dependencies = [
   "jinja2==3.1.6",
   "langchain[anthropic,community,google-genai,openai]==1.2.15",
   "langchain-mcp-adapters==0.2.2",
-  "langgraph==1.1.6",
+  "langgraph==1.1.9",
   "langgraph-checkpoint-redis==0.4.1",
   "langsmith[pytest]==0.7.33",
   "langsmith-fetch==0.3.1",
