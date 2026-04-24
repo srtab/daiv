@@ -26,13 +26,36 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     ``tool_call_id``.
     """
     turns: list[dict[str, Any]] = []
+    tool_index: dict[str, tuple[int, int]] = {}
+
     for m in messages:
         mtype = (getattr(m, "type", None) or getattr(m, "role", "") or "").lower()
         if mtype in ("human", "user"):
             turns.append(_build_user_turn(m))
         elif mtype in ("ai", "assistant"):
-            turns.append(_build_assistant_turn(m))
+            turn = _build_assistant_turn(m)
+            turn_idx = len(turns)
+            for seg_idx, seg in enumerate(turn["segments"]):
+                if seg["type"] == "tool_call" and seg["id"]:
+                    tool_index[seg["id"]] = (turn_idx, seg_idx)
+            turns.append(turn)
+        elif mtype in ("tool", "tool_result"):
+            _attach_tool_result(m, turns, tool_index)
+
     return turns
+
+
+def _attach_tool_result(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]]) -> None:
+    tc_id = getattr(m, "tool_call_id", None) or ((getattr(m, "additional_kwargs", None) or {}).get("tool_call_id"))
+    if not tc_id or tc_id not in tool_index:
+        logger.warning("chat: dropping orphan ToolMessage with tool_call_id=%r", tc_id)
+        return
+
+    t_idx, s_idx = tool_index[tc_id]
+    content = getattr(m, "content", "")
+    if isinstance(content, list):
+        content = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+    turns[t_idx]["segments"][s_idx]["result"] = str(content or "")
 
 
 def _build_user_turn(m: Any) -> dict[str, Any]:

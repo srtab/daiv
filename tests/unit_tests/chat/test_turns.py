@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from chat.turns import build_turns
 
@@ -105,3 +105,47 @@ def test_build_turns_ai_list_content_tool_use_without_matching_tool_call_still_e
             "status": "done",
         }
     ]
+
+
+def test_build_turns_tool_message_result_attaches_to_matching_tool_call():
+    ai = AIMessage(
+        content="Let me check.", id="a-5", tool_calls=[{"id": "tc-x", "name": "read_file", "args": {"path": "x.py"}}]
+    )
+    tool = ToolMessage(content="file contents", tool_call_id="tc-x", id="t-1")
+    result = build_turns([ai, tool])
+    assert len(result) == 1  # ToolMessages do not create their own turn
+    tool_seg = result[0]["segments"][1]
+    assert tool_seg["result"] == "file contents"
+    assert tool_seg["status"] == "done"
+
+
+def test_build_turns_tool_message_list_content_joins_text_blocks():
+    ai = AIMessage(content="", id="a-6", tool_calls=[{"id": "tc-y", "name": "grep", "args": {"pattern": "x"}}])
+    tool = ToolMessage(
+        content=[{"type": "text", "text": "line-a"}, {"type": "text", "text": "line-b"}], tool_call_id="tc-y", id="t-2"
+    )
+    result = build_turns([ai, tool])
+    assert result[0]["segments"][0]["result"] == "line-a\nline-b"
+
+
+def test_build_turns_orphan_tool_message_is_dropped_with_warning(caplog):
+    tool = ToolMessage(content="orphan", tool_call_id="tc-missing", id="t-3")
+    with caplog.at_level("WARNING", logger="daiv.chat"):
+        result = build_turns([tool])
+    assert result == []
+    assert any("tc-missing" in rec.message for rec in caplog.records)
+
+
+def test_build_turns_mixed_order_human_ai_tool_ai_tool_human():
+    msgs = [
+        HumanMessage(content="first prompt", id="h-1"),
+        AIMessage(content="ok", id="a-1", tool_calls=[{"id": "tc-1", "name": "read_file", "args": {"path": "a"}}]),
+        ToolMessage(content="result-1", tool_call_id="tc-1", id="t-1"),
+        AIMessage(content="next", id="a-2", tool_calls=[{"id": "tc-2", "name": "grep", "args": {"pattern": "z"}}]),
+        ToolMessage(content="result-2", tool_call_id="tc-2", id="t-2"),
+        HumanMessage(content="second prompt", id="h-2"),
+    ]
+    result = build_turns(msgs)
+    assert [t["role"] for t in result] == ["user", "assistant", "assistant", "user"]
+    assert result[1]["segments"][1]["result"] == "result-1"
+    assert result[2]["segments"][1]["result"] == "result-2"
