@@ -13,6 +13,7 @@ from asgiref.sync import async_to_sync
 
 from accounts.mixins import BreadcrumbMixin
 from chat.models import ChatThread
+from chat.turns import build_turns
 from core.checkpointer import open_checkpointer
 
 
@@ -22,20 +23,8 @@ async def _ahydrate(thread_id: str) -> tuple[list[Any], bool]:
         tup = await cp.aget_tuple({"configurable": {"thread_id": thread_id}})
     if tup is None:
         return [], True
-    messages = (tup.channel_values or {}).get("messages", [])
+    messages = (tup.checkpoint or {}).get("channel_values", {}).get("messages", [])
     return messages, False
-
-
-_ROLE_NORMALIZE = {"ai": "assistant", "assistant": "assistant", "human": "user", "user": "user"}
-
-
-def _serialize_message(m: Any) -> dict[str, Any]:
-    role = getattr(m, "type", None) or getattr(m, "role", "")
-    return {
-        "id": getattr(m, "id", "") or "",
-        "role": _ROLE_NORMALIZE.get(role, str(role)),
-        "content": getattr(m, "content", ""),
-    }
 
 
 class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
@@ -73,10 +62,10 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         thread = ctx.setdefault("thread", None)
         if thread is None:
-            ctx.update({"messages_history": [], "expired": False})
+            ctx.update({"turns": [], "expired": False})
             return ctx
         messages_history, expired = async_to_sync(_ahydrate)(thread.thread_id)
-        ctx["messages_history"] = [_serialize_message(m) for m in messages_history]
+        ctx["turns"] = build_turns(messages_history)
         ctx["expired"] = expired
         return ctx
 

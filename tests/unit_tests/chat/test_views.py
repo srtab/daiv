@@ -40,12 +40,11 @@ def test_detail_view_404s_for_other_user_thread(member_client, other_user):
 
 @pytest.mark.django_db
 def test_detail_view_with_live_checkpoint_renders_transcript(member_client, member_user):
+    from langchain_core.messages import AIMessage
+
     thread = ChatThread.objects.create(thread_id="t-live", user=member_user, repo_id="a/b", ref="main")
-    msg = MagicMock()
-    msg.type = "ai"
-    msg.content = "hello from agent"
-    msg.id = "m-1"
-    tup = MagicMock(channel_values={"messages": [msg]})
+    msg = AIMessage(content="hello from agent", id="m-1")
+    tup = MagicMock(checkpoint={"channel_values": {"messages": [msg]}})
     with patch("chat.views.open_checkpointer") as cp_ctx:
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -55,10 +54,10 @@ def test_detail_view_with_live_checkpoint_renders_transcript(member_client, memb
 
     assert resp.status_code == 200
     assert resp.context["expired"] is False
-    history = resp.context["messages_history"]
-    assert len(history) == 1
-    assert history[0]["role"] == "assistant"
-    assert history[0]["content"] == "hello from agent"
+    turns = resp.context["turns"]
+    assert len(turns) == 1
+    assert turns[0]["role"] == "assistant"
+    assert turns[0]["segments"] == [{"type": "text", "content": "hello from agent"}]
 
 
 @pytest.mark.django_db
@@ -125,7 +124,7 @@ def test_from_activity_creates_thread_and_redirects(member_client, member_user):
         thread_id="t-alive",
         user=member_user,
     )
-    tup = MagicMock(channel_values={"messages": []})
+    tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with patch("chat.views.open_checkpointer") as cp_ctx:
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
