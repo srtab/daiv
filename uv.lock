@@ -524,7 +524,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.2.2" },
     { name = "langgraph", specifier = "==1.1.9" },
     { name = "langgraph-checkpoint-redis", specifier = "==0.4.1" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.7.33" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.7.36" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdown", specifier = "==3.10.2" },
     { name = "markdownify", specifier = "==1.2.2" },
@@ -1551,7 +1551,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.7.33"
+version = "0.7.36"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1564,9 +1564,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6f/75/1ee27b3510bf5b1b569b9695c9466c256caab45885bd569c0c67720236ad/langsmith-0.7.33.tar.gz", hash = "sha256:fa2d81ad6e8374a81fda9291894f6fcae714e55fbf11a0b07578e3cd4b1ea384", size = 1186298, upload-time = "2026-04-20T16:17:54.583Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/4c/5f20508000ee0559bfa713b85c431b1cdc95d2913247ff9eb318e7fdff7b/langsmith-0.7.36.tar.gz", hash = "sha256:d18ef34819e0a252cf52c74ce6e9bd5de6deea4f85a3aef50abc9f48d8c5f8b8", size = 4402322, upload-time = "2026-04-24T16:58:06.681Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/76/53033db34ffccd25d62c32b23b9468f7228b455da6976e1c420ae31555c4/langsmith-0.7.33-py3-none-any.whl", hash = "sha256:5b535b991d52d3b664ebb8dc6f95afcf8d0acb42e062ac45a54a6a4820139f20", size = 378981, upload-time = "2026-04-20T16:17:52.503Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/8d/3ca31ae3a4a437191243ad6d9061ede9367440bb7dc9a0da1ecc2c2a4865/langsmith-0.7.36-py3-none-any.whl", hash = "sha256:e1657a795f3f1982bb8d34c98b143b630ca3eee9de2c10e670c9105233b54654", size = 381808, upload-time = "2026-04-24T16:58:04.572Z" },
 ]
 
 [package.optional-dependencies]
