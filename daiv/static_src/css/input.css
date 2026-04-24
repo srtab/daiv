@@ -464,9 +464,6 @@ a, button, [role="button"] {
   /* Turn */
 
   .chat-turn {
-    display: grid;
-    grid-template-columns: 44px 1fr;
-    gap: 16px;
     padding: 1.25rem 0;
     animation: fade-up 0.45s ease-out both;
   }
@@ -475,84 +472,49 @@ a, button, [role="button"] {
     border-top: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .chat-turn__gutter {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .chat-turn__marker {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  .chat-turn--user .chat-turn__marker {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #cbd5e1;
-  }
-
-  .chat-turn--assistant .chat-turn__marker {
-    background: linear-gradient(135deg, #7c3aed, #3b82f6);
-    color: #fff;
-    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.08);
-  }
-
-  .chat-turn__rail {
-    flex: 1;
-    width: 2px;
-    margin-top: 6px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-    border-radius: 999px;
-    min-height: 8px;
-  }
-
-  .chat-turn:last-child .chat-turn__rail {
-    opacity: 0;
-  }
-
-  .chat-turn__rail--streaming {
-    background: linear-gradient(
-      180deg,
-      rgba(167, 139, 250, 0) 0%,
-      rgba(167, 139, 250, 0.6) 50%,
-      rgba(167, 139, 250, 0) 100%
-    );
-    background-size: 100% 200%;
-    animation: rail-flow 1.8s ease-in-out infinite;
-  }
-
-  @keyframes rail-flow {
-    0% { background-position: 0% 100%; }
-    100% { background-position: 0% -100%; }
-  }
-
   .chat-turn__body {
     min-width: 0;
-    padding-top: 2px;
     font-size: 14.5px;
     color: #e2e8f0;
     line-height: 1.65;
   }
 
-  .chat-turn--user {
-    grid-template-columns: 1fr 44px;
+  /* Assistant turn: subtle left thread-line doubles as the streaming indicator */
+  .chat-turn--assistant {
+    position: relative;
+    padding-left: 20px;
   }
 
-  .chat-turn--user .chat-turn__gutter {
-    order: 2;
+  .chat-turn--assistant::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1.25rem;
+    bottom: 1.25rem;
+    width: 2px;
+    border-radius: 999px;
+    background: rgba(167, 139, 250, 0.18);
   }
 
+  .chat-turn--assistant.chat-turn--streaming::before {
+    background:
+      linear-gradient(
+        180deg,
+        rgba(167, 139, 250, 0) 0%,
+        rgba(167, 139, 250, 0.7) 50%,
+        rgba(167, 139, 250, 0) 100%
+      ) 0% 100% / 100% 200% no-repeat,
+      rgba(167, 139, 250, 0.18);
+    animation: rail-flow 1.8s ease-in-out infinite;
+  }
+
+  @keyframes rail-flow {
+    0% { background-position: 0% 100%, 0 0; }
+    100% { background-position: 0% -100%, 0 0; }
+  }
+
+  /* User turn: no thread line, bubble hugs the right edge */
   .chat-turn--user .chat-turn__body {
-    order: 1;
     display: flex;
     flex-direction: column;
     align-items: flex-end;

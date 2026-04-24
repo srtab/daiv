@@ -70,15 +70,8 @@
 
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
-          <article class="chat-turn" :class="`chat-turn--${turn.role}`">
-            <div class="chat-turn__gutter" aria-hidden="true">
-              <div class="chat-turn__marker">
-                <span x-text="turn.role === 'assistant' ? 'D' : 'You'"></span>
-              </div>
-              <div class="chat-turn__rail"
-                   :class="{ 'chat-turn__rail--streaming': turn.streaming && ti === turns.length - 1 }"></div>
-            </div>
-
+          <article class="chat-turn"
+                   :class="[`chat-turn--${turn.role}`, { 'chat-turn--streaming': turn.streaming && ti === turns.length - 1 }]">
             <div class="chat-turn__body">
               <template x-for="(seg, si) in turn.segments" :key="si">
                 <div class="chat-segment" :class="`chat-segment--${seg.type}`">
