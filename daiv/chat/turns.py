@@ -24,4 +24,20 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     entries are paired back onto their originating tool-call segment via the
     ``tool_call_id``.
     """
-    return []
+    turns: list[dict[str, Any]] = []
+    for m in messages:
+        mtype = (getattr(m, "type", None) or getattr(m, "role", "") or "").lower()
+        if mtype in ("human", "user"):
+            turns.append(_build_user_turn(m))
+    return turns
+
+
+def _build_user_turn(m: Any) -> dict[str, Any]:
+    content = getattr(m, "content", "")
+    if isinstance(content, list):
+        text = "".join(
+            block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
+        )
+    else:
+        text = str(content or "")
+    return {"id": getattr(m, "id", "") or "", "role": "user", "segments": [{"type": "text", "content": text}]}
