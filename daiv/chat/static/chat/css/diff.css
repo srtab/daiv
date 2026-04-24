@@ -1,0 +1,136 @@
+/* Diff view for edit_file expanded body. Kept outside Tailwind's input.css so
+   colors can be tuned without touching the global component layer. */
+
+.chat-diff {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 0;
+  overflow-x: auto;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-diff > div {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.chat-diff .diff-meta {
+  color: #64748b;
+}
+
+.chat-diff .diff-hunk {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.04);
+  margin: 4px 0;
+}
+
+.chat-diff .diff-add {
+  color: #86efac;
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.chat-diff .diff-del {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.chat-diff .diff-ctx {
+  color: #cbd5e1;
+}
+
+.chat-grep {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-grep__group + .chat-grep__group {
+  margin-top: 10px;
+}
+
+.chat-grep__file {
+  color: #93c5fd;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.chat-grep__hit {
+  color: #94a3b8;
+  padding: 1px 0 1px 12px;
+  white-space: pre-wrap;
+}
+
+.chat-grep__lineno {
+  display: inline-block;
+  min-width: 3ch;
+  color: #64748b;
+  margin-right: 8px;
+  text-align: right;
+}
+
+.chat-bash {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.chat-bash__cmd {
+  color: #e2e8f0;
+  margin-bottom: 6px;
+}
+
+.chat-bash__prompt {
+  color: #34d399;
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.chat-tool__code--bash {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #94a3b8;
+}
+
+.chat-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+}
+
+.chat-todo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #e2e8f0;
+}
+
+.chat-todo__icon {
+  display: inline-block;
+  width: 12px;
+  color: inherit;
+}
+
+.chat-todo--completed {
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.chat-todo--in_progress {
+  color: #fbbf24;
+}
