@@ -136,6 +136,88 @@ def test_build_turns_orphan_tool_message_is_dropped_with_warning(caplog):
     assert any("tc-missing" in rec.message for rec in caplog.records)
 
 
+def test_build_turns_skill_injection_folds_human_body_into_tool_result():
+    msgs = [
+        HumanMessage(content="run /plan", id="h-1"),
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-skill", "name": "skill", "args": {"skill": "plan"}}]),
+        ToolMessage(content="Launching skill 'plan'...", tool_call_id="tc-skill", id="t-1"),
+        HumanMessage(content="# Plan skill body\n\ninstructions...", id="h-synthetic"),
+        AIMessage(content="Here is the plan.", id="a-2"),
+    ]
+    result = build_turns(msgs)
+    roles = [t["role"] for t in result]
+    assert roles == ["user", "assistant", "assistant"]
+    skill_seg = result[1]["segments"][0]
+    assert skill_seg["name"] == "skill"
+    assert skill_seg["result"] == "# Plan skill body\n\ninstructions..."
+
+
+def test_build_turns_human_after_non_skill_tool_still_renders_as_user_turn():
+    msgs = [
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-1", "name": "read_file", "args": {"path": "a"}}]),
+        ToolMessage(content="contents", tool_call_id="tc-1", id="t-1"),
+        HumanMessage(content="thanks", id="h-1"),
+    ]
+    result = build_turns(msgs)
+    assert [t["role"] for t in result] == ["assistant", "user"]
+    assert result[1]["segments"][0]["content"] == "thanks"
+
+
+def test_build_turns_ai_thinking_block_emits_thinking_segment():
+    # Anthropic shape: content list with a leading thinking block.
+    m = AIMessage(
+        content=[
+            {"type": "thinking", "thinking": "Let me consider the options…", "signature": "sig"},
+            {"type": "text", "text": "Here is the answer."},
+        ],
+        id="a-think-1",
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {"type": "thinking", "content": "Let me consider the options…"},
+        {"type": "text", "content": "Here is the answer."},
+    ]
+
+
+def test_build_turns_ai_reasoning_block_emits_thinking_segment():
+    # LangChain standardized shape: content list with a reasoning block.
+    m = AIMessage(
+        content=[{"type": "reasoning", "reasoning": "Step-by-step plan…"}, {"type": "text", "text": "Done."}],
+        id="a-think-2",
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {"type": "thinking", "content": "Step-by-step plan…"},
+        {"type": "text", "content": "Done."},
+    ]
+
+
+def test_build_turns_ai_reasoning_in_additional_kwargs_string_emits_thinking_segment():
+    # DeepSeek / Qwen / xAI / some OpenRouter routes: reasoning_content as a string.
+    m = AIMessage(
+        content="Final answer.", id="a-think-3", additional_kwargs={"reasoning_content": "Considered options A, B, C…"}
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {"type": "thinking", "content": "Considered options A, B, C…"},
+        {"type": "text", "content": "Final answer."},
+    ]
+
+
+def test_build_turns_ai_reasoning_in_additional_kwargs_summary_emits_thinking_segment():
+    # OpenAI legacy reasoning.summary[*].text shape.
+    m = AIMessage(
+        content="Final answer.",
+        id="a-think-4",
+        additional_kwargs={"reasoning": {"summary": [{"text": "step 1"}, {"text": "step 2"}]}},
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {"type": "thinking", "content": "step 1\n\nstep 2"},
+        {"type": "text", "content": "Final answer."},
+    ]
+
+
 def test_build_turns_mixed_order_human_ai_tool_ai_tool_human():
     msgs = [
         HumanMessage(content="first prompt", id="h-1"),

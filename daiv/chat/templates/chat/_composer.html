@@ -1,7 +1,9 @@
 {% load i18n %}
 <form @submit.prevent="submit()"
       class="chat-composer"
-      :class="{ 'chat-composer--sending': streaming }">
+      :class="{ 'chat-composer--sending': (streaming || resuming) }"
+      x-show="thread || draftRepoId"
+      x-transition.opacity.duration.300ms>
 
   <button type="button"
           class="chat-jump"
@@ -9,28 +11,28 @@
           @click="scrollToBottom({force: true})"
           x-transition.opacity>↓ {% trans "Jump to latest" %}</button>
 
-  <div class="chat-composer__meta">
-    <template x-if="thread">
-      <span class="chat-composer__chip">
+  {% comment %}
+  Chip is suppressed while the user is still composing their first prompt — the picker's
+  own chip in the hero already advertises the selection. Once the first message is sent
+  the hero unmounts and `thread` becomes truthy, so the chip takes over here.
+  {% endcomment %}
+  <div class="chat-composer__meta" x-show="thread" x-cloak>
+    <span class="repo-chip">
+      <span class="repo-chip__btn">
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+          <path d="M4 6h16M4 12h16M4 18h10"/>
         </svg>
-        <span x-text="thread.repo_id"></span>
-        <span class="chat-composer__chip-sep">/</span>
-        <span class="chat-composer__chip-ref" x-text="thread.ref"></span>
+        <span x-text="thread?.repo_id"></span>
       </span>
-    </template>
-
-    <template x-if="!thread">
-      <span class="chat-composer__chip-inputs">
-        <input type="text" x-model="draftRepoId"
-               placeholder="{% trans 'owner/repo' %}"
-               class="chat-composer__chip-input">
-        <span class="chat-composer__chip-sep">/</span>
-        <input type="text" x-model="draftRef" placeholder="main"
-               class="chat-composer__chip-input chat-composer__chip-input--ref">
+      <span class="repo-chip__btn">
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
+          <circle cx="6" cy="18" r="3"/>
+          <circle cx="18" cy="6" r="3"/>
+        </svg>
+        <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
       </span>
-    </template>
+    </span>
   </div>
 
   <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>
@@ -41,7 +43,7 @@
             @keydown.meta.enter.prevent="submit()"
             @keydown.ctrl.enter.prevent="submit()"
             rows="2"
-            :disabled="streaming"
+            :disabled="(streaming || resuming)"
             placeholder="{% trans 'Describe the change, the bug, or what to explore…' %}"
             class="chat-composer__textarea"></textarea>
 
@@ -52,12 +54,12 @@
       <span>{% trans "to send" %}</span>
     </div>
     <div style="display: inline-flex; gap: 8px;">
-      <button type="button" x-show="streaming" @click="stop()"
+      <button type="button" x-show="(streaming || resuming)" @click="stop()"
               class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
-      <button type="submit" :disabled="streaming || !canSend()"
+      <button type="submit" :disabled="(streaming || resuming) || !canSend()"
               class="chat-composer__btn chat-composer__btn--send">
-        <span x-text="streaming ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
-        <svg x-show="!streaming" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <span x-text="(streaming || resuming) ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
+        <svg x-show="!(streaming || resuming)" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
         </svg>
       </button>

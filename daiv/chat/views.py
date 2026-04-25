@@ -62,11 +62,12 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         thread = ctx.setdefault("thread", None)
         if thread is None:
-            ctx.update({"turns": [], "expired": False})
+            ctx.update({"turns": [], "expired": False, "active_run_id": ""})
             return ctx
         messages_history, expired = async_to_sync(_ahydrate)(thread.thread_id)
         ctx["turns"] = build_turns(messages_history)
         ctx["expired"] = expired
+        ctx["active_run_id"] = thread.active_run_id
         return ctx
 
     def get_breadcrumbs(self):

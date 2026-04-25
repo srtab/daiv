@@ -218,7 +218,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                     # When using thinking the temperature need to be set to 1 for Anthropic models
                     _kwargs["temperature"] = 1
                 else:
-                    _kwargs["extra_body"] = {"reasoning": {"effort": thinking_level.value}}
+                    # `enabled: true` is the universal switch on OpenRouter; some providers
+                    # (notably z.ai's GLM family) ignore `effort` and require the explicit flag.
+                    _kwargs["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level.value}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value

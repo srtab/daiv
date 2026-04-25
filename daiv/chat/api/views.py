@@ -75,6 +75,18 @@ async def _release_thread(thread_id: str) -> None:
     await ChatThread.objects.filter(thread_id=thread_id).aupdate(active_run_id="", last_active_at=timezone.now())
 
 
+@chat_router.get("/threads/{thread_id}/status", response=dict)
+async def thread_status(request: HttpRequest, thread_id: str):
+    """Cheap probe so a reloaded page can detect when its in-flight run has released
+    the per-thread slot and trigger a rehydration from the checkpointer.
+    """
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    thread = await ChatThread.objects.filter(thread_id=thread_id, user=user).afirst()
+    if thread is None:
+        raise HttpError(404, "Thread not found")
+    return {"active": bool(thread.active_run_id)}
+
+
 @chat_router.post(
     "/completions",
     response=dict,

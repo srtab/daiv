@@ -15,6 +15,7 @@ document.addEventListener("alpine:init", () => {
         repoPickerUrl = "",
         branchPickerTemplate = "",
         conflictMessageTemplate = "Repository already in the list: __LABEL__.",
+        onChangeEvent = "",
     }) => ({
         repos: (initialRepos || []).map(r => ({ slug: r.repo_id, ref: r.ref || "" })),
         useMax: initialUseMax,
@@ -22,6 +23,7 @@ document.addEventListener("alpine:init", () => {
         repoPickerUrl,
         branchPickerTemplate,
         conflictMessageTemplate,
+        onChangeEvent,
 
         popover: null,
         editingIndex: null,
@@ -43,6 +45,15 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoSearch) this.repoLoading = false;
                 if (e.target === this.$refs.branchSearch) this.branchLoading = false;
             });
+        },
+
+        _emitChange() {
+            if (!this.onChangeEvent) return;
+            window.dispatchEvent(
+                new CustomEvent(this.onChangeEvent, {
+                    detail: { repos: this.repos.map((r) => ({ repo_id: r.slug, ref: r.ref || "" })) },
+                }),
+            );
         },
 
         destroy() {
@@ -109,6 +120,7 @@ document.addEventListener("alpine:init", () => {
             if (this.editingIndex === null) this.repos.push(entry);
             else this.repos.splice(this.editingIndex, 1, entry);
             this.closePopover();
+            this._emitChange();
         },
 
         setBranch(ref) {
@@ -122,6 +134,7 @@ document.addEventListener("alpine:init", () => {
             }
             this.repos[this.editingIndex].ref = ref;
             this.closePopover();
+            this._emitChange();
         },
 
         remove(index) {
@@ -134,6 +147,7 @@ document.addEventListener("alpine:init", () => {
                 if (this.editingIndex === index) this.closePopover();
                 else if (index < this.editingIndex) this.editingIndex -= 1;
             }
+            this._emitChange();
         },
 
         _findConflict(slug, ref, skipIndex) {

@@ -1,5 +1,6 @@
 import contextlib
 import fnmatch
+import logging
 import re
 import tempfile
 from pathlib import Path
@@ -9,9 +10,12 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from unidiff import PatchSet
 from unidiff.constants import LINE_TYPE_CONTEXT
+from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from git import Repo
@@ -116,6 +120,37 @@ def redact_diff_content(
                     Line("[Diff content was intentionally excluded by the repository configuration]", LINE_TYPE_CONTEXT)
                 )
     return str(patch_set) if not as_patch_set else patch_set
+
+
+def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
+    """Derive a ``{path, op[, from_path]}`` list from a unified diff.
+
+    The sandbox reports every workspace mutation regardless of how it happened
+    (bash ``rm``/``mv``, scripts, ``find -delete``, …), which is what lets the
+    chat rail surface them alongside ``edit_file``/``write_file`` tool calls.
+    """
+    if not patch or not patch.strip():
+        return []
+    try:
+        patch_set = PatchSet.from_string(patch)
+    except UnidiffParseError:
+        logger.warning("Failed to parse patch for files_changed", exc_info=True)
+        return []
+
+    files: list[dict[str, str]] = []
+    for patched_file in patch_set:
+        entry: dict[str, str] = {"path": patched_file.path}
+        if patched_file.is_added_file:
+            entry["op"] = "added"
+        elif patched_file.is_removed_file:
+            entry["op"] = "deleted"
+        elif patched_file.is_rename:
+            entry["op"] = "renamed"
+            entry["from_path"] = patched_file.source_file.removeprefix("a/").removeprefix("b/")
+        else:
+            entry["op"] = "modified"
+        files.append(entry)
+    return files
 
 
 class GitManager:

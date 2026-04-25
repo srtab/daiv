@@ -1,0 +1,188 @@
+{% load i18n icon_tags %}
+{% url 'codebase:picker-repositories' as repo_picker_url %}
+{% url 'codebase:picker-branches' slug='__SLUG__' as branch_picker_template %}
+{% trans "Choose repository" as choose_repo_label %}
+{% trans "Search repositories..." as search_repos_placeholder %}
+{% trans "Search branches..." as search_branches_placeholder %}
+{% trans "default" as default_branch_label %}
+{% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
+
+{% comment %}
+Reusable repo + branch picker. Renders the chip list, both popovers, and (optionally)
+the hidden form inputs that submit the selection.
+
+Parameters:
+- max_repos (default 1)         — chip-list cap
+- initial_repos (default "[]")  — JSON list of {repo_id, ref} to seed the picker
+- field_name (default "repos")  — hidden input name; set to empty to skip submission
+- required (default True)       — emit the sr-only guard input that blocks form submit when empty
+- field_errors (default None)   — Django ErrorList for the repos field
+- extra_errors (default None)   — Django ErrorList for sibling fields rendered inside the same box
+- with_x_data (default True)    — wrap in `x-data='promptBox(...)'`; set False when a parent already provides scope
+- on_change_event (default "")  — when set, promptBox dispatches this window event with detail={repos} on every chip mutation
+
+`prompt-box.js` must be loaded for the Alpine state to bind.
+{% endcomment %}
+
+{% if with_x_data|default_if_none:True %}
+<div x-data='promptBox({
+        initialRepos: {{ initial_repos|default:"[]" }},
+        maxRepos: {{ max_repos|default:1 }},
+        repoPickerUrl: "{{ repo_picker_url|escapejs }}",
+        branchPickerTemplate: "{{ branch_picker_template|escapejs }}",
+        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}",
+        onChangeEvent: "{{ on_change_event|default:''|escapejs }}"
+     })'
+     class="relative">
+{% endif %}
+
+    <div class="flex flex-wrap items-center gap-1.5">
+        <template x-for="(repo, index) in repos" :key="index">
+            <span class="inline-flex items-center gap-1 rounded-full border py-1 pl-1 pr-1 text-[13px] font-medium transition-colors"
+                  :class="conflictIndex === index ? 'border-red-400/60 bg-red-500/15 text-red-200' : 'border-white/[0.08] bg-white/[0.05] text-gray-300'">
+                <button type="button"
+                        @click.stop="openRepoPicker(index)"
+                        :aria-label="'Change repository ' + repo.slug"
+                        class="inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 hover:bg-white/[0.05] hover:text-white">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 6h16M4 12h16M4 18h10"/>
+                    </svg>
+                    <span x-text="repo.slug"></span>
+                </button>
+                <button type="button"
+                        @click.stop="openBranchPicker(index)"
+                        :aria-label="'Change branch for ' + repo.slug"
+                        class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-white/[0.05] hover:text-white">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="6" r="3"/>
+                    </svg>
+                    <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="text-blue-300"></span>
+                </button>
+                <button type="button"
+                        @click="remove(index)"
+                        :aria-label="'Remove ' + repo.slug"
+                        class="rounded-full px-1.5 text-gray-500 hover:text-gray-200">×</button>
+            </span>
+        </template>
+
+        <button type="button"
+                x-show="repos.length === 0"
+                @click.stop="openRepoPicker()"
+                class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
+            {% if git_platform == "github" %}
+                {% icon "github" "h-3.5 w-3.5" %}
+            {% elif git_platform == "gitlab" %}
+                {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
+            {% else %}
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                </svg>
+            {% endif %}
+            <span>{{ choose_repo_label }}</span>
+        </button>
+
+        <button type="button"
+                x-show="repos.length > 0 && repos.length < maxRepos"
+                @click.stop="openRepoPicker()"
+                aria-label="{% trans 'Add repository' %}"
+                title="{% trans 'Add repository' %}"
+                class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M12 5v14M5 12h14"/>
+            </svg>
+        </button>
+    </div>
+
+    {% comment %}
+    Both popovers stay in the DOM with hx-get pre-set so HTMX registers them during its
+    initial sweep. openBranchPicker rewrites the branch input's hx-get (via setAttribute)
+    before firing `refresh`, so the __SLUG__ placeholder is replaced with the real slug.
+    {% endcomment %}
+    <div x-show="popover === 'repo'" x-cloak
+         @click.outside="closePopover()"
+         @keydown.escape.window="closePopover()"
+         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+        <input type="search" name="q" autofocus
+               x-ref="repoSearch"
+               placeholder="{{ search_repos_placeholder }}"
+               hx-get="{{ repo_picker_url }}"
+               hx-trigger="refresh, input changed delay:200ms, search"
+               hx-sync="this:abort"
+               hx-target="#repo-picker-list"
+               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+        <div x-show="repoLoading" class="animate-pulse py-1">
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-3/5"></div>
+            </div>
+            <div class="px-3 py-2">
+                <div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+                <div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div>
+                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            </div>
+        </div>
+        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="max-h-60 overflow-auto"></div>
+    </div>
+
+    <div x-show="popover === 'branch'" x-cloak
+         @click.outside="closePopover()"
+         @keydown.escape.window="closePopover()"
+         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+        <input type="search" name="q" autofocus
+               x-ref="branchSearch"
+               placeholder="{{ search_branches_placeholder }}"
+               hx-get="{{ branch_picker_template }}"
+               hx-trigger="refresh, input changed delay:200ms, search"
+               hx-sync="this:abort"
+               hx-target="#branch-picker-list"
+               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+        <div x-show="branchLoading" class="animate-pulse py-1">
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/5"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div></div>
+            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div></div>
+        </div>
+        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
+    </div>
+
+    {% if field_name|default:"repos" %}
+    <input type="hidden" name="{{ field_name|default:'repos' }}"
+           value="{{ initial_repos|default:'[]' }}"
+           :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
+    {% endif %}
+
+    {% if required|default_if_none:True %}
+    {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
+    <input type="text" name="__repo_required_guard" required
+           aria-hidden="true" tabindex="-1"
+           class="sr-only"
+           value="{% if initial_repos and initial_repos != '[]' %}ok{% endif %}"
+           :value="repos.length > 0 ? 'ok' : ''">
+    {% endif %}
+
+    {% if field_errors or extra_errors or show_conflict_message|default_if_none:True %}
+    <ul {% if not field_errors and not extra_errors %}x-show="conflictMessage" x-cloak{% endif %}
+        class="mt-2 text-sm text-red-400">
+        {% for err in extra_errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in field_errors %}<li>{{ err }}</li>{% endfor %}
+        <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
+    </ul>
+    {% endif %}
+
+{% if with_x_data|default_if_none:True %}
+</div>
+{% endif %}

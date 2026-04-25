@@ -190,6 +190,38 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_thread_status_reports_active_run(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await ChatThread.objects.acreate(thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1")
+    await ChatThread.objects.acreate(thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id="")
+
+    live = await client.get("/chat/threads/t-live/status", headers=_auth_headers(raw))
+    idle = await client.get("/chat/threads/t-idle/status", headers=_auth_headers(raw))
+
+    assert live.status_code == 200
+    assert live.json() == {"active": True}
+    assert idle.status_code == 200
+    assert idle.json() == {"active": False}
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_thread_status_rejects_cross_user_access(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    other = await User.objects.acreate_user(
+        username="intruder",
+        email="i@example.com",
+        password="x",  # noqa: S106
+    )
+    await ChatThread.objects.acreate(thread_id="t-foreign", user=other, repo_id="a/b", ref="main", active_run_id="r-9")
+
+    response = await client.get("/chat/threads/t-foreign/status", headers=_auth_headers(raw))
+    assert response.status_code == 404
+    await user.adelete()
+    await other.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
     _, raw, user = authed
     await ChatThread.objects.acreate(
