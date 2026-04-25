@@ -178,20 +178,23 @@
       }
       if (hits) badges.push(badge(`${hits} ${label}`, "warn"));
     }
-    return { label: "grep", path: `"${truncate(pattern, 60)}" in ${path}`, badges };
+    const glob = pickKeyOrPartial(args, ["glob"], argsStr) ?? "";
+    const scope = [path, glob].filter(Boolean).join(" / ");
+    const target = scope ? ` in ${scope}` : "";
+    return { label: "grep", path: `"${truncate(pattern, 60)}"${target}`, badges };
   };
 
   const sigGlob = (args, result, argsStr) => {
     const pattern = pickKeyOrPartial(args, ["pattern", "glob", "path"], argsStr) ?? "";
-    const count = String(result ?? "").split("\n").filter((l) => l.trim().length).length;
+    const count = parseLsEntries(result).length;
     const badges = count ? [badge(`${count} files`, "neutral")] : [];
     return { label: "glob", path: pattern, badges };
   };
 
-  // The `ls` tool serializes its result with `str(list_of_paths)`, producing a
-  // Python list repr like "['/repo/a.py', '/repo/b.py']" — a single line of
-  // text with quoted entries. Pull entries out of either that shape or a plain
-  // newline-separated fallback. Returns [] for anything we can't parse.
+  // The `ls` and `glob` tools serialize their result with `str(list_of_paths)`,
+  // producing a Python list repr like "['/repo/a.py', '/repo/b.py']" — a single
+  // line of text with quoted entries. Pull entries out of either that shape or
+  // a plain newline-separated fallback. Returns [] for anything we can't parse.
   const parseLsEntries = (result) => {
     const text = String(result ?? "").trim();
     if (!text) return [];
@@ -482,7 +485,11 @@
     write_file: (_args, result) => resultOnlyBody("Result", result),
     edit_file: (args, result) => editFileBody(args, result),
     grep: (args, result) => grepBody(result),
-    glob: (_args, result) => resultOnlyBody("Matches", result),
+    glob: (_args, result) => {
+      const entries = parseLsEntries(result);
+      if (!entries.length) return resultOnlyBody("Matches", result);
+      return block("Matches", pre(entries.join("\n")));
+    },
     ls: (_args, result) => {
       const entries = parseLsEntries(result);
       if (!entries.length) return resultOnlyBody("Entries", result);
