@@ -14,11 +14,16 @@
 
 {% block app_content %}
 <div x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
-    <div class="animate-fade-up">
-        <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
-        <p class="mt-1.5 text-[15px] font-light text-gray-400">
-            {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
-        </p>
+    <div class="animate-fade-up flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight">Agent Activity</h1>
+            <p class="mt-1.5 text-[15px] font-light text-gray-400">
+                {% if schedule_name %}{{ schedule_name }} &middot; {% endif %}All agent executions across jobs, schedules, and webhooks.
+            </p>
+        </div>
+        <a href="{% url 'runs:agent_run_new' %}"
+           data-testid="activity-start-run-cta"
+           class="btn-primary shrink-0">{% translate "Start a run" %}</a>
     </div>
 
         <!-- Filters -->
