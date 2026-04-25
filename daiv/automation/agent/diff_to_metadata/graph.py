@@ -130,5 +130,16 @@ def create_diff_to_metadata_graph(
     return (RunnableLambda(_input_selector) | RunnableParallel(graphs) | RunnableLambda(_output_selector)).with_config(
         run_name=run_name,
         tags=[run_name],
-        metadata={"include_pr_metadata": include_pr_metadata, "include_commit_message": include_commit_message},
+        # `emit-messages: False` is honored by ag_ui_langgraph and silences the
+        # subagents' text + reasoning frames so partial JSON from the structured
+        # response never bleeds into the chat. We *do* let TOOL_CALL_* events
+        # through: the chat client recognizes the `PullRequestMetadata` and
+        # `CommitMetadata` tool names and renders them as inline progress chips
+        # ("Creating merge request…" / "Committing changes…") instead of raw
+        # tool cards.
+        metadata={
+            "include_pr_metadata": include_pr_metadata,
+            "include_commit_message": include_commit_message,
+            "emit-messages": False,
+        },
     )

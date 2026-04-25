@@ -14,6 +14,32 @@
     REASONING_START: "REASONING_START",
     REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
     REASONING_END: "REASONING_END",
+    CUSTOM: "CUSTOM",
+  };
+
+  const REPO_STATE_EVENT = "daiv:repo_state";
+
+  // Structured-response tool names emitted by the diff_to_metadata subagents.
+  // We render their TOOL_CALL_* lifecycle as compact phase chips ("Creating
+  // merge request…" / "Committing changes…") instead of letting the raw JSON
+  // structured response surface as a tool card. Subagent text + reasoning are
+  // already silenced server-side via `emit-messages: false`, so this is the
+  // only signal the chat sees from the publish pipeline before the
+  // `daiv:repo_state` CustomEvent confirms the result.
+  const PUBLISH_PHASE_TOOLS = {
+    PullRequestMetadata: { label: "Creating merge request" },
+    CommitMetadata: { label: "Committing changes" },
+  };
+
+  const loadInitialMergeRequest = () => {
+    const el = document.getElementById("chat-initial-merge-request");
+    if (!el) return null;
+    try {
+      const v = JSON.parse(el.textContent);
+      return v && typeof v === "object" ? v : null;
+    } catch {
+      return null;
+    }
   };
 
   // Tools whose args directly name a file the agent *modified*. Read-only tools
@@ -79,7 +105,11 @@
     endpoint: config.endpoint,
     statusEndpoint: config.statusEndpoint || "",
     csrfToken: config.csrfToken || "",
-    thread: config.thread,
+    // Hydrate the MR pill from the server-rendered checkpoint. We rebuild the
+    // thread object so Alpine tracks `merge_request` as a reactive property
+    // from the first render — assigning a *new* key onto an existing reactive
+    // proxy after init doesn't always re-render templates.
+    thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
     turns: loadInitialTurns(),
     draftMessage: "",
     draftRepoId: "",
@@ -209,6 +239,13 @@
         return { tone: "thinking", label: "catching up on the running session…" };
       }
       if (!this.streaming) return { tone: "idle", label: "idle" };
+      // Publish-phase chips win over generic tool calls in the status bar:
+      // when GitMiddleware is committing/creating an MR, that's the most
+      // informative thing to surface.
+      const activePhase = last?.segments.slice().reverse().find(
+        (s) => s.type === "publish_phase" && s.status === "running",
+      );
+      if (activePhase) return { tone: "running", label: `${activePhase.label}…` };
       const activeTool = last?.segments.slice().reverse().find(
         (s) => s.type === "tool_call" && s.status === "running",
       );
@@ -546,34 +583,87 @@
           turn.segments[existingIdx].sealed = true;
           return;
         }
-        turn.segments.push({
-          type: "tool_call",
-          id: evt.toolCallId,
-          name: evt.toolCallName,
-          args: "",
-          result: null,
-          status: "running",
-        });
+        const phase = PUBLISH_PHASE_TOOLS[evt.toolCallName];
+        if (phase) {
+          // Structured-response tool from the publish pipeline: drop the args/
+          // result rendering entirely and surface a phase chip. The chip stays
+          // on the running turn until TOOL_CALL_RESULT (or RUN_FINISHED) flips
+          // it to done.
+          turn.segments.push({
+            type: "publish_phase",
+            id: evt.toolCallId,
+            name: evt.toolCallName,
+            label: phase.label,
+            status: "running",
+          });
+        } else {
+          turn.segments.push({
+            type: "tool_call",
+            id: evt.toolCallId,
+            name: evt.toolCallName,
+            args: "",
+            result: null,
+            status: "running",
+          });
+        }
         this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
       } else if (type === AGUI.TOOL_CALL_ARGS) {
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
-        if (seg && !seg.sealed) {
+        // Phase chips intentionally ignore args (the structured-response JSON
+        // is not user-facing).
+        if (seg && seg.type === "tool_call" && !seg.sealed) {
           seg.args += evt.delta || "";
+        }
+      } else if (type === AGUI.TOOL_CALL_END) {
+        // Structured-response tool calls don't always trigger a TOOL_CALL_RESULT
+        // (the agent extracts the structured payload and stops without
+        // executing a tool), so use the END signal — which always fires once
+        // args streaming finishes — to flip the phase chip to done.
+        const idx = this._toolIndex.get(evt.toolCallId);
+        const seg = idx != null ? turn.segments[idx] : null;
+        if (seg && seg.type === "publish_phase") {
+          seg.status = "done";
         }
       } else if (type === AGUI.TOOL_CALL_RESULT) {
         const idx = this._toolIndex.get(evt.toolCallId);
-        if (idx != null && turn.segments[idx]) {
-          turn.segments[idx].result = evt.content;
-          turn.segments[idx].status = "done";
+        const seg = idx != null ? turn.segments[idx] : null;
+        if (!seg) return;
+        if (seg.type === "publish_phase") {
+          seg.status = "done";
+        } else {
+          seg.result = evt.content;
+          seg.status = "done";
         }
       } else if (type === AGUI.RUN_ERROR) {
         turn.error = evt.message || "Run failed";
         turn.segments.forEach((s) => {
           if (s.type === "tool_call" && s.status === "running") s.status = "error";
         });
+      } else if (type === AGUI.CUSTOM && evt.name === REPO_STATE_EVENT) {
+        this._applyRepoState(evt.value || {});
       }
       this.scrollToBottom();
+    },
+
+    _applyRepoState(value) {
+      // Replace `thread` wholesale so Alpine reactivity propagates the new
+      // `ref` and `merge_request` to the composer pills.
+      if (this.thread) {
+        this.thread = {
+          ...this.thread,
+          ref: value.ref || this.thread.ref,
+          merge_request: value.merge_request ?? this.thread.merge_request ?? null,
+        };
+      }
+      // Belt-and-braces: by the time repo_state lands, the publish pipeline is
+      // done. Any phase chip still marked running is stale (likely due to a
+      // missed TOOL_CALL_END for a fast-finishing structured-response tool).
+      for (const t of this.turns) {
+        for (const s of t.segments) {
+          if (s.type === "publish_phase" && s.status === "running") s.status = "done";
+        }
+      }
     },
 
     _appendTextSegment(turn, content) {

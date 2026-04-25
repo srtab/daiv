@@ -24,7 +24,8 @@
         </svg>
         <span x-text="thread?.repo_id"></span>
       </span>
-      <span class="repo-chip__btn">
+      <span class="repo-chip__btn"
+            :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
           <circle cx="6" cy="18" r="3"/>
@@ -33,6 +34,29 @@
         <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
       </span>
     </span>
+
+    {# MR pill — only renders once the agent's commit has produced a merge request. #}
+    <template x-if="thread?.merge_request">
+      <a class="repo-chip repo-chip--mr"
+         :href="thread.merge_request.url || '#'"
+         :target="thread.merge_request.url ? '_blank' : '_self'"
+         rel="noopener noreferrer"
+         :title="thread.merge_request.title || ''">
+        <span class="repo-chip__btn">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="2.5"/>
+            <circle cx="6" cy="18" r="2.5"/>
+            <circle cx="18" cy="18" r="2.5"/>
+            <path d="M6 8.5v7"/>
+            <path d="M6 6h7a5 5 0 015 5v4.5"/>
+          </svg>
+          <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% trans "MR" %}'"></span>
+          <span x-show="thread.merge_request.draft"
+                class="repo-chip__badge"
+                x-cloak>{% trans "draft" %}</span>
+        </span>
+      </a>
+    </template>
   </div>
 
   <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>

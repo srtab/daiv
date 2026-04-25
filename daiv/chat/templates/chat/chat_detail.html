@@ -25,6 +25,7 @@
 
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
+  {{ merge_request|json_script:"chat-initial-merge-request" }}
 
   <div x-data='chat({
          endpoint: "/api/chat/completions",
@@ -34,14 +35,17 @@
          thread: {% if thread %}{
            thread_id: "{{ thread.thread_id|escapejs }}",
            repo_id: "{{ thread.repo_id|escapejs }}",
-           ref: "{{ thread.ref|escapejs }}"
+           ref: "{{ thread.ref|escapejs }}",
+           merge_request: null
          }{% else %}null{% endif %}
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        x-cloak
-       class="chat-shell">
+       class="chat-shell"
+       :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">
 
-    <div class="chat-column">
+    <div class="chat-column"
+         :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
       {% if expired %}
         <div class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
           {% trans "This conversation's state has expired. Start a new chat to continue." %}
@@ -67,12 +71,14 @@
           <div class="chat-hero">
             <span class="chat-hero__eyebrow">{% trans "New chat" %}</span>
             <h1 class="chat-hero__title">{% trans "What are we building today?" %}</h1>
-            <p class="chat-hero__subtitle" x-show="!draftRepoId" x-transition.opacity>
-              {% trans "Pick a repository to get started." %}
-            </p>
-            <p class="chat-hero__subtitle" x-show="draftRepoId" x-cloak x-transition.opacity>
-              {% trans "Ready when you are — describe the change, the bug, or what to explore." %}
-            </p>
+            <div class="chat-hero__subtitle-stack">
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': draftRepoId }">
+                {% trans "Pick a repository to get started." %}
+              </p>
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
+                {% trans "Ready when you are — describe the change, the bug, or what to explore." %}
+              </p>
+            </div>
             <div class="chat-hero__picker">
               {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
             </div>
@@ -103,6 +109,17 @@
                       </summary>
                       <div class="chat-thinking-seg__body chat-text" x-html="renderMarkdown(seg.content)"></div>
                     </details>
+                  </template>
+
+                  <template x-if="seg.type === 'publish_phase'">
+                    <div class="chat-phase" :class="`chat-phase--${seg.status}`" :data-status="seg.status">
+                      <span class="chat-phase__icon" aria-hidden="true">
+                        <template x-if="seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
+                        <template x-if="seg.status === 'done'"><span>✓</span></template>
+                      </span>
+                      <span class="chat-phase__label" x-text="seg.label"></span>
+                      <span class="chat-phase__suffix" x-show="seg.status === 'running'">…</span>
+                    </div>
                   </template>
 
                   <template x-if="seg.type === 'tool_call'">

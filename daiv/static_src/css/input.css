@@ -285,6 +285,25 @@ a, button, [role="button"] {
       grid-template-columns: minmax(0, 1fr) 280px;
       column-gap: 1.5rem;
     }
+
+    /* Drop the rail column entirely and re-center the chat-column at the
+       same width it has on the chat detail page (1fr − 280px rail − 1.5rem
+       gap of a 72rem container ≈ 848px). Avoids the off-center look you'd
+       get from just hiding the rail with its column still reserved. */
+    .chat-shell--empty {
+      grid-template-columns: 1fr;
+      column-gap: 0;
+    }
+
+    .chat-shell--empty .chat-rail {
+      display: none;
+    }
+
+    .chat-shell--empty .chat-column {
+      max-width: 53rem;
+      margin-inline: auto;
+      width: 100%;
+    }
   }
 
   .chat-column {
@@ -443,7 +462,7 @@ a, button, [role="button"] {
 
   .chat-transcript {
     flex: 1 1 auto;
-    padding: 1.5rem 0 2rem 0;
+    padding: 1.5rem 0 4rem 0;
   }
 
   .chat-hero {
@@ -491,8 +510,52 @@ a, button, [role="button"] {
     color: #94a3b8;
   }
 
+  /* Stack the two subtitle variants in the same grid cell so the container
+     always sizes to the larger one — eliminates the layout jump when the
+     visible text swaps after a repo is picked. Crossfade via opacity. */
+  .chat-hero__subtitle-stack {
+    display: grid;
+  }
+
+  .chat-hero__subtitle-stack > .chat-hero__subtitle {
+    grid-area: 1 / 1;
+    margin: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .chat-hero__subtitle-stack > .chat-hero__subtitle--hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   .chat-hero__picker {
     margin-top: 18px;
+  }
+
+  /* New-chat empty state: collapse the transcript so the composer docks right
+     under the hero picker instead of pinning to the viewport bottom. Keeps the
+     pick-repo → type-message flow visually sequential. */
+  .chat-column--empty .chat-transcript {
+    flex: 0 0 auto;
+    padding-bottom: 0;
+  }
+
+  /* Lift the hero (and its repo/branch popovers) above the composer's
+     backdrop-filter stacking context — otherwise the popover that anchors
+     `top-full` from the picker visually slides under the composer below it. */
+  .chat-column--empty .chat-hero {
+    position: relative;
+    z-index: 20;
+  }
+
+  .chat-column--empty .chat-composer {
+    position: relative;
+    bottom: auto;
+    margin-top: 12px;
+  }
+
+  .chat-column--empty .chat-composer::before {
+    display: none;
   }
 
   /* Repo chip — shared between the activity form picker and the chat composer.
@@ -524,6 +587,49 @@ a, button, [role="button"] {
 
   .repo-chip__btn--branch {
     color: #93c5fd;
+  }
+
+  /* When the agent has committed to a working branch, lift the branch segment
+     so users see at a glance that it's not the original ref anymore. */
+  .repo-chip__btn--accent {
+    background: rgba(96, 165, 250, 0.12);
+    color: #bfdbfe;
+  }
+
+  .repo-chip__btn--accent .repo-chip__btn--branch {
+    color: #dbeafe;
+  }
+
+  /* MR pill — companion chip rendered after the repo chip when GitMiddleware
+     produced a merge request. Sits in the same row, links to the MR, and
+     carries an optional draft badge so reviewers can spot WIP work. */
+  .repo-chip--mr {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.22);
+    color: #bbf7d0;
+    text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .repo-chip--mr:hover {
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.35);
+    transform: translateY(-1px);
+  }
+
+  .repo-chip__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+    height: 16px;
+    border-radius: 8px;
+    background: rgba(251, 191, 36, 0.18);
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    color: #fde68a;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   /* Turn */
@@ -908,6 +1014,55 @@ a, button, [role="button"] {
     to { transform: rotate(360deg); }
   }
 
+  /* Publish-phase chip — compact inline status emitted by the diff_to_metadata
+     subagents during commit/MR creation. Sits in the assistant turn body where
+     a regular tool card would, but reads as a single line so a reader scans
+     past it once it's done. */
+  .chat-phase {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(96, 165, 250, 0.08);
+    color: #bfdbfe;
+    font-size: 12.5px;
+    font-weight: 500;
+    width: fit-content;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  }
+
+  .chat-phase--done {
+    border-color: rgba(34, 197, 94, 0.28);
+    background: rgba(34, 197, 94, 0.08);
+    color: #bbf7d0;
+  }
+
+  .chat-phase__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .chat-phase__spinner {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    animation: spin 0.9s linear infinite;
+  }
+
+  .chat-phase__suffix {
+    opacity: 0.7;
+    margin-left: -4px;
+  }
+
   .chat-tool__name {
     color: #a5b4fc;
     font-weight: 500;
@@ -1130,15 +1285,18 @@ a, button, [role="button"] {
     z-index: 10;
   }
 
+  /* Soft fade behind scrolled content above the sticky composer. Stops a few
+     pixels short of the composer's top border so it doesn't visually erase
+     the (intentionally faint) 1px top border. */
   .chat-composer::before {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 100%;
+    bottom: calc(100% + 2px);
     height: 40px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.7));
+    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.45));
   }
 
   .chat-composer:focus-within {
