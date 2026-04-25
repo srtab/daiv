@@ -6,7 +6,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from django.utils import timezone
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
@@ -17,6 +17,8 @@ from ninja.security import django_auth
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import build_langsmith_config
 from chat.models import ChatThread
+from chat.repo_state import CUSTOM_EVENT_NAME as REPO_STATE_EVENT
+from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
@@ -73,6 +75,36 @@ def _extract_first_user_message(input_data: RunAgentInput) -> str:
 
 async def _release_thread(thread_id: str) -> None:
     await ChatThread.objects.filter(thread_id=thread_id).aupdate(active_run_id="", last_active_at=timezone.now())
+
+
+async def _emit_repo_state(agent: Any, thread_id: str, repo_id: str, original_ref: str):
+    """Yield a CustomEvent carrying the post-run repo state (current ref + MR).
+
+    Best-effort: if state lookup blows up we log and swallow — a missing pill
+    update is not worth aborting the response.
+    """
+    try:
+        state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        logger.exception("chat: failed to read final agent state for repo-state event")
+        return
+
+    state_values = (getattr(state, "values", None) or {}) if state else {}
+    mr_payload = mr_to_payload(state_values.get("merge_request"))
+    new_ref = mr_payload["source_branch"] if mr_payload and mr_payload.get("source_branch") else original_ref
+
+    # If the agent didn't touch an MR, surface any pre-existing one for this branch
+    # so the composer pill appears even when the run was a no-op on git state.
+    if mr_payload is None:
+        mr_payload = await aget_existing_mr_payload(repo_id, new_ref)
+
+    if new_ref == original_ref and mr_payload is None:
+        return
+
+    if new_ref != original_ref:
+        await ChatThread.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+    yield CustomEvent(type=EventType.CUSTOM, name=REPO_STATE_EVENT, value={"ref": new_ref, "merge_request": mr_payload})
 
 
 @chat_router.get("/threads/{thread_id}/status", response=dict)
@@ -151,6 +183,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
                 )
                 async for event in langgraph_agent.run(input_data):
                     yield encoder.encode(cast("BaseEvent", event))
+
+                # End-of-run repo-state probe: GitMiddleware may have committed
+                # changes to a *different* branch than the one we started on,
+                # and the merge_request it stashed in state is private — it
+                # never makes it into the AG-UI STATE_SNAPSHOT stream. Read
+                # it back out of the checkpoint and surface it as a CUSTOM
+                # event so the composer pills can update without a reload.
+                async for repo_event in _emit_repo_state(agent, thread_id, repo_id, ref):
+                    yield encoder.encode(repo_event)
         except Exception as exc:
             logger.exception("Chat run failed for thread_id=%s run_id=%s", thread_id, run_id)
             yield encoder.encode(

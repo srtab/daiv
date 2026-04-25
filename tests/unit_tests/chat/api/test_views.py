@@ -5,7 +5,7 @@ import pytest
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey, User
-from chat.api.views import _extract_first_user_message
+from chat.api.views import _emit_repo_state, _extract_first_user_message
 from chat.models import ChatThread
 from daiv.api import api
 
@@ -234,3 +234,111 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
     )
     assert response.status_code == 409
     await user.adelete()
+
+
+def _state_mr_dict(**overrides):
+    base = {
+        "merge_request_id": 7,
+        "web_url": "https://x/7",
+        "title": "T",
+        "draft": False,
+        "source_branch": "feature-x",
+        "target_branch": "main",
+    }
+    base.update(overrides)
+    return base
+
+
+def _payload_mr(**overrides):
+    base = {
+        "id": 9,
+        "url": "https://x/9",
+        "title": "Pre-existing",
+        "draft": True,
+        "source_branch": "feature-x",
+        "target_branch": "main",
+    }
+    base.update(overrides)
+    return base
+
+
+async def _drain(gen):
+    return [item async for item in gen]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emit_repo_state_uses_state_mr_and_skips_fallback():
+    """When LangGraph state already has an MR, emit it and don't hit the platform."""
+    agent = MagicMock()
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": _state_mr_dict()}))
+
+    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
+        events = await _drain(_emit_repo_state(agent, "t-1", "a/b", "feature-x"))
+
+    assert len(events) == 1
+    assert events[0].name == "daiv:repo_state"
+    assert events[0].value["merge_request"]["id"] == 7
+    fallback.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emit_repo_state_falls_back_when_state_has_no_mr():
+    """No MR in state → fall back to platform lookup keyed on the post-run ref."""
+    agent = MagicMock()
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
+    fallback_payload = _payload_mr()
+
+    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock(return_value=fallback_payload)) as fallback:
+        events = await _drain(_emit_repo_state(agent, "t-2", "a/b", "feature-x"))
+
+    fallback.assert_awaited_once_with("a/b", "feature-x")
+    assert len(events) == 1
+    assert events[0].value["merge_request"] == fallback_payload
+    assert events[0].value["ref"] == "feature-x"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emit_repo_state_returns_silently_when_nothing_to_report():
+    """No MR in state, no MR on platform, ref unchanged → no event yielded."""
+    agent = MagicMock()
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
+
+    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock(return_value=None)):
+        events = await _drain(_emit_repo_state(agent, "t-3", "a/b", "feature-x"))
+
+    assert events == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emit_repo_state_uses_new_ref_when_state_mr_changed_branches():
+    """If the agent created an MR on a different branch, the lookup target and the
+    persisted ref both flip to the post-run source_branch.
+    """
+    user = await User.objects.acreate_user(username="u4", email="u4@x.com", password="x")  # noqa: S106
+    await ChatThread.objects.acreate(thread_id="t-4", user=user, repo_id="a/b", ref="feature-x")
+
+    agent = MagicMock()
+    state_mr = _state_mr_dict(source_branch="feature-y")
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": state_mr}))
+
+    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
+        events = await _drain(_emit_repo_state(agent, "t-4", "a/b", "feature-x"))
+
+    fallback.assert_not_called()
+    assert events[0].value["ref"] == "feature-y"
+    refreshed = await ChatThread.objects.aget(thread_id="t-4")
+    assert refreshed.ref == "feature-y"
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emit_repo_state_swallows_aget_state_errors():
+    """Reading the checkpointer is best-effort — failures must not poison the response."""
+    agent = MagicMock()
+    agent.aget_state = AsyncMock(side_effect=RuntimeError("checkpointer down"))
+
+    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
+        events = await _drain(_emit_repo_state(agent, "t-5", "a/b", "feature-x"))
+
+    assert events == []
+    fallback.assert_not_called()

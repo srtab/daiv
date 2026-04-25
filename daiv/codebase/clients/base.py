@@ -234,6 +234,23 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the first open merge request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The first open MR matching the branch pair, or ``None`` if none exist.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         pass
 

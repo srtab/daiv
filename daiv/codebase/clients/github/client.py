@@ -440,6 +440,39 @@ class GitHubClient(RepoClient):
             draft=pr.draft,
         )
 
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the open pull request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The pull request if one open PR matches, otherwise ``None``.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        prs = repo.get_pulls(state="open", base=target_branch, head=source_branch)
+        pr = next(iter(prs), None)
+        if pr is None:
+            return None
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+        )
+
     def update_merge_request(
         self,
         repo_id: str,
