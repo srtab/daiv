@@ -571,8 +571,17 @@
           seg.endedAt = Date.now();
         }
       } else if (type === AGUI.TOOL_CALL_START) {
-        // If a parent task is running and this isn't the task's own id, suppress.
-        if (activeTask && evt.toolCallId !== activeTask.id) return;
+        // Inner subagent tool calls collapse onto the running task card —
+        // tick a progress counter so the user has *some* signal during the
+        // long quiet window. Sibling task tool calls (parallel audit
+        // subagents, etc.) MUST surface: suppressing them here drops the
+        // segment, and the matching TOOL_CALL_RESULT then has nothing to
+        // bind to, so the sibling task is invisible until a page reload
+        // rehydrates from the checkpoint.
+        if (activeTask && evt.toolCallId !== activeTask.id && evt.toolCallName !== "task") {
+          activeTask.innerToolsCount = (activeTask.innerToolsCount || 0) + 1;
+          return;
+        }
         // ag_ui_langgraph re-emits START/ARGS/END from OnToolEnd whenever its
         // `has_function_streaming` flag got reset to False by an inner tool
         // completion — which happens for every parent tool that wraps a
@@ -597,14 +606,16 @@
             status: "running",
           });
         } else {
-          turn.segments.push({
+          const seg = {
             type: "tool_call",
             id: evt.toolCallId,
             name: evt.toolCallName,
             args: "",
             result: null,
             status: "running",
-          });
+          };
+          if (evt.toolCallName === "task") seg.innerToolsCount = 0;
+          turn.segments.push(seg);
         }
         this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
       } else if (type === AGUI.TOOL_CALL_ARGS) {

@@ -1096,6 +1096,13 @@ a, button, [role="button"] {
   .chat-tool__badge--violet  { background: rgba(167, 139, 250, 0.12); color: #c4b5fd; }
   .chat-tool__badge--neutral { background: rgba(255, 255, 255, 0.04); color: #94a3b8; }
 
+  .chat-tool__progress {
+    font-size: 10.5px;
+    color: rgba(251, 191, 36, 0.8);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
   .chat-tool__chev {
     color: #475569;
     transition: transform 0.2s ease;
