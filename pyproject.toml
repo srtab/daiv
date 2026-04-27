@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "croniter==6.2.2",
-  "ddgs==9.14.0",
+  "ddgs==9.14.1",
   "deepagents==0.5.1",
   "django==6.0.4",
   "django-allauth[socialaccount]==65.16.1",
