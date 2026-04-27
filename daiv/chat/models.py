@@ -18,7 +18,10 @@ class ChatThread(models.Model):
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("ref"), max_length=255, blank=True, default="")
     title = models.CharField(max_length=120, blank=True, default="")
-    active_run_id = models.CharField(max_length=64, blank=True, default="")
+    # NULL means "free slot"; any non-NULL value is the run_id currently holding
+    # the thread. Empty string is forbidden by ``chat_active_run_id_nonempty``
+    # so the sentinel is unambiguous.
+    active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
     created_at = models.DateTimeField(auto_now_add=True)
     last_active_at = models.DateTimeField(auto_now=True)
 
@@ -27,6 +30,12 @@ class ChatThread(models.Model):
     class Meta:
         ordering = ["-last_active_at"]
         indexes = [models.Index(fields=["user", "-last_active_at"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(active_run_id__isnull=True) | ~models.Q(active_run_id=""),
+                name="chat_active_run_id_nonempty",
+            )
+        ]
 
     def __str__(self) -> str:
         return str(self.title or self.thread_id)

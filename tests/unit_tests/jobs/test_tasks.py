@@ -39,3 +39,11 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     cp_ctx.assert_called_once()
     call_kwargs = agent.ainvoke.call_args.kwargs
     assert call_kwargs["config"]["configurable"]["thread_id"] == "t-123"
+
+
+async def test_run_job_task_rejects_missing_thread_id():
+    """Chat resume relies on the activity row and the checkpointer sharing the
+    same thread_id. A silent UUID fallback would break the resume contract.
+    """
+    with pytest.raises(ValueError, match="non-empty thread_id"):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="")

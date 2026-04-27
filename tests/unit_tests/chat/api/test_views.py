@@ -124,7 +124,7 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
     assert created.repo_id == "a/b"
     assert created.ref == "main"
     # The finally block in ChatRunStreamer.events() clears the run slot after the stream completes.
-    assert created.active_run_id == ""
+    assert created.active_run_id is None
     await user.adelete()
 
 
@@ -158,9 +158,14 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
     assert response.status_code == 200
     body = response.content.decode()
     assert "RUN_ERROR" in body
-    assert "kaboom" in body
+    assert "run_failed" in body
+    # User-facing message must not leak the raw exception class/message — that
+    # could expose internal paths, SQL fragments, secrets that happen to land
+    # in a stack trace.
+    assert "kaboom" not in body
+    assert "RuntimeError" not in body
     refreshed = await ChatThread.objects.aget(thread_id="t-boom")
-    assert refreshed.active_run_id == ""
+    assert refreshed.active_run_id is None
     await user.adelete()
 
 
@@ -168,7 +173,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
 async def test_thread_status_reports_active_run(client: TestAsyncClient, authed):
     _, raw, user = authed
     await ChatThread.objects.acreate(thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1")
-    await ChatThread.objects.acreate(thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id="")
+    await ChatThread.objects.acreate(thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id=None)
 
     live = await client.get("/chat/threads/t-live/status", headers=_auth_headers(raw))
     idle = await client.get("/chat/threads/t-idle/status", headers=_auth_headers(raw))

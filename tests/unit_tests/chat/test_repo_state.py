@@ -80,9 +80,13 @@ async def test_returns_none_when_lookup_returns_none():
 
 
 async def test_swallows_platform_errors_and_logs(caplog):
-    """Platform hiccups must degrade to None with a logged exception, not propagate."""
+    """Platform hiccups (HTTP/transport errors) degrade to None with a logged
+    exception. Programming bugs are NOT swallowed — they propagate.
+    """
+    import httpx
+
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=RuntimeError("platform unreachable")),
+        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")),
         caplog.at_level("ERROR", logger="daiv.chat"),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
@@ -92,9 +96,11 @@ async def test_swallows_platform_errors_and_logs(caplog):
 
 
 async def test_swallows_errors_from_client_call():
-    """Exceptions raised by the underlying SDK call are also caught."""
+    """SDK errors (gitlab/github/httpx) are caught."""
+    from gitlab.exceptions import GitlabError
+
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = RuntimeError("api 500")
+    repo_client.get_merge_request_by_branches.side_effect = GitlabError("api 500")
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
@@ -102,6 +108,20 @@ async def test_swallows_errors_from_client_call():
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
     assert result is None
+
+
+async def test_propagates_unexpected_errors():
+    """Bugs (KeyError/AttributeError/TypeError) must NOT be silently caught —
+    they should surface as 500s rather than masking as a fake 'no MR'.
+    """
+    repo_client = MagicMock()
+    repo_client.get_merge_request_by_branches.side_effect = KeyError("missing field")
+    with (
+        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        pytest.raises(KeyError),
+    ):
+        await aget_existing_mr_payload("a/b", "feature-x")
 
 
 @pytest.mark.parametrize(("payload_input", "expected_keys"), [(None, None), ("not-a-mr", None)])

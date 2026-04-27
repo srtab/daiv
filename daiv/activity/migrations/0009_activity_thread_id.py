@@ -19,5 +19,12 @@ class Migration(migrations.Migration):
                 unique=True,
                 verbose_name="thread ID",
             ),
-        )
+        ),
+        migrations.AddConstraint(
+            model_name="activity",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("thread_id__isnull", True)) | models.Q(("thread_id", ""), _negated=True),
+                name="activity_thread_id_nonempty",
+            ),
+        ),
     ]

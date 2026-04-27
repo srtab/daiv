@@ -1,16 +1,19 @@
 import asyncio
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from django.utils import timezone
 
 import pytest
 
 from accounts.models import User
-from chat.api.threads import ChatThreadService, _extract_first_user_message
+from chat.api.threads import STALE_RUN_MINUTES, ChatThreadService, _extract_first_user_message
 from chat.models import ChatThread
 
 
-def _fake_input(messages):
-    return SimpleNamespace(messages=[SimpleNamespace(content=c) for c in messages])
+def _fake_input(messages, *, role="user"):
+    return SimpleNamespace(messages=[SimpleNamespace(role=role, content=c) for c in messages])
 
 
 def test_extract_first_user_message_empty_returns_empty_string():
@@ -30,6 +33,18 @@ def test_extract_first_user_message_skips_whitespace_only():
 
 def test_extract_first_user_message_returns_first_non_empty_string():
     assert _extract_first_user_message(_fake_input(["first", "second"])) == "first"
+
+
+def test_extract_first_user_message_skips_non_user_roles():
+    # Title should be derived from a human/user message, never from an assistant
+    # bootstrap message that happened to land in input_data.messages first.
+    msgs = SimpleNamespace(
+        messages=[
+            SimpleNamespace(role="assistant", content="Hi! How can I help?"),
+            SimpleNamespace(role="user", content="actual ask"),
+        ]
+    )
+    assert _extract_first_user_message(msgs) == "actual ask"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -110,10 +125,61 @@ async def test_release_run_clears_slot_and_reopens_for_claim():
     user = await User.objects.acreate_user(username="u-rel", email="rel@x.com", password="x")  # noqa: S106
     await ChatThread.objects.acreate(thread_id="t-rel", user=user, repo_id="a/b", ref="main", active_run_id="r-old")
 
-    await ChatThreadService.release_run("t-rel")
+    await ChatThreadService.release_run("t-rel", "r-old")
     refreshed = await ChatThread.objects.aget(thread_id="t-rel")
-    assert refreshed.active_run_id == ""
+    assert refreshed.active_run_id is None
 
     # Next claim succeeds — the slot is genuinely free, not just blanked.
     assert await ChatThreadService.try_claim_run("t-rel", "r-next") is True
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_release_run_does_not_clear_other_holders_slot():
+    """Stale `finally` from a cancelled run must not stomp a freshly-claimed slot."""
+    user = await User.objects.acreate_user(username="u-rel-mismatch", email="chat@example.com", password="x")  # noqa: S106
+    await ChatThread.objects.acreate(thread_id="t-rel-x", user=user, repo_id="a/b", ref="main", active_run_id="r-fresh")
+
+    # Stale streamer's finally tries to release with the OLD run_id.
+    await ChatThreadService.release_run("t-rel-x", "r-stale")
+
+    refreshed = await ChatThread.objects.aget(thread_id="t-rel-x")
+    assert refreshed.active_run_id == "r-fresh"  # untouched
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_try_claim_run_takes_over_stale_slot():
+    """Worker crash leaves active_run_id set; after the heartbeat window expires
+    a fresh claim succeeds. Without this the thread would be permanently locked.
+    """
+    user = await User.objects.acreate_user(username="u-stale", email="owner@example.com", password="x")  # noqa: S106
+    stale_at = timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 1)
+    await ChatThread.objects.acreate(thread_id="t-stale", user=user, repo_id="a/b", ref="main", active_run_id="r-dead")
+    # auto_now would clobber the stale timestamp — force it via aupdate.
+    await ChatThread.objects.filter(thread_id="t-stale").aupdate(last_active_at=stale_at)
+
+    assert await ChatThreadService.try_claim_run("t-stale", "r-new") is True
+    refreshed = await ChatThread.objects.aget(thread_id="t-stale")
+    assert refreshed.active_run_id == "r-new"
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_heartbeat_only_bumps_when_caller_holds_slot():
+    """Delayed heartbeat from a previous run must not keep a stolen slot alive."""
+    user = await User.objects.acreate_user(username="u-hb", email="i@example.com", password="x")  # noqa: S106
+    await ChatThread.objects.acreate(thread_id="t-hb", user=user, repo_id="a/b", ref="main", active_run_id="r-current")
+    old_timestamp = timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 5)
+    await ChatThread.objects.filter(thread_id="t-hb").aupdate(last_active_at=old_timestamp)
+
+    # Stale run heartbeats — should be a no-op because it doesn't hold the slot.
+    await ChatThreadService.heartbeat("t-hb", "r-stale")
+    refreshed = await ChatThread.objects.aget(thread_id="t-hb")
+    assert (timezone.now() - refreshed.last_active_at).total_seconds() > STALE_RUN_MINUTES * 60
+
+    # Real holder bumps successfully.
+    await ChatThreadService.heartbeat("t-hb", "r-current")
+    refreshed = await ChatThread.objects.aget(thread_id="t-hb")
+    assert (timezone.now() - refreshed.last_active_at).total_seconds() < 5
     await user.adelete()

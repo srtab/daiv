@@ -7,11 +7,10 @@ from activity.models import TriggerType
 from activity.services import RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
-from ninja.throttling import AuthRateThrottle
 
 from automation.agent.results import parse_agent_result
 from chat.api.security import AuthBearer
-from core.site_settings import site_settings
+from core.api.throttling import JobsRateThrottle
 from jobs.tasks import run_job_task
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
@@ -21,16 +20,7 @@ logger = logging.getLogger("daiv.jobs")
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-class _LazyThrottle(AuthRateThrottle):
-    """Rate throttle that reads the rate from site_settings at startup (avoids import-time DB access)."""
-
-    THROTTLE_RATES = {}
-
-    def get_rate(self):
-        return site_settings.jobs_throttle_rate
-
-
-@jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[_LazyThrottle()])
+@jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[JobsRateThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 

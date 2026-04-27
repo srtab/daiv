@@ -208,7 +208,9 @@ async def web_fetch_tool(
 
     prompt = prompt or ""
 
-    # Cache the final response for a given (url, prompt, model).
+    # Cache key is (url, prompt). The summarisation model is intentionally NOT
+    # part of the key today — if the active model is rotated and you want fresh
+    # answers, also bump ``_cache_key_for_response``.
     if prompt.strip() and (cached := _get_cached_response(url=url, prompt=prompt)) is not None:
         return str(cached)
 

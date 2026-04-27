@@ -224,19 +224,46 @@
 
     _startResumePoll() {
       if (!this.statusEndpoint) return;
+      // Hard cap so a stuck server-side slot or a network failure does not poll
+      // forever — about 3 minutes at a 3 s cadence, after which we surface a
+      // "lost connection" banner and stop. The server-side stale-takeover
+      // window is longer, so a refresh after the banner will recover.
+      const MAX_FAILURES = 60;
+      let failures = 0;
+      const fail = (label) => {
+        this.resuming = false;
+        const last = this.turns[this.turns.length - 1];
+        if (last && last.role === "assistant") last.error = label;
+        if (this._resumePoll) {
+          clearTimeout(this._resumePoll);
+          this._resumePoll = null;
+        }
+      };
       const tick = async () => {
         try {
           const resp = await fetch(this.statusEndpoint, { credentials: "include" });
           if (resp.ok) {
+            failures = 0;
             const data = await resp.json();
             if (!data?.active) {
-              // Rehydrate turns from the freshly-written checkpoint.
               window.location.reload();
               return;
             }
+          } else if (resp.status === 401 || resp.status === 403) {
+            fail("Session expired — please refresh and sign in.");
+            return;
+          } else if (resp.status === 404) {
+            fail("This conversation is no longer available.");
+            return;
+          } else {
+            failures += 1;
           }
         } catch {
-          /* transient — keep polling */
+          failures += 1;
+        }
+        if (failures >= MAX_FAILURES) {
+          fail("Lost connection to the server — refresh to continue.");
+          return;
         }
         this._resumePoll = setTimeout(tick, 3000);
       };
@@ -295,9 +322,11 @@
     get filesTouched() {
       // path -> { path, op, fromPath?, segmentId, isNew }
       const map = new Map();
+      const seenKeys = [];
       const record = (path, op, seg, extra = {}) => {
         if (!path) return;
         const key = `${seg.name}::${path}`;
+        seenKeys.push(key);
         map.set(path, {
           path,
           op,
@@ -322,9 +351,10 @@
       }
       // Reverse so most-recent comes first.
       const arr = [...map.values()].reverse();
-      // After computing, promote newly-seen files into the "seen" set so their
-      // pulse animation only fires once.
-      for (const f of arr) this._filesSeen.add(`${f.path}`);
+      // Promote everything we just yielded into _filesSeen under the SAME
+      // composite key shape used by the `isNew` lookup so the pulse animation
+      // only fires once per (tool, path) pair.
+      for (const key of seenKeys) this._filesSeen.add(key);
       return arr;
     },
 
@@ -635,7 +665,9 @@
       } else if (type === AGUI.RUN_ERROR) {
         turn.error = evt.message || "Run failed";
         turn.segments.forEach((s) => {
-          if (s.type === "tool_call" && s.status === "running") s.status = "error";
+          if ((s.type === "tool_call" || s.type === "publish_phase") && s.status === "running") {
+            s.status = "error";
+          }
         });
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
@@ -651,6 +683,10 @@
             this._applyRepoState({ merge_request: mr, ref: mr ? mr.source_branch : undefined });
           }
         }
+      } else {
+        // Cheap visibility for unrecognised AG-UI events so future upstream
+        // additions don't vanish silently from the chat UI.
+        console.debug("chat: unhandled AG-UI event", type);
       }
       this.scrollToBottom();
     },

@@ -220,7 +220,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
                 else:
                     # `enabled: true` is the universal switch on OpenRouter; some providers
                     # (notably z.ai's GLM family) ignore `effort` and require the explicit flag.
-                    _kwargs["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level.value}}
+                    _kwargs["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
 
             elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
                 # Avoid rate limiting by setting a fair max_tokens value

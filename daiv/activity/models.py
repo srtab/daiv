@@ -185,6 +185,14 @@ class Activity(models.Model):
                 condition=models.Q(external_username__gt=""),
             ),
         ]
+        constraints = [
+            # ``thread_id`` is unique=True; "" would collide on the second insert
+            # under Postgres (which treats NULL as not-equal but "" as a real
+            # value). Forbid the empty-string sentinel so callers must use NULL.
+            models.CheckConstraint(
+                condition=models.Q(thread_id__isnull=True) | ~models.Q(thread_id=""), name="activity_thread_id_nonempty"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"

@@ -162,12 +162,16 @@ def test_detail_view_skips_mr_lookup_when_checkpoint_already_has_one(member_clie
 
 @pytest.mark.django_db
 def test_detail_view_swallows_platform_errors_in_mr_lookup(member_client, member_user):
-    """Platform hiccups must not break the page."""
+    """Platform hiccups must not break the page — but only platform-typed
+    exceptions are swallowed. Programming bugs propagate.
+    """
+    import httpx
+
     thread = ChatThread.objects.create(thread_id="t-err", user=member_user, repo_id="a/b", ref="feature-z")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
         patch("chat.views.open_checkpointer") as cp_ctx,
-        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=RuntimeError("platform unreachable")),
+        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -177,6 +181,26 @@ def test_detail_view_swallows_platform_errors_in_mr_lookup(member_client, member
 
     assert resp.status_code == 200
     assert resp.context["merge_request"] is None
+
+
+@pytest.mark.django_db
+def test_detail_view_propagates_unexpected_errors_in_mr_lookup(member_client, member_user):
+    """Bugs (KeyError/AttributeError/TypeError) must NOT be silently swallowed
+    by the soft-fallback path — they would mask real failures behind a
+    plausible-looking "no MR" UI.
+    """
+    thread = ChatThread.objects.create(thread_id="t-bug", user=member_user, repo_id="a/b", ref="feature-z")
+    tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=KeyError("config missing")),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        with pytest.raises(KeyError):
+            member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
 
 
 @pytest.mark.django_db

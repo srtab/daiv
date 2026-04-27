@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+import httpx
 from asgiref.sync import sync_to_async
+from github import GithubException
+from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
@@ -15,6 +18,11 @@ from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, get_repo_ref
+
+# Platform / transport errors that warrant a soft "no MR" fallback. Bugs
+# (KeyError, AttributeError, etc.) propagate so the run fails loudly rather
+# than producing a duplicate MR downstream.
+_MR_LOOKUP_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (GitlabError, GithubException, httpx.HTTPError)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -134,7 +142,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             try:
                 git_manager.checkout(merge_request.source_branch)
             except ValueError as e:
-                # The branch does not exist in the repository, so we need to create it.
+                # Branch from the MR no longer exists locally; treat as no MR
+                # and let the publisher decide whether to recreate it.
                 logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
                 merge_request = None
 
@@ -142,7 +151,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
-        """Best-effort lookup of an open MR whose source branch matches the current ref."""
+        """Best-effort lookup of an open MR whose source branch matches the current ref.
+
+        Soft-fails on platform/transport errors so the agent can still run — the
+        publisher will create a fresh MR if needed. Programming bugs propagate.
+        """
         current_branch = get_repo_ref(context.gitrepo)
         if not current_branch or current_branch == context.config.default_branch:
             return None
@@ -151,7 +164,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return await sync_to_async(client.get_merge_request_by_branches)(
                 context.repository.slug, current_branch, context.config.default_branch
             )
-        except Exception:
+        except _MR_LOOKUP_PLATFORM_ERRORS:
             logger.exception(
                 "Failed to look up open merge request for %s on %s", context.repository.slug, current_branch
             )

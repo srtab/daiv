@@ -107,9 +107,11 @@ class TestGitMiddleware:
         create.assert_not_called()
 
     async def test_alookup_open_mr_swallows_platform_errors(self):
+        from gitlab.exceptions import GitlabError
+
         runtime = _make_runtime()
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=RuntimeError("gitlab down"))
+        client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -118,3 +120,18 @@ class TestGitMiddleware:
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is None
+
+    async def test_alookup_open_mr_propagates_unexpected_errors(self):
+        """Bugs (KeyError/AttributeError) must NOT be silently caught — the
+        publisher would then create a duplicate MR thinking none existed.
+        """
+        runtime = _make_runtime()
+        client = MagicMock()
+        client.get_merge_request_by_branches = MagicMock(side_effect=KeyError("missing field"))
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
+            pytest.raises(KeyError),
+        ):
+            await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001

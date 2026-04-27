@@ -360,9 +360,8 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, str] | None: The state updates with the sandbox session ID.
         """
         if not self.close_session and "session_id" in state:
-            # If the session is not being closed, don't start a new one, reuse the existing one.
-            # Also, avoid reusing the session_id if it is already set from a previous run that failed to close
-            # the session.
+            # Subagent path: the parent already started a session and owns its
+            # lifecycle. Skip starting a duplicate.
             return None
 
         session_id = await DAIVSandboxClient().start_session(

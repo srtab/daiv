@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
                 ("repo_id", models.CharField(max_length=255, verbose_name="repository")),
                 ("ref", models.CharField(blank=True, default="", max_length=255, verbose_name="ref")),
                 ("title", models.CharField(blank=True, default="", max_length=120)),
-                ("active_run_id", models.CharField(blank=True, default="", max_length=64)),
+                ("active_run_id", models.CharField(blank=True, default=None, max_length=64, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_active_at", models.DateTimeField(auto_now=True)),
                 (
@@ -33,6 +33,13 @@ class Migration(migrations.Migration):
             options={
                 "ordering": ["-last_active_at"],
                 "indexes": [models.Index(fields=["user", "-last_active_at"], name="chat_chatth_user_id_abfd75_idx")],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(("active_run_id__isnull", True))
+                        | models.Q(("active_run_id", ""), _negated=True),
+                        name="chat_active_run_id_nonempty",
+                    )
+                ],
             },
         )
     ]

@@ -7,6 +7,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from chat.models import ChatThread
+from core.api.throttling import JobsRateThrottle
 
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
@@ -16,7 +17,6 @@ HEADER_REPO_ID = "X-Repo-ID"
 HEADER_REF = "X-Ref"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
-models_router = Router(auth=AuthBearer(), tags=["models"])
 
 
 @chat_router.get("/threads/{thread_id}/status", response=dict)
@@ -34,6 +34,7 @@ async def thread_status(request: HttpRequest, thread_id: str):
 @chat_router.post(
     "/completions",
     response=dict,
+    throttle=[JobsRateThrottle()],
     openapi_extra={
         "parameters": [
             {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
@@ -43,16 +44,16 @@ async def thread_status(request: HttpRequest, thread_id: str):
 )
 async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput):
     """AG-UI streaming endpoint. First sight of a ``thread_id`` creates its ``ChatThread``
-    under the authenticated caller; subsequent requests must own it. Uses a conditional
-    ``UPDATE`` on ``active_run_id`` to atomically claim the per-thread run slot — races
-    between parallel tabs resolve to a single winner and a 409 for the loser.
+    under the authenticated caller; subsequent requests must own it. The conditional
+    ``UPDATE`` on ``active_run_id`` atomically claims the per-thread run slot —
+    parallel tabs resolve to a single winner, the loser gets 409.
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
     if not repo_id or not ref:
         raise Http404("Repository ID or reference not found")
 
-    user = request.auth  # ty: ignore[unresolved-attribute]  # populated by AuthBearer/django_auth
+    user = request.auth  # ty: ignore[unresolved-attribute]
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 

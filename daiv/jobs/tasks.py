@@ -1,5 +1,4 @@
 import logging
-import uuid
 
 from django_tasks import task
 from langchain_core.messages import HumanMessage
@@ -17,15 +16,17 @@ logger = logging.getLogger("daiv.jobs")
 
 @task()
 async def run_job_task(
-    repo_id: str, prompt: str, ref: str | None = None, use_max: bool = False, thread_id: str | None = None
+    repo_id: str, prompt: str, thread_id: str, ref: str | None = None, use_max: bool = False
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
-    The ``thread_id`` is used as the LangGraph checkpoint key. Callers should mint one
-    up-front and persist it on the corresponding ``Activity`` so chat can resume the run.
+    The ``thread_id`` is used as the LangGraph checkpoint key. Callers MUST mint one
+    up-front and persist it on the corresponding ``Activity`` — chat resume is built
+    on the assumption that the activity row and the checkpointer share the same key.
+    A silent UUID fallback here would break that contract on the resume path.
     """
-    if thread_id is None:
-        thread_id = str(uuid.uuid4())
+    if not thread_id:
+        raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 
     logger.info("Starting job for repo_id=%s, ref=%s, use_max=%s, thread_id=%s", repo_id, ref, use_max, thread_id)
 
