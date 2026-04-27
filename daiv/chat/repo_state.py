@@ -1,9 +1,9 @@
 """Helpers that pull repo/branch/MR state out of the chat agent's graph state.
 
-The chat UI's repo pill and merge-request pill are driven by data the GitMiddleware
-writes back into LangGraph state (``merge_request``). This module gives both the
-HTTP hydration path (server-rendered context) and the streaming path (CustomEvent
-emitted at end-of-run) a single, JSON-safe shape.
+The chat UI's MR pill is driven by ``merge_request`` written back into LangGraph
+state by ``GitMiddleware``. The live path streams it via AG-UI ``STATE_SNAPSHOT``
+events; this module provides the server-rendered fallback used to seed the page
+on first load (and to surface a pre-existing MR before the agent has run).
 """
 
 from __future__ import annotations
@@ -15,8 +15,6 @@ from asgiref.sync import sync_to_async
 
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
-
-CUSTOM_EVENT_NAME = "daiv:repo_state"
 
 logger = logging.getLogger("daiv.chat")
 

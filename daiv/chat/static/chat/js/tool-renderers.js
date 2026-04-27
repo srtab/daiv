@@ -288,6 +288,120 @@
     return { label: "task", path: truncate(description, 120), badges };
   };
 
+  // `new URL` throws on partial streaming values; fall back to the raw string.
+  const summarizeUrl = (url) => {
+    if (!url) return "";
+    try {
+      const u = new URL(String(url));
+      const tail = (u.pathname || "") + (u.search || "");
+      return tail && tail !== "/" ? `${u.host}${tail}` : u.host;
+    } catch {
+      return String(url);
+    }
+  };
+
+  // Tools signal failures with `error: ...` (web_fetch / gitlab / gh). Soft
+  // fallbacks like "Model processing failed (...). Contents of <url>:..."
+  // intentionally do NOT use the prefix — they still carry useful content.
+  const ERROR_PREFIX_RE = /^error\b/i;
+  const REDIRECT_TAG_RE = /<redirect_url>([^<]+)<\/redirect_url>/;
+  // Sentinel from _truncate_cli_output; presence drives the "truncated" badge.
+  const TRUNCATED_SENTINEL_RE = /\.{3} \(truncated, (\d+) lines omitted\)/;
+  // First identifying flag to surface in the gitlab/gh summary row so adjacent
+  // calls are distinguishable without expanding.
+  const CLI_ID_FLAGS = new Set(["--iid", "--id", "--mr-iid", "--issue-iid", "--pipeline-id", "--discussion-id"]);
+
+  const sigWebFetch = (args, result, argsStr) => {
+    const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
+    const badges = [];
+    const text = String(result ?? "");
+    if (REDIRECT_TAG_RE.test(text)) {
+      badges.push(badge("redirect", "warn"));
+    } else if (text && ERROR_PREFIX_RE.test(text.trim())) {
+      badges.push(badge("error", "danger"));
+    }
+    return { label: "web_fetch", path: summarizeUrl(url), badges };
+  };
+
+  // web_search returns a JSON array of `{title, link, content}` objects.
+  // Returns null if the result isn't (yet) parseable JSON — caller falls back
+  // to a generic body. We also accept the legacy "no relevant results found…"
+  // sentinel so old transcripts keep rendering correctly.
+  const parseWebSearchResults = (result) => {
+    const text = String(result ?? "").trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const sigWebSearch = (args, result, argsStr) => {
+    const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
+    const text = String(result ?? "").trim();
+    const badges = [];
+    if (text) {
+      const parsed = parseWebSearchResults(text);
+      if (parsed != null) {
+        // Subtract the synthetic "Suggested answer" entry (link="") so the
+        // count reflects real hits the user might click.
+        const hits = parsed.filter((r) => r && r.link).length;
+        badges.push(hits ? badge(`${hits} results`, "info") : badge("no results", "warn"));
+      } else if (/^no relevant results found/i.test(text)) {
+        // Pre-JSON transcripts.
+        badges.push(badge("no results", "warn"));
+      }
+    }
+    return { label: "web_search", path: query ? `"${truncate(query, 80)}"` : "", badges };
+  };
+
+  // Server runs the real shlex parse; whitespace split is enough for the row.
+  const summarizeSubcommand = (subcommand) => {
+    const tokens = String(subcommand ?? "").trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return "";
+    const [resource, action, ...rest] = tokens;
+    const head = action ? `${resource} ${action}` : resource;
+    for (let i = 0; i < rest.length; i += 1) {
+      const tok = rest[i];
+      const eq = tok.indexOf("=");
+      const name = eq > -1 ? tok.slice(0, eq) : tok;
+      if (CLI_ID_FLAGS.has(name)) {
+        const value = eq > -1 ? tok.slice(eq + 1) : rest[i + 1] ?? "";
+        return value ? `${head} ${name} ${value}` : `${head} ${name}`;
+      }
+    }
+    return head;
+  };
+
+  const cliResultBadges = (text) => {
+    const badges = [];
+    if (text && ERROR_PREFIX_RE.test(text)) badges.push(badge("error", "danger"));
+    if (TRUNCATED_SENTINEL_RE.test(text)) badges.push(badge("truncated", "warn"));
+    return badges;
+  };
+
+  const sigGitlab = (args, result, argsStr) => {
+    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
+    const text = String(result ?? "").trim();
+    const badges = [];
+    // "simplified" is the default; only the costlier "detailed" mode rates a chip.
+    if (pickKey(args, ["output_mode"]) === "detailed") badges.push(badge("detailed", "info"));
+    badges.push(...cliResultBadges(text));
+    return { label: "gitlab", path: truncate(summarizeSubcommand(subcommand), 120), badges };
+  };
+
+  const sigGh = (args, result, argsStr) => {
+    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
+    const text = String(result ?? "").trim();
+    return {
+      label: "gh",
+      path: truncate(summarizeSubcommand(subcommand), 120),
+      badges: cliResultBadges(text),
+    };
+  };
+
   const SIGNATURE_BY_TOOL = {
     read_file: sigReadFile,
     write_file: sigWriteFile,
@@ -298,6 +412,10 @@
     bash: sigBash,
     skill: sigSkill,
     task: sigTask,
+    web_fetch: sigWebFetch,
+    web_search: sigWebSearch,
+    gitlab: sigGitlab,
+    gh: sigGh,
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {
@@ -325,6 +443,11 @@
     if (result != null && String(result).length) parts.push(block("Result", pre(String(result))));
     return parts.join("");
   };
+
+  const renderMarkdownBlock = (text) =>
+    window.renderMarkdown
+      ? `<div class="chat-text">${window.renderMarkdown(text)}</div>`
+      : pre(String(text));
 
   const diffBody = (result) => {
     const lines = String(result ?? "").split("\n");
@@ -457,11 +580,7 @@
     }
     if (prompt) parts.push(block("Prompt", pre(String(prompt))));
     if (result != null && String(result).length) {
-      // Task results are markdown; let renderMarkdown handle them if available
-      const resHtml = window.renderMarkdown
-        ? `<div class="chat-text">${window.renderMarkdown(result)}</div>`
-        : pre(String(result));
-      parts.push(block("Result", resHtml));
+      parts.push(block("Result", renderMarkdownBlock(result)));
     }
     return parts.join("");
   };
@@ -474,10 +593,91 @@
   const skillBody = (argsStr, result) => {
     const body = String(result ?? "");
     if (!body.trim()) return genericBody(argsStr, result);
-    const rendered = window.renderMarkdown
-      ? `<div class="chat-text">${window.renderMarkdown(body)}</div>`
-      : pre(body);
-    return block("Skill", rendered);
+    return block("Skill", renderMarkdownBlock(body));
+  };
+
+  // Open in a new tab so we never replace the chat tab; rel=noopener for the
+  // usual reverse-tabnabbing reasons.
+  const externalLink = (url, label) => {
+    const safeHref = escapeHtml(String(url));
+    const safeLabel = escapeHtml(label != null ? String(label) : String(url));
+    return `<a class="chat-tool__link" href="${safeHref}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
+  };
+
+  const webFetchBody = (argsStr, result) => {
+    const args = parseArgs(argsStr);
+    const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
+    const prompt = pickKeyOrPartial(args, ["prompt"], argsStr) ?? "";
+    const text = String(result ?? "");
+    const parts = [];
+
+    if (url) {
+      parts.push(block("URL", `<div class="chat-webfetch__url">${externalLink(url, summarizeUrl(url))}</div>`));
+    }
+    if (prompt) parts.push(block("Prompt", pre(prompt)));
+
+    if (text) {
+      const redirect = text.match(REDIRECT_TAG_RE);
+      if (redirect) {
+        parts.push(
+          block(
+            "Redirected to",
+            `<div class="chat-webfetch__url">${externalLink(redirect[1], summarizeUrl(redirect[1]))}</div>`,
+          ),
+        );
+      } else if (ERROR_PREFIX_RE.test(text.trim())) {
+        parts.push(block("Error", pre(text)));
+      } else {
+        parts.push(block("Result", renderMarkdownBlock(text)));
+      }
+    }
+    return parts.join("") || genericBody(argsStr, result);
+  };
+
+  const webSearchBody = (argsStr, result) => {
+    const args = parseArgs(argsStr);
+    const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
+    const text = String(result ?? "");
+    const parts = [];
+    if (query) parts.push(block("Query", pre(String(query))));
+
+    const trimmed = text.trim();
+    if (!trimmed) return parts.join("") || genericBody(argsStr, result);
+
+    const results = parseWebSearchResults(trimmed);
+    if (results == null) {
+      // Pre-JSON transcripts or unparseable output — fall back gracefully.
+      parts.push(block("Result", pre(text)));
+      return parts.join("");
+    }
+    if (!results.length) {
+      parts.push(block("Result", pre("No relevant results found for the given search query.")));
+      return parts.join("");
+    }
+
+    const items = results
+      .map((r) => {
+        const link = (r && r.link) || "";
+        const title = (r && r.title) || "";
+        const content = (r && r.content) || "";
+        const titleHtml = link
+          ? externalLink(link, title || link)
+          : `<span class="chat-search__title chat-search__title--answer">${escapeHtml(title || "Suggested answer")}</span>`;
+        const host = link ? `<div class="chat-search__host">${escapeHtml(summarizeUrl(link))}</div>` : "";
+        const body = content ? `<div class="chat-search__snippet">${escapeHtml(content)}</div>` : "";
+        return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
+      })
+      .join("");
+    parts.push(block("Results", `<div class="chat-search">${items}</div>`));
+    return parts.join("");
+  };
+
+  const cliBody = (tool, argsStr, result) => {
+    const args = parseArgs(argsStr);
+    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
+    const command = `${tool}${subcommand ? " " + subcommand : ""}`;
+    const text = String(result ?? "");
+    return block("Shell", bashRunBlock(command, text, null));
   };
 
   const BODY_BY_TOOL = {
@@ -498,6 +698,10 @@
     bash: (args, result) => bashBody(args, result),
     skill: (args, result) => skillBody(args, result),
     task: (args, result) => taskBody(args, result),
+    web_fetch: (args, result) => webFetchBody(args, result),
+    web_search: (args, result) => webSearchBody(args, result),
+    gitlab: (args, result) => cliBody("gitlab", args, result),
+    gh: (args, result) => cliBody("gh", args, result),
   };
 
   window.toolBodyHTML = (name, argsStr, result, status) => {

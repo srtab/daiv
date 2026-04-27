@@ -14,18 +14,31 @@
     REASONING_START: "REASONING_START",
     REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
     REASONING_END: "REASONING_END",
-    CUSTOM: "CUSTOM",
+    STATE_SNAPSHOT: "STATE_SNAPSHOT",
   };
 
-  const REPO_STATE_EVENT = "daiv:repo_state";
+  // Normalize a raw GitState.merge_request snapshot (snake_case Pydantic dump)
+  // into the shape the composer pill expects. Mirrors server-side
+  // ``chat.repo_state.mr_to_payload`` — keep both in sync.
+  const normalizeStateMr = (raw) => {
+    if (!raw || typeof raw !== "object") return null;
+    return {
+      id: raw.merge_request_id ?? null,
+      url: raw.web_url ?? null,
+      title: raw.title ?? null,
+      draft: Boolean(raw.draft),
+      source_branch: raw.source_branch ?? null,
+      target_branch: raw.target_branch ?? null,
+    };
+  };
 
   // Structured-response tool names emitted by the diff_to_metadata subagents.
   // We render their TOOL_CALL_* lifecycle as compact phase chips ("Creating
   // merge request…" / "Committing changes…") instead of letting the raw JSON
   // structured response surface as a tool card. Subagent text + reasoning are
   // already silenced server-side via `emit-messages: false`, so this is the
-  // only signal the chat sees from the publish pipeline before the
-  // `daiv:repo_state` CustomEvent confirms the result.
+  // only signal the chat sees from the publish pipeline before the post-publish
+  // STATE_SNAPSHOT carrying the new ``merge_request`` lands.
   const PUBLISH_PHASE_TOOLS = {
     PullRequestMetadata: { label: "Creating merge request" },
     CommitMetadata: { label: "Committing changes" },
@@ -520,26 +533,12 @@
       }
     },
 
-    _runningTaskSegment(turn) {
-      // Returns the still-running `task` tool segment in this turn, or null.
-      // While one exists, subagent-internal tool/text frames bleed through the
-      // outer AGUI stream — we suppress them so the rendered turn matches what
-      // build_turns produces on refresh (a single collapsed task card).
-      for (const s of turn.segments) {
-        if (s.type === "tool_call" && s.name === "task" && s.status === "running") return s;
-      }
-      return null;
-    },
-
     dispatch(evt, turn) {
       const type = evt.type;
-      const activeTask = this._runningTaskSegment(turn);
 
       if (type === AGUI.TEXT_MESSAGE_START) {
-        if (activeTask) return;
         this._appendTextSegment(turn, "");
       } else if (type === AGUI.TEXT_MESSAGE_CONTENT || type === AGUI.TEXT_MESSAGE_CHUNK) {
-        if (activeTask) return;
         const delta = evt.delta || evt.content || "";
         const last = turn.segments[turn.segments.length - 1];
         if (!last || last.type !== "text") {
@@ -548,7 +547,6 @@
           last.content += delta;
         }
       } else if (type === AGUI.REASONING_START) {
-        if (activeTask) return;
         turn.segments.push({
           type: "thinking",
           id: evt.messageId,
@@ -559,7 +557,6 @@
         });
         this._reasoningIndex.set(evt.messageId, turn.segments.length - 1);
       } else if (type === AGUI.REASONING_MESSAGE_CONTENT) {
-        if (activeTask) return;
         const idx = this._reasoningIndex.get(evt.messageId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (seg) seg.content += evt.delta || "";
@@ -571,22 +568,13 @@
           seg.endedAt = Date.now();
         }
       } else if (type === AGUI.TOOL_CALL_START) {
-        // Inner subagent tool calls collapse onto the running task card —
-        // tick a progress counter so the user has *some* signal during the
-        // long quiet window. Sibling task tool calls (parallel audit
-        // subagents, etc.) MUST surface: suppressing them here drops the
-        // segment, and the matching TOOL_CALL_RESULT then has nothing to
-        // bind to, so the sibling task is invisible until a page reload
-        // rehydrates from the checkpoint.
-        if (activeTask && evt.toolCallId !== activeTask.id && evt.toolCallName !== "task") {
-          activeTask.innerToolsCount = (activeTask.innerToolsCount || 0) + 1;
-          return;
-        }
         // ag_ui_langgraph re-emits START/ARGS/END from OnToolEnd whenever its
-        // `has_function_streaming` flag got reset to False by an inner tool
-        // completion — which happens for every parent tool that wraps a
-        // subagent. Dedupe by tool_call_id and seal the existing segment so
-        // the follow-up ARGS delta does not double-serialize the input.
+        // `has_function_streaming` flag was reset to False by an inner tool
+        // completion. Dedupe by tool_call_id and seal the existing segment so
+        // the follow-up ARGS delta does not double-serialize the input. The
+        // server-side filter already drops the late re-emit for `task` tools
+        // (see ``chat.api.views._filter_subagent_events``); this guard keeps
+        // any other tool that hits the same upstream path safe.
         const existingIdx = this._toolIndex.get(evt.toolCallId);
         if (existingIdx != null && turn.segments[existingIdx]) {
           turn.segments[existingIdx].sealed = true;
@@ -606,16 +594,14 @@
             status: "running",
           });
         } else {
-          const seg = {
+          turn.segments.push({
             type: "tool_call",
             id: evt.toolCallId,
             name: evt.toolCallName,
             args: "",
             result: null,
             status: "running",
-          };
-          if (evt.toolCallName === "task") seg.innerToolsCount = 0;
-          turn.segments.push(seg);
+          });
         }
         this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
       } else if (type === AGUI.TOOL_CALL_ARGS) {
@@ -651,28 +637,42 @@
         turn.segments.forEach((s) => {
           if (s.type === "tool_call" && s.status === "running") s.status = "error";
         });
-      } else if (type === AGUI.CUSTOM && evt.name === REPO_STATE_EVENT) {
-        this._applyRepoState(evt.value || {});
+      } else if (type === AGUI.STATE_SNAPSHOT) {
+        // Snapshots fire on every node exit and almost always carry an
+        // unchanged merge_request. Dedupe on identity so we don't churn
+        // Alpine reactivity (and the publish-phase chip sweep) per node.
+        const snap = evt.snapshot || {};
+        if ("merge_request" in snap) {
+          const raw = snap.merge_request;
+          const key = raw ? `${raw.merge_request_id}:${raw.source_branch}:${raw.draft}` : "null";
+          if (this._lastMrKey !== key) {
+            this._lastMrKey = key;
+            const mr = normalizeStateMr(raw);
+            this._applyRepoState({ merge_request: mr, ref: mr ? mr.source_branch : undefined });
+          }
+        }
       }
       this.scrollToBottom();
     },
 
     _applyRepoState(value) {
       // Replace `thread` wholesale so Alpine reactivity propagates the new
-      // `ref` and `merge_request` to the composer pills.
+      // `ref` and `merge_request` to the composer pills. `merge_request` is
+      // applied only when the caller explicitly provided the key — an absent
+      // key preserves the current pill, an explicit null clears it.
       if (this.thread) {
-        this.thread = {
-          ...this.thread,
-          ref: value.ref || this.thread.ref,
-          merge_request: value.merge_request ?? this.thread.merge_request ?? null,
-        };
+        const next = { ...this.thread, ref: value.ref || this.thread.ref };
+        if ("merge_request" in value) next.merge_request = value.merge_request;
+        this.thread = next;
       }
-      // Belt-and-braces: by the time repo_state lands, the publish pipeline is
-      // done. Any phase chip still marked running is stale (likely due to a
-      // missed TOOL_CALL_END for a fast-finishing structured-response tool).
-      for (const t of this.turns) {
-        for (const s of t.segments) {
-          if (s.type === "publish_phase" && s.status === "running") s.status = "done";
+      // Belt-and-braces: once a snapshot carrying the published MR lands, the
+      // publish pipeline is done. Any phase chip still marked running is stale
+      // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
+      if (value.merge_request) {
+        for (const t of this.turns) {
+          for (const s of t.segments) {
+            if (s.type === "publish_phase" && s.status === "running") s.status = "done";
+          }
         }
       }
     },

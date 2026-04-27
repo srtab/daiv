@@ -204,7 +204,7 @@ async def web_fetch_tool(
     """
     url = _upgrade_http_to_https(url.strip())
     if not _is_valid_http_url(url):
-        return "Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
+        return "error: Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
 
     prompt = prompt or ""
 
@@ -218,12 +218,12 @@ async def web_fetch_tool(
         # Used for special redirect signaling.
         return str(e)
     except Exception as e:
-        return f"Failed to fetch URL: {e}"
+        return f"error: Failed to fetch URL: {e}"
 
     # Safety guard: avoid silently truncating; ask for a narrower URL/prompt instead.
     if len(content) > site_settings.web_fetch_max_content_chars:
         return (
-            "Page content is too large to safely analyze in one pass.\n"
+            "error: Page content is too large to safely analyze in one pass.\n"
             "Provide a more specific URL (e.g. a specific section/anchor) or narrow the prompt."
         )
 

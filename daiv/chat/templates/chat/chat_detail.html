@@ -134,9 +134,6 @@
                         </span>
                         <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
                         <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
-                        <template x-if="seg.name === 'task' && seg.status === 'running' && seg.innerToolsCount">
-                          <span class="chat-tool__progress" x-text="`${seg.innerToolsCount} step${seg.innerToolsCount === 1 ? '' : 's'}`"></span>
-                        </template>
                         <template x-for="b in toolSignature(seg).badges" :key="b.text">
                           <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
                         </template>

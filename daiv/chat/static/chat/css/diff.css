@@ -155,3 +155,53 @@
 .chat-task__desc {
   color: #94a3b8;
 }
+
+.chat-tool__link {
+  color: #93c5fd;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.chat-tool__link:hover {
+  text-decoration: underline;
+}
+
+.chat-webfetch__url {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  color: #cbd5e1;
+}
+
+.chat-search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-search__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-search__item .chat-tool__link {
+  font-weight: 500;
+  color: #c4b5fd;
+}
+
+.chat-search__title--answer {
+  font-weight: 500;
+  color: #fbbf24;
+}
+
+.chat-search__host {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.chat-search__snippet {
+  color: #94a3b8;
+}

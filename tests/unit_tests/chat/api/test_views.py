@@ -1,11 +1,9 @@
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey, User
-from chat.api.views import _emit_repo_state, _extract_first_user_message
 from chat.models import ChatThread
 from daiv.api import api
 
@@ -55,29 +53,6 @@ def _mock_stream(*_args, **_kwargs):
     return ctx
 
 
-def _fake_input(messages):
-    return SimpleNamespace(messages=[SimpleNamespace(content=c) for c in messages])
-
-
-def test_extract_first_user_message_empty_returns_empty_string():
-    assert _extract_first_user_message(_fake_input([])) == ""
-
-
-def test_extract_first_user_message_skips_non_string_content():
-    # AG-UI supports list-of-blocks content for multimodal messages; they shouldn't be used
-    # as a title. We fall through to the next string-typed message.
-    payload = _fake_input([[{"type": "text", "text": "hi"}], "fallback title"])
-    assert _extract_first_user_message(payload) == "fallback title"
-
-
-def test_extract_first_user_message_skips_whitespace_only():
-    assert _extract_first_user_message(_fake_input(["   \n\t", "actual content"])) == "actual content"
-
-
-def test_extract_first_user_message_returns_first_non_empty_string():
-    assert _extract_first_user_message(_fake_input(["first", "second"])) == "first"
-
-
 @pytest.mark.django_db
 async def test_missing_repo_id_header_returns_404(client: TestAsyncClient, authed):
     _, raw, user = authed
@@ -122,10 +97,10 @@ async def test_cross_user_thread_id_is_rejected(client: TestAsyncClient, authed)
 async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient, authed):
     _, raw, user = authed
     with (
-        patch("chat.api.views.open_checkpointer", _mock_stream),
-        patch("chat.api.views.set_runtime_ctx", _mock_stream),
-        patch("chat.api.views.create_daiv_agent", new=AsyncMock()),
-        patch("chat.api.views.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
+        patch("chat.api.streaming.open_checkpointer", _mock_stream),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()
 
@@ -148,7 +123,7 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
     assert created.user_id == user.id
     assert created.repo_id == "a/b"
     assert created.ref == "main"
-    # The finally block in event_generator clears the run slot after the stream completes.
+    # The finally block in ChatRunStreamer.events() clears the run slot after the stream completes.
     assert created.active_run_id == ""
     await user.adelete()
 
@@ -159,10 +134,10 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
     await ChatThread.objects.acreate(thread_id="t-boom", user=user, repo_id="a/b", ref="main")
 
     with (
-        patch("chat.api.views.open_checkpointer", _mock_stream),
-        patch("chat.api.views.set_runtime_ctx", _mock_stream),
-        patch("chat.api.views.create_daiv_agent", new=AsyncMock()),
-        patch("chat.api.views.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
+        patch("chat.api.streaming.open_checkpointer", _mock_stream),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()
 
@@ -234,111 +209,3 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
     )
     assert response.status_code == 409
     await user.adelete()
-
-
-def _state_mr_dict(**overrides):
-    base = {
-        "merge_request_id": 7,
-        "web_url": "https://x/7",
-        "title": "T",
-        "draft": False,
-        "source_branch": "feature-x",
-        "target_branch": "main",
-    }
-    base.update(overrides)
-    return base
-
-
-def _payload_mr(**overrides):
-    base = {
-        "id": 9,
-        "url": "https://x/9",
-        "title": "Pre-existing",
-        "draft": True,
-        "source_branch": "feature-x",
-        "target_branch": "main",
-    }
-    base.update(overrides)
-    return base
-
-
-async def _drain(gen):
-    return [item async for item in gen]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_emit_repo_state_uses_state_mr_and_skips_fallback():
-    """When LangGraph state already has an MR, emit it and don't hit the platform."""
-    agent = MagicMock()
-    agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": _state_mr_dict()}))
-
-    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
-        events = await _drain(_emit_repo_state(agent, "t-1", "a/b", "feature-x"))
-
-    assert len(events) == 1
-    assert events[0].name == "daiv:repo_state"
-    assert events[0].value["merge_request"]["id"] == 7
-    fallback.assert_not_called()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_emit_repo_state_falls_back_when_state_has_no_mr():
-    """No MR in state → fall back to platform lookup keyed on the post-run ref."""
-    agent = MagicMock()
-    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
-    fallback_payload = _payload_mr()
-
-    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock(return_value=fallback_payload)) as fallback:
-        events = await _drain(_emit_repo_state(agent, "t-2", "a/b", "feature-x"))
-
-    fallback.assert_awaited_once_with("a/b", "feature-x")
-    assert len(events) == 1
-    assert events[0].value["merge_request"] == fallback_payload
-    assert events[0].value["ref"] == "feature-x"
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_emit_repo_state_returns_silently_when_nothing_to_report():
-    """No MR in state, no MR on platform, ref unchanged → no event yielded."""
-    agent = MagicMock()
-    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
-
-    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock(return_value=None)):
-        events = await _drain(_emit_repo_state(agent, "t-3", "a/b", "feature-x"))
-
-    assert events == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_emit_repo_state_uses_new_ref_when_state_mr_changed_branches():
-    """If the agent created an MR on a different branch, the lookup target and the
-    persisted ref both flip to the post-run source_branch.
-    """
-    user = await User.objects.acreate_user(username="u4", email="u4@x.com", password="x")  # noqa: S106
-    await ChatThread.objects.acreate(thread_id="t-4", user=user, repo_id="a/b", ref="feature-x")
-
-    agent = MagicMock()
-    state_mr = _state_mr_dict(source_branch="feature-y")
-    agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": state_mr}))
-
-    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
-        events = await _drain(_emit_repo_state(agent, "t-4", "a/b", "feature-x"))
-
-    fallback.assert_not_called()
-    assert events[0].value["ref"] == "feature-y"
-    refreshed = await ChatThread.objects.aget(thread_id="t-4")
-    assert refreshed.ref == "feature-y"
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_emit_repo_state_swallows_aget_state_errors():
-    """Reading the checkpointer is best-effort — failures must not poison the response."""
-    agent = MagicMock()
-    agent.aget_state = AsyncMock(side_effect=RuntimeError("checkpointer down"))
-
-    with patch("chat.api.views.aget_existing_mr_payload", new=AsyncMock()) as fallback:
-        events = await _drain(_emit_repo_state(agent, "t-5", "a/b", "feature-x"))
-
-    assert events == []
-    fallback.assert_not_called()
