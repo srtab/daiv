@@ -48,8 +48,9 @@
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
       {% if expired %}
-        <div class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
-          {% trans "This conversation's state has expired. Start a new chat to continue." %}
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
+          <span>{% trans "This conversation's state has expired. Start a new chat to continue." %}</span>
+          <a href="{% url 'chat_new' %}" class="btn-primary">{% trans "New chat" %}</a>
         </div>
       {% endif %}
 
