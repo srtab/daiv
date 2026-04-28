@@ -478,7 +478,7 @@
       };
 
       this.draftMessage = "";
-      this.autosize();
+      this.$nextTick(() => this.autosize());
       this.streaming = true;
       this.abortCtl = new AbortController();
 
