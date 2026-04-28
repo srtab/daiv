@@ -61,5 +61,8 @@ async def run_job_task(repo_id: str, prompt: str, ref: str | None = None, use_ma
 
     logger.info("Job completed for repo_id=%s", repo_id)
     return await build_agent_result(
-        daiv_agent, config, response=response_text, usage=build_usage_summary(usage_handler.usage_metadata).to_dict()
+        daiv_agent,
+        config,
+        response=response_text,
+        usage=build_usage_summary(usage_handler.usage_metadata, provider_costs=usage_handler.cost_by_model).to_dict(),
     )
