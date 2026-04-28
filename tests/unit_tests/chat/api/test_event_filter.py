@@ -21,8 +21,11 @@ from ag_ui.core.events import (
 from chat.api.event_filter import SubagentEventFilter
 
 
-def _ev(klass, *, ns: str = "", **kwargs):
-    return klass(raw_event={"metadata": {"langgraph_checkpoint_ns": ns}}, **kwargs)
+def _ev(klass, *, ns: str = "", chunk: dict | None = None, **kwargs):
+    raw: dict = {"metadata": {"langgraph_checkpoint_ns": ns}}
+    if chunk is not None:
+        raw["data"] = {"chunk": chunk}
+    return klass(raw_event=raw, **kwargs)
 
 
 async def _drain(stream):
@@ -288,3 +291,185 @@ async def test_filter_only_synthesizes_latest_ai_message_tool_calls():
     out = await _drain(_filter([snapshot, nested]))
     starts = [e for e in out if e.type == EventType.TOOL_CALL_START]
     assert [s.tool_call_id for s in starts] == ["tc-new"]
+
+
+async def test_filter_drops_misrouted_args_for_sibling_tool_calls():
+    # ag_ui_langgraph misroutes streamed arg deltas: when the LLM moves on
+    # from the first tool_call to a sibling, subsequent ARGS chunks still
+    # carry the *first* tool's id but the underlying chunk's
+    # ``tool_call_chunks[0].index`` points at the sibling. Drop those so the
+    # first tool's args don't get a concatenated JSON blob; the sibling is
+    # recovered via STATE_SNAPSHOT synthesis.
+    natural_start = _ev(
+        ToolCallStartEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "id": "tc1", "name": "read_file", "args": ""}]},
+        tool_call_id="tc1",
+        tool_call_name="read_file",
+    )
+    own_arg = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "args": '{"path":"a.py"}'}]},
+        tool_call_id="tc1",
+        delta='{"path":"a.py"}',
+    )
+    sibling_arg = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        # chunk index 1 → belongs to the second sibling tool_call; the event's
+        # tool_call_id is wrong (still tc1) because ag_ui_langgraph reuses
+        # current_stream's id.
+        chunk={"tool_call_chunks": [{"index": 1, "args": '{"path":"b.py"}'}]},
+        tool_call_id="tc1",
+        delta='{"path":"b.py"}',
+    )
+    out = await _drain(_filter([natural_start, own_arg, sibling_arg]))
+    assert [e.type for e in out] == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_ARGS]
+    assert out[1].delta == '{"path":"a.py"}'
+
+
+async def test_filter_synthesizes_sibling_tool_calls_after_natural_first():
+    # The realistic multi-tool-call sequence: tc1 streams naturally (its
+    # TOOL_CALL_START + correct-index ARGS pass through), tc2's args are
+    # misrouted-and-dropped, then STATE_SNAPSHOT arrives with both tcids.
+    # tc1 must NOT be re-synthesized (it's already on the wire); tc2 MUST be
+    # synthesized so its segment exists when its TOOL_CALL_RESULT arrives.
+    natural_start = _ev(
+        ToolCallStartEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "id": "tc1", "name": "read_file", "args": ""}]},
+        tool_call_id="tc1",
+        tool_call_name="read_file",
+    )
+    own_arg = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "args": '{"path":"a.py"}'}]},
+        tool_call_id="tc1",
+        delta='{"path":"a.py"}',
+    )
+    misrouted = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 1, "args": '{"path":"b.py"}'}]},
+        tool_call_id="tc1",
+        delta='{"path":"b.py"}',
+    )
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={
+            "messages": [
+                {
+                    "type": "ai",
+                    "tool_calls": [
+                        {"id": "tc1", "name": "read_file", "args": {"path": "a.py"}},
+                        {"id": "tc2", "name": "read_file", "args": {"path": "b.py"}},
+                    ],
+                }
+            ]
+        },
+    )
+    result_2 = _ev(ToolCallResultEvent, ns="", tool_call_id="tc2", message_id="r2", content="contents-b")
+    out = await _drain(_filter([natural_start, own_arg, misrouted, snapshot, result_2]))
+
+    starts = [(e.tool_call_id, getattr(e, "tool_call_name", None)) for e in out if e.type == EventType.TOOL_CALL_START]
+    # tc1 from natural stream + tc2 synthesized — tc1 NOT duplicated.
+    assert starts == [("tc1", "read_file"), ("tc2", "read_file")]
+    args = [(e.tool_call_id, e.delta) for e in out if e.type == EventType.TOOL_CALL_ARGS]
+    # tc1's own (index 0) arg + synthesized tc2 args; misrouted index-1 dropped.
+    assert args == [("tc1", '{"path":"a.py"}'), ("tc2", '{"path": "b.py"}')]
+
+
+async def test_filter_synthesizes_for_non_task_tool_calls_dropped_by_ag_ui():
+    # When ag_ui_langgraph drops the natural TOOL_CALL_START on a
+    # text→tool_call transition (the same code path that drops ``task``
+    # starts), we still synthesize from STATE_SNAPSHOT regardless of the
+    # tool name — non-``task`` calls should also get a segment so their
+    # RESULT can find one.
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={
+            "messages": [
+                {
+                    "type": "ai",
+                    "content": "Looking up the file.",
+                    "tool_calls": [{"id": "tc-rf", "name": "read_file", "args": {"path": "x.py"}}],
+                }
+            ]
+        },
+    )
+    out = await _drain(_filter([snapshot]))
+    starts = [e for e in out if e.type == EventType.TOOL_CALL_START]
+    assert [(s.tool_call_id, s.tool_call_name) for s in starts] == [("tc-rf", "read_file")]
+
+
+async def test_filter_passes_args_with_malformed_chunk_shapes_through():
+    # Malformed/missing chunk shapes must not crash and must not be
+    # misclassified as misrouted — the event passes through unchanged so the
+    # natural arg streaming for the first tool_call survives upstream
+    # changes.
+    cases = [
+        # No data key.
+        {"metadata": {"langgraph_checkpoint_ns": ""}},
+        # data.chunk is None.
+        {"metadata": {"langgraph_checkpoint_ns": ""}, "data": {"chunk": None}},
+        # tool_call_chunks missing.
+        {"metadata": {"langgraph_checkpoint_ns": ""}, "data": {"chunk": {}}},
+        # tool_call_chunks is empty.
+        {"metadata": {"langgraph_checkpoint_ns": ""}, "data": {"chunk": {"tool_call_chunks": []}}},
+        # First chunk lacks index.
+        {"metadata": {"langgraph_checkpoint_ns": ""}, "data": {"chunk": {"tool_call_chunks": [{"args": "x"}]}}},
+        # First chunk has non-int index.
+        {
+            "metadata": {"langgraph_checkpoint_ns": ""},
+            "data": {"chunk": {"tool_call_chunks": [{"index": "1", "args": "x"}]}},
+        },
+    ]
+    for raw in cases:
+        ev = ToolCallArgsEvent(raw_event=raw, tool_call_id="tc1", delta="x")
+        out = await _drain(_filter([ev]))
+        assert [e.type for e in out] == [EventType.TOOL_CALL_ARGS], f"failed for raw={raw}"
+
+
+async def test_filter_drops_misrouted_args_for_already_synthesized_tcid():
+    # If a tcid was synthesized (not naturally started) AND a misrouted ARGS
+    # arrives carrying it, both drop conditions hold. Lock in that the event
+    # is dropped exactly once — order of the two checks must not matter.
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={"messages": [{"type": "ai", "tool_calls": [{"id": "tc-s", "name": "task", "args": {"x": 1}}]}]},
+    )
+    misrouted = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 1, "args": "y"}]},
+        tool_call_id="tc-s",
+        delta="y",
+    )
+    out = await _drain(_filter([snapshot, misrouted]))
+    args_events = [e for e in out if e.type == EventType.TOOL_CALL_ARGS]
+    # Only the synthesized ARGS for tc-s — the misrouted one is dropped.
+    assert [a.delta for a in args_events] == ['{"x": 1}']
+
+
+async def test_filter_skips_synthesis_when_latest_ai_has_no_tool_calls():
+    # _iter_latest_tool_calls returns after the first AI message even if its
+    # tool_calls is empty — older AI messages' tool_calls were already
+    # emitted on prior snapshots and must not re-synthesize.
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={
+            "messages": [
+                {"type": "ai", "tool_calls": [{"id": "tc-old", "name": "task", "args": {}}]},
+                {"type": "tool", "tool_call_id": "tc-old", "content": "done"},
+                {"type": "ai", "content": "all done", "tool_calls": []},
+            ]
+        },
+    )
+    out = await _drain(_filter([snapshot]))
+    assert [e.type for e in out] == [EventType.STATE_SNAPSHOT]

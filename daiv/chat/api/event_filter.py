@@ -12,64 +12,73 @@ if TYPE_CHECKING:
 
 
 class SubagentEventFilter:
-    """Reorder/suppress AGUI events so subagent frames don't leak into the parent turn.
+    """Reorder/suppress AGUI events so subagent frames don't leak into the parent turn,
+    and fix ag_ui_langgraph's mis-routing of streamed args for parallel tool_calls.
 
-    Two upstream behaviors collide on ``task``-tool turns:
+    Three upstream behaviors collide on multi-tool_call turns:
 
-    1. ag_ui_langgraph drops the parent's ``task`` TOOL_CALL_START on the
+    1. ag_ui_langgraph drops the parent's TOOL_CALL_START on the
        text→tool_call transition chunk (the chunk that ends the parent's text
        stream also carries the new tool_call name, but the handler returns
        after emitting TEXT_MESSAGE_END). Subsequent chunks only have args, so
        OnChatModelStream never reaches ``is_tool_call_start_event``. The
-       ``task`` TOOL_CALL_START finally arrives from the OnToolEnd re-emit —
-       *after* the subagent has already streamed text/tool calls to the
-       client.
+       TOOL_CALL_START finally arrives from the OnToolEnd re-emit — *after*
+       the tool (and any subagent it dispatched) has already produced output.
+       Originally observed on ``task`` calls; affects any tool that follows
+       text in an AIMessage.
 
     2. With ``stream_subgraphs=True``, every chunk emitted from inside
        ``subagent.ainvoke()`` flows through the parent's stream with a
        nested ``langgraph_checkpoint_ns`` (``"tools:UUID|model:UUID"``).
-       Without (1)'s TOOL_CALL_START there is no ``task`` segment to
-       suppress them against.
+
+    3. When the LLM emits parallel tool_calls in a single AIMessage,
+       ag_ui_langgraph only tracks one ``current_stream.tool_call_id`` at a
+       time. Each AIMessageChunk's ``tool_call_chunks[0]`` may belong to a
+       *different* index than ``current_stream`` (the LLM has moved on to
+       the second/third tool_call), but ARGS events still go out with the
+       first tool_call's id. The chat UI ends up appending the second and
+       third calls' arg deltas to the first call's segment — visible as
+       multiple concatenated JSON objects in one tool's "ARGUMENTS" view.
 
     This filter:
 
-    * captures ``task`` tool_call ids from top-level STATE_SNAPSHOT events,
-    * synthesizes TOOL_CALL_START + ARGS + END for each on the first nested
-      event so the chat creates the segment *before* the subagent runs,
+    * captures every top-level tool_call from STATE_SNAPSHOT events and
+      synthesizes TOOL_CALL_START + ARGS + END for any tcid that was *not*
+      naturally started by ag_ui_langgraph (the dropped #1 case AND the
+      parallel-call siblings beyond the first in #3),
+    * drops misrouted natural ``TOOL_CALL_ARGS`` events whose underlying
+      chunk's ``tool_call_chunks[0].index > 0`` — the delta belongs to a
+      sibling, not to the tcid in the event,
     * drops every nested event (``|`` in ns),
     * drops the LATE OnToolEnd re-emitted START/ARGS/END for tool_calls we
       already synthesized (deduping by tool_call_id).
-
-    The parent's TOOL_CALL_RESULT for the task tool still flows through
-    untouched — it's a top-level event with the same ``tool_call_id``, so the
-    chat UI flips the synthesized segment to ``done`` exactly like a normal
-    tool call.
     """
 
-    # Tool name used by deepagents' SubAgentMiddleware to invoke a subagent.
-    TASK_TOOL_NAME = "task"
-
     def __init__(self) -> None:
-        # Two-state lifecycle: a tool_call_id starts in ``_pending`` (synthesize
-        # on next nested event), then moves to ``_emitted`` (drop the late
-        # re-emit). Membership in either is enough to dedup a STATE_SNAPSHOT
-        # rebroadcast; ``_emitted`` alone gates the late TOOL_CALL_*
-        # re-emit drop.
-        self._pending: dict[str, tuple[str, Any]] = {}
-        self._emitted: set[str] = set()
+        self._synthesized: set[str] = set()
+        self._natural_started: set[str] = set()
 
     async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncIterator[BaseEvent]:
         async for event in stream:
             ns = self._checkpoint_ns(event)
             is_nested = "|" in ns
 
-            if not is_nested and event.type == EventType.STATE_SNAPSHOT:
-                for tcid, name, args in self._iter_latest_task_calls(event):
-                    if tcid not in self._pending and tcid not in self._emitted:
-                        self._pending[tcid] = (name, args)
-
             if is_nested:
-                for tcid, (name, args) in self._pending.items():
+                continue
+
+            if event.type == EventType.STATE_SNAPSHOT:
+                # Yield the snapshot first so any state-driven UI updates
+                # (e.g. the merge-request pill) commit before the synthesized
+                # tool_call segments append to the same turn.
+                yield event
+
+                pending: dict[str, tuple[str, Any]] = {}
+                for tcid, name, args in self._iter_latest_tool_calls(event):
+                    if tcid in self._synthesized or tcid in self._natural_started:
+                        continue
+                    pending[tcid] = (name, args)
+
+                for tcid, (name, args) in pending.items():
                     yield ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name)
                     if args:
                         # ``default=str`` so a Pydantic model / datetime / other
@@ -78,14 +87,18 @@ class SubagentEventFilter:
                         delta = args if isinstance(args, str) else json.dumps(args, default=str)
                         yield ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta)
                     yield ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid)
-                    self._emitted.add(tcid)
-                self._pending.clear()
+                    self._synthesized.add(tcid)
+                continue
+
+            if event.type == EventType.TOOL_CALL_ARGS and self._is_misrouted_arg(event):
                 continue
 
             if event.type in (EventType.TOOL_CALL_START, EventType.TOOL_CALL_ARGS, EventType.TOOL_CALL_END):
                 tcid = getattr(event, "tool_call_id", None)
-                if isinstance(tcid, str) and tcid in self._emitted:
+                if isinstance(tcid, str) and tcid in self._synthesized:
                     continue
+                if event.type == EventType.TOOL_CALL_START and isinstance(tcid, str):
+                    self._natural_started.add(tcid)
 
             yield event
 
@@ -106,8 +119,26 @@ class SubagentEventFilter:
         return str(md.get("langgraph_checkpoint_ns", "") or "")
 
     @classmethod
-    def _iter_latest_task_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
-        """Yield ``(tool_call_id, name, args)`` for every ``task`` tool_call on the
+    def _is_misrouted_arg(cls, event: BaseEvent) -> bool:
+        """True if a natural TOOL_CALL_ARGS event's underlying chunk belongs to a
+        sibling tool_call (chunk index > 0) but ag_ui_langgraph attributed it to
+        the first call's tool_call_id.
+        """
+        raw = getattr(event, "raw_event", None)
+        if not isinstance(raw, dict):
+            return False
+        chunk = (raw.get("data") or {}).get("chunk")
+        if chunk is None:
+            return False
+        tcc = cls._field(chunk, "tool_call_chunks") or []
+        if not tcc:
+            return False
+        idx = cls._field(tcc[0], "index")
+        return isinstance(idx, int) and idx > 0
+
+    @classmethod
+    def _iter_latest_tool_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
+        """Yield ``(tool_call_id, name, args)`` for every tool_call on the
         snapshot's latest AIMessage. Caller is responsible for dedup against
         already-emitted ids — this is just the per-snapshot scan.
         """
@@ -117,32 +148,31 @@ class SubagentEventFilter:
         msgs = snap.get("messages")
         if not isinstance(msgs, list):
             return
-        # Only the latest AIMessage matters — older AIMessages were emitted on
-        # earlier snapshots and their task ids are already in ``task_calls``.
-        # Walking past the latest is just wasted work; the dedup map at the call
-        # site is what guarantees no double-synthesis.
+        # Only the latest AIMessage matters — older AIMessages' tool_calls are
+        # already in ``_synthesized`` / ``_natural_started`` from prior snapshots.
         for m in reversed(msgs):
             if cls._msg_role(m) not in ("ai", "assistant"):
                 continue
-            for tc in cls._msg_field(m, "tool_calls") or []:
-                tcid = cls._msg_field(tc, "id")
-                name = cls._msg_field(tc, "name")
-                if name == cls.TASK_TOOL_NAME and isinstance(tcid, str):
-                    yield tcid, name, cls._msg_field(tc, "args")
+            for tc in cls._field(m, "tool_calls") or []:
+                tcid = cls._field(tc, "id")
+                name = cls._field(tc, "name")
+                if isinstance(tcid, str) and isinstance(name, str):
+                    yield tcid, name, cls._field(tc, "args")
             return
 
     @staticmethod
-    def _msg_field(message: Any, name: str, default: Any = None) -> Any:
-        """Read a field from a LangChain message or its dict-encoded form.
+    def _field(obj: Any, name: str, default: Any = None) -> Any:
+        """Read a field from either a dict or an object with attributes.
 
-        STATE_SNAPSHOT can carry either shape depending on whether the snapshot
-        has been serialized yet — running through the AGUI encoder turns objects
-        into dicts, but the filter here sits *before* the encoder.
+        STATE_SNAPSHOT messages and AIMessageChunk fields can carry either
+        shape depending on whether the snapshot has been serialized yet —
+        the AGUI encoder turns objects into dicts, but this filter sits in
+        front of the encoder.
         """
-        if isinstance(message, dict):
-            return message.get(name, default)
-        return getattr(message, name, default)
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
 
     @classmethod
     def _msg_role(cls, message: Any) -> str:
-        return str(cls._msg_field(message, "type", "") or cls._msg_field(message, "role", "") or "").lower()
+        return str(cls._field(message, "type", "") or cls._field(message, "role", "") or "").lower()

@@ -77,7 +77,7 @@
 
   // --- per-tool signature extractors -------------------------------------
 
-  const sigReadFile = (args, _result, argsStr) => {
+  const sigReadFile = (args, result, argsStr) => {
     const path = pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
     const start = args.line_start ?? args.start_line ?? args.offset;
     let end = args.line_end ?? args.end_line;
@@ -91,6 +91,9 @@
       badges.push(badge(`from ${start}`, "neutral"));
     } else if (end != null) {
       badges.push(badge(`to ${end}`, "neutral"));
+    }
+    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
+      badges.push(badge("error", "danger"));
     }
     return { label: "read_file", path, badges };
   };
@@ -159,7 +162,9 @@
     const mode = pickKeyOrPartial(args, ["output_mode"], argsStr) ?? "files_with_matches";
     const text = String(result ?? "").trim();
     const badges = [];
-    if (text && text !== "No matches found" && !text.toLowerCase().startsWith("invalid regex")) {
+    if (text === "No matches found") {
+      badges.push(badge("no matches", "warn"));
+    } else if (text && !text.toLowerCase().startsWith("invalid regex")) {
       const lines = text.split("\n").filter((l) => l.trim().length);
       let hits = 0;
       let label = "hits";
@@ -681,7 +686,11 @@
   };
 
   const BODY_BY_TOOL = {
-    read_file: (_args, result) => resultOnlyBody("Contents", result),
+    read_file: (_args, result) => {
+      const text = String(result ?? "");
+      if (text && ERROR_PREFIX_RE.test(text.trim())) return block("Error", pre(text));
+      return resultOnlyBody("Contents", result);
+    },
     write_file: (_args, result) => resultOnlyBody("Result", result),
     edit_file: (args, result) => editFileBody(args, result),
     grep: (args, result) => grepBody(result),
