@@ -70,7 +70,7 @@ urls.source = "https://github.com/srtab/daiv"
 [dependency-groups]
 dev = [
   "coverage==7.13.5",
-  "datasets==4.8.4",
+  "datasets==4.8.5",
   "openevals==0.2.0",
   "prek==0.3.10",
   "pyproject-fmt==2.21.1",
