@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -48,6 +49,9 @@ if TYPE_CHECKING:
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
+
+
+logger = logging.getLogger("daiv.agent")
 
 
 class _Unset:
@@ -197,6 +201,11 @@ async def create_daiv_agent(
     deferred_index = None
     if mcp_settings.DEFERRED_TOOLS_ENABLED:
         deferred_index = await MCPToolkit.aget_deferred_index()
+        if not deferred_index.deferred_entries() and not deferred_index.always_loaded_tools():
+            logger.warning(
+                "MCP_DEFERRED_TOOLS_ENABLED is True but the deferred index is empty — "
+                "MCP servers may be unreachable or unconfigured. Agent will run without MCP tools."
+            )
 
     agent_conditional_middlewares = []
 

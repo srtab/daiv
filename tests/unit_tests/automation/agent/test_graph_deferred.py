@@ -30,8 +30,6 @@ def _common_patches():
 
 
 class TestCreateDaivAgentDeferredFlag:
-    """The DEFERRED_TOOLS_ENABLED flag toggles tool-binding strategy at agent build time."""
-
     async def _run(self, *, flag_on: bool):
         from langchain_core.tools import StructuredTool
 

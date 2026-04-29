@@ -25,7 +25,6 @@ class TestBuildDeferredToolsBlock:
         assert "</available-deferred-tools>" in block
         assert "github_create_issue: Create a GitHub issue." in block
         assert "sentry_find_orgs: List Sentry organizations." in block
-        # Continuation lines must not appear.
         assert "More detail follows." not in block
 
     def test_hides_already_loaded_tools(self):
@@ -46,7 +45,6 @@ class TestBuildDeferredToolsBlock:
         tools = [_make_tool("noisy", long_desc)]
         index = DeferredMCPToolsIndex(tools)
         block = build_deferred_tools_block(index, set())
-        # First line is truncated to 200 chars.
         assert "noisy: " in block
         body_line = next(line for line in block.splitlines() if line.startswith("noisy:"))
         assert len(body_line) <= len("noisy: ") + 200

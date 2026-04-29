@@ -110,8 +110,33 @@ class TestDeferredMCPToolsMiddleware:
 
         await middleware.awrap_model_call(request, handler)
 
-        # Block omitted when nothing remains deferred — system prompt stays clean.
         assert "<available-deferred-tools>" not in captured["system_prompt"]
+
+    async def test_system_prompt_none_does_not_pollute(self):
+        github = _make_tool("github_create_issue", "Create issue")
+        index = DeferredMCPToolsIndex([github])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        request = _request(system_prompt=None, state={})
+        captured: dict = {}
+
+        async def handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        assert not captured["system_prompt"].startswith("\n")
+        assert "<available-deferred-tools>" in captured["system_prompt"]
+
+    async def test_init_rejects_invalid_top_k(self):
+        import pytest
+
+        index = DeferredMCPToolsIndex([])
+        with pytest.raises(ValueError):
+            DeferredMCPToolsMiddleware(index, top_k_default=10, top_k_max=5)
+        with pytest.raises(ValueError):
+            DeferredMCPToolsMiddleware(index, top_k_default=0, top_k_max=5)
 
     async def test_returns_handler_response(self):
         index = DeferredMCPToolsIndex([])
@@ -190,3 +215,60 @@ class TestDeferredMCPToolsMiddlewareHardFail:
         result = await middleware.awrap_model_call(request, handler)
 
         assert not [m for m in result.messages if isinstance(m, ToolMessage)]
+
+    async def test_corrective_message_for_each_unloaded_tool_call(self):
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        a = _make_tool("github_create_issue", "Create issue")
+        b = _make_tool("sentry_find_orgs", "List orgs")
+        index = DeferredMCPToolsIndex([a, b])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        ai_message = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "github_create_issue", "id": "call_1", "args": {}, "type": "tool_call"},
+                {"name": "sentry_find_orgs", "id": "call_2", "args": {}, "type": "tool_call"},
+            ],
+        )
+        response = MagicMock()
+        response.messages = [ai_message]
+
+        async def handler(req):
+            return response
+
+        result = await middleware.awrap_model_call(_request(state={}), handler)
+
+        tool_messages = [m for m in result.messages if isinstance(m, ToolMessage)]
+        assert sorted(m.tool_call_id for m in tool_messages) == ["call_1", "call_2"]
+
+    async def test_response_without_messages_attr_does_not_crash(self):
+        index = DeferredMCPToolsIndex([])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        class _Bare:
+            pass
+
+        async def handler(req):
+            return _Bare()
+
+        await middleware.awrap_model_call(_request(state={}), handler)
+
+    async def test_stale_loaded_tool_name_dropped_with_warning(self, caplog):
+        import logging
+
+        github = _make_tool("github_create_issue", "Create issue")
+        index = DeferredMCPToolsIndex([github])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = list(req.tools)
+            return MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            await middleware.awrap_model_call(_request(state={"loaded_tool_names": {"removed_tool"}}), handler)
+
+        assert "removed_tool" in caplog.text
+        assert "github_create_issue" not in [t.name for t in captured["tools"]]

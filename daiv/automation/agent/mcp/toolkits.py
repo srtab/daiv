@@ -5,27 +5,22 @@ from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
 from automation.agent.toolkits import BaseToolkit
 
 if TYPE_CHECKING:
     from langchain_core.tools.base import BaseTool
 
-    from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
     from automation.agent.mcp.schemas import ToolFilter
 
 logger = logging.getLogger("daiv.tools")
 
 
 def _get_connection_url(conn) -> str:
-    """Extract the URL from a langchain MCP connection object."""
     return getattr(conn, "url", "unknown")
 
 
 class MCPToolkit(BaseToolkit):
-    """
-    Toolkit for using MCP servers.
-    """
-
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
         from automation.agent.mcp.registry import mcp_registry
@@ -60,14 +55,7 @@ class MCPToolkit(BaseToolkit):
 
     @classmethod
     async def aget_deferred_index(cls) -> DeferredMCPToolsIndex:
-        """Build a `DeferredMCPToolsIndex` from MCP tools, applying server filters.
-
-        Returns an empty index when no MCP servers are configured.
-        """
-        from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
-
-        tools = await cls.get_tools()
-        return DeferredMCPToolsIndex(tools)
+        return DeferredMCPToolsIndex(await cls.get_tools())
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:

@@ -26,17 +26,10 @@ the rest of this session.
 
 Examples:
   - tool_search(query="create github issue")
-  - tool_search(select=["sentry_find_organizations"])"""
+  - tool_search(query="", select=["sentry_find_organizations"])"""
 
 
 def make_tool_search(index: DeferredMCPToolsIndex, *, top_k_default: int, top_k_max: int) -> BaseTool:
-    """Build the `tool_search` tool bound to a specific deferred-tools index.
-
-    The index is captured by closure so the tool can be added to a middleware's
-    `tools` attribute without per-call lookup. State (`loaded_tool_names`) is
-    read from `runtime.state` and mutated via the returned `Command`.
-    """
-
     async def tool_search(
         query: Annotated[str, "Keywords describing the capability needed (e.g. 'create github issue')."],
         runtime: ToolRuntime[object, DeferredMCPToolsState],
@@ -45,31 +38,39 @@ def make_tool_search(index: DeferredMCPToolsIndex, *, top_k_default: int, top_k_
         ] = None,
         top_k: Annotated[int | None, "Number of search results to return."] = None,
     ) -> Command:
+        missing: list[str] = []
         if select:
-            entries = [e for name in select if (e := index.get(name)) is not None]
+            entries = []
+            for name in select:
+                entry = index.get(name)
+                if entry is None:
+                    missing.append(name)
+                else:
+                    entries.append(entry)
         else:
             effective_top_k = min(top_k or top_k_default, top_k_max)
             entries = index.search(query, top_k=effective_top_k)
 
         if not entries:
-            return Command(
-                update={
-                    "messages": [
-                        ToolMessage(content="No matching deferred tools found.", tool_call_id=runtime.tool_call_id)
-                    ]
-                }
-            )
+            if select and missing:
+                content = f"None of the requested names are deferred tools: {', '.join(missing)}."
+            elif select:
+                content = "Empty `select` list — pass at least one tool name."
+            else:
+                content = f"No deferred tools matched query {query!r}."
+            return Command(update={"messages": [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
         existing = runtime.state.get("loaded_tool_names") or set()
         new_loaded = existing | {entry.name for entry in entries}
 
-        summary = "\n".join(f"- {entry.name}: {(entry.description.splitlines() or [''])[0][:200]}" for entry in entries)
+        summary = "\n".join(f"- {entry.name}: {entry.summary}" for entry in entries)
+        content = f"Loaded {len(entries)} tool(s):\n{summary}"
+        if missing:
+            content += f"\n\nIgnored unknown names: {', '.join(missing)}"
         return Command(
             update={
                 "loaded_tool_names": new_loaded,
-                "messages": [
-                    ToolMessage(content=f"Loaded {len(entries)} tool(s):\n{summary}", tool_call_id=runtime.tool_call_id)
-                ],
+                "messages": [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)],
             }
         )
 

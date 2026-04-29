@@ -50,10 +50,9 @@ class TestToolSearch:
         result = await tool_search.ainvoke({"query": "totally_unrelated_xyzzy", "runtime": _runtime()})
 
         assert isinstance(result, Command)
-        # No state mutation when nothing matched.
         assert "loaded_tool_names" not in result.update
         msg = result.update["messages"][0]
-        assert "No matching deferred tools" in msg.content
+        assert "totally_unrelated_xyzzy" in msg.content
 
     async def test_select_loads_exact_names(self):
         tools = [
@@ -68,7 +67,7 @@ class TestToolSearch:
         assert isinstance(result, Command)
         assert result.update["loaded_tool_names"] == {"sentry_find_orgs"}
 
-    async def test_select_unknown_name_excluded(self):
+    async def test_select_unknown_name_surfaces_in_message(self):
         index = DeferredMCPToolsIndex([_make_tool("github_create_issue", "Create issue")])
         tool_search = make_tool_search(index, top_k_default=5, top_k_max=10)
 
@@ -80,8 +79,19 @@ class TestToolSearch:
 
         assert isinstance(result, Command)
         assert result.update["loaded_tool_names"] == {"github_create_issue"}
+        assert "does_not_exist" in result.update["messages"][0].content
 
-    async def test_unions_with_existing_loaded(self):
+    async def test_select_all_unknown_returns_dedicated_message(self):
+        index = DeferredMCPToolsIndex([_make_tool("github_create_issue", "Create issue")])
+        tool_search = make_tool_search(index, top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": ["nope_a", "nope_b"], "runtime": _runtime()})
+
+        assert "loaded_tool_names" not in result.update
+        msg_content = result.update["messages"][0].content
+        assert "nope_a" in msg_content and "nope_b" in msg_content
+
+    async def test_reads_existing_loaded_state(self):
         tools = [_make_tool("github_create_issue", "Create issue"), _make_tool("sentry_find_orgs", "List orgs")]
         index = DeferredMCPToolsIndex(tools)
         tool_search = make_tool_search(index, top_k_default=5, top_k_max=10)

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset({"the", "a", "an", "of", "to", "for", "with", "in", "on", "by", "is", "and", "or"})
 _INDEXED_TEXT_CAP = 2048
+_SUMMARY_CAP = 200
 
 
 def _tokenize(text: str) -> list[str]:
@@ -23,27 +24,30 @@ def _tokenize(text: str) -> list[str]:
 @dataclass(frozen=True)
 class ToolEntry:
     name: str
-    description: str
     tool: BaseTool
     indexed_text: str
+    summary: str
 
 
 class DeferredMCPToolsIndex:
-    """Process-level index over MCP tools with BM25 keyword search.
-
-    Built once from `MCPToolkit.get_tools()`. Read-only after construction —
-    callers that need to refresh (e.g. on MCP server reconfiguration) should
-    rebuild the index, not mutate it.
-    """
-
     def __init__(self, tools: Iterable[BaseTool], always_loaded: Iterable[str] = ()) -> None:
         self._entries: dict[str, ToolEntry] = {}
-        self._always_loaded: set[str] = set(always_loaded)
+        self._always_loaded_names: set[str] = set(always_loaded)
 
         for tool in tools:
             self._entries[tool.name] = self._build_entry(tool)
 
+        unknown = self._always_loaded_names - self._entries.keys()
+        if unknown:
+            raise ValueError(f"always_loaded references unknown tool names: {sorted(unknown)}")
+
         self._names: list[str] = list(self._entries.keys())
+        self._always_loaded_tools: list[BaseTool] = [
+            self._entries[n].tool for n in self._names if n in self._always_loaded_names
+        ]
+        self._deferred_entries: list[ToolEntry] = [
+            entry for name, entry in self._entries.items() if name not in self._always_loaded_names
+        ]
         if self._names:
             self._bm25 = BM25Plus([_tokenize(self._entries[n].indexed_text) for n in self._names])
         else:
@@ -63,15 +67,16 @@ class DeferredMCPToolsIndex:
         return [self._entries[name] for score, name in ranked[:top_k] if score > 0]
 
     def always_loaded_tools(self) -> list[BaseTool]:
-        return [self._entries[n].tool for n in self._names if n in self._always_loaded]
+        return self._always_loaded_tools
+
+    def always_loaded_names(self) -> set[str]:
+        return self._always_loaded_names
 
     def deferred_entries(self) -> list[ToolEntry]:
-        return [entry for name, entry in self._entries.items() if name not in self._always_loaded]
+        return self._deferred_entries
 
     @staticmethod
     def _build_entry(tool: BaseTool) -> ToolEntry:
-        # Tool names from langchain-mcp-adapters look like "sentry_find_organizations".
-        # Splitting on `_` gives BM25 useful terms even for short descriptions.
         name_text = re.sub(r"_+", " ", tool.name)
 
         arg_text = ""
@@ -82,5 +87,6 @@ class DeferredMCPToolsIndex:
 
         description = tool.description or ""
         indexed_text = f"{name_text} {description} {arg_text}"[:_INDEXED_TEXT_CAP]
+        summary = (description.splitlines() or [""])[0][:_SUMMARY_CAP]
 
-        return ToolEntry(name=tool.name, description=description, tool=tool, indexed_text=indexed_text)
+        return ToolEntry(name=tool.name, tool=tool, indexed_text=indexed_text, summary=summary)

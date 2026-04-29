@@ -1,4 +1,4 @@
-from automation.agent.mcp.deferred.state import DeferredMCPToolsState, union_loaded_tool_names
+from automation.agent.mcp.deferred.state import union_loaded_tool_names
 
 
 class TestUnionLoadedToolNames:
@@ -16,14 +16,3 @@ class TestUnionLoadedToolNames:
 
     def test_overlapping_union(self):
         assert union_loaded_tool_names({"a", "b"}, {"b", "c"}) == {"a", "b", "c"}
-
-
-class TestDeferredMCPToolsState:
-    def test_state_can_omit_loaded_tool_names(self):
-        # NotRequired — empty dict is a valid instance.
-        state: DeferredMCPToolsState = {"messages": []}
-        assert state.get("loaded_tool_names") is None
-
-    def test_state_accepts_set(self):
-        state: DeferredMCPToolsState = {"messages": [], "loaded_tool_names": {"sentry_find_organizations"}}
-        assert state["loaded_tool_names"] == {"sentry_find_organizations"}

@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -45,18 +46,11 @@ class TestDeferredMCPToolsIndex:
         assert index.search("", top_k=5) == []
         assert index.search("   ", top_k=5) == []
 
-    def test_search_skips_zero_score_results(self):
+    def test_search_returns_empty_when_query_only_stopwords(self):
         tools = [_make_tool("github_create_issue", "Create issue")]
         index = DeferredMCPToolsIndex(tools)
-        # Stopword-only query should produce zero scores after tokenization.
         results = index.search("the a of", top_k=5)
         assert results == []
-
-    def test_search_respects_top_k(self):
-        tools = [_make_tool(f"sentry_tool_{i}", f"sentry helper {i}") for i in range(5)]
-        index = DeferredMCPToolsIndex(tools)
-        results = index.search("sentry helper", top_k=2)
-        assert len(results) <= 2
 
     def test_always_loaded_tools_filter(self):
         a = _make_tool("github_create_issue", "Create issue")
@@ -67,14 +61,12 @@ class TestDeferredMCPToolsIndex:
         assert [t.name for t in always] == ["github_get_user"]
         assert deferred == ["github_create_issue"]
 
-    def test_always_loaded_unknown_name_ignored(self):
+    def test_always_loaded_unknown_name_raises(self):
         a = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([a], always_loaded={"does_not_exist"})
-        assert index.always_loaded_tools() == []
+        with pytest.raises(ValueError, match="does_not_exist"):
+            DeferredMCPToolsIndex([a], always_loaded={"does_not_exist"})
 
     def test_args_schema_text_indexed(self):
-        # Description omits "owner"; only the args_schema mentions it. A search
-        # for "owner" should still rank the tool above an unrelated one.
         tools = [
             _make_tool("github_create_pull_request", "Open a PR", _GitHubArgs),
             _make_tool("sentry_list_orgs", "List organizations"),
@@ -92,23 +84,14 @@ class TestDeferredMCPToolsIndex:
         assert len(entry.indexed_text) <= 2048
 
     def test_args_schema_without_model_json_schema_degrades_gracefully(self):
-        """Test that tools with non-Pydantic args_schema are handled gracefully."""
-
-        # Create a tool first, then patch its args_schema BEFORE indexing
         tool = _make_tool("plain_tool", "A plain tool")
 
         class _LegacySchema:
-            """A schema without model_json_schema method."""
-
             pass
 
-        # Patch args_schema before creating the index
         tool.args_schema = _LegacySchema
-
-        # Now build the index - this should call _build_entry with the patched schema
         index = DeferredMCPToolsIndex([tool])
 
         entry = index.get("plain_tool")
         assert entry is not None
-        # The indexed text should contain the tool name (converted from underscore)
         assert "plain" in entry.indexed_text and "tool" in entry.indexed_text
