@@ -13,6 +13,9 @@ _TITLE_MAX_LEN = 100
 @register.simple_tag
 def activity_title(activity) -> str:
     """Derive a human-meaningful title for an Activity."""
+    if stored := (activity.title or "").strip():
+        return stored
+
     prompt = (activity.prompt or "").strip()
     if prompt:
         first_line = next((line for line in prompt.splitlines() if line.strip()), "").strip()

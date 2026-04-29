@@ -88,12 +88,24 @@ class Activity(models.Model):
 
     status = models.CharField(_("status"), max_length=10, choices=ActivityStatus.choices, default=ActivityStatus.READY)
 
+    title = models.CharField(_("title"), max_length=120, blank=True, default="")
+
     batch_id = models.UUIDField(
         _("batch ID"),
         null=True,
         blank=True,
         db_index=True,
         help_text=_("Shared identifier for activities from the same submission."),
+    )
+
+    thread_id = models.CharField(
+        _("thread ID"),
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text=_("LangGraph checkpoint key. Lets chat resume this run."),
     )
 
     external_username = models.CharField(
@@ -174,6 +186,14 @@ class Activity(models.Model):
                 name="activity_ext_user_created_idx",
                 condition=models.Q(external_username__gt=""),
             ),
+        ]
+        constraints = [
+            # ``thread_id`` is unique=True; "" would collide on the second insert
+            # under Postgres (which treats NULL as not-equal but "" as a real
+            # value). Forbid the empty-string sentinel so callers must use NULL.
+            models.CheckConstraint(
+                condition=models.Q(thread_id__isnull=True) | ~models.Q(thread_id=""), name="activity_thread_id_nonempty"
+            )
         ]
 
     def __str__(self) -> str:

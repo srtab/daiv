@@ -19,6 +19,8 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+  "ag-ui-langgraph==0.0.34",
+  "copilotkit==0.1.86",
   "croniter==6.2.2",
   "ddgs==9.14.1",
   "deepagents==0.5.1",

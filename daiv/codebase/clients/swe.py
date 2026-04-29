@@ -287,6 +287,12 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge requests")
+
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")

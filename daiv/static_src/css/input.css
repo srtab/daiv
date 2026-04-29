@@ -261,3 +261,1201 @@ a, button, [role="button"] {
     @apply px-3 py-2 text-sm;
   }
 }
+
+/* -- Chat UI ------------------------------------------------------------- */
+
+@layer components {
+  /* <main> is the page scroll container (claude.ai / chatgpt pattern). The
+     wrapper is `min-h-full flex flex-col` from chat_detail.html, so the chat
+     fills main when content is short and grows naturally past that as turns
+     accumulate. `grid-template-rows: minmax(0, 1fr)` makes the column stretch
+     to fill the grid even when content is short; without it the column
+     collapses to content height and the sticky composer can't reach the
+     viewport bottom. */
+  .chat-shell {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    flex: 1 1 auto;
+  }
+
+  @media (min-width: 1100px) {
+    .chat-shell {
+      grid-template-columns: minmax(0, 1fr) 280px;
+      column-gap: 1.5rem;
+    }
+
+    /* Drop the rail column entirely and re-center the chat-column at the
+       same width it has on the chat detail page (1fr − 280px rail − 1.5rem
+       gap of a 72rem container ≈ 848px). Avoids the off-center look you'd
+       get from just hiding the rail with its column still reserved. */
+    .chat-shell--empty {
+      grid-template-columns: 1fr;
+      column-gap: 0;
+    }
+
+    .chat-shell--empty .chat-rail {
+      display: none;
+    }
+
+    .chat-shell--empty .chat-column {
+      max-width: 53rem;
+      margin-inline: auto;
+      width: 100%;
+    }
+  }
+
+  .chat-column {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .chat-rail {
+    display: none;
+  }
+
+  @media (min-width: 1100px) {
+    .chat-rail {
+      display: block;
+      position: sticky;
+      top: 0;
+      align-self: start;
+      padding: 1.5rem 1rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 12.5px;
+      color: #cbd5e1;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+  }
+
+  .chat-rail__block + .chat-rail__block {
+    margin-top: 20px;
+  }
+
+  .chat-rail__label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 6px;
+  }
+
+  .chat-rail__repo {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: #cbd5e1;
+  }
+
+  .chat-rail__repo-ref {
+    color: #93c5fd;
+  }
+
+  .chat-rail__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    border: 1px solid transparent;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  .chat-rail__status--idle {
+    background: rgba(52, 211, 153, 0.08);
+    border-color: rgba(52, 211, 153, 0.18);
+    color: #34d399;
+  }
+
+  .chat-rail__status--running {
+    background: rgba(251, 191, 36, 0.08);
+    border-color: rgba(251, 191, 36, 0.18);
+    color: #fbbf24;
+  }
+
+  .chat-rail__status--thinking {
+    background: rgba(167, 139, 250, 0.08);
+    border-color: rgba(167, 139, 250, 0.18);
+    color: #c4b5fd;
+  }
+
+  .chat-rail__status--error {
+    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.18);
+    color: #fca5a5;
+  }
+
+  .chat-rail__status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .chat-rail__file {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    padding: 3px 4px;
+    color: #cbd5e1;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .chat-rail__file-op {
+    flex: 0 0 10px;
+    text-align: center;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .chat-rail__file-path {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-rail__file--added .chat-rail__file-op   { color: #34d399; }
+  .chat-rail__file--deleted .chat-rail__file-op { color: #f87171; }
+  .chat-rail__file--deleted .chat-rail__file-path { color: #94a3b8; text-decoration: line-through; }
+  .chat-rail__file--renamed .chat-rail__file-op { color: #60a5fa; }
+
+  .chat-rail__file:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .chat-rail__file--new {
+    animation: rail-file-in 300ms ease-out both, rail-file-pulse 800ms ease-out 300ms both;
+    border-left: 1px solid transparent;
+  }
+
+  @keyframes rail-file-in {
+    from {
+      opacity: 0;
+      transform: translateX(-6px);
+    }
+  }
+
+  @keyframes rail-file-pulse {
+    0%, 100% {
+      border-left-color: transparent;
+    }
+    40% {
+      border-left-color: #34d399;
+    }
+  }
+
+  /* Transcript */
+
+  .chat-transcript {
+    flex: 1 1 auto;
+    padding: 1.5rem 0 4rem 0;
+  }
+
+  .chat-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 34rem;
+    margin: 10vh auto 0;
+    padding: 2rem 1rem;
+    animation: fade-up 0.6s ease-out both;
+  }
+
+  .chat-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+
+  .chat-hero__eyebrow::before {
+    content: "";
+    width: 20px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #94a3b8);
+  }
+
+  .chat-hero__title {
+    font-family: "Outfit", system-ui, sans-serif;
+    font-size: clamp(28px, 4.5vw, 44px);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    background: linear-gradient(180deg, #fff, #cbd5e1);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .chat-hero__subtitle {
+    font-size: 15px;
+    color: #94a3b8;
+  }
+
+  /* Stack the two subtitle variants in the same grid cell so the container
+     always sizes to the larger one — eliminates the layout jump when the
+     visible text swaps after a repo is picked. Crossfade via opacity. */
+  .chat-hero__subtitle-stack {
+    display: grid;
+  }
+
+  .chat-hero__subtitle-stack > .chat-hero__subtitle {
+    grid-area: 1 / 1;
+    margin: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .chat-hero__subtitle-stack > .chat-hero__subtitle--hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chat-hero__picker {
+    margin-top: 18px;
+  }
+
+  /* New-chat empty state: collapse the transcript so the composer docks right
+     under the hero picker instead of pinning to the viewport bottom. Keeps the
+     pick-repo → type-message flow visually sequential. */
+  .chat-column--empty .chat-transcript {
+    flex: 0 0 auto;
+    padding-bottom: 0;
+  }
+
+  /* Lift the hero (and its repo/branch popovers) above the composer's
+     backdrop-filter stacking context — otherwise the popover that anchors
+     `top-full` from the picker visually slides under the composer below it. */
+  .chat-column--empty .chat-hero {
+    position: relative;
+    z-index: 20;
+  }
+
+  .chat-column--empty .chat-composer {
+    position: relative;
+    bottom: auto;
+    margin-top: 12px;
+  }
+
+  .chat-column--empty .chat-composer::before {
+    display: none;
+  }
+
+  /* Repo chip — shared between the activity form picker and the chat composer.
+     Inside `_repo_picker.html` (interactive, with edit/remove buttons) the chip
+     is rendered inline with its sibling utility classes; the styles here mirror
+     that look so the chat composer can render a static, non-interactive chip
+     with the same appearance using just `.repo-chip` + `.repo-chip__btn`. */
+
+  .repo-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .repo-chip__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+  }
+
+  .repo-chip__btn--branch {
+    color: #93c5fd;
+  }
+
+  /* When the agent has committed to a working branch, lift the branch segment
+     so users see at a glance that it's not the original ref anymore. */
+  .repo-chip__btn--accent {
+    background: rgba(96, 165, 250, 0.12);
+    color: #bfdbfe;
+  }
+
+  .repo-chip__btn--accent .repo-chip__btn--branch {
+    color: #dbeafe;
+  }
+
+  /* MR pill — companion chip rendered after the repo chip when GitMiddleware
+     produced a merge request. Sits in the same row, links to the MR, and
+     carries an optional draft badge so reviewers can spot WIP work. */
+  .repo-chip--mr {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.22);
+    color: #bbf7d0;
+    text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .repo-chip--mr:hover {
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.35);
+    transform: translateY(-1px);
+  }
+
+  .repo-chip__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+    height: 16px;
+    border-radius: 8px;
+    background: rgba(251, 191, 36, 0.18);
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    color: #fde68a;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Turn */
+
+  .chat-turn {
+    padding: 0.5rem 0;
+    animation: fade-up 0.45s ease-out both;
+  }
+
+  .chat-turn__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: 14.5px;
+    color: #e2e8f0;
+    line-height: 1.65;
+  }
+
+  /* Text segments breathe: more above than below, same whether alone in a
+     turn or followed by tool-call segments. */
+  .chat-segment--text {
+    margin-top: 0.5rem;
+    margin-bottom: 0.25rem;
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+
+  /* User turn: no thread line, bubble hugs the right edge */
+  .chat-turn--user .chat-turn__body {
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .chat-turn--user .chat-segment--text {
+    max-width: min(100%, 70ch);
+    padding: 8px 14px;
+    background: rgba(96, 165, 250, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    border-radius: 14px;
+    border-top-right-radius: 6px;
+    color: #dbeafe;
+    text-align: left;
+  }
+
+  .chat-turn--user .chat-text {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl) {
+    margin: 0 0 0.65rem 0;
+  }
+
+  .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl):last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-text p {
+    margin-bottom: 0.85em;
+  }
+
+  /* Heading hierarchy: tight to the content beneath them, breathing above so
+     they bind to their section. Subtle rules under h1/h2 give an editorial
+     scan-line without reading as decoration. */
+  .chat-text :where(h1, h2, h3, h4, h5, h6) {
+    margin: 1.5em 0 0.45em;
+    color: #f1f5f9;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+  }
+
+  .chat-text :where(h1, h2, h3, h4, h5, h6):first-child {
+    margin-top: 0;
+  }
+
+  .chat-text h1 {
+    font-size: 1.4em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    letter-spacing: -0.01em;
+  }
+
+  .chat-text h2 {
+    font-size: 1.22em;
+    padding-bottom: 0.25em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .chat-text h3 {
+    font-size: 1.08em;
+  }
+
+  .chat-text h4 {
+    font-size: 1em;
+    color: #e2e8f0;
+  }
+
+  .chat-text :where(h5, h6) {
+    font-size: 0.85em;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* Lists: bullets/numbers visible in the gutter, muted so the content stays
+     primary. Nested lists tighten so 3-deep agendas don't blow out. */
+  .chat-text :where(ul, ol) {
+    padding-inline-start: 1.5em;
+  }
+
+  .chat-text ul {
+    list-style: disc;
+  }
+
+  .chat-text ol {
+    list-style: decimal;
+  }
+
+  .chat-text li {
+    margin: 0.2em 0;
+  }
+
+  .chat-text li::marker {
+    color: rgba(148, 163, 184, 0.7);
+  }
+
+  .chat-text li > :where(ul, ol) {
+    margin: 0.2em 0 0;
+  }
+
+  .chat-text li > p {
+    margin-bottom: 0.3em;
+  }
+
+  /* Task lists (GFM): drop the disc, align the checkbox flush with text. */
+  .chat-text li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-inline-start: -1.25em;
+  }
+
+  .chat-text li > input[type="checkbox"] {
+    margin-right: 0.5em;
+    accent-color: #60a5fa;
+    transform: translateY(1px);
+  }
+
+  .chat-text blockquote {
+    border-left: 3px solid rgba(96, 165, 250, 0.4);
+    padding: 0.1em 0 0.1em 1em;
+    color: #94a3b8;
+    font-style: italic;
+  }
+
+  .chat-text blockquote > :last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-text hr {
+    border: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.14), transparent);
+    margin: 1.5em 0;
+  }
+
+  .chat-text strong {
+    color: #f1f5f9;
+    font-weight: 600;
+  }
+
+  .chat-text em {
+    color: #e2e8f0;
+  }
+
+  .chat-text mark {
+    background: rgba(251, 191, 36, 0.18);
+    color: #fde68a;
+    padding: 0 3px;
+    border-radius: 3px;
+  }
+
+  .chat-text img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .chat-text pre {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  }
+
+  /* Inline code: tinted chip in the amber accent so it reads as a single token
+     rather than a colour burst against body text. */
+  .chat-text code:not(pre code) {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.16);
+    color: #fcd34d;
+  }
+
+  /* Code chips inside headings should track the heading colour so they don't
+     scream over their neighbours. */
+  .chat-text :where(h1, h2, h3, h4, h5, h6) code:not(pre code) {
+    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+    font-size: 0.92em;
+  }
+
+  .chat-text kbd {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    padding: 1px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .chat-text a {
+    color: #93c5fd;
+    text-decoration: underline;
+    text-decoration-color: rgba(147, 197, 253, 0.3);
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    transition: text-decoration-color 0.15s ease;
+  }
+
+  .chat-text a:hover {
+    text-decoration-color: #93c5fd;
+  }
+
+  .chat-text table {
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    margin-bottom: 0.65rem;
+  }
+
+  .chat-text thead {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .chat-text th,
+  .chat-text td {
+    padding: 7px 12px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .chat-text th {
+    color: #e2e8f0;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .chat-text td {
+    color: #cbd5e1;
+  }
+
+  .chat-text th:last-child,
+  .chat-text td:last-child {
+    border-right: 0;
+  }
+
+  .chat-text tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .chat-text tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  .chat-text tbody tr:hover {
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .chat-text td code,
+  .chat-text th code {
+    font-size: 12px;
+  }
+
+  /* Tool call */
+
+  .chat-tool {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .chat-tool:hover {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .chat-tool[open] {
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .chat-tool--running {
+    border-color: rgba(251, 191, 36, 0.2);
+    background: rgba(251, 191, 36, 0.03);
+  }
+
+  .chat-tool--error {
+    border-color: rgba(248, 113, 113, 0.25);
+    background: rgba(248, 113, 113, 0.03);
+  }
+
+  .chat-tool__summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    list-style: none;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+  }
+
+  .chat-tool__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chat-tool__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    font-size: 10px;
+  }
+
+  .chat-tool--running .chat-tool__icon {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.12);
+  }
+
+  .chat-tool--done .chat-tool__icon {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.1);
+  }
+
+  .chat-tool--error .chat-tool__icon {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12);
+  }
+
+  .chat-tool__spinner {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Publish-phase chip — compact inline status emitted by the diff_to_metadata
+     subagents during commit/MR creation. Sits in the assistant turn body where
+     a regular tool card would, but reads as a single line so a reader scans
+     past it once it's done. */
+  .chat-phase {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(96, 165, 250, 0.08);
+    color: #bfdbfe;
+    font-size: 12.5px;
+    font-weight: 500;
+    width: fit-content;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  }
+
+  .chat-phase--done {
+    border-color: rgba(34, 197, 94, 0.28);
+    background: rgba(34, 197, 94, 0.08);
+    color: #bbf7d0;
+  }
+
+  .chat-phase__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .chat-phase__spinner {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    animation: spin 0.9s linear infinite;
+  }
+
+  .chat-phase__suffix {
+    opacity: 0.7;
+    margin-left: -4px;
+  }
+
+  .chat-tool__name {
+    color: #a5b4fc;
+    font-weight: 500;
+  }
+
+  .chat-tool--error .chat-tool__name {
+    color: #fca5a5;
+  }
+
+  .chat-tool__path {
+    color: #64748b;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-tool__badge {
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    flex-shrink: 0;
+  }
+
+  .chat-tool__badge--success { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+  .chat-tool__badge--danger  { background: rgba(248, 113, 113, 0.1); color: #f87171; }
+  .chat-tool__badge--warn    { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+  .chat-tool__badge--info    { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
+  .chat-tool__badge--violet  { background: rgba(167, 139, 250, 0.12); color: #c4b5fd; }
+  .chat-tool__badge--neutral { background: rgba(255, 255, 255, 0.04); color: #94a3b8; }
+
+  .chat-tool__chev {
+    color: #475569;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .chat-tool[open] .chat-tool__chev {
+    transform: rotate(180deg);
+  }
+
+  .chat-tool__body {
+    padding: 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: fade-up 0.2s ease-out both;
+  }
+
+  .chat-tool__block {
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+    padding-top: 10px;
+  }
+
+  .chat-tool__block-label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 6px;
+  }
+
+  .chat-tool__code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #cbd5e1;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 10px 12px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .chat-bash {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .chat-bash + .chat-bash {
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  }
+
+  .chat-bash__cmd {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    color: #e2e8f0;
+    word-break: break-word;
+  }
+
+  .chat-bash__prompt {
+    color: #a78bfa;
+    margin-right: 6px;
+  }
+
+  .chat-bash__exit--err {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: #f87171;
+    align-self: flex-start;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(248, 113, 113, 0.08);
+  }
+
+  .chat-tool__highlight {
+    animation: tool-highlight 600ms ease-out both;
+  }
+
+  @keyframes tool-highlight {
+    from {
+      box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.6);
+    }
+    to {
+      box-shadow: 0 0 0 0 rgba(167, 139, 250, 0);
+    }
+  }
+
+  /* Thinking ticker */
+
+  .chat-thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    color: #94a3b8;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+  }
+
+  .chat-thinking__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #fbbf24;
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  /* Per-turn reasoning disclosure */
+
+  .chat-thinking-seg {
+    margin: 0.25rem 0;
+  }
+
+  .chat-thinking-seg__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    color: #94a3b8;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+
+  .chat-thinking-seg__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chat-thinking-seg__summary::before {
+    content: "›";
+    display: inline-block;
+    width: 10px;
+    color: #64748b;
+    transition: transform 0.15s ease;
+  }
+
+  .chat-thinking-seg[open] > .chat-thinking-seg__summary::before {
+    transform: rotate(90deg);
+  }
+
+  .chat-thinking-seg__summary:hover {
+    color: #cbd5e1;
+  }
+
+  .chat-thinking-seg__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: #a78bfa;
+    box-shadow: 0 0 8px rgba(167, 139, 250, 0.5);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  .chat-thinking-seg__body {
+    margin: 0.5rem 0 0.75rem 18px;
+    padding-left: 10px;
+    border-left: 2px solid rgba(148, 163, 184, 0.18);
+    color: #94a3b8;
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+
+  /* Composer */
+
+  .chat-composer {
+    position: sticky;
+    bottom: 16px;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(20, 22, 40, 0.85), rgba(12, 14, 30, 0.85));
+    backdrop-filter: blur(14px);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    z-index: 10;
+  }
+
+  /* Soft fade behind scrolled content above the sticky composer. Stops a few
+     pixels short of the composer's top border so it doesn't visually erase
+     the (intentionally faint) 1px top border. */
+  .chat-composer::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 2px);
+    height: 40px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.45));
+  }
+
+  .chat-composer:focus-within {
+    border-color: rgba(167, 139, 250, 0.3);
+    box-shadow:
+      0 0 0 1px rgba(167, 139, 250, 0.14),
+      0 16px 48px -16px rgba(124, 58, 237, 0.35);
+  }
+
+  .chat-composer--sending {
+    opacity: 0.72;
+  }
+
+  .chat-composer__meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .chat-composer__textarea {
+    width: 100%;
+    background: transparent !important;
+    border: none !important;
+    outline: none;
+    resize: none;
+    padding: 4px 2px !important;
+    font-family: "Outfit", system-ui, sans-serif;
+    font-size: 15px;
+    color: #fff;
+    line-height: 1.55;
+    min-height: 2.8rem;
+    max-height: 14rem;
+  }
+
+  .chat-composer__textarea::placeholder {
+    color: #64748b;
+    font-weight: 300;
+  }
+
+  .chat-composer__textarea:focus {
+    box-shadow: none !important;
+    outline: none !important;
+  }
+
+  .chat-composer__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .chat-composer__hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: #64748b;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  .chat-composer__kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 10px;
+    color: #cbd5e1;
+  }
+
+  .chat-composer__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 13.5px;
+    font-family: "Outfit", system-ui, sans-serif;
+    letter-spacing: 0.01em;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+
+  .chat-composer__btn--send {
+    background: linear-gradient(180deg, #fff, #e2e8f0);
+    color: #030712;
+  }
+
+  .chat-composer__btn--send:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: #fff;
+  }
+
+  .chat-composer__btn--send:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .chat-composer__btn--stop {
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    color: #fca5a5;
+  }
+
+  .chat-composer__btn--stop::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: #fca5a5;
+    border-radius: 2px;
+  }
+
+  /* Jump-to-latest pill */
+
+  .chat-jump {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 12px);
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    background: rgba(20, 22, 40, 0.85);
+    border: 1px solid rgba(167, 139, 250, 0.25);
+    border-radius: 999px;
+    color: #c4b5fd;
+    font-size: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    animation: fade-up 0.3s ease-out both;
+  }
+
+  /* Responsive summary strip */
+
+  .chat-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: #94a3b8;
+  }
+
+  @media (min-width: 1100px) {
+    .chat-summary {
+      display: none;
+    }
+  }
+
+  .chat-summary__sep {
+    color: #334155;
+  }
+}

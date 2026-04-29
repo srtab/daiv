@@ -206,7 +206,7 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
 
 async def test_invalid_url_returns_message():
     result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "not-a-url", "prompt": "x"})
-    assert result == "Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
+    assert result == "error: Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
 
 
 async def test_empty_prompt_returns_contents(httpx_mock):
@@ -245,7 +245,7 @@ async def test_rejects_large_content(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 5
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
-    assert "Page content is too large to safely analyze in one pass." in result
+    assert result.startswith("error: Page content is too large to safely analyze in one pass.")
 
 
 async def test_get_auth_headers_exact_domain_match():

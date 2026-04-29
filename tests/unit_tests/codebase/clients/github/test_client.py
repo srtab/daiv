@@ -361,3 +361,44 @@ class TestGitHubClient:
         result = github_client.list_branches("owner/repo", limit=2)
 
         assert result == ["a", "b"]
+
+    def test_get_merge_request_by_branches_returns_first_open_match(self, github_client):
+        """When an open PR exists for the source/target pair, return a serialized MergeRequest."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_pr.number = 7
+        mock_pr.head = Mock(ref="feat-x", sha="abc123")
+        mock_pr.base = Mock(ref="main")
+        mock_pr.title = "feat: add x"
+        mock_pr.body = "details"
+        label = Mock()
+        label.name = "enhancement"
+        mock_pr.labels = [label]
+        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_user = Mock(id=1, login="alice")
+        mock_user.name = "Alice"
+        mock_pr.user = mock_user
+        mock_pr.draft = True
+        mock_repo.get_pulls.return_value = iter([mock_pr])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+
+        assert result is not None
+        assert result.merge_request_id == 7
+        assert result.source_branch == "feat-x"
+        assert result.target_branch == "main"
+        assert result.draft is True
+        assert result.web_url == "https://github.com/o/r/pull/7"
+        assert result.labels == ["enhancement"]
+        mock_repo.get_pulls.assert_called_once_with(state="open", base="main", head="feat-x")
+
+    def test_get_merge_request_by_branches_returns_none_when_empty(self, github_client):
+        """No open PR matching the branch pair → ``None``."""
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+
+        assert result is None

@@ -16,7 +16,7 @@ from langchain_core.tools import tool
 from langgraph.typing import StateT  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager
+from codebase.utils import GitManager, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -46,8 +46,10 @@ Session behavior:
   <bad-example>cd /repos/tests && pytest</bad-example>
 
 Result format:
-- On success, returns a JSON array of result objects (one per command) including at least `command`, `output`, and `exit_code`.
-- You MUST inspect `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
+- On success, returns a JSON object `{"commands": [...], "files_changed": [...]}`.
+  - `commands` is a list of per-command result objects including at least `command`, `output`, and `exit_code`.
+  - `files_changed` is a list of workspace modifications made by these commands (`{"path", "op"}` with op in `modified`/`added`/`deleted`/`renamed`; renames also carry `from_path`). Empty array when nothing changed.
+- You MUST inspect each command's `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
 - On infrastructure failure, the tool may return a plain string starting with `error:` instead of JSON. Treat that as a tool failure, not as a test result.
 
 Intended use:
@@ -112,8 +114,8 @@ Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
 
 Result interpretation:
-- Successful calls return a JSON array of per-command results with fields like `command`, `output`, and `exit_code`.
-- Always check `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
+- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`) and `files_changed` (workspace mutations: path + op).
+- Always check each `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
 Repeated failure policy:
@@ -168,7 +170,10 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
             logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
             return "error: Failed to persist the changes. The bash tool is not working properly."
 
-    return json.dumps([result.model_dump(mode="json") for result in response.results])
+    return json.dumps({
+        "commands": [result.model_dump(mode="json") for result in response.results],
+        "files_changed": files_changed_from_patch(response.patch),
+    })
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
@@ -355,9 +360,8 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, str] | None: The state updates with the sandbox session ID.
         """
         if not self.close_session and "session_id" in state:
-            # If the session is not being closed, don't start a new one, reuse the existing one.
-            # Also, avoid reusing the session_id if it is already set from a previous run that failed to close
-            # the session.
+            # Subagent path: the parent already started a session and owns its
+            # lifecycle. Skip starting a duplicate.
             return None
 
         session_id = await DAIVSandboxClient().start_session(

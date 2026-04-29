@@ -485,6 +485,29 @@ class GitLabClient(RepoClient):
                 return self._serialize_merge_request(repo_id, merge_request)
             raise e
 
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the open merge request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The merge request if one open MR matches, otherwise ``None``.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_requests = project.mergerequests.list(
+            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
+        )
+        merge_request = next(merge_requests, None)
+        if merge_request is None:
+            return None
+        return self._serialize_merge_request(repo_id, merge_request)
+
     def update_merge_request(
         self,
         repo_id: str,

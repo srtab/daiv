@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
-from activity.models import Activity
+from activity.models import Activity, TriggerType
+from automation.titling.tasks import generate_title_task
+
+_PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
 if TYPE_CHECKING:
     from notifications.choices import NotifyOn
@@ -96,6 +99,8 @@ def create_activity(
     external_username: str = "",
     notify_on: NotifyOn | None = None,
     batch_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
+    title: str = "",
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -116,6 +121,8 @@ def create_activity(
         external_username=external_username,
         notify_on=notify_on,
         batch_id=batch_id,
+        thread_id=thread_id,
+        title=title[: Activity._meta.get_field("title").max_length],
     )
 
 
@@ -135,6 +142,8 @@ async def acreate_activity(
     external_username: str = "",
     notify_on: NotifyOn | None = None,
     batch_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
+    title: str = "",
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -152,6 +161,8 @@ async def acreate_activity(
         external_username=external_username,
         notify_on=notify_on,
         batch_id=batch_id,
+        thread_id=thread_id,
+        title=title[: Activity._meta.get_field("title").max_length],
     )
 
 
@@ -175,16 +186,27 @@ async def asubmit_batch_runs(
     _validate(repos)
     batch_id = uuid.uuid4()
 
-    async def _submit_one(target: RepoTarget) -> Activity | BatchSubmitFailure:
+    schedule_run_base = 0
+    if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
+        schedule_run_base = await Activity.objects.filter(scheduled_job=scheduled_job).acount()
+
+    async def _submit_one(idx: int, target: RepoTarget) -> Activity | BatchSubmitFailure:
         ref_for_task = target.ref or None
+        thread_id = str(uuid.uuid4())
         try:
-            task = await run_job_task.aenqueue(repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max)
+            task = await run_job_task.aenqueue(
+                repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max, thread_id=thread_id
+            )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
+        activity_title = ""
+        if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
+            activity_title = f"{scheduled_job.name} · run #{schedule_run_base + idx + 1}"
+
         try:
-            return await acreate_activity(
+            activity = await acreate_activity(
                 trigger_type=trigger_type,
                 task_result_id=task.id,
                 repo_id=target.repo_id,
@@ -196,6 +218,8 @@ async def asubmit_batch_runs(
                 external_username=external_username,
                 notify_on=notify_on,
                 batch_id=batch_id,
+                thread_id=thread_id,
+                title=activity_title,
             )
         except Exception:
             logger.exception(
@@ -205,9 +229,22 @@ async def asubmit_batch_runs(
             )
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 
+        if trigger_type in _PROMPT_DRIVEN and prompt:
+            try:
+                await generate_title_task.aenqueue(
+                    entity_type="activity",
+                    pk=str(activity.pk),
+                    prompt=prompt,
+                    repo_id=target.repo_id,
+                    ref=target.ref or "",
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue title task for activity %s", activity.pk)
+        return activity
+
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(t) for t in repos], return_exceptions=True)
+    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
 
     activities: list[Activity] = []
     failed: list[BatchSubmitFailure] = []

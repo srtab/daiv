@@ -86,7 +86,12 @@ class TestBashTool:
             output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
         assert file_path.read_text() == "new\n"
-        assert output == "[]"
+        import json as _json
+
+        payload = _json.loads(output)
+        assert payload["commands"] == []
+        # The patch just edits hello.txt — nothing added/deleted/renamed.
+        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
         repo_dir = tmp_path / "repoX"

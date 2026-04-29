@@ -377,3 +377,29 @@ class TestGitLabClient:
 
         _, kwargs = mock_project.branches.list.call_args
         assert kwargs["per_page"] == 100
+
+    def test_get_merge_request_by_branches_returns_first_open_match(self, gitlab_client):
+        """When an open MR exists for the source/target pair, return the serialized MR."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_project.mergerequests.list.return_value = iter([mock_mr])
+        gitlab_client.client.projects.get.return_value = mock_project
+        sentinel = Mock(name="serialized")
+        with patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize:
+            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+
+        assert result is sentinel
+        mock_project.mergerequests.list.assert_called_once_with(
+            source_branch="feat-x", target_branch="main", state="opened", iterator=True
+        )
+        serialize.assert_called_once_with("group/repo", mock_mr)
+
+    def test_get_merge_request_by_branches_returns_none_when_empty(self, gitlab_client):
+        """Empty list → ``None`` (not an exception)."""
+        mock_project = Mock()
+        mock_project.mergerequests.list.return_value = iter([])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+
+        assert result is None

@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+import httpx
+from asgiref.sync import sync_to_async
+from github import GithubException
+from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
@@ -11,8 +15,14 @@ from langsmith import get_current_run_tree
 
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
+from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, get_repo_ref
+
+# Platform / transport errors that warrant a soft "no MR" fallback. Bugs
+# (KeyError, AttributeError, etc.) propagate so the run fails loudly rather
+# than producing a duplicate MR downstream.
+_MR_LOOKUP_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (GitlabError, GithubException, httpx.HTTPError)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -59,9 +69,11 @@ class GitState(AgentState):
     State for the git middleware.
     """
 
-    merge_request: Annotated[MergeRequest | None, PrivateStateAttr]
+    merge_request: MergeRequest | None
     """
-    The merge request used to commit the changes.
+    The merge request used to commit the changes. Public on the output schema so
+    it streams in AG-UI ``STATE_SNAPSHOT`` events — the chat UI's MR pill is wired
+    directly to this field instead of a custom post-run event.
     """
 
     code_changes: Annotated[bool, PrivateStateAttr]
@@ -116,6 +128,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
+        elif merge_request is None:
+            # Surface any pre-existing open MR on the current branch so the chat
+            # composer pill reflects reality from the very first turn. Issue-scope
+            # runs always start on the default branch, where this lookup short-circuits.
+            merge_request = await self._alookup_open_mr(runtime.context)
 
         if merge_request and merge_request.source_branch != get_repo_ref(runtime.context.gitrepo):
             git_manager = GitManager(runtime.context.gitrepo)
@@ -125,11 +142,33 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             try:
                 git_manager.checkout(merge_request.source_branch)
             except ValueError as e:
-                # The branch does not exist in the repository, so we need to create it.
+                # Branch from the MR no longer exists locally; treat as no MR
+                # and let the publisher decide whether to recreate it.
                 logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
                 merge_request = None
 
         return {"merge_request": merge_request, "code_changes": False}
+
+    @staticmethod
+    async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
+        """Best-effort lookup of an open MR whose source branch matches the current ref.
+
+        Soft-fails on platform/transport errors so the agent can still run — the
+        publisher will create a fresh MR if needed. Programming bugs propagate.
+        """
+        current_branch = get_repo_ref(context.gitrepo)
+        if not current_branch or current_branch == context.config.default_branch:
+            return None
+        try:
+            client = RepoClient.create_instance()
+            return await sync_to_async(client.get_merge_request_by_branches)(
+                context.repository.slug, current_branch, context.config.default_branch
+            )
+        except _MR_LOOKUP_PLATFORM_ERRORS:
+            logger.exception(
+                "Failed to look up open merge request for %s on %s", context.repository.slug, current_branch
+            )
+            return None
 
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]

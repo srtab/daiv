@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,9 +20,8 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        assert "Test title" in result
-        assert "Test content" in result
-        assert "https://example.com" in result
+        parsed = json.loads(result)
+        assert parsed == [{"title": "Test title", "link": "https://example.com", "content": "Test content"}]
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
 
     @patch("automation.agent.middlewares.web_search.site_settings")
@@ -40,10 +40,14 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        assert "Test tavily answer" in result
-        assert "Test tavily content" in result
-        assert "Test tavily title" in result
-        assert "https://example.com" in result
+        parsed = json.loads(result)
+        # Tavily's synthesized answer is prepended with link="" so the model can tell it apart from citable hits.
+        assert parsed[0] == {"title": "Suggested answer", "link": "", "content": "Test tavily answer"}
+        assert parsed[1] == {
+            "title": "Test tavily title",
+            "link": "https://example.com",
+            "content": "Test tavily content",
+        }
         mock_wrapper.raw_results_async.assert_called_once_with("test query", max_results=5, include_answer=True)
 
     @patch("automation.agent.middlewares.web_search.site_settings")
@@ -58,7 +62,7 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        assert "No relevant results found" in result
+        assert json.loads(result) == []
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
 
     @patch("automation.agent.middlewares.web_search.site_settings")
@@ -73,7 +77,28 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        assert "No relevant results found" in result
+        assert json.loads(result) == []
+
+    @patch("automation.agent.middlewares.web_search.site_settings")
+    @patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper")
+    async def test_special_chars_survive_json_roundtrip(self, mock_wrapper_class, mock_settings):
+        # JSON encoding handles `"`, `&`, etc. natively — guard against future regressions
+        # if anyone reintroduces ad-hoc string formatting.
+        mock_settings.web_search_engine = "duckduckgo"
+        mock_settings.web_search_max_results = 5
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.results.return_value = [
+            {"title": 'Why "X" beats Y & Z', "link": "https://example.com/q?a=1&b=2", "snippet": "body with <tag>"}
+        ]
+        mock_wrapper_class.return_value = mock_wrapper
+
+        result = await web_search_tool.ainvoke({"query": "q"})
+
+        parsed = json.loads(result)
+        assert parsed[0]["title"] == 'Why "X" beats Y & Z'
+        assert parsed[0]["link"] == "https://example.com/q?a=1&b=2"
+        assert parsed[0]["content"] == "body with <tag>"
 
     @patch("automation.agent.middlewares.web_search.site_settings")
     async def test_invalid_search_engine(self, mock_settings):
@@ -102,17 +127,15 @@ class TestWebSearchTool:
 
         result = await web_search_tool.ainvoke({"query": "test query"})
 
-        assert "First title" in result
-        assert "First result" in result
-        assert "https://example.com/first" in result
-        assert "Second title" in result
-        assert "Second result" in result
-        assert "https://example.com/second" in result
-        assert "Third title" in result
-        assert "Third result" in result
-        assert "https://example.com/third" in result
-        assert result.count("<web_search_result") == 3
-        assert result.count("</web_search_result>") == 3
+        parsed = json.loads(result)
+        assert len(parsed) == 3
+        assert [r["title"] for r in parsed] == ["First title", "Second title", "Third title"]
+        assert [r["link"] for r in parsed] == [
+            "https://example.com/first",
+            "https://example.com/second",
+            "https://example.com/third",
+        ]
+        assert [r["content"] for r in parsed] == ["First result", "Second result", "Third result"]
         mock_wrapper.results.assert_called_once_with("test query", max_results=5)
 
 

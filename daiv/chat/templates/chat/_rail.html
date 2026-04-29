@@ -1,0 +1,39 @@
+{% load i18n %}
+<aside class="chat-rail" aria-label="{% trans 'Session context' %}">
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">
+      {% trans "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+    </div>
+    <template x-if="!latestTodos.length">
+      <div style="color: #64748b;">—</div>
+    </template>
+    <template x-for="t in latestTodos" :key="t.content">
+      <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+        <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+        <span x-text="t.content"></span>
+      </div>
+    </template>
+  </div>
+
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">{% trans "Files changed" %}</div>
+    <template x-if="!filesTouched.length">
+      <div style="color: #64748b;">—</div>
+    </template>
+    <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
+      <button type="button" class="chat-rail__file"
+              :class="[{ 'chat-rail__file--new': f.isNew }, `chat-rail__file--${f.op || 'modified'}`]"
+              @click="jumpToTool(f.segmentId)"
+              :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
+        <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>
+        <span class="chat-rail__file-path" x-text="f.path"></span>
+      </button>
+    </template>
+    <button type="button" class="chat-rail__file"
+            style="color: #64748b; padding-top: 6px;"
+            x-show="filesTouched.length > filesTouchedLimit"
+            @click="filesTouchedLimit = filesTouched.length">
+      {% trans "Show all" %} (<span x-text="filesTouched.length"></span>)
+    </button>
+  </div>
+</aside>
