@@ -19,5 +19,15 @@ class MCPSettings(BaseSettings):
         description="The streamable HTTP URL of the Context7 supergateway container",
     )
 
+    DEFERRED_TOOLS_ENABLED: bool = Field(
+        default=False, description="If True, MCP tools are deferred-loaded via tool_search instead of bound eagerly."
+    )
+    DEFERRED_TOOLS_TOP_K_DEFAULT: int = Field(
+        default=5, description="Default number of search results returned by tool_search."
+    )
+    DEFERRED_TOOLS_TOP_K_MAX: int = Field(
+        default=10, description="Maximum number of search results tool_search will return per call."
+    )
+
 
 settings = MCPSettings()
