@@ -22,7 +22,9 @@ from langchain.agents.middleware import (
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
+from automation.agent.mcp.conf import settings as mcp_settings
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.deferred_tools import DeferredMCPToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
@@ -192,6 +194,10 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
+    deferred_index = None
+    if mcp_settings.DEFERRED_TOOLS_ENABLED:
+        deferred_index = await MCPToolkit.aget_deferred_index()
+
     agent_conditional_middlewares = []
 
     if _web_search_enabled:
@@ -202,6 +208,14 @@ async def create_daiv_agent(
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
+    if deferred_index is not None:
+        agent_conditional_middlewares.append(
+            DeferredMCPToolsMiddleware(
+                deferred_index,
+                top_k_default=mcp_settings.DEFERRED_TOOLS_TOP_K_DEFAULT,
+                top_k_max=mcp_settings.DEFERRED_TOOLS_TOP_K_MAX,
+            )
+        )
     if middleware:
         agent_conditional_middlewares += middleware
     if interrupt_on is not None:
@@ -236,9 +250,11 @@ async def create_daiv_agent(
         dynamic_daiv_system_prompt,
     ]
 
+    initial_tools = [] if deferred_index is not None else await MCPToolkit.get_tools()
+
     return create_agent(
         model,
-        tools=await MCPToolkit.get_tools(),
+        tools=initial_tools,
         middleware=agent_middleware,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,
